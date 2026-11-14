@@ -3,6 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,8 +54,8 @@ test.afterAll(async () => {
   removeTree(dir);
 });
 
-async function visitOnce(page) {
-  await page.goto(`${origin}/admin/studio/#/new-job`);
+async function visitOnce(page, at = origin) {
+  await page.goto(`${at}/admin/studio/#/new-job`);
   const name = page.getByRole("textbox", { name: "Your name", exact: true });
   if (await name.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
     await name.fill("writer");
@@ -87,6 +88,86 @@ test("after one visit New job opens with no signal, keeps a job, and sends it wh
   await context.setOffline(false);
   await expect(page.locator("[data-waiting]")).toHaveCount(0, { timeout: 15000 });
   await expect.poll(() => drafts("nosignal").length).toBe(1);
+});
+
+/**
+ * A proxy in front of the test server that can play the next release: its worker script under a new
+ * version, and one of Studio's files that doesn't come. (Playwright can't route a worker's own script.)
+ */
+async function nextReleaseProxy() {
+  const target = new URL(origin);
+  const mode = { version: "", block: "" };
+  const server = http.createServer((request, response) => {
+    if (mode.block && request.url.startsWith(mode.block)) {
+      request.socket.destroy();
+      return;
+    }
+    const upstream = http.request({ host: target.hostname, port: target.port, path: request.url, method: request.method, headers: request.headers }, (reply) => {
+      if (mode.version && request.url.startsWith("/admin/sw.js")) {
+        const chunks = [];
+        reply.on("data", (chunk) => chunks.push(chunk));
+        reply.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8").replace(/"version":"[0-9a-f]{16}"/, `"version":"${mode.version}"`);
+          response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+          response.end(body);
+        });
+        return;
+      }
+      response.writeHead(reply.statusCode, reply.headers);
+      reply.pipe(response);
+    });
+    upstream.on("error", () => response.destroy());
+    request.pipe(upstream);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  return { mode, origin: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((done) => { server.closeAllConnections(); server.close(done); }) };
+}
+
+test("a new release whose install loses one file never takes over: the previous one still opens with no signal", async ({ page, context }) => {
+  const proxy = await nextReleaseProxy();
+  try {
+    await visitOnce(page, proxy.origin);
+    const before = await page.evaluate(async () => (await caches.keys()).filter((name) => name.startsWith("studio-")));
+    expect(before).toHaveLength(1);
+    // The next release: the same files under a new version, and New job's own file doesn't come.
+    proxy.mode.version = "0000000000000002";
+    proxy.mode.block = "/admin/studio/screens/new-job.js";
+    const outcome = await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration("/admin/");
+      const settled = new Promise((resolve) => reg.addEventListener("updatefound", () => {
+        const worker = reg.installing;
+        worker.addEventListener("statechange", () => { if (["redundant", "activated"].includes(worker.state)) resolve(worker.state); });
+      }));
+      await reg.update().catch(() => {});
+      return Promise.race([settled, new Promise((resolve) => setTimeout(() => resolve("no update seen"), 20000))]);
+    });
+    expect(outcome).toBe("redundant");
+    expect(await page.evaluate(async () => (await caches.keys()).filter((name) => name.startsWith("studio-")))).toEqual(before);
+    proxy.mode.version = "";
+    proxy.mode.block = "";
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "New job", level: 2 })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save this job", exact: true })).toBeVisible();
+  } finally {
+    await context.setOffline(false);
+    await proxy.close();
+  }
+});
+
+test("a server that takes 15 s to answer: New job opens from the kept copy in a few seconds", async ({ page, context }) => {
+  await visitOnce(page);
+  // Studio's own files crawl; the API (signed in, meta) answers as usual.
+  await context.route(/\/admin\/studio\//, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 15000));
+    await route.continue().catch(() => {});
+  });
+  const started = Date.now();
+  await page.reload({ waitUntil: "commit" });
+  await expect(page.getByRole("heading", { name: "New job", level: 2 })).toBeVisible({ timeout: 12000 });
+  expect(Date.now() - started).toBeLessThan(12000);
+  await context.unroute(/\/admin\/studio\//);
 });
 
 test("the worker keeps only Studio's own files: never an API reply, never the old Admin", async ({ page }) => {

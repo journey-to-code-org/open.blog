@@ -6,15 +6,24 @@
 // - Only Studio's static files: the list the server put on the first line (`self.STUDIO_RELEASE`,
 //   every file under /admin/studio/), never an /admin/api/ reply, never anything of the session,
 //   never the old Admin's pages.
-// - Network first: with a signal every file comes from the server as before (and the copy is
-//   refreshed); only when the server can't be reached is the kept copy used.
-// - Versioned: a new release is a new worker with a new cache, and the old one is deleted.
+// - Network first, for 3 seconds: a file comes from the server as before (and the copy is
+//   refreshed); when the server can't be reached, or hasn't answered in 3 s (one bar on a roof), the
+//   kept copy opens and the server's answer still refreshes it when it comes. After such a wait the
+//   kept copies open at once for 30 s, until the server answers again.
+// - Versioned and whole: a new release is a new worker with a new cache. Installing it fails unless
+//   every file came, so the old worker and its whole copy stay; the old copy is deleted only once
+//   the new one is complete.
 //
 // A classic script (no imports). studioAddress() and keeps() are copied in
 // parts/notification-rules.js and parts/worker-rules.js, where they are tested; a test keeps the
 // copies the same.
 const RELEASE = self.STUDIO_RELEASE || { version: "dev", files: [] };
 const CACHE = `studio-${RELEASE.version}`;
+const NETWORK_WAIT_MS = 3000;
+const SLOW_MS = 30_000;
+// Until when the server counts as slow: a page loads in waves of files, so once one file had to
+// open from the copy, the next ones do at once for a while instead of each waiting 3 s again.
+let slowUntil = 0;
 
 /** Whether a request is one of Studio's own files the worker keeps: a GET under /admin/studio/ on this origin. */
 function keeps(url, method, origin) {
@@ -39,27 +48,46 @@ self.addEventListener("install", (event) => {
       .catch(() => {}));
   }
   event.waitUntil((async () => {
+    // Only a copy this install started is deleted when it fails (the same release installed again
+    // must never take the copy the worker in charge opens from).
+    const existed = await caches.has(CACHE);
     const cache = await caches.open(CACHE);
-    // A few at a time, so a first visit isn't slowed; one file that doesn't come is fetched again
-    // when it's next asked for, and the rest are kept.
+    // A few at a time, so a first visit isn't slowed. All or nothing: one file that doesn't come
+    // fails the install, the half-made copy is deleted, and the worker in charge keeps its own.
     const files = [...RELEASE.files];
+    let failed = null;
     const next = async () => {
-      for (let file = files.shift(); file; file = files.shift()) {
+      for (let file = files.shift(); file && !failed; file = files.shift()) {
         try {
           const response = await fetch(new Request(file, { cache: "no-cache", credentials: "same-origin" }));
-          if (response.ok && response.type === "basic") await cache.put(file, response);
-        } catch {
-          // Kept the next time it's asked for.
+          if (!response.ok || response.type !== "basic") throw new Error(`${file} answered ${response.status}`);
+          await cache.put(file, response);
+        } catch (error) {
+          failed = failed || error;
         }
       }
     };
     await Promise.all([next(), next(), next(), next()]);
+    if (failed) {
+      if (!existed) await caches.delete(CACHE);
+      throw failed;
+    }
     await self.skipWaiting();
   })());
 });
 
+/** Whether this release's copy holds every one of its files. */
+async function complete() {
+  const cache = await caches.open(CACHE);
+  const kept = new Set((await cache.keys()).map((request) => new URL(request.url).pathname));
+  return RELEASE.files.every((file) => kept.has(file));
+}
+
 self.addEventListener("activate", (event) => event.waitUntil((async () => {
-  for (const name of await caches.keys()) if (name.startsWith("studio-") && name !== CACHE) await caches.delete(name);
+  // The old copy goes only once the new one is whole (it always is after an install that worked).
+  if (await complete()) {
+    for (const name of await caches.keys()) if (name.startsWith("studio-") && name !== CACHE) await caches.delete(name);
+  }
   await self.clients.claim();
 })()));
 
@@ -67,19 +95,29 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (!keeps(request.url, request.method, self.location.origin)) return;
   const key = new URL(request.url).pathname === "/admin/studio/index.html" ? "/admin/studio/" : new URL(request.url).pathname;
-  event.respondWith((async () => {
-    try {
-      const response = await fetch(request);
-      if (response.ok && response.type === "basic") {
-        const copy = response.clone();
-        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(key, copy)).catch(() => {}));
-      }
-      return response;
-    } catch (error) {
-      const kept = await caches.match(key, { cacheName: CACHE });
-      if (kept) return kept;
-      throw error;
+  // The server's answer refreshes the copy whenever it comes, even after the kept one was shown.
+  let saving = null;
+  const started = Date.now();
+  const network = fetch(request).then((response) => {
+    // Only an answer in time means the server is quick again.
+    if (Date.now() - started < NETWORK_WAIT_MS) slowUntil = 0;
+    if (response.ok && response.type === "basic") {
+      const copy = response.clone();
+      saving = caches.open(CACHE).then((cache) => cache.put(key, copy)).catch(() => {});
     }
+    return response;
+  });
+  event.waitUntil(network.then(() => saving, () => {}));
+  event.respondWith((async () => {
+    const kept = (await caches.match(key, { cacheName: CACHE })) || (await caches.match(key));
+    // Nothing kept: wait for the server as long as it takes, as without the worker.
+    if (!kept) return network;
+    if (Date.now() < slowUntil) return kept;
+    const waited = new Promise((resolve) => setTimeout(() => {
+      slowUntil = Date.now() + SLOW_MS;
+      resolve(null);
+    }, NETWORK_WAIT_MS));
+    return (await Promise.race([network.catch(() => null), waited])) || kept;
   })());
 });
 

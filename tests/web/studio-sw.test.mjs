@@ -16,19 +16,25 @@ function fakeCaches(initial = {}) {
   const open = async (name) => {
     if (!stores.has(name)) stores.set(name, new Map());
     const store = stores.get(name);
-    return { put: async (key, response) => { store.set(typeof key === "string" ? key : new URL(key.url).pathname, response); } };
+    return {
+      put: async (key, response) => { store.set(typeof key === "string" ? key : new URL(key.url).pathname, response); },
+      keys: async () => [...store.keys()].map((path) => ({ url: new URL(path, ORIGIN).href })),
+    };
   };
   return {
     stores,
     open,
     keys: async () => [...stores.keys()],
+    has: async (name) => stores.has(name),
     delete: async (name) => stores.delete(name),
-    match: async (key, { cacheName } = {}) => stores.get(cacheName)?.get(key),
+    match: async (key, { cacheName } = {}) => (cacheName ? stores.get(cacheName)?.get(key) : [...stores.values()].find((store) => store.has(key))?.get(key)),
   };
 }
 
-function worker({ windows = [], release, caches = fakeCaches(), fetch = async () => { throw new TypeError("offline"); } } = {}) {
+function worker({ windows = [], release, caches = fakeCaches(), fetch = async () => { throw new TypeError("offline"); }, clock = { now: 1_000_000 } } = {}) {
   const listeners = {};
+  const timers = [];
+  let skipped = 0;
   const shown = [];
   const opened = [];
   const clients = windows.map((url) => ({
@@ -48,13 +54,14 @@ function worker({ windows = [], release, caches = fakeCaches(), fetch = async ()
       matchAll: async (options) => { assert.deepEqual({ ...options }, { type: "window", includeUncontrolled: true }); return clients; },
       openWindow: async (url) => { opened.push(url); return null; },
     },
-    skipWaiting: () => {},
+    skipWaiting: () => { skipped += 1; },
     addEventListener: (type, fn) => { listeners[type] = fn; },
   };
   if (release) self.STUDIO_RELEASE = release;
   const Request = class { constructor(url, init = {}) { this.url = new URL(url, ORIGIN).href; Object.assign(this, init); } };
   const URLPattern = class { constructor(init) { this.pathname = init.pathname; } };
-  vm.runInNewContext(source, { self, URL, String, console, caches, fetch, Request, Promise, URLPattern });
+  const setTimeout = (fn, ms) => timers.push({ fn, ms });
+  vm.runInNewContext(source, { self, URL, String, console, caches, fetch, Request, Promise, URLPattern, setTimeout, Set, Error, Date: { now: () => clock.now } });
   const fire = async (type, event) => {
     let done = Promise.resolve();
     listeners[type]({ ...event, waitUntil: (p) => { done = p; } });
@@ -67,7 +74,7 @@ function worker({ windows = [], release, caches = fakeCaches(), fetch = async ()
     return { answered, settle: async () => { const value = answered ? await answered.catch((e) => e) : null; await Promise.all(waits); return value; } };
   };
   return {
-    shown, opened, clients, listeners, caches, request, fire,
+    shown, opened, clients, listeners, caches, request, fire, timers, skipped: () => skipped,
     push: (notice) => fire("push", { data: notice === undefined ? null : { json: () => (typeof notice === "string" ? JSON.parse(notice) : notice) } }),
     tap: (url) => {
       const notification = { data: { url }, closed: false, close() { this.closed = true; } };
@@ -108,10 +115,91 @@ test("where the browser can, everything but Studio's files goes straight to the 
 });
 
 test("a new release's worker deletes the old copy of Studio, and nothing else", async () => {
-  const caches = fakeCaches({ "studio-old": { "/admin/studio/": response("old") }, "someone-elses": { "/x": response("x") } });
+  const complete = Object.fromEntries(RELEASE.files.map((file) => [file, response(file)]));
+  const caches = fakeCaches({ "studio-old": { "/admin/studio/": response("old") }, "studio-abc123": complete, "someone-elses": { "/x": response("x") } });
   const w = worker({ release: RELEASE, caches });
   await w.fire("activate", {});
-  assert.deepEqual([...caches.stores.keys()].sort(), ["someone-elses"]);
+  assert.deepEqual([...caches.stores.keys()].sort(), ["someone-elses", "studio-abc123"]);
+});
+
+test("installing is all or nothing: one file that doesn't come fails it, and the old release's copy stays", async () => {
+  const old = { "/admin/studio/": response("old page"), "/admin/studio/studio.js": response("old js"), "/admin/studio/screens/new-job.js": response("old new job") };
+  const caches = fakeCaches({ "studio-old": old });
+  const w = worker({
+    release: RELEASE,
+    caches,
+    fetch: async (request) => {
+      if (request.url.endsWith("/screens/new-job.js")) throw new TypeError("Failed to fetch");
+      return response(`new ${request.url}`);
+    },
+  });
+  await assert.rejects(w.fire("install", {}));
+  assert.equal(w.skipped(), 0, "the new worker never takes over");
+  assert.deepEqual([...caches.stores.keys()], ["studio-old"], "the half-made copy is gone, the old one untouched");
+  assert.equal(caches.stores.get("studio-old").get("/admin/studio/screens/new-job.js").body, "old new job");
+
+  // An error page counts as not coming.
+  const bad = worker({ release: RELEASE, caches: fakeCaches(), fetch: async (request) => response("x", "basic", !request.url.endsWith("studio.js")) });
+  await assert.rejects(bad.fire("install", {}));
+  assert.deepEqual([...bad.caches.stores.keys()], []);
+
+  // The same release installed again never deletes the copy the worker in charge opens from.
+  const same = fakeCaches({ "studio-abc123": { "/admin/studio/": response("kept") } });
+  await assert.rejects(worker({ release: RELEASE, caches: same }).fire("install", {}));
+  assert.equal(same.stores.get("studio-abc123").get("/admin/studio/").body, "kept");
+
+  // Activating with a copy that isn't whole deletes nothing.
+  const partial = fakeCaches({ "studio-old": old, "studio-abc123": { "/admin/studio/": response("new") } });
+  await worker({ release: RELEASE, caches: partial }).fire("activate", {});
+  assert.deepEqual([...partial.stores.keys()].sort(), ["studio-abc123", "studio-old"]);
+});
+
+test("a slow server: after 3 s the kept copy opens, and the server's answer still refreshes it", async () => {
+  let answer;
+  const clock = { now: 1_000_000 };
+  const caches = fakeCaches({ "studio-abc123": { "/admin/studio/studio.js": response("kept") } });
+  const w = worker({ release: RELEASE, caches, clock, fetch: () => new Promise((resolve) => { answer = resolve; }) });
+  let answered = null;
+  const waits = [];
+  w.listeners.fetch({ request: { url: `${ORIGIN}/admin/studio/studio.js`, method: "GET" }, respondWith: (p) => { answered = p; }, waitUntil: (p) => waits.push(p) });
+  await new Promise((resolve) => setImmediate(resolve));
+  const timer = w.timers.find((t) => t.ms === 3000);
+  assert.ok(timer, "the network gets 3 seconds");
+  clock.now += 3000;
+  timer.fn();
+  assert.equal((await answered).body, "kept");
+  clock.now += 9000;
+  answer(response("fresh"));
+  await Promise.all(waits);
+  assert.equal(caches.stores.get("studio-abc123").get("/admin/studio/studio.js").body, "fresh");
+
+  // Once the server was that slow, kept copies open at once for a while (a page loads in waves),
+  // and the server's answers still refresh them.
+  let second;
+  w.timers.length = 0;
+  caches.stores.get("studio-abc123").set("/admin/studio/", response("kept page"));
+  const w2fetch = w.listeners.fetch;
+  let answered2 = null;
+  const waits2 = [];
+  answer = null;
+  w2fetch({ request: { url: `${ORIGIN}/admin/studio/`, method: "GET" }, respondWith: (p) => { answered2 = p; }, waitUntil: (p) => waits2.push(p) });
+  second = answered2;
+  assert.equal((await second).body, "kept page");
+  assert.equal(w.timers.length, 0, "no wait at all");
+
+  // With nothing kept, it waits for the server as long as it takes.
+  let late;
+  const empty = worker({ release: RELEASE, fetch: () => new Promise((resolve) => { late = resolve; }) });
+  let first = null;
+  empty.listeners.fetch({ request: { url: `${ORIGIN}/admin/studio/new.js`, method: "GET" }, respondWith: (p) => { first = p; }, waitUntil: () => {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  for (const t of empty.timers) t.fn();
+  late(response("slow but here"));
+  assert.equal((await first).body, "slow but here");
+
+  // A quick answer wins over the kept copy.
+  const quick = worker({ release: RELEASE, caches: fakeCaches({ "studio-abc123": { "/admin/studio/studio.js": response("kept") } }), fetch: async () => response("quick") });
+  assert.equal((await quick.request("/admin/studio/studio.js").settle()).body, "quick");
 });
 
 test("an API reply, the old Admin's pages and anything not a GET pass by untouched and are never kept", async () => {

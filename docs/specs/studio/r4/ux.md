@@ -7,7 +7,7 @@ Owners: **Dana**, a roofer with a phone on a roof with one bar of signal, who wa
 The job, in Dana's words: **"I'm on a roof with a phone. Photos, a few words, and it's on my blog as a draft I finish later."** After R4, nothing about jobs opens the old Admin, and no capture saved by the old Admin is lost.
 
 **Decided (2026-11-13), following the recommendations below:**
-1. **G35 yes:** `/admin/sw.js` caches Studio's own static files (versioned, network-first, never API replies); Studio keeps the last `meta` and user in `localStorage`, so New job opens and keeps jobs with no signal. This narrows R3's "no caching" to "never API replies".
+1. **G35 yes:** `/admin/sw.js` caches Studio's own static files (versioned, installed all or nothing, network-first with a 3 s limit, never API replies); Studio keeps the last `meta` and user in `localStorage`, so New job opens and keeps jobs with no signal. This narrows R3's "no caching" to "never API replies".
 2. **Shrink photos on the phone yes:** before keeping, photos become 2000 px JPEG at quality 0.82 with location dropped (the server's own rule in `photo.rs`); the original is kept when decoding fails.
 3. **Write it up for me moves to Write** (amends ADR 0304; old records with `fields.draft` still send as before).
 
@@ -326,10 +326,10 @@ After Publish, R1's "Share this job" link is unchanged.
 | Voice/write-up | `parts/capture-assistant-rules.js` | `plainNotes`, `appendTranscript`, `normalizeDraft`, `draftBody`, `SECTION_KEYS` |
 | Job fields | `parts/job-rules.js` | `readJobDraft`, `applyJobDraft`, `bodyTakesScaffold`, `localDay`, `dayValue`, `tradeLabel`, `jobBoxes`/`joinJobBoxes` |
 | In progress | new `parts/job-in-progress.js` | store `studio-new-job` v1: `keep`, `get`, `clear` |
-| Offline | `web/studio/sw.js` (G35) | versioned static cache, network-first, never API replies |
+| Offline | `web/studio/sw.js` (G35) | versioned static cache, installed all or nothing (one file that fails fails the install; the old copy is deleted only once the new one is whole), network-first for 3 s then the kept copy (kept copies at once for 30 s after such a wait; the server's answer still refreshes them), never `/admin/api/` |
 
 - **Port:** `admin-capture-queue` → `studio-capture-queue` (+ a fixture record written by the old module, read and sent by Studio); `admin-capture-recorder` → `studio-capture-recorder`; `admin-job-capture` → `studio-new-job-rules`; `admin-capture-assistant` → `studio-capture-assistant-rules`; `admin-job-form` → `studio-job-rules`; browser `capture.spec.mjs` → `studio-new-job.spec.mjs`, `job-mode.spec.mjs` → `studio-write-job.spec.mjs`.
-- **New:** two windows sending one record make one draft; old and new open together lose nothing; `versionchange` closes; an offline save sends on `online`; a background 401 shows Needs you with no dialog; `duplicate`+`removed` → Send it again with a new id; reload mid-job restores; Grammi's site creates no database; the worker never caches an API reply; New job opens offline after one visit.
+- **New:** two windows sending one record make one draft; old and new open together lose nothing; `versionchange` closes; an offline save sends on `online`; a background 401 shows Needs you with no dialog; `duplicate`+`removed` → Send it again with a new id; reload mid-job restores; Grammi's site creates no database; the worker never caches an API reply; New job opens offline after one visit; a release whose install loses a file never takes over (the previous one still opens offline); a server that takes 15 s still opens New job from the kept copy in a few seconds.
 
 ## Accessibility
 
@@ -359,7 +359,7 @@ After Publish, R1's "Share this job" link is unchanged.
 - **G32. `job/check` that matches the build:** `{ok, problems: [{field, code, message}]}` (keep `messages` strings one release), including the known-service check (`model.rs:1077`, `unknown-service`).
 - **G33. `meta.job`:** `services: [{id, title}]`, `siteTrade`, `siteRegion`.
 - **G34. App icon shortcut:** G20's manifest gains `shortcuts: [{name: "New job", url: "/admin/studio/#/new-job", icons}]` when `siteUses.trade`.
-- **G35. Opens with no signal (Decided 1):** worker caches Studio's static files (versioned, network-first, never API replies); last `meta` and user kept in `localStorage`.
+- **G35. Opens with no signal (Decided 1):** worker caches Studio's static files (versioned, all or nothing, network-first with a 3 s limit, never API replies); last `meta` and user kept in `localStorage`.
 - **Not gaps:** idempotent photos/audio/document (ADR 0297); location stripping; mic and camera help; private-mode fallback.
 
 ## Risks to test on real phones before release
