@@ -279,8 +279,20 @@ export async function createAddMenu(ctx) {
       footerStatus.replaceChildren(got.waiting ? say("form.waiting") : say("form.noAnswer"), got.failed ? h("action-button", { variant: "secondary", size: "sm", onClick: () => commit() }, say("form.tryAgain")) : "");
     }
 
-    // Done with nothing changed writes nothing.
+    // Done with nothing changed writes nothing. One at a time: Ctrl/⌘ Enter pressed again while the
+    // server is still answering does nothing, as the button does.
+    let committing = false;
     async function commit() {
+      if (committing) return false;
+      committing = true;
+      try {
+        return await commitOnce();
+      } finally {
+        committing = false;
+      }
+    }
+
+    async function commitOnce() {
       if (changing && !opened.dirty()) { close(); return true; }
       const got = await result();
       if (got.problems) { showProblems(got.problems); return false; }

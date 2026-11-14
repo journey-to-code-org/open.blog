@@ -180,6 +180,23 @@ test("a button the server writes: a wrong email is said beside its field, then i
   await expect.poll(() => fileOf("button")).toContain("```piece button\nlabel: Order a cake\nhref: mailto:orders@example.com\n```");
 });
 
+test("Ctrl+Enter pressed twice on a slow server adds the button once", async ({ page }) => {
+  await openPost(page, "twice", `${front("Twice")}\nWords.\n`);
+  await page.route("**/admin/api/pieces", async (route) => { await new Promise((done) => setTimeout(done, 800)); await route.continue(); });
+  const sheet = await addFromWords(page);
+  await sheet.getByRole("button", { name: "A button", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "Button" });
+  await form.getByRole("textbox", { name: "What it says" }).fill("Order a cake");
+  await form.getByRole("textbox", { name: "Address, email or number" }).fill("https://example.com/order");
+  await page.keyboard.press("Control+Enter");
+  await page.keyboard.press("Control+Enter");
+  await expect(page.getByRole("group", { name: "Button: Order a cake" })).toHaveCount(1);
+  await page.waitForTimeout(1200);
+  await expect(page.getByRole("group", { name: "Button: Order a cake" })).toHaveCount(1);
+  await page.keyboard.press("Control+s");
+  await expect.poll(() => fileOf("twice").split("```piece button").length).toBe(2);
+});
+
 test("questions and answers: the server's coded refusal lands on the right row", async ({ page }) => {
   await openPost(page, "faq", `${front("Faq")}\nWords.\n`);
   const sheet = await addFromWords(page);
