@@ -175,7 +175,7 @@ export function cardAddress(url) {
  * check's problems, `research` the review (or null), `failure` "offline" | "server" | "too-long" |
  * "build" | "research" | "", `checking` while the server hasn't answered.
  */
-export function readyState({ suggestions = [], worth = [], blocks = [], failure = "", checking = false, research = null, device = "phone" } = {}) {
+export function readyState({ suggestions = [], worth = [], blocks = [], failure = "", checking = false, research = null, researchPending = false, device = "phone" } = {}) {
   const researchBlocks = research ? (research.groups || []).find((g) => g.name === "blocking")?.findings?.length || 0 : 0;
   const blockCount = blocks.length + researchBlocks;
   const n = suggestions.length;
@@ -205,7 +205,9 @@ export function readyState({ suggestions = [], worth = [], blocks = [], failure 
   } else {
     words = say("ready.nothing");
   }
-  return { state, words, blocks: blockCount, suggestions: n, worth: worth.length, blocked: blockCount > 0 || failure === "research" };
+  // A research post waits for its research checks (ADR 0123): Publish is held while they run.
+  const waiting = Boolean(researchPending) && !research && !blockCount && failure !== "research";
+  return { state, words, blocks: blockCount, suggestions: n, worth: worth.length, blocked: blockCount > 0 || failure === "research" || waiting, waiting };
 }
 
 /**

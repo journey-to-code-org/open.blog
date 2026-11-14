@@ -113,6 +113,7 @@ export async function createBeforePublish({ api, meta, write }) {
       suggestions: total, worth: engine.worth, blocks, research: view.review,
       failure: researchFailure === "failed" ? "research" : ["offline", "server", "too-long"].includes(failure) ? failure : failure === "not-found" ? "server" : "",
       checking: view.checking && !view.again, device: write.device(),
+      researchPending: Boolean(view.research && view.checking && !view.review),
     });
     return { form, kind, blocks, merged, trip, kit, engine, hints, local, state, failure, researchFailure };
   }
@@ -125,13 +126,13 @@ export async function createBeforePublish({ api, meta, write }) {
     cardName.textContent = name;
     if (!view || view.checking && !view.again && !shown) { paintCard(); paintPrimary(false); return; }
     const g = gather();
-    result = { blocks: g.state.blocks, suggestions: g.state.suggestions, worth: g.state.worth, failure: view.checking ? "" : g.failure === "build" ? "" : g.failure, blocked: g.state.blocked, exactRoute: write.exactWaiting() };
+    result = { blocks: g.state.blocks, suggestions: g.state.suggestions, worth: g.state.worth, failure: view.checking ? "" : g.failure === "build" ? "" : g.failure, blocked: g.state.blocked, waiting: g.state.waiting, exactRoute: write.exactWaiting() };
     status.replaceChildren(view.checking ? h("loading-spinner", { label: say("ready.checking"), inline: true, class: "studio-ready-spinner" }) : "", " ",
       view.checking && view.again ? say("ready.checkingAgain") : g.state.words);
     if (!view.checking && (g.state.state === "partial" || g.researchFailure === "failed")) status.append(" ", h("action-button", { variant: "link", onClick: () => run({ again: true }) }, say("ready.checkAgain")));
     if (!view.checking && g.state.state === "nothing") status.append(h("span", { class: "studio-help studio-ready-nothing", text: ` ${say("ready.nothingHelp")}` }));
     groups.replaceChildren(...[blocksGroup(g), sharedGroup(g), suggestionsGroup(g), videoGroup(g), tripGroup(g), researchGroup(g), worthGroup(g), detailsGroup(g)].filter(Boolean));
-    paintPrimary(g.state.blocked);
+    paintPrimary(g.state.blocked, g.state.waiting);
     paintCard();
   }
 
@@ -277,7 +278,7 @@ export async function createBeforePublish({ api, meta, write }) {
   const sessionOpen = () => { try { return sessionStorage.getItem("studio-ready-details") === "1"; } catch { return false; } };
 
   // ---- the footer and the side card
-  function paintPrimary(blocked) {
+  function paintPrimary(blocked, waiting = false) {
     const verb = write.verb();
     const published = write.state() === "published";
     const unchanged = published && !write.dirty();
@@ -287,6 +288,9 @@ export async function createBeforePublish({ api, meta, write }) {
     if (keep.textContent.trim() !== keepWords) keep.replaceChildren(keepWords);
     if (primary.textContent.trim() !== verb) primary.replaceChildren(verb);
     note.hidden = !blocked;
+    // While a research post's checks run, Publish waits for them and says so (ADR 0123).
+    const noteWords = waiting ? say("review.waiting") : say("ready.blockedNote");
+    if (note.textContent !== noteWords) note.textContent = noteWords;
     innerAria(primary, { "aria-disabled": blocked ? "true" : null, "aria-describedby": blocked ? "studio-ready-note" : null });
   }
 
@@ -304,6 +308,7 @@ export async function createBeforePublish({ api, meta, write }) {
   }
 
   async function go() {
+    if (result.waiting) { toast(say("review.waiting")); return; }
     if (result.blocked) {
       const first = groups.querySelector(".studio-ready-blocker action-button, .studio-review-blocking action-button, .studio-ready-blocks action-button");
       (first?.querySelector("button") || groups.querySelector(".studio-ready-blocks h3, .studio-review-blocking h4"))?.focus?.();

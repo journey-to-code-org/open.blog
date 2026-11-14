@@ -58,7 +58,7 @@ test("a cover with no description is listed once, and an engine finding R6 alrea
 });
 
 test("Worth a look never counts, and the state's words say what stops publishing", () => {
-  assert.deepEqual(readyState({ worth: [1, 2] }), { state: "nothing", words: "Nothing to check.", blocks: 0, suggestions: 0, worth: 2, blocked: false });
+  assert.deepEqual(readyState({ worth: [1, 2] }), { state: "nothing", words: "Nothing to check.", blocks: 0, suggestions: 0, worth: 2, blocked: false, waiting: false });
   assert.equal(readyState({ suggestions: [1] }).words, "1 suggestion. It doesn't stop you publishing.");
   assert.equal(readyState({ suggestions: [1, 2] }).words, "2 suggestions. None of them stop you publishing.");
   const blocked = readyState({ blocks: [1], suggestions: [1, 2] });
@@ -161,4 +161,13 @@ test("no her-layer string in the R7 rules says Studio, Admin or a word she never
     if (!/^(ready|review|youtube|recipe)\./.test(id) || entry.layer !== "her") continue;
     assert.doesNotMatch(entry.text, HER_BANNED, id);
   }
+});
+
+test("a research post's Publish waits while its research checks run, and only then", () => {
+  const running = readyState({ checking: true, researchPending: true });
+  assert.equal(running.blocked, true, "Publish waits");
+  assert.equal(running.waiting, true);
+  assert.equal(running.words, "Checking your post…");
+  assert.equal(readyState({ checking: true }).blocked, false, "any other post's Publish stays on while checks run");
+  assert.equal(readyState({ research: { groups: [] } }).blocked, false, "the checks answered: nothing waits");
 });

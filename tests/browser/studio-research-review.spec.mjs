@@ -147,6 +147,26 @@ test("an advisory finding is marked as checked from the keyboard, stays counted,
   await expect.poll(() => readFileSync(post("cave2.md"), "utf8")).not.toContain("draft: true");
 });
 
+test("while the research checks run, Publish in the sheet waits and says so", async ({ page }) => {
+  await openPost(page, "cave3.md", FIXED);
+  let release;
+  const held = new Promise((done) => { release = done; });
+  await page.route("**/admin/api/research/review", async (route) => { await held; await route.continue(); });
+  await page.getByRole("button", { name: /^Before you publish:/ }).click();
+  await expect(ready(page)).toBeVisible();
+  const go = ready(page).locator("[slot=actions]").getByRole("button", { name: "Publish" });
+  await expect(go).toHaveAttribute("aria-disabled", "true");
+  await expect(ready(page).locator("#studio-ready-note")).toHaveText("Waiting for the research checks.");
+  await go.focus(); // aria-disabled stays focusable and pressable; it publishes nothing
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Waiting for the research checks.").last()).toBeVisible();
+  expect(readFileSync(post("cave3.md"), "utf8"), "nothing goes up while they run").toContain("draft: true");
+  release();
+  await expect(go).not.toHaveAttribute("aria-disabled", "true", { timeout: 15000 });
+  await expect(ready(page).locator("#studio-ready-note")).toBeHidden();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("Show me goes to the line in her words", async ({ page }) => {
   await openPost(page, "cave3.md", POST);
   await publish(page).click();

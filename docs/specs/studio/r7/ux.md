@@ -180,7 +180,7 @@ Groups appear in this order, each only when it has something: **Needs fixing fir
 
 | State | When | Status line | Footer |
 | --- | --- | --- | --- |
-| Checking | server checks out | "Checking your post…" (`loading-spinner` inline); local suggestions already listed; card is a `skeleton-block` | Publish enabled, except research posts ("Waiting for the research checks.") |
+| Checking | server checks out | "Checking your post…" (`loading-spinner` inline); local suggestions already listed; card is a `skeleton-block` | Publish enabled, except research posts: while the research checks run (and each time they run again) Publish is `aria-disabled` with the note "Waiting for the research checks.", and pressing it says so and publishes nothing (`readyState({ researchPending })` → `waiting`) |
 | Nothing to check | all ran, none found | "Nothing to check." Help: "Checks catch some things, not everything." | Publish |
 | Some suggestions | suggestions only | "2 suggestions. None of them stop you publishing." / "1 suggestion. It doesn't stop you publishing." | Publish |
 | Something blocks | any blocker | "1 thing needs fixing before your post can go up." / "2 things need fixing…" + " Also 2 suggestions." when any | Publish `aria-disabled` + note "Fix the things under Needs fixing first. Your words are kept." |
