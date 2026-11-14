@@ -11,6 +11,7 @@ export const WORDS = {
   "add.photoTo": { text: "Put a photo in {box}", layer: "her" },
   "add.putPhoto": { text: "Put a photo in", layer: "her" },
   "add.find": { text: "Find something to add", layer: "her" },
+  "add.cleared": { text: "Cleared.", layer: "her" },
   "add.mostUsed": { text: "Most used", layer: "her" },
   "add.moreThings": { text: "More things", layer: "her" },
   "add.never": { text: "Never mind", layer: "her" },

@@ -151,6 +151,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `add.back` | her | ‹ Everything you can add | none | 48 |
 | `add.button` | her | Add something | none | 40 |
 | `add.buttonTo` | her | Add something to {box} | `{box}` | 44 |
+| `add.cleared` | her | Cleared. | none | 40 |
 | `add.count` | her | {count} things | `{count}` | 40 |
 | `add.countOne` | her | 1 thing | none | 40 |
 | `add.detailsNote` | details | Everything here writes ordinary Markdown into content/posts/{file}. Pieces are checked and written by {product} (POST /admin/api/pieces), so the file holds exactly what the build reads. | `{file}` `{product}` | 240 |

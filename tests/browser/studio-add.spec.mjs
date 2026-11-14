@@ -129,6 +129,22 @@ test("the sheet: two groups, a search with an empty state, details kept open for
   await expect(page.getByRole("dialog", { name: "Add something" }).getByRole("button", { name: "Code", exact: true })).toBeVisible();
 });
 
+test("Escape in Find clears the words there first and says so; with nothing in it, Escape closes", async ({ page }) => {
+  await openPost(page, "escape", `${front("Escape")}\nWords.\n`);
+  const sheet = await addFromWords(page);
+  const find = sheet.getByRole("searchbox", { name: "Find something to add" });
+  await find.fill("table");
+  await expect(sheet.locator("[data-item]")).toHaveCount(1);
+  await find.press("Escape");
+  await expect(sheet).toBeVisible();
+  await expect(find).toHaveValue("");
+  await expect(find).toBeFocused();
+  await expect(sheet.locator("[data-item]").first()).toBeVisible();
+  await expect(sheet.getByText("Cleared.")).toBeAttached();
+  await find.press("Escape");
+  await expect(sheet).toBeHidden();
+});
+
 test("?add=1 opens the sheet and ?add=table its form; Find has Add a table; the address loses the query", async ({ page }) => {
   await openPost(page, "routes", `${front("Routes")}\nWords.\n`, "?add=1");
   await expect(page.getByRole("dialog", { name: "Add something" })).toBeVisible();

@@ -133,6 +133,15 @@ export async function createAddMenu(ctx) {
     const groups = h("div", { class: "studio-add-groups" });
     const finder = h("text-field", { label: say("add.find"), value: filter, type: "search", class: "studio-add-find" });
     finder.addEventListener("valuechange", () => draw(String(finder.value || "")));
+    // Escape clears what she typed in Find (and says so); with nothing there it closes the sheet.
+    finder.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !String(finder.value || "")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      finder.value = "";
+      draw("");
+      count.textContent = say("add.cleared");
+    }, true);
     const waiting = allItems().filter((item) => kept(waitingKey(item.id)));
     const resume = waiting.map((item) => h("action-button", { variant: "secondary", onClick: () => showForm(item.id) }, say("add.finish", { thing: thingName(item.id).toLowerCase() })));
     // Named by the item, described by its words.

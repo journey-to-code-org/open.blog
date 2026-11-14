@@ -106,6 +106,12 @@
         "box"
       ]
     },
+    "add.cleared": {
+      "text": "Cleared.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "add.count": {
       "text": "{count} things",
       "layer": "her",
