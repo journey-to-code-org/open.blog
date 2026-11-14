@@ -2,11 +2,12 @@
 // what's up today (UTC), the next change, how the file is written, and the last build and send-out.
 import { h, toast } from "./dom.js";
 import { toStored } from "./season-windows.js";
+import { say } from "./words.js";
 
 export function seasonDetails(details, { saved, label, lastBuildError, lastPublish }) {
   const row = (name, value) => [h("dt", { text: name }), h("dd", { class: "studio-mono", text: value })];
   details.replaceChildren(
-    h("span", { slot: "heading", text: "For the person who set up your site" }),
+    h("span", { slot: "heading", text: say("common.forHelper") }),
     h("dl", { class: "studio-details" },
       ...row("File", "openblog.json (members theme and seasons)"),
       ...row("Between seasons", saved.theme),

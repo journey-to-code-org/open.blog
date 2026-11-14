@@ -225,7 +225,7 @@ other text after it, or another kind, leaves an ordinary quote that shows the ma
 #### Pieces: buttons, videos, maps and more
 
 Besides call-outs, a post can hold a few ready-made pieces, written as a `piece` fence of `field: value` lines
-(the Admin's **Add something** writes them for you). A value continues on lines indented by two spaces, and a
+(Write's **Add something** writes them for you). A value continues on lines indented by two spaces, and a
 list piece repeats its first field to start each item:
 
 ````markdown
@@ -257,7 +257,7 @@ the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`yo
 
 A `compare` fence pairs two photos, in any post (not only a job). One `key: value` per line; the picture and its
 description are required for each side, and the caption and label are optional (the labels are "Before" and
-"After" unless you change them). Admin's **Add something** writes it for you.
+"After" unless you change them). Write's **Add something** writes it for you.
 
 ````markdown
 ```compare
@@ -362,11 +362,10 @@ A question needs two to four choices and exactly one checked (`[x]`) answer. The
 strikethrough, and inline code, but not links, images, raw HTML, or multiple lines.
 `openblog check` reports an invalid knowledge check instead of publishing it.
 
-In the admin editor, choose **Add knowledge check** to fill in a small form instead of
-writing the fence. You can add up to three questions at once. If the site owner configured
-generation, select some article text (or put the cursor in a section), open the same form,
-and choose **Generate draft**. Generated questions remain editable and are not added to
-the post until you choose **Insert**.
+In Write, choose **Add something › A question for readers** to fill in a small form instead of
+writing the fence: the question, two to four answers with the right one marked, and what to tell
+readers after. You can add up to three questions at once. Generating questions from your words comes
+in a later Studio release (R8); until then the old Admin's **Generate draft** still works.
 
 ### Code blocks
 
@@ -605,9 +604,12 @@ fn saturates() {
 - The build rejects `check` on anything but `rust runnable`, a missing `---checks` line, an empty
   starter, or a `---checks` section with no `#[test]`.
 
-The Admin's **Assistant → Interactions → Create runnable-code proposal** dialog can draft either a
-complete example or this challenge pattern from selected text or the current section. Every field is
-editable, insertion is explicit, and the form also works without an AI provider. These challenges do
+In Studio, **Add something › For the person who set up your site › Code readers can run** writes
+either a complete example or this challenge pattern from a form (title, what to try, the code, and for
+a challenge its expected result and a hint); every field is editable and nothing goes in until **Add
+it**. Drafting one from your words comes in a later Studio release (R8); until then the old Admin's
+**Assistant → Interactions → Create runnable-code proposal** still drafts one, and also works without
+an AI provider. These challenges do
 not add hidden tests or grading: the reader runs the visible source and compares its behavior with the
 authored expected result.
 
@@ -627,6 +629,9 @@ saved under `static/images/uploads/<year>/`.
 
 `draft: true` hides a post everywhere. Preview drafts locally with
 `openblog serve --drafts`, or in the admin editor, where drafts have their own badge.
+
+A post can't be hidden from search engines on its own: there is no per-post `noindex`. A draft
+is how a post stays out of the site, its feeds and the sitemap.
 
 ### Scheduling
 

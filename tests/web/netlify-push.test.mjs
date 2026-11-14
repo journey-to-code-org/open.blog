@@ -7,9 +7,11 @@ import test from "node:test";
 import { createDecipheriv, createECDH, createPublicKey, hkdfSync, randomBytes, randomUUID, verify } from "node:crypto";
 
 import { checkSubscription, encrypt, generateVapidKeys, vapidHeader, vapidKeys } from "../../netlify/lib/web-push.mjs";
-import { deviceHash, pushSettings, tellOwner } from "../../netlify/lib/push-store.mjs";
+import { deviceHash, notice, pageWords, pushSettings, tellOwner } from "../../netlify/lib/push-store.mjs";
 import { createHandler } from "../../netlify/functions/push.mjs";
 import { createHandler as createEngagement } from "../../netlify/functions/engagement.mjs";
+import { createHandler as createQuote } from "../../netlify/functions/quote.mjs";
+import { issueToken } from "../../netlify/lib/quote-intake.mjs";
 
 const ADMIN = "p".repeat(40);
 const NOTIFY = "n".repeat(40);
@@ -170,9 +172,12 @@ test("the owner turns notifications on for a phone, picks what it hears about, t
   assert.deepEqual(changed.body.device.kinds, ["comment", "app"]);
   assert.equal((await call(handler, "POST", `devices/${id}`, { kinds: ["everything"] })).body.error, "invalid-kinds");
 
+  assert.equal(w.devices[0].last_sent_at, null);
   const tested = await call(handler, "POST", "test", { id });
   assert.deepEqual(tested.body, { sent: true });
-  assert.equal(w.pushed[0].notice.title, "Notifications are on");
+  // In her words, naming the phone, opening Studio's Notifications; and it counts as told (G23).
+  assert.deepEqual(w.pushed[0].notice, { title: "Your blog can reach Grammi's iPhone", body: "You'll get one like this when something you picked comes in.", url: "/admin/studio/#/notifications", tag: "test" });
+  assert.ok(w.devices[0].last_sent_at, "a test stamps when it was last told");
   assert.equal(w.pushed[0].headers["content-encoding"], "aes128gcm");
   assert.match(w.pushed[0].headers.authorization, /^vapid t=.+, k=/);
 
@@ -227,9 +232,10 @@ test("a new comment buzzes the phones that asked, forgets phones that are gone, 
   assert.deepEqual(w.pushed.map((p) => p.url).sort(), [phone.subscription.endpoint, oldTablet.subscription.endpoint].sort());
   const told = w.pushed.find((p) => p.url === phone.subscription.endpoint).notice;
   assert.equal(told.title, "Jimmy left a comment");
-  assert.match(told.body, /^On \/stuffing\/: “Made this for Friendsgiving.+…”$/);
+  assert.match(told.body, /^On “Stuffing”: “Made this for Friendsgiving.+…”$/);
+  assert.ok(!told.body.includes("/stuffing/"), "never the raw path");
   assert.ok(told.body.length <= 180);
-  assert.equal(told.url, "/admin/#/moderation");
+  assert.equal(told.url, "/admin/studio/#/comments");
   assert.deepEqual(w.devices.map((d) => d.label).sort(), ["Phone", "Shop"], "the gone tablet is forgotten");
   assert.ok(w.devices.find((d) => d.label === "Phone").last_sent_at);
 });
@@ -248,4 +254,70 @@ test("telling the owner never holds up or breaks the thing that was stored", asy
   assert.equal((await tellOwner({ env: ENV, fetchImpl: async () => { throw new Error("down"); }, kind: "comment", notice: { title: "x" } })).failed, -1);
   assert.equal(await tellOwner({ env: {}, fetchImpl: w.fetchImpl, kind: "comment", notice: { title: "x" } }), null);
   assert.equal(await tellOwner({ env: ENV, fetchImpl: w.fetchImpl, kind: "secrets", notice: { title: "x" } }), null);
+});
+
+test("a post is named the way she says it, never by its path, and a notice with no title still says something", () => {
+  assert.equal(pageWords("/posts/pumpkin-pie/"), "“Pumpkin pie”");
+  assert.equal(pageWords("/stuffing/"), "“Stuffing”");
+  assert.equal(pageWords("/posts/grammis_rolls.html"), "“Grammis rolls”");
+  assert.equal(pageWords("/posts/pie/index.html"), "“Pie”");
+  assert.equal(pageWords("/posts/cr%C3%A8me-br%C3%BBl%C3%A9e/?x=1#top"), "“Crème brûlée”");
+  assert.equal(pageWords("/"), "your front page");
+  assert.equal(pageWords(""), "your front page");
+  assert.equal(pageWords(undefined), "your front page");
+  const plain = notice({ title: "  " });
+  assert.equal(plain.title, "Something new on your blog");
+  assert.equal(plain.url, "/admin/studio/");
+});
+
+test("reader notes and author answers say which post in her words and open Comments", async () => {
+  const w = world();
+  const handler = createHandler({ env: ENV, fetchImpl: w.fetchImpl });
+  const phone = w.phone();
+  await call(handler, "POST", "devices", { subscription: phone.subscription, label: "Phone" });
+  // tellOwner is what every engagement route calls; these are the exact notices they send.
+  const sent = [];
+  const transport = async (_subscription, message) => { sent.push(message); return { ok: true }; };
+  for (const fields of [
+    { title: `A reader wrote about ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/comments" },
+    { title: `An author answered on ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/comments" },
+  ]) await tellOwner({ env: ENV, fetchImpl: w.fetchImpl, kind: "feedback", notice: fields, transport });
+  assert.deepEqual(sent.map((n) => n.title), ["A reader wrote about “Pumpkin pie”.", "An author answered on “Pumpkin pie”."]);
+  // And the engagement function sends exactly those: no old address, no raw path in any notice.
+  const source = (await import("node:fs")).readFileSync(new URL("../../netlify/functions/engagement.mjs", import.meta.url), "utf8");
+  const notices = [...source.matchAll(/tellOwner\(\{[^\n]+\}\);/g)].map((m) => m[0]);
+  assert.equal(notices.length, 5);
+  for (const line of notices) {
+    assert.match(line, /url: "\/admin\/studio\/#\/comments"/, line);
+    assert.doesNotMatch(line, /On \$\{(path|submission\.work|answer\.work)\}/, line);
+  }
+});
+
+test("a quote request buzzes the phones that asked, in her words, and opens Requests", async () => {
+  const w = world();
+  const handler = createHandler({ env: ENV, fetchImpl: w.fetchImpl });
+  const phone = w.phone();
+  await call(handler, "POST", "devices", { subscription: phone.subscription, label: "Shop phone", kinds: ["quote"] });
+  const SECRET = "q".repeat(40);
+  const now = 1_800_000_000_000;
+  const quote = createQuote({
+    env: { ...ENV, OPENBLOG_QUOTE_ENABLED: "true", OPENBLOG_SITE_ORIGIN: "https://acme.example", OPENBLOG_QUOTE_SECRET: SECRET, OPENBLOG_QUOTE_ADMIN_KEY: "a".repeat(40) },
+    fetchImpl: async (url, init = {}) => {
+      if (url.includes("openblog_push_devices") || !url.includes("proj.supabase.co")) return w.fetchImpl(url, init);
+      if (new URL(url).searchParams.get("select") === "id") return new Response("[]", { status: 206, headers: { "content-range": "0-0/0" } });
+      return new Response(init.method === "POST" ? "" : "[]", { status: init.method === "POST" ? 201 : 200, headers: { "content-type": "application/json" } });
+    },
+    now: () => now,
+    uuid: () => "00000000-0000-4000-8000-000000000001",
+    sleep: async () => {},
+  });
+  const fields = { name: "Pat Smith", phone: "+1 360 555 0142", town: "Bend, OR", service: "Fencing", description: "Replace forty feet of cedar fence.", email: "pat@example.com", token: issueToken(SECRET, now - 10000) };
+  const body = Object.entries(fields).map(([k, v]) => `--b\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`).join("") + "--b--\r\n";
+  const response = await quote({ httpMethod: "POST", path: "/api/quote/submit", headers: { "content-type": "multipart/form-data; boundary=b", accept: "application/json" }, body });
+  assert.equal(response.statusCode, 201);
+  assert.equal(w.pushed.length, 1);
+  const told = w.pushed[0].notice;
+  assert.equal(told.url, "/admin/studio/#/quotes");
+  assert.equal(told.body, "Pat Smith · Fencing · Bend, OR");
+  for (const secret of ["555", "pat@example.com", "cedar"]) assert.ok(!JSON.stringify(told).includes(secret), secret);
 });

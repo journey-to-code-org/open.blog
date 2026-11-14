@@ -446,42 +446,70 @@ id; a prompt id the bundled catalog already uses is rejected. Write prompts the 
 at least three so a draw has something to choose from. `openblog voice --list` shows your packs and a warning
 for any section that could not be read.
 
-### Write visually or in Markdown
+### Your words, with cards in place
 
-The Write view defaults to **Visual**, which behaves like a word processor while keeping
-Markdown as the saved file format. Switch to **Markdown** whenever you want to inspect or
-edit the underlying text. The browser remembers the last mode selected on that device.
+In Studio's Write, her words are plain boxes she types in. Anything in a post that isn't plain
+words shows as a **card** in place: a photo (with the words under it), a tip or a note, a checklist,
+a table, a video, before and after photos, questions and answers, a question for readers, a button,
+links to other pages, a map, opening hours, how to reach you, code, a footnote. A card shows a short
+sketch of what it holds and never its Markdown. Each card has **Change** (the form for that kind,
+filled in) and **Move** (**Move up**, **Move down**, **Take it out**); Alt+↑ and Alt+↓ move a focused
+card, and ↓ on a box's last line (↑ on its first) goes to the card next to it. Every add, change, move
+and take-out says what happened under the box, with **Undo**, which reverses only that action: words
+typed since stay. When what it changed was edited since (or the words around a taken-out card are
+gone), Undo says "This changed since, so it can't be undone here." and changes nothing. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
+step rows never do.
 
-Visual mode directly edits paragraphs, Heading 2–6, emphasis, links, quotes, simple lists,
-images, and code. Advanced constructs such as callouts, knowledge checks, embeds, task or
-nested lists, tables, footnotes, and raw HTML appear as protected blocks. Move or remove a
-protected block visually, or choose **Edit in Markdown** to change its exact source. This
-boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
-represent safely.
+Nothing about a card is rewritten unless you change it: a post opened and saved with no change keeps
+every byte. **Done** with nothing changed writes nothing. A card the form couldn't write back exactly
+(a hand-written piece with a field the form doesn't know, raw HTML, a lesson demo, a quote request
+form, indented code) has no **Change**; it can still be moved and taken out, and its source is in its
+details. A code fence that never ends leaves the rest of that box shown as written, so nothing in it
+moves; the details say on which line it starts.
 
-Callouts, tables, flat task lists, embedded videos and pens, and pieces also have an **Edit**
-button that opens a form inside the block: a callout's kind and text, a table's rows and columns,
-a task list's items and checkboxes, an embed's provider and address, or a piece's details. Apply
-writes the same Markdown the block uses today; Cancel (or Escape) leaves it untouched, and a block
-you do not edit is saved byte for byte. A block the form could not write back exactly stays
-protected.
+**Show the words as written** (in Add something's details, or in Find) turns every box into one plain
+box with the Markdown exactly as it's saved, for this post and this visit. It replaces the old Admin's
+Markdown mode; the old Admin's Visual and Markdown modes stay until it is retired (R15).
+
+Pasting from a web page, a document or an email keeps headings, bold, italic, links and lists and
+leaves fonts and colours out, in every box; a photo in the paste with no description is left out and
+said so. A pasted or dropped photo file opens **Put a photo in** at the describe step. Ctrl/⌘ B and I
+make the selected words bold or slanted.
+
+**Suggestions** under the words list gentle checks once you stop typing: a photo with no description,
+a link with no words or that says "click here", an http:// address, a heading that skips a level, all
+capitals, a very long paragraph. **Show me** goes to the place (or opens the card); **Fix it**, where it
+is safe, changes only that place, with Undo. Suggestions never stop a save. An HTML tag is noted only in
+the details for the person who set up the site.
 
 ### Add something
 
-Choose **Add something** in the Write toolbar (in Visual or Markdown mode) to add a button, image
-with caption, video, map, opening hours, contact details, social links, questions and answers, or
-a call-out at the caret. Pick what you want, fill in the labelled fields, and choose **Insert**:
-the details are checked by the same rules as the build, a problem is explained next to the form
-and nothing is inserted until it is fixed. In Visual mode the piece appears as an editable block;
-in Markdown mode its text is written at the caret. Ctrl+Z or **Undo piece** takes it back out.
-There is no option to write your own HTML. See [Pieces](content.md#pieces-buttons-videos-maps-and-more).
+**Add something** sits beside every **Put a photo in**. It opens a sheet that first says where the thing
+goes ("It goes in Your story, after “My mother made this every…”."), then lists what you can put in,
+in two groups, with a search. Typing `/` alone on an empty line in any box opens it with the search
+ready (a line like "1/2 cup" never does). It also opens from Write's **More** ("Add something…"), from
+Find ("Add a table", "Add a video"...), and from an address ending `?add=1` (the list) or `?add=<kind>`
+(that form, for example `?add=table`).
 
-**Before and after** is in the same list. It asks for two pictures and a description of each (required, for
-people who cannot see them), and optionally a caption and a label for each side. For each picture you can type
-an address or choose a file; a chosen file is uploaded the same way as any image and its address is filled in.
-**Insert** checks the pair with the build's rules and says what is missing inside the dialog, for example that the
-after picture needs a description. In Visual mode the pair is an editable block (**Edit before and after**); in
-Markdown mode the `compare` fence is written at the caret. See [Before and after](content.md#before-and-after).
+Each thing has a short form with a live **How it looks**, **See it in your post** (the preview with it
+included; nothing is added yet) and **Add it** (Ctrl/⌘ Enter). A problem is said beside its field and
+focus goes there. Tips, checklists, tables, headings, quotes, links, questions for readers and code are
+written by Studio and work with no signal. Pieces (a video, a button, links to other pages, questions and
+answers, a map, opening hours, how to reach you, a photo with words under it) and before and after photos
+are checked and written by the server (`POST /admin/api/pieces`), so the file holds exactly what the build
+reads; with no signal the form keeps what you filled in on this device and **Finish adding the video**
+appears at the top of the sheet the next time. Closing a filled-in form asks once ("Add this table?").
+
+With the caret in a link, a heading or a quote, Add something opens **Change this link** (heading, quote)
+filled in; a link also offers **Take the link off**. On a research post, **Abstract** and **References**
+add their headings (the Abstract at the start, References at the end) unless the post already has them.
+
+The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
+line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
+CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
+you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
+**What it writes**. There is no option to write your own HTML. See
+[Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
 
 ### Cite a source while writing
 
@@ -773,33 +801,59 @@ site author. A malformed sidecar does not hide the Markdown document: Admin repo
 credit error and keeps a separate revision token so a credits-aware client can safely repair
 or remove it. Editing the JSON files by hand remains supported.
 
-### Credit contributors and roles
+### About this post, and who wrote it
 
-For posts, open **Settings → Contributors** to choose between inheriting the site author
-and an explicit ordered credit list. Add people from the contributor registry, arrange the
-public byline order with the arrow buttons, and choose publishing roles or CRediT taxonomy
-roles for each person. Every selected person needs at least one role. An explicit list with
-no people intentionally suppresses inherited authorship; the editor labels this state so it
-cannot be confused with inheritance.
+In Studio every setting of a post is in Write's **About this post** (the button at the end of
+the side column, More, `?sheet=about`, or Find: "About this post", "Summary for search and
+sharing", "Who wrote it", "More about this recipe", "Details for the person who set up your
+site"). The old Settings pane (`#/edit/<post>?pane=settings`) opens it. It has no Save of its
+own: a draft saves itself, and a published post keeps the changes on that device until
+**Update**, with Write saying "Changed · not on your site yet".
 
-The people available in the picker come from the site contributor registry. Open
-**Site → Contributors** to add or update a public name, stable ID, profile URL, same-as
-profiles, and optional ORCID iD. Existing IDs cannot be renamed in Admin because post
-sidecars refer to them; a contributor cannot be removed while any sidecar still uses that
-ID. If the registry is empty, **Prefill legacy author** copies the existing site author into
-an unsaved draft for review—it does not change configuration or post credits until you save.
+- **What kind of post**: a story, a recipe, a job on a trade site, and the post's own kind
+  (video, trip outdoors, research). Changing it keeps the words; a story turned recipe offers
+  **Add the recipe parts**, and **Undo** sits under the choice until the sheet closes. A
+  legacy `recipe: true` post shows as a recipe and writes `profile` only when changed.
+- **This recipe / This video / This trip outdoors**: only the post's own kind's fields
+  (`course`, `cuisine`, `yield`, `totalTime`, `calories`, `adaptedFrom`; the video and field
+  journal fields). Serves and the two times stay under the title. A job's `job.*` stay in
+  About this job, never in the sheet.
+- **On the page**: the line under the title (`subtitle`; an old `subheading` or `dek` goes
+  when it changes), the part in its collection (`seriesOrder`), and comments for this post.
+- **In search and when shared**: the summary (`description`, or whichever of `summary`,
+  `brief`, `excerpt` the post already uses), a rough card of how a shared link looks, and
+  Pin words when the site sends Pins.
+- **Who wrote it**: the names in order. **Change who wrote it** picks people from People,
+  moves them, removes them, or **Just me** (no credit file). The list is sent only when it
+  changed, always with its `creditEtag`; a save of the title never touches the credit file,
+  and a credit file that can't be read never stops the rest of the post saving.
+- **Details for the person who set up your site**: the address (`slug`), editable only while
+  the post was never on the site (the server's `wasPublished`, from the file's history in
+  Git; without history it counts as published), old addresses, first published elsewhere
+  (`canonical`), the theme, a picture by web address, every kind, the technical video and
+  research fields, each person's roles, "Name no one on this post", repairing a broken credit
+  file, the keys Studio doesn't edit ("Also in this post", kept exactly as written), and the
+  file's facts. There is no rename: a post's file never moves.
 
-Registry saves use their own `openblog.json` revision token. If configuration changed on
-disk after the workspace opened, Admin refuses the stale save and asks you to reload. It
-updates only the `contributors` member of the parsed JSON object, preserving unrelated and
-future configuration members, validates the complete candidate with the publishing engine,
-then rebuilds the preview. ORCID iDs entered here are manual and unauthenticated: format and
-checksum validation does not verify the person or ownership of the record.
+Every value is written under the name the post already uses, only when it changed, and a
+summary-only change rewrites one line of the file.
 
-If a sidecar is malformed, Settings shows the error without hiding
-the Markdown and requires an explicit repair choice: inherit to remove the broken sidecar,
-or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
-warnings, production preview, conflict detection, and the normal save validation.
+**People** (`#/people`; the old `#/contributors` opens it) lists the blog's own name and
+everyone who can be named on a post. Add someone with a name and a website; their id comes
+from the name and never changes; other pages and an ORCID iD are under its details. A person
+named on posts, in a shared reflection or in research notes can't be removed, and People says
+which posts. A removal can be undone. **Add someone who isn't listed** on a post comes back to
+it with the new person on its list. Saves use the `openblog.json` revision token and change
+only `contributors`. ORCID iDs are checked for their check digit but not verified.
+
+### Copy it for another blog
+
+Write › More › **Copy it for another blog** shows the post as it will go to Medium, Ghost,
+Hashnode, DEV, WordPress, a web page or plain words, made from what's on the screen (saved or
+not), with **Copy** and **Download**. The differences there are listed in plain words with
+**Go to it**; the engine's findings, the destination's policy, the tag plan and **Mark as
+checked** (portability acknowledgements, per version) are under its details. Nothing there
+saves the post.
 
 ### Curate a reading path
 
@@ -1122,14 +1176,20 @@ A post's status is one of:
 - **Published**: the date is now or in the past.
 - **Scheduled**: the date is in the future.
 
-Pick *Scheduled* and a date and time (your local time; it is stored as UTC) and save. The
-post is held back from the pages, feeds, sitemap, search index, tags, series, and the
-latest-posts JSON. The server checks every few seconds and rebuilds at the moment the post
-comes due, so it appears by itself.
+In Studio, pick a day under **When it appears** (and a time, in your own time zone; a future
+day with no time gets 8:00 AM, shown in the time field) and press **Schedule**. The help says
+when it really goes up: "by itself" only when the server keeps that promise (`meta.schedule`
+is `self`: this server is the site, or it sends the built pages out after the scheduled
+rebuild), otherwise "the next time your blog is sent out after that" (`next-send`, the live
+site is built elsewhere). Scheduled posts are held back from the pages, feeds, sitemap, search
+index, tags, series and the latest-posts JSON. The server checks every few seconds and
+rebuilds when one comes due; with `publish.auto` it then sends the site out too
+(`Publish scheduled post <title>`). **Make it a draft again** unschedules it, keeping the day.
+Moving a published post to a later day asks first, because it comes off the site until then.
 
 This works in plain files too: any post with a future `date:` stays hidden until a build
 runs after that time. So a scheduled post also goes live on a static host if something runs
-`openblog build` periodically, such as a cron job or a scheduled GitHub Action.
+`openblog build` periodically: see [Scheduled builds](deploy.md#scheduled-builds).
 
 ```yaml
 date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00
@@ -1265,11 +1325,11 @@ upstream service still determines exact schema support.
 
 ### Transcribing a voice note
 
-The Capture view can turn a recorded voice note into words, only when you ask and only after it shows what is
-sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
+Studio's **New job** (with a signal) and a job's page in **Write** can turn a recorded voice note into words, only
+when you ask and only after they say what is sent and where ([ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)).
 Only the recording is sent: no notes, photos, title or voice guide. Two providers take audio: OpenAI
 (transcribed with `gpt-4o-mini-transcribe`) and Google Gemini (your configured model). Any other provider is
-never sent audio, and Capture says to type your notes instead.
+never sent audio, and **Turn it into words** isn't offered.
 
 To keep audio on your own machine, set `OPENBLOG_TRANSCRIBE_COMMAND` in the server's environment to a JSON array:
 the program and its fixed arguments. Admin appends the voice note's file path and reads the transcript from the
@@ -1282,7 +1342,7 @@ export OPENBLOG_TRANSCRIBE_COMMAND='["whisper-cli", "--model", "/models/base.bin
 It runs without a shell, with a stripped environment (your API keys are not passed), no input, a time limit and a
 bounded output. It is an environment setting, not part of `openblog.json`, so shared site files cannot name a
 program to run. When it is set it is used instead of a provider. The transcript is kept privately beside the
-note (`.openblog/captures/`) and is untrusted text: it goes into the Notes box, made plain, for you to edit.
+note (`.openblog/captures/`) and is untrusted text: it goes under the words you typed (or under **Problem** in Write), made plain, for you to edit.
 
 ```sh
 export ANTHROPIC_API_KEY="your Anthropic key"

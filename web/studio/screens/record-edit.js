@@ -1,5 +1,5 @@
-// A service or a customer review: its fields drawn by field-form, its rules the old Admin's model
-// (/admin/services.js, /admin/proof.js), so a record can never pass here and fail there. One Save
+// A service or a customer review: its fields drawn by field-form, its rules Studio's own
+// (parts/services-rules.js, parts/proof-rules.js), so a record can never pass here and fail there. One Save
 // puts it on the site; More keeps it off the site, deletes it (with Undo) or shows details. A new
 // review can be copied in from its link. Strangers' words are only ever field values or text.
 // Studio slice 10a; docs/specs/studio/slice-10a/ux.md.
@@ -57,7 +57,7 @@ const LABELS = { name: "Name", summary: "In one sentence", includes: "What's inc
 export async function createRecordEdit(context, k, arg) {
   const { api, meta } = context;
   await use("text-field", "select-field", "date-field", "toggle-switch", "action-button", "dropdown-menu", "breadcrumb-trail", "alert-banner", "side-sheet");
-  const M = await import(k.model);
+  const M = k.model;
   const S = shape(k, M);
   let path = arg && arg !== "new" ? arg : "";
   let form = k.kind === "services" ? M.blankService() : M.blankReview();
@@ -105,7 +105,6 @@ export async function createRecordEdit(context, k, arg) {
     more.items = [
       ...(path ? [{ value: "draft", label: f.draft ? "Put it on your site" : "Keep it off your site for now" }, { value: "delete", label: `Delete this ${k.one}` }] : []),
       { value: "details", label: "Show details" },
-      ...(path ? [{ value: "old", label: "Open in the old Admin" }] : []),
     ];
     if (k.kind === "proof") {
       provenance.textContent = f.provenance === "snapshot"
@@ -253,7 +252,6 @@ export async function createRecordEdit(context, k, arg) {
           h("dt", { text: "Other settings kept" }), h("dd", { class: "studio-mono", text: Object.keys(f.extra || {}).join(", ") || "None" })));
       details.open = true;
     }
-    if (value === "old") open(`/admin/#/${k.list}`, "_blank", "noopener");
     if (value === "delete") {
       const done = await context.undo.deletePost({ path, etag, title: label(), state: "published", ask, list: k.many, one: k.one,
         note: [k.kind === "services" ? "Jobs that name it keep their words." : "If a job shows it, that job will need another review.", isDirty() ? "Changes you haven't saved go with it." : ""].filter(Boolean).join(" ") });

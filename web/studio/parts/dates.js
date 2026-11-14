@@ -183,3 +183,69 @@ export function isFuture(value, now = new Date(), timeZone) {
   const ms = parsed.dateOnly ? wallToMs(parsed.y, parsed.m, parsed.d, 0, 0, timeZone) : parsed.ms;
   return ms > now.getTime();
 }
+
+/**
+ * When the blog's server counts a value as reached. The engine has no time zone, so a plain date
+ * is the start of that day in world time (UTC), the evening before in the Americas; anything else
+ * is its own instant. `null` for an empty or unreadable value.
+ * @param {string|Date} value
+ * @returns {Date|null}
+ */
+export function serverInstant(value) {
+  const parsed = parse(value);
+  if (!parsed) return null;
+  return new Date(parsed.dateOnly ? Date.UTC(parsed.y, parsed.m - 1, parsed.d) : parsed.ms);
+}
+
+/** Whether a value is a plain date, with no time of day. */
+export const isDayOnly = (value) => DATE_ONLY.test(String(value ?? "").trim());
+
+/**
+ * Whether the server hasn't reached a value yet (a post with it is still scheduled there).
+ * @param {string|Date} value
+ * @param {Date} [now]
+ */
+export function isFutureOnServer(value, now = new Date()) {
+  const at = serverInstant(value);
+  return Boolean(at) && at.getTime() > now.getTime();
+}
+
+/**
+ * A short day for a badge: "Nov 27", or "Nov 27, 2027" in another year. "" when unreadable.
+ * @param {string|Date} iso
+ * @param {{ now?: Date, timeZone?: string }} [options]
+ */
+export function sayShortDay(iso, { now = new Date(), timeZone } = {}) {
+  const parsed = parse(iso);
+  if (!parsed) return "";
+  const { y, m, d } = calendarDay(parsed, timeZone);
+  const words = `${MONTHS[m - 1].slice(0, 3)} ${d}`;
+  return y === wallParts(now.getTime(), timeZone).year ? words : `${words}, ${y}`;
+}
+
+/**
+ * The time of day alone: "3:35 PM", "8 AM". "" for an empty, unreadable or date-only value.
+ * @param {string|Date} iso
+ * @param {{ timeZone?: string }} [options]
+ */
+export function sayClock(iso, { timeZone } = {}) {
+  const parsed = parse(iso);
+  if (!parsed || parsed.dateOnly) return "";
+  const { hour, minute } = calendarDay(parsed, timeZone);
+  return clockWords(hour, minute);
+}
+
+/**
+ * The time a day she picks gets when she leaves the time empty: 8:00 AM her time for a future day
+ * (a post scheduled for Thanksgiving goes up that morning, not at midnight UTC the evening
+ * before), else what she has. Studio R5, Decided 1.
+ * @param {string} date "YYYY-MM-DD" from the date field
+ * @param {string} time "HH:MM" from the time field ("" when empty)
+ * @param {Date} [now]
+ * @param {string} [timeZone]
+ */
+export function defaultTime(date, time, now = new Date(), timeZone) {
+  if (String(time || "").trim() || !DATE_ONLY.test(String(date || "").trim())) return String(time || "");
+  const [y, m, d] = String(date).trim().split("-").map(Number);
+  return wallToMs(y, m, d, 8, 0, timeZone) > now.getTime() ? "08:00" : "";
+}

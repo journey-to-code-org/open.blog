@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio slice 8: Comments. The hosted inbox is mocked at the Admin API (as moderation-inbox.spec
 // does); the settings switch is the real Admin. Comments shows in the navigation only when it's set
 // up; a waiting comment is shown with one press; saying no asks why and can be undone; a report is

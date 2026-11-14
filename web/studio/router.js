@@ -20,6 +20,56 @@ export function parseRoute(hash) {
   return { name: name || "home", arg, query };
 }
 
+// The old Admin's addresses (bookmarks, links in notifications and invitations), and the Studio
+// screen each now opens. A route Studio doesn't have yet opens "not-yet" with the old name, never a
+// blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
+const OLD_RENAMED = {
+  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
+  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing/accounts",
+  announcements: "sharing", greetings: "cards",
+};
+const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
+const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
+
+/**
+ * The Studio address for an old Admin address, or null when it is already Studio's own.
+ * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/research" → "#/not-yet/research".
+ */
+export function legacyRoute(hash) {
+  const raw = String(hash || "").replace(/^#\/?/, "");
+  const [path, search = ""] = raw.split("?");
+  const [name, ...rest] = path.split("/");
+  const tail = search ? `?${search}` : "";
+  if (name === "edit" && rest.length) {
+    let file = rest.join("/");
+    try { file = decodeURIComponent(file); } catch { /* as typed */ }
+    const screen = OLD_FOLDERS[file.split("/")[0]] || "write";
+    // R5: a post's old Settings pane is its About this post sheet; other panes open the post.
+    const sheet = screen === "write" && new URLSearchParams(search).get("pane") === "settings" ? "?sheet=about" : "";
+    return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
+  }
+  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  // The old inbox named the server's states; Studio's Comments names its own views.
+  if ((name === "moderation" || name === "feedback") && rest.length) {
+    const view = { pending: "", approved: "shown", rejected: "not-shown", removed: "taken-down" }[rest[0]] ?? "";
+    return `#/comments${view ? `/${view}` : ""}${tail}`;
+  }
+  // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
+  if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
+  // R2: the old accounts page, whatever was after it, is Your accounts.
+  if (name === "social") return `#/${OLD_RENAMED.social}`;
+  // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
+  if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
+  if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
+  // R5: Contributors is People.
+  if (name === "contributors") return `#/people${tail}`;
+  // R4: Capture is New job, whatever came after it.
+  if (name === "capture") return `#/new-job${tail}`;
+  if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
+  if (NOT_YET.has(name)) return `#/not-yet/${name}`;
+  return null;
+}
+
 /** The address for a route; empty query values are left out. */
 export function routeHash(name, arg = "", query = {}) {
   const search = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== "" && value != null)).toString();
@@ -36,6 +86,12 @@ export function createRouter({ screens, onShow }) {
   // (Back, a link) isn't mistaken for "no change"; only the newest screen to finish is shown.
   let showing = 0;
   async function show(hash) {
+    // An old Admin address opens its Studio screen, and the address bar says so.
+    const studio = legacyRoute(hash);
+    if (studio) {
+      history.replaceState(null, "", studio);
+      hash = studio;
+    }
     const turn = ++showing;
     currentHash = hash;
     const route = parseRoute(hash);

@@ -7,6 +7,7 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { sayWhen } from "../parts/dates.js";
 import { cardTitle, cardLine, cardTrouble, cardForm, designLabel, sections } from "../parts/card-words.js";
+import { say } from "../parts/words.js";
 
 const OFF = {
   off: "Greeting cards are not set up (OPENBLOG_GREETINGS_ENDPOINT and OPENBLOG_GREETINGS_ADMIN_KEY where Admin runs; docs/greeting-cards.md).",
@@ -80,7 +81,7 @@ export async function createCards({ api, go }) {
       people.hidden = true;
       lede.textContent = "";
       list.replaceChildren(h("alert-banner", { variant: "info", heading: "Cards aren't ready yet" },
-        "The person who set up your site needs to finish setting them up. Your site works the same without them."));
+        say("cards.notSetUp")));
       return;
     }
     write.hidden = false;
@@ -123,7 +124,7 @@ export async function createCards({ api, go }) {
       buttons.push(h("action-button", { variant: "ghost", label: `Send it again: ${title}`, onClick: () => sendAgain(card) }, "Send it again"));
     }
     if (buttons.length) row.append(h("div", { class: "studio-comment-actions" }, ...buttons));
-    row.append(h("details", { class: "studio-help studio-comment-details" }, h("summary", { text: "For the person who set up your site" }),
+    row.append(h("details", { class: "studio-help studio-comment-details" }, h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[`id ${card.id}`, `status ${card.status}${card.error ? ` (${card.error})` : ""}, attempts ${card.attempts ?? 0}`,
         `next ${card.nextSendAt || "none"}`, `last ${card.lastSentAt || "none"}`, `zone ${card.timeZone}`].map((t) => h("li", { text: t })))));
     return row;
@@ -286,7 +287,7 @@ export async function createCards({ api, go }) {
   function drawDetails() {
     const o = state.overview;
     const count = (s) => state.cards.filter((c) => c.status === s).length;
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         `state ${o.state || (o.enabled ? "on" : "off")}`,
         o.enabled ? `from ${o.from?.name || ""} <${o.from?.email || ""}>, zone ${o.timeZone}` : OFF[o.state] || OFF.off,

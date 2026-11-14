@@ -100,6 +100,10 @@ pub struct Record {
     pub post_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<String>,
+    /// The record an "I posted it" mark replaced, kept beside it so Undo can put it back (Studio
+    /// R1). One level only: a kept record never keeps its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaced: Option<Box<Record>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +147,16 @@ impl State {
 
     pub(crate) fn record(&self, source: &str, destination: JobDestination) -> Option<&Record> {
         self.jobs.get(source)?.get(destination.as_str())
+    }
+
+    /// Forget one place's record; a job with no records left goes too.
+    pub(crate) fn remove(&mut self, source: &str, destination: JobDestination) -> Option<Record> {
+        let places = self.jobs.get_mut(source)?;
+        let removed = places.remove(destination.as_str());
+        if places.is_empty() {
+            self.jobs.remove(source);
+        }
+        removed
     }
 
     pub(crate) fn set(&mut self, source: &str, destination: JobDestination, record: Record) {
@@ -534,6 +548,7 @@ fn write_kit(
                     post_name: None,
                     post_url: None,
                     failure: None,
+                    replaced: None,
                 },
             );
         }
@@ -760,6 +775,7 @@ fn send_google(
         post_name: None,
         post_url: None,
         failure: None,
+        replaced: None,
     };
     state.set(&job.source_path, destination, record.clone());
     state.save(state_path)?;
@@ -1080,6 +1096,7 @@ mod tests {
                     post_name: None,
                     post_url: None,
                     failure: None,
+                    replaced: None,
                 },
             );
         }

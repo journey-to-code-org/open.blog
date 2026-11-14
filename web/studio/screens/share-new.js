@@ -1,20 +1,22 @@
 // Share a post: which post, which of her accounts, what to say (counted against the shortest limit),
 // and when: in a few minutes (so the post's page is up before anyone clicks) or a day and time she
 // picks. One share per account, each with its own key made when the composer opens, so trying again
-// never shares twice. Studio slice 10c; docs/specs/studio/slice-10bc/ux.md.
+// never shares twice. "How it looks on Bluesky" previews each kind of account chosen (R1,
+// parts/share-preview.js). Studio slice 10c, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { accountLabel, captionWords, providerName, sentWords, shareTrouble } from "../parts/share-words.js";
 import { sayWhen } from "../parts/dates.js";
+import * as M from "../parts/announcements-rules.js";
+import { createSharePreview } from "../parts/share-preview.js";
+import { say } from "../parts/words.js";
 
-const MODEL = "/admin/announcements.js";
 const SOON_MS = 5 * 60 * 1000;
 const CHOSEN = "studio:share:accounts";
 
 export async function createShareNew({ api, go }, route) {
   await use("action-button", "alert-banner", "date-field", "select-field", "skeleton-block", "text-field", "toggle-switch");
-  const M = await import(MODEL);
   const zone = M.browserZone();
   let destinations = [];
   let posts = [];
@@ -31,7 +33,7 @@ export async function createShareNew({ api, go }, route) {
   const element = h("section", { class: "studio-page studio-share-new", "aria-labelledby": "studio-share-new-h" },
     h("a", { class: "studio-more-link", href: "#/sharing", text: "Back to Sharing" }), heading, banner, status, body);
 
-  let post, caption, count, whenPick, day, time, button;
+  let post, caption, count, whenPick, day, time, button, preview;
   const toggles = new Map();
 
   const chosen = () => destinations.filter((d) => toggles.get(d.id)?.checked && !shared.has(d.id) && !maybe.has(d.id));
@@ -40,6 +42,7 @@ export async function createShareNew({ api, go }, route) {
     const words = captionWords(caption.value, chosen().map((d) => d.provider));
     count.textContent = words.text;
     count.classList.toggle("studio-comment-trouble", words.over);
+    preview?.schedule();
   }
 
   async function load() {
@@ -63,7 +66,7 @@ export async function createShareNew({ api, go }, route) {
     if (!destinations.length || !posts.length) {
       body.replaceChildren(h("alert-banner", { variant: "info", heading: !destinations.length ? "Nothing to share to yet" : "Nothing to share yet" },
         !destinations.length ? "Connect an account first. " : "Publish a post first, then share it here. ",
-        !destinations.length ? h("a", { href: "/admin/#/social", target: "_blank", rel: "noopener" }, "Connect an account") : null));
+        !destinations.length ? h("a", { href: "#/sharing/accounts" }, "Connect an account") : null));
       return;
     }
     let remembered = null;
@@ -88,9 +91,21 @@ export async function createShareNew({ api, go }, route) {
     time = h("text-field", { label: "Time", type: "time", value: "09:00", onValuechange: () => { sendAt = null; } });
     const picked = h("div", { class: "studio-business-times", hidden: true }, day, time);
     button = h("action-button", { size: "lg", onClick: () => send() }, "Share it");
-    body.replaceChildren(post, accounts, caption, count, whenPick, picked,
+    preview = createSharePreview({
+      api,
+      read: () => {
+        const at = whenPick.value === "pick" ? when() : null;
+        return { providers: chosen().map((d) => d.provider), caption: caption.value, work: post.value, scheduledFor: at?.ok ? at.iso : undefined, timeZone: zone };
+      },
+      onProblems: (by) => {
+        if (by.caption && touched) caption.error = "This doesn't fit on every account you chose. Shorten it a little.";
+        if (by.post) status.textContent = "That post isn't on your site yet, so it can't be shared.";
+      },
+    });
+    for (const field of [day, time]) field.addEventListener("valuechange", () => preview.schedule());
+    body.replaceChildren(post, accounts, caption, count, preview.element, whenPick, picked,
       h("p", { class: "studio-help", text: "The link to your post goes with it." }), button,
-      h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+      h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
         h("p", { class: "studio-mono", text: `zone ${zone}; ${posts.length} posts can be shared; ${destinations.map((d) => `${d.provider}:${d.id}`).join(", ")}` })));
     recount();
   }
@@ -152,7 +167,7 @@ export async function createShareNew({ api, go }, route) {
       go("#/sharing");
       return;
     }
-    const may = unsure.length ? ` Studio didn't hear back from ${unsure.join(" and ")}; it may have it. Look under Sharing in a minute before sharing there again.` : "";
+    const may = unsure.length ? ` Your blog didn't hear back from ${unsure.join(" and ")}; it may have it. Look under Sharing in a minute before sharing there again.` : "";
     status.textContent = `${done.length ? `Shared to ${done.join(" and ")}. ` : ""}${failed.join(" ")}${failed.length ? " Change it and press Share it again; the ones that went won't go twice." : ""}${may}`;
     if (field === "caption") { caption.error = "This doesn't fit on every account you chose. Shorten it a little."; caption.querySelector("textarea")?.focus(); }
     else if (field === "time") { status.textContent += " Pick another time."; (day.querySelector("input") || whenPick).focus?.(); }

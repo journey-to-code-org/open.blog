@@ -2,6 +2,7 @@
 // runs out mid-save (the save finishes once she's back in).
 import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
+import { say } from "../parts/words.js";
 
 const SAYS = {
   401: "That name and password don't match. Check them and try again.",
@@ -20,7 +21,7 @@ export async function signInForm(api, { onDone, heading = "Sign in", intro = "" 
     heading ? h("h1", { class: "studio-title", text: heading }) : null,
     intro ? h("p", { class: "studio-lede", text: intro }) : null,
     problem, name, password, button,
-    h("p", { class: "studio-help", text: "Forgot it? Ask the person who set up your site." }),
+    h("p", { class: "studio-help", text: `Forgot it? ${say("common.ask")}` }),
   );
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

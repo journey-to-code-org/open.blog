@@ -39,6 +39,17 @@ and evidence" sections and `/claim-evidence.json` come from `.openblog/private/r
 which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes
 written in posts' front matter are published either way.
 
+## Scheduled builds
+
+A post with a future date is left out of every build until a build runs after its time. On
+`openblog serve` that happens by itself: the server rebuilds the moment a post comes due, and
+with `publish.auto` (and the built pages in `publish.paths`) sends the result out. A site built
+somewhere else (GitHub Pages, Netlify, Cloudflare, ...) shows a scheduled post only when that
+host builds again after its time, so give it a scheduled build: the Pages workflow below runs
+once an hour, and Netlify and the others take a build hook called on a schedule. Studio says
+which applies under When it appears and in About this post's details (`meta.schedule`:
+`self` or `next-send`; `GET publish` also gives `mode` and `nextDue`).
+
 ## GitHub Pages
 
 1. Create the blog with the workflow included, or add it to an existing blog:
@@ -496,6 +507,17 @@ A site repository can pin both to one engine commit and build them itself, as
 [Grammi's House](https://github.com/mnichols08/grammis-house/tree/main/railway) does with its
 `railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
 (Railway's watch paths), or every save in the editor redeploys the editor.
+
+## Studio's words for every site on a host
+
+A host serving many sites can set Studio's words once for all of them: point each site's server at
+the same JSON file with `OPENBLOG_STUDIO_WORDS_PATH` (for example
+`OPENBLOG_STUDIO_WORDS_PATH=/etc/openblog/studio-words.json` holding
+`{ "vars": { "helper": "Hillside Web Care" } }`). The variable is read when the server starts; the
+file is read each time Studio opens, so editing it needs no restart. A site's own `studio.words`
+wins per key. A file that can't be read, isn't JSON, is over 64 KiB or has more than 500 entries
+is set aside as a whole and reported in Studio's Home details and by `openblog check` as a
+warning. See [Studio's words](studio-words.md).
 
 ## A theme that is not in the repository
 

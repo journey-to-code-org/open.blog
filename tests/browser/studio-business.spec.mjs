@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio slice 10a: Business, Services and Reviews on a trade site. The site names a trade, so the
 // three show in the navigation (and Grammi's site, in other specs, never shows them). Business facts
 // keep the phone in her format, say what needs fixing beside the field, and rewrite only `business`;

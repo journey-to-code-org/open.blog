@@ -6,6 +6,7 @@ import { fill, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { drawCard } from "../parts/gift-card.js";
+import { say } from "../parts/words.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 const WRAP_WORDS = { red: "red paper", green: "green paper", gold: "gold paper", blue: "blue paper", plaid: "plaid paper", stripes: "striped paper" };
@@ -60,7 +61,7 @@ export async function createGifts({ api }) {
     const row = h("li", { class: "studio-gift", "data-id": gift.id }, box, h("div", { class: "studio-gift-body" }, title, facts));
     const body = row.querySelector(".studio-gift-body");
     if (gift.opened && gift.unreadable) {
-      body.append(h("p", { class: "studio-help", text: "Studio can't show this one, but it's safe. Let the person who set up your site know." }));
+      body.append(h("p", { class: "studio-help", text: `Studio can't show this one, but it's safe. ${say("common.letKnow")}` }));
     } else if (gift.opened) {
       box.classList.add("studio-gift-open");
       if (gift.kind === "note") body.append(h("blockquote", { class: "studio-gift-note", text: gift.note }));
@@ -85,7 +86,7 @@ export async function createGifts({ api }) {
     const next = nextToOpen();
     nextButton.hidden = !next;
     if (next) nextButton.textContent = `Open the next gift (from ${next.from})`;
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("p", { class: "studio-mono", text: `${state.gifts.length} gifts. Next opening: ${state.opensAt} (UTC), ${new Date(state.opensAt).toLocaleString()} here.` }),
       h("ul", { class: "studio-mono" }, ...state.gifts.map((g) => h("li", { text: `${g.createdAt.slice(0, 16).replace("T", " ")}  ${g.from}  ${g.kind}  ${g.opened ? "opened" : "wrapped"}${g.onTree ? "" : "  (off the tree)"}` }))));
     codeWords.replaceChildren(state.familyCode
@@ -105,7 +106,7 @@ export async function createGifts({ api }) {
   // Her words first; what the server said is kept for whoever set up the site.
   const trouble = (heading, error) => banner.replaceChildren(h("alert-banner", { variant: "danger", heading },
     error.status === 0 || !error.status ? "Check your connection and try again. Nothing is lost." : "Your gifts couldn't be reached just now. Nothing is lost; try again in a minute.",
-    error.status ? h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
+    error.status ? h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
   const focusGift = (id) => requestAnimationFrame(() => list.querySelector(`[data-id="${id}"] .studio-gift-from`)?.focus());
   const busy = new Set();
 

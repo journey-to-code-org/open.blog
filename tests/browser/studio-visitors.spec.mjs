@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // Studio slice 9: Visitors. The built-in counter is on by default, so Visitors is in the navigation.
 // The counter's summary is mocked at the Admin API so the numbers are steady; it names what they
 // read by title (never a raw address), changes range by address, says when counting is off, and

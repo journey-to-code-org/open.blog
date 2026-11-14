@@ -3,9 +3,10 @@
 // ## Steps with "1." rows), through recipe-body.js, so scaling and timers keep working and anything
 // Studio doesn't edit is kept byte for byte.
 import { h } from "./dom.js";
+import { say as word } from "./words.js";
 import { use } from "../zubra.js";
 import { splitPasted, writeRecipeBody } from "./recipe-body.js";
-import { photoStrip, withoutPhoto } from "./photo-strip.js";
+import { createWordBox } from "./word-box.js";
 
 const LISTS = {
   ingredients: { one: "Ingredient", add: "Add an ingredient", legend: "Ingredients", help: "Start with the amount: 2 cups flour. Press Return for the next one.", rows: 1 },
@@ -13,10 +14,10 @@ const LISTS = {
 };
 
 /**
- * Build the editor from a parsed body. `onChange()` runs after every edit; `onPutPhoto(target)`
- * asks for a photo for "story" or "notes".
+ * Build the editor from a parsed body. `onChange()` runs after every edit; `host` is Add
+ * something's (add-menu.js): Your story and the notes take photos and cards; the rows never do.
  */
-export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
+export async function recipeEditor(parsed, { onChange, host }) {
   await use("text-field", "action-button", "dropdown-menu");
   const state = {
     story: parsed.story || "",
@@ -24,38 +25,16 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     steps: parsed.steps?.length ? [...parsed.steps] : [""],
     notes: parsed.notes ? parsed.notes.text : "",
   };
-  const notesHeading = parsed.notes?.heading || "Grammi's notes";
-  const strips = {
-    story: photoStrip({ onRemove: (photo) => takeOut("story", photo) }),
-    notes: photoStrip({ onRemove: (photo) => takeOut("notes", photo) }),
-  };
-  const changed = () => {
-    strips.story.update(state.story);
-    strips.notes.update(state.notes);
-    onChange?.();
-  };
-  const takeOut = (target, photo) => {
-    const text = withoutPhoto(state[target], photo.line);
-    (target === "notes" ? notes : story).value = text;
-    state[target] = text;
-    changed();
-  };
-
-  const story = h("text-field", { label: "Your story", class: "studio-writing", rows: 8, value: state.story,
-    description: "Who taught you this, the year it went wrong, who asks for seconds.",
-    onValuechange: (e) => { state.story = e.detail; changed(); } });
-  const notes = h("text-field", { label: notesHeading, class: "studio-writing", rows: 5, value: state.notes,
-    description: "Tips, swaps, what not to do.",
-    onValuechange: (e) => { state.notes = e.detail; changed(); } });
+  const notesHeading = parsed.notes?.heading || word("recipe.notesHeading");
+  const boxHost = { ...host, changed: (box) => { state[box === notes ? "notes" : "story"] = box.value; host.changed?.(box); } };
+  const changed = () => onChange?.();
+  const story = createWordBox({ label: "Your story", rows: 8, value: state.story, description: "Who taught you this, the year it went wrong, who asks for seconds.", host: boxHost, data: { "data-box": "story" } });
+  const notes = createWordBox({ label: notesHeading, rows: 5, value: state.notes, description: "Tips, swaps, what not to do.", host: boxHost, data: { "data-box": "notes" } });
   const lists = { ingredients: listBox("ingredients"), steps: listBox("steps") };
   const others = parsed.others?.length
     ? h("p", { class: "studio-help studio-others", text: `Also in this post: ${parsed.others.map((o) => `“${o.heading}”`).join(", ")}. Studio keeps ${parsed.others.length === 1 ? "it" : "them"} just as ${parsed.others.length === 1 ? "it is" : "they are"}.` })
     : null;
-  const element = h("div", { class: "studio-recipe" },
-    story, strips.story.element, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("story", e.currentTarget) }, "Put a photo in"),
-    lists.ingredients.element, lists.steps.element,
-    notes, strips.notes.element, h("action-button", { variant: "secondary", class: "studio-put-photo", onClick: (e) => onPutPhoto?.("notes", e.currentTarget) }, "Put a photo in"),
-    others);
+  const element = h("div", { class: "studio-recipe" }, story.element, lists.ingredients.element, lists.steps.element, notes.element, others);
 
   // One list (ingredients or steps): rows of a text field and a "Move or remove" menu.
   function listBox(kind) {
@@ -174,9 +153,6 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     return { element: box, focusRow: (index) => field(index)?.focus() };
   }
 
-  strips.story.update(state.story);
-  strips.notes.update(state.notes);
-
   return {
     element,
     /** The whole body, written back in the site's recipe shape. */
@@ -184,17 +160,10 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     /** Where "Go to it" in See how it looks takes her. */
     focus(target) {
       if (target?.list) lists[target.list].focusRow(target.index || 0);
-      else (target?.field === "notes" ? notes : story).querySelector("textarea, input")?.focus();
+      else (target?.field === "notes" ? notes : story).focus();
     },
-    /** The text box a photo goes into. */
-    box: (target) => (target === "notes" ? notes : story),
-    /** Put text into the story or notes (after a photo goes in). */
-    set(target, text) {
-      const field = target === "notes" ? notes : story;
-      field.value = text;
-      state[target] = text;
-      changed();
-    },
+    /** Your story and the notes: the boxes that take photos and cards. */
+    boxes: () => [story, notes],
     get: (target) => state[target],
   };
 }

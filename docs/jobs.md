@@ -57,13 +57,23 @@ survives an older one. The `job` mapping is the only place front matter may nest
 
 ## Writing a job
 
-In Admin, open a new post, then **Settings**, and set **Content profile** to **Job**. An **About this job** form
-asks for the trade, service, town, region, start and finish dates, a price range and before and after photos,
-and writes the `job` mapping above for you. An empty body gets four headings, `Problem`, `What we found`,
-`What we did` and `Result`, as ordinary Markdown: change, move or delete them freely, in Visual or Markdown mode.
-**Customer review** lists the reviews saved under [Reviews](reviews.md); the one you choose shows beside the job.
-Choosing another profile hides the form and leaves your Markdown alone. **Check this job** shows what the build
-would still ask for. The service box suggests the services your other jobs already use.
+In Studio, **Write something new** on a trade site asks what you're writing; **A job** starts one with today as the
+day it started and finished, your site's trade, and the four headings `Problem`, `What we found`, `What we did`
+and `Result`. While the words are exactly those four headings, Write shows them as four boxes, one per heading,
+and gives the body back byte for byte when you change nothing in a box; any other shape stays one box of ordinary
+Markdown.
+
+**About this job**, under the title, asks for the service (one of your [Services](services.md) by name, or
+**Something else**), the town and state, the days it started and finished, the price shown (a range customers
+see, never a quote) and the customer's review (one of those saved under [Reviews](reviews.md)). It asks for the
+trade only when the site has more than one or none set. It writes the `job` mapping above with exactly the keys
+the old Admin's Job form wrote; hours and materials you add by hand are kept. Each photo in a job gets **Before**,
+**After** or **Neither**, written to `job.media.before` and `job.media.after` in the order the photos are in the
+post; mark at least one After photo, since it's the one people see when you share the job.
+
+**Publish** first checks the job the way the build will (`POST job/check`, including that the service is one of
+your services and the review one of your reviews). If something is missing it doesn't publish: it lists what to
+fix in plain words, each with **Go to it**. **Save draft** always works.
 
 From the command line, `openblog new "New oak floor" --profile job` writes the same front matter and the same
 four headings. Add `--trade`, `--service`, `--town` and `--region` to fill them in; each is checked the way the
@@ -73,45 +83,52 @@ reported as `job not ready to publish` until you finish it and remove `draft`.
 
 ## Capturing a job from a phone
 
-On site, open **Capture** in Admin's navigation (`#/capture`). It is one column built for a 400 px screen: a
-large **Add photos** button (your phone offers the camera or the photo library), the trade, a service, a town
-(your last few towns are one tap away) and a **Notes** box. Trade, service and towns are remembered on that
-device only. **Save draft** makes an unpublished job draft you can find in Write: the Job form's keys, the four
-headings, your notes under the first and the photos after them. Nothing is published, and no AI provider is
-contacted. A capture holds at most twelve photos (each within your upload limit) and 8,000 characters of notes.
+On site, open **New job** (in Studio's navigation on a trade site, on Home as **Add a job from the site**, and
+when you touch and hold the installed app's icon). It is one column built for a phone: **Take a photo** opens the
+camera, **Choose photos** opens the library, then **Record a voice note** and **What did you do?**. Your trade,
+service and town are remembered on that phone (the last five towns are one tap away) and shown as one line with
+**Change**. **Save this job** keeps the job on the phone and sends it to your blog as an unpublished draft as soon
+as there's a signal: the job's keys, the four headings, your words under the first and the photos after them.
 
-If the connection drops, nothing is lost: **Save draft** keeps the capture on the phone (in the browser's
-IndexedDB) and sends it when you are back online, or when you open Capture again, or when you tap **Send now**.
-Waiting captures are listed under **Waiting to send**, and each can be discarded. Sending twice never makes a
-second draft, because every capture carries its own id. The phone keeps at most five waiting captures, 60 MB
-each and 120 MB in all, and says so when one does not fit; it never deletes a capture on its own. A browser
-without IndexedDB sends straight away instead.
+Photos are made smaller on the phone before they're kept: at most 2000 pixels on the long side, a JPEG at quality
+0.82, redrawn so where the photo was taken doesn't come along (the server's own rule; it still checks again). A
+photo the phone can't read is kept as it was. A job holds at most twelve photos (each within your upload limit)
+and 8,000 characters of words.
 
-Where the browser allows it, **Record a voice note** talks instead of types: it starts only when you tap it
-(the browser then asks for the microphone), shows the time, and stops with **Stop recording**, at three minutes
-or at 8 MB, whichever comes first. **Discard** throws a recording away. A finished note plays back in the view
-and is sent with the capture, then kept privately on your own server (in `.openblog/captures/`, never in your
-site's files or the post). Nothing is transcribed and nothing is sent to an AI unless you choose it: under a
-finished note, **Transcribe with AI** (shown only when your site has an Assistant provider that takes audio, or a
-local engine) first shows where the recording would go and what is sent (the recording only), and sends it only
-when you tap **Send the recording**. The words come back into **Notes** under what you typed, as plain text for you
-to correct, and **Undo the transcript** takes them out again. With no provider, Capture says so and you type your
-notes. A browser that cannot record simply shows no Record control. Setting up a provider or a local engine is in
+**Nothing is lost.** What you're in the middle of is kept as you go (iPhones can reload the page when the camera
+opens), and New job picks up where you left off. A saved job waits on the phone until it has been sent: it goes
+when the signal comes back, whichever Studio screen is open, and Home says "2 jobs waiting on this phone" until
+then. Each waiting job shows where it stands (waiting, sending, needs you, didn't send) with its one next step,
+and **More** offers **Save the photos to this phone** and **Throw it away** (which asks first). Sending twice
+never makes a second draft, because every job carries its own id; the server also says which photos it already
+has, so a job interrupted half way sends only the rest. The phone keeps at most five waiting jobs, 60 MB each and
+120 MB in all, says so when one doesn't fit, and never deletes a job by itself. A browser that can't keep
+anything (some private windows) sends straight away instead. Opened once, New job opens again with no signal.
+
+Jobs saved by the old Admin's Capture are on the same list (the browser's IndexedDB `openblog-capture`, version
+1, store `captures`; its name, version and format are permanent) and are sent by Studio. The iPhone Home Screen
+app and Safari keep separate lists. The old `#/capture` address opens New job.
+
+**Record a voice note** starts only when you tap it (the phone then asks for the microphone), shows the time, and
+stops with **Stop**, at three minutes or at 8 MB, whichever comes first; leaving the screen stops and keeps it.
+The note is sent with the job and kept privately on your own server (in `.openblog/captures/`, never in your
+site's files or the post), and plays in Write under **Your voice note from the site**. Nothing is transcribed and
+nothing is sent to a provider unless you choose it: **Turn it into words** (on New job with a signal, or later in
+Write) first says where the recording goes (only the recording), and the words come back under what you typed,
+made plain, with **Undo**. Setting up a provider or a local engine is in
 [the admin guide](admin.md#transcribing-a-voice-note).
 
-**Draft with AI** (under the voice note) turns your notes, typed or from a transcript, into a title, a one-sentence
-description and the four sections in your own words. It appears only when your site has an Assistant provider
-(set one up in Assistant settings; see [the admin guide](admin.md)) and you have notes. Tapping it first shows where the
-notes would go and what goes with them (the trade, service and town, and your voice guide if you leave **Write it in my
-voice** ticked); nothing is sent until you tap **Send to the Assistant**. The draft arrives as ordinary fields you can
-change, marked "not saved yet", and **Undo the draft** takes it all back in one step. It says only what your notes
-say and leaves a section empty when they do not, and it never fills the job's trade, dates, place or any other Job
-field. Nothing is saved or published until you tap **Save draft**, which then uses the draft's title, description and
-sections in place of the notes. With no provider, your typed notes become the post exactly as before.
+**Write it up for me** (in Write's **More** on a job, and in Find) turns your words into a title, a one-line
+summary and the four parts. It appears only when your site has an Assistant provider. It first says what goes and
+where: your words in this job, its service and town, and your voice guide if you leave **Make it sound like me**
+on; never your photos or voice note. What comes back fills the boxes for you to read and change, keeps your photos,
+and **Undo** takes it all back; nothing is saved until you save. A job kept on a phone by the old Admin with a
+draft from **Draft with AI** still sends with that draft.
 See [ADR 0296](adr/0296-a-capture-is-a-job-draft-started-from-a-phone-built-from-the-job-forms-own-keys.md),
 [ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md),
-[ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md)
-and [ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md).
+[ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md),
+[ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)
+and [ADR 0304](adr/0304-a-draft-is-applied-as-editable-unsaved-fields-in-capture-with-one-undo-and-the-authors-save-is-the-only-save.md).
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,

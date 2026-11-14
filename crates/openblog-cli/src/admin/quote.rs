@@ -398,16 +398,7 @@ pub(super) fn route_with(
         ("GET", ["export"]) => export(req, &config, user),
         ("POST", ["erase", "preview"]) => erase_preview(req, &config, user),
         ("POST", ["erase"]) => erase(req, &config, user),
-        ("POST", ["retention", "run"]) => {
-            object_body(req, &[]).and_then(|_| {
-                hosted(&config, "POST", "retention/run", &[], Some(&json!({})), user).map(|reply| {
-                    json!({
-                        "enabled": reply.get("enabled").and_then(Json::as_bool).unwrap_or(false),
-                        "erased": reply.get("erased").and_then(Json::as_u64).filter(|n| *n <= 100_000).unwrap_or(0),
-                    })
-                })
-            })
-        }
+        ("POST", ["retention", "run"]) => run_retention(req, &config, user),
         ("POST", ["retention"]) => set_retention(req, &config, user),
         ("POST", ["notifications", "retry"]) => retry_notifications(req, &config, user),
         _ => return Response::error(404, "Unknown API route"),
@@ -467,6 +458,123 @@ fn set_retention(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json
         return Err(bad_reply());
     }
     Ok(json!({ "retentionDays": kept, "retentionSource": kept.map(|_| "admin") }))
+}
+
+/// The refusal when the hosted function is older than what Studio needs to erase safely.
+fn too_old() -> Response {
+    Response::json(
+        409,
+        &json!({
+            "error": "The quote function is older than this Admin and could erase without counting first; deploy the current netlify/functions/quote.mjs",
+            "code": "hosted-too-old",
+        }),
+    )
+}
+
+/// Asks the hosted function, before anything is sent that could erase, whether it can count
+/// without erasing (`dryRun`) and erase only what was archived before a cutoff (`eraseBefore`). An
+/// older function ignores both and erases, so it is never sent either: it has no `GET retention`
+/// (404 `not-found`), or says neither.
+fn can_count_first(config: &QuoteConfig, user: &str) -> Result<(), Response> {
+    match hosted(config, "GET", "retention", &[], None, user) {
+        Ok(reply) => {
+            let says = |key: &str| reply.get(key) == Some(&Json::Bool(true));
+            if says("dryRun") && says("eraseBefore") {
+                Ok(())
+            } else {
+                Err(too_old())
+            }
+        }
+        Err(response) => {
+            let code = serde_json::from_slice::<Json>(&response.body)
+                .ok()
+                .and_then(|body| body.get("code").and_then(Json::as_str).map(str::to_string));
+            if response.status == 404 && code.as_deref() == Some("not-found") {
+                Err(too_old())
+            } else {
+                Err(response)
+            }
+        }
+    }
+}
+
+/// A cutoff instant, as the hosted function's dry run gave it, in one plain form.
+fn instant(value: &Json) -> Option<String> {
+    let value = value.as_str().filter(|v| v.len() <= 40)?;
+    openblog_core::date::DateTime::parse(value).map(|at| at.rfc3339())
+}
+
+/// Erases archived requests past the retention days now, or, with `{dryRun: true}`, only counts
+/// them and their photos so Studio can say what would go before asking (G12). The dry run gives
+/// `before`, the cutoff it counted with; the erase that follows passes it back, so a request
+/// archived in between is not erased uncounted. Both are sent only to a function that says it can
+/// do them. Only counts return.
+fn run_retention(req: &Request, config: &QuoteConfig, user: &str) -> Result<Json, Response> {
+    let body = object_body(req, &["dryRun", "before"])?;
+    let dry = match body.get("dryRun") {
+        None | Some(Json::Bool(false)) => false,
+        Some(Json::Bool(true)) => true,
+        Some(_) => return Err(Response::error(400, "dryRun is true or false")),
+    };
+    let before = match body.get("before") {
+        None | Some(Json::Null) => None,
+        Some(value) => match instant(value) {
+            Some(at) if !dry => Some(at),
+            Some(_) => {
+                return Err(Response::error(
+                    400,
+                    "A dry run takes no cutoff; it gives one",
+                ))
+            }
+            None => {
+                return Err(Response::error(
+                    400,
+                    "before is a date and time like 2026-10-31T12:00:00Z",
+                ))
+            }
+        },
+    };
+    if dry || before.is_some() {
+        can_count_first(config, user)?;
+    }
+    let sent = match (&before, dry) {
+        (_, true) => json!({ "dryRun": true }),
+        (Some(at), false) => json!({ "before": at }),
+        (None, false) => json!({}),
+    };
+    let reply = hosted(config, "POST", "retention/run", &[], Some(&sent), user)?;
+    let count = |key: &str| {
+        reply
+            .get(key)
+            .and_then(Json::as_u64)
+            .filter(|n| *n <= 100_000)
+            .unwrap_or(0)
+    };
+    let enabled = reply
+        .get("enabled")
+        .and_then(Json::as_bool)
+        .unwrap_or(false);
+    if dry {
+        // A function that erased anyway says `erased`, never `wouldErase`: not taken as a count.
+        if reply.get("wouldErase").is_none() {
+            return Err(bad_reply());
+        }
+        let cutoff = reply.get("before").and_then(instant);
+        if enabled && cutoff.is_none() {
+            return Err(bad_reply());
+        }
+        return Ok(json!({
+            "enabled": enabled,
+            "wouldErase": count("wouldErase"),
+            "photos": count("photos"),
+            "before": cutoff,
+        }));
+    }
+    let mut out = json!({ "enabled": enabled, "erased": count("erased") });
+    if count("photosPending") > 0 {
+        out["photosPending"] = json!(count("photosPending"));
+    }
+    Ok(out)
 }
 
 /// Sends again the owner's emails that failed (at most five tries each, ADR 0383). Only counts

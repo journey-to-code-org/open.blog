@@ -10,6 +10,7 @@ import { createKept } from "../parts/kept.js";
 import {
   HOURS, cardForm, cardLine, cardTitle, cardTrouble, hourLabel, newCard, nextYearly, REASONS, todayIn,
 } from "../parts/card-words.js";
+import { say } from "../parts/words.js";
 
 const SIGN_OFF = "studio:card:signoff";
 
@@ -174,7 +175,7 @@ export async function createCardEdit({ api, go }, route) {
     body.replaceChildren(who, design, sendOn, hour, yearly, next, subject, message, tokens, signOff,
       h("div", { class: "studio-comment-actions" }, primary),
       h("div", { class: "studio-comment-actions" }, look, test),
-      h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+      h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
         h("p", { class: "studio-mono", text: `zone ${zone()}${card ? `, id ${card.id}, status ${card.status}` : ""}` })));
     yearly.checked = Boolean(form.yearly);
   }

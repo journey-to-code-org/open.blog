@@ -7,7 +7,7 @@ description: open.blog Studio's UI/UX standard (the new Admin built on Zubra UI)
 
 Studio is where an owner runs an open.blog site. It serves two people at once, and every screen is judged by both:
 
-- **Grammi** (the owner who writes): not technical, writes recipes and family stories, wants to put words up and get back to the kitchen. She must never meet a file path, a setting name, JSON, Git, a status code or a word like "deploy".
+- **Grammi** (the owner who writes): not technical, writes recipes and family stories, wants to put words up and get back to the kitchen. She must never meet a file path, a setting name, JSON, Git, a status code or a word like "deploy", "upload", "sync", "offline", "queue", "storage", "capture", "push", "subscription", "PWA", "service worker", "permission", "endpoint", "device" or "browser" (except to name the app she is in: "Safari", "Chrome"), nor "slug", "front matter", "metadata", "canonical", "noindex", "profile", "credits", "contributor", "SEO", "markdown", "shortcode", "syntax", "fence", "block", "piece", "snippet", "embed", "iframe", "HTML", "callout", "alt text" or "caption". She says "phone", "iPad" or "computer", and hears "saved on this phone", "waiting for a signal", "sent", "address", "summary", "what kind of post", "who wrote it", "add", "put in", "take out", "describe the photo", "words under it".
 - **Mikey** (the owner who builds): a developer who set the site up. Wants speed, the keyboard, everything reachable, and the truth about what the system did.
 
 The answer is _layers_: the first layer of every screen is Grammi's; Mikey's power sits one deliberate step deeper (a **More** menu, a details panel, the command palette), never in her way and never missing.
@@ -16,11 +16,15 @@ The answer is _layers_: the first layer of every screen is Grammi's; Mikey's pow
 
 1. **One job per screen.** Each screen answers one question ("What do I want to write?", "When does the house change?"). Its title says the job in her words. Anything that serves a different job moves to its own screen.
 2. **The next step is obvious.** One primary action per screen, visible without scrolling at 400 px. Secondary actions are quieter buttons; rare or risky ones live in **More**.
-3. **Her words, not the system's.** Name things by what she does: _Write_, _Publish_, _Recipes_, _Decorations_, _Cards_. Same action, same word, in the button, the toast and the help: a button that says **Publish** produces "Published".
-4. **Nothing is lost.** Every edit autosaves as a draft; leaving with unsaved work asks first; every destructive action can be undone, or shows exactly what goes and asks once in plain words.
-5. **Say what happened.** After every action, a short status in words ("Saved. Your readers will see it in about a minute."). Errors say what went wrong and how to fix it, never apologise and never show a code. Empty screens invite the first action.
+3. **Her words, not the system's.** Name things by what she does: _Write_, _Publish_, _Recipes_, _Decorations_, _Cards_. Same action, same word, in the button, the toast and the help: a button that says **Publish** produces "Published". In her own words the product is _your blog_: "Studio" and "Admin" never appear in her sentences ("Your blog can post for you", not "Studio can post for you"); they may appear in details for Mikey.
+4. **Nothing is lost.** Every edit autosaves as a draft; leaving with unsaved work asks first; every destructive action can be undone, or shows exactly what goes and asks once in plain words. Anything kept only on this phone says so where she sees it (Home), is never thrown away without asking, and offers a way to save its photos out first.
+5. **Say what happened.** After every action, a short status in words ("Saved. Your readers will see it in about a minute."). Errors say what went wrong and how to fix it, never apologise and never show a code. Empty screens invite the first action. "Waiting for a signal" is a state with words and a badge, never an error: errors are for things she can change.
 6. **Calm, warm, large.** Base text 18 px, controls at least 44 px tall, generous spacing, one accent colour. Motion only to show what changed, and none under reduced motion.
-7. **Works on her phone.** One column at 400 px with nothing scrolling sideways; the same screen widens into columns on a desktop.
+7. **One place per fact.** A field shows in one spot on her layer; a kind of post shows only its own fields, never twice.
+8. **No syntax on her layer.** Anything in her words that isn't plain words shows as a card in place with Change, Move and Take it out; raw text is Mikey's, behind **Show the words as written**. Anything she adds goes where she was, and the screen says where first. A form that writes into the file writes it the way it was: unchanged writes nothing, and a form is offered only when it can write the block back exactly.
+8. **Settings are part of the thing they describe.** A sheet of a post's settings has no Save of its own; it saves with the post and says how ("Saves by itself.", "Press Update to put these on your site.").
+9. **Times she picks are complete.** A future day with no time gets a visible default time. A promise about when something happens is made only when the system keeps it.
+10. **Works on her phone.** One column at 400 px with nothing scrolling sideways; the same screen widens into columns on a desktop. Every screen works in the installed app, which has no Back button or address bar: every screen has its own way home.
 
 ## Accessibility (the floor, not a goal)
 
@@ -55,6 +59,13 @@ When a component falls short, fix or extend it in zubra-ui and re-vendor it (see
 - One short sentence of help under a field, only when the label can't carry it.
 - Dates and times as people say them: "Friday, November 27 at 8 AM".
 - Numbers she cares about, never internals: "3 recipes waiting", not "3 drafts (status=draft)".
+- Grammi is a persona for judging screens, never a default. No shipped string names her, her
+  family, her site or her food; recipe examples appear only on recipe screens.
+- Who helps her is `{helper}`, the product is `{product}`, her name is `{owner}`. Never write
+  "the person who set up your site", "your blog" or a name as a literal.
+- Every her-layer sentence is a word id with its default in the area's `parts/*-words.js`;
+  a site may change it, so it must read right on its own and with any `{helper}` (no pronouns
+  for the helper: "Tell {helper}.", not "Tell him").
 
 ## Review checklist
 
@@ -65,5 +76,8 @@ A screen passes when every line holds:
 - [ ] Mikey can reach every advanced option in one step (More, details or the command palette).
 - [ ] Every action ends in a status in words; every error names its field and the fix.
 - [ ] Unsaved work is never lost; destructive actions undo or ask once.
+- [ ] Works with no signal: what she made is kept, and the screen says when it will go.
 - [ ] Keyboard only, screen reader names, 320 px reflow, reduced motion, contrast: all pass.
 - [ ] Built from Zubra UI components themed by Studio tokens, with no one-off styles.
+- [ ] Her layer says "your blog", never "Studio" or "Admin"; platform steps show only the ones for the device in her hand.
+- [ ] Every field the old screen edited is on her layer, in details, or dropped with a written reason.

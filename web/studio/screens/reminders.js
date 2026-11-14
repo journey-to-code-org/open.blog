@@ -1,14 +1,17 @@
 // Reminders: what's worth writing about at this time of year. These are writing prompts for her,
 // never messages to customers. Start a draft makes an unpublished post with the prompt and opens it in
 // Write; nothing here publishes, builds or sends. Not now snoozes a week; skipping a season or turning
-// a topic off is one step down. Changing topics and dates is in the old Admin for now.
-// Studio slice 10b; docs/specs/studio/slice-10bc/ux.md.
+// a topic off is one step down. Changing topics and dates, and adding her own, is a sheet
+// (parts/topics-sheet.js). Studio slice 10b, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { sayDay } from "../parts/dates.js";
 import { postHref } from "../parts/post-list.js";
+import * as M from "../parts/seasonal-rules.js";
+import { createSheet, guardedLeave } from "../parts/sheet.js";
+import { openTopics } from "../parts/topics-sheet.js";
+import { say } from "../parts/words.js";
 
-const MODEL = "/admin/seasonal.js";
 const DAY = 24 * 60 * 60 * 1000;
 
 /** Days from `today` to `day` (both YYYY-MM-DD). */
@@ -16,8 +19,9 @@ const daysTo = (day, today) => Math.round((Date.parse(`${day}T00:00:00Z`) - Date
 
 export async function createReminders({ api, go }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "skeleton-block", "status-badge");
-  const M = await import(MODEL);
   let data = null;
+  const sheet = await createSheet({ label: "Topics" });
+  let topics = null; // the open topics sheet, redrawn when the screen reloads
 
   const heading = h("h2", { id: "studio-reminders-h", class: "studio-question", tabindex: "-1", text: "What's worth writing about now?" });
   const screenMore = h("dropdown-menu", { class: "studio-row-menu", items: [], onItemselect: (e) => screenCommand(e.detail) },
@@ -30,7 +34,7 @@ export async function createReminders({ api, go }) {
   const details = h("details", { class: "studio-help" });
   const element = h("section", { class: "studio-page studio-reminders", "aria-labelledby": "studio-reminders-h" },
     h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, screenMore),
-      h("p", { class: "studio-lede", text: "At the right time of year, Studio suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself." }),
+      h("p", { class: "studio-lede", text: "At the right time of year, your blog suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself." }),
       tradeHelp),
     undoSlot, banner, status, body, details);
 
@@ -40,6 +44,7 @@ export async function createReminders({ api, go }) {
       data = await api.get("seasonal");
       banner.replaceChildren();
       draw();
+      if (sheet.isOpen) topics?.redraw();
     } catch (error) {
       if (error.status === 401) throw error;
       body.removeAttribute("aria-busy");
@@ -53,19 +58,19 @@ export async function createReminders({ api, go }) {
     tradeHelp.hidden = Boolean(data.trade);
     screenMore.items = [
       ...(data.enabled ? [{ value: "off", label: "Turn reminders off" }] : []),
-      { value: "topics", label: "Change topics and dates (old Admin)" },
+      { value: "topics", label: "Change topics and dates…" },
     ];
     drawDetails();
     if (!data.enabled) {
       body.replaceChildren(h("empty-state", { heading: "Reminders are off" },
-        "Turn them on and Studio suggests what to write for your trade, at the right time of year. It never publishes anything.",
+        "Turn them on and your blog suggests what to write for your trade, at the right time of year. It never publishes anything.",
         h("action-button", { slot: "actions", onClick: () => setEnabled(true) }, "Turn on reminders")));
       return;
     }
     const due = data.reminders.filter((r) => r.status === "due");
     const later = data.reminders.filter((r) => r.status !== "due");
     if (!due.length && !later.length) {
-      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Studio will tell you when something comes up."));
+      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Your blog will tell you when something comes up."));
       return;
     }
     body.replaceChildren(...[
@@ -90,8 +95,9 @@ export async function createReminders({ api, go }) {
         { value: "30", label: "Remind me in a month" },
         { value: "season", label: "Not this season" },
         { value: "stop", label: "Stop suggesting this" },
+        { value: "dates", label: "Change its dates…" },
       ],
-      onItemselect: (e) => (e.detail === "stop" ? stopTopic(r) : snooze(r, e.detail === "30" ? 30 : Math.min(90, Math.max(1, daysTo(r.closes, data.today) + 1)), e.detail === "season")),
+      onItemselect: (e) => (e.detail === "dates" ? changeTopics(r.id, menu) : e.detail === "stop" ? stopTopic(r) : snooze(r, e.detail === "30" ? 30 : Math.min(90, Math.max(1, daysTo(r.closes, data.today) + 1)), e.detail === "season")),
     }, h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${r.topic}` })));
     const actions = r.status === "opened"
       ? [r.document ? h("action-button", { href: postHref(r.document) }, "Open it") : null]
@@ -113,7 +119,7 @@ export async function createReminders({ api, go }) {
       const done = await api.post("seasonal/open", { key: r.key });
       if (!done.document) {
         await load();
-        status.textContent = "Started a draft, but Studio can't open it here. Find it under Posts.";
+        status.textContent = "Started a draft, but it can't open here. Find it under Posts.";
         return;
       }
       toast(`${done.created === false ? "You started this one already. Here it is." : "Here's a draft to start from. It's not on your site."}${data.voiceReady ? " The Assistant can help write it in your voice." : ""}`);
@@ -161,7 +167,7 @@ export async function createReminders({ api, go }) {
 
   async function stopTopic(r) {
     if (!(await put(true, M.withDisabled(data.entries, r.id, true)))) return;
-    const words = `Studio won't suggest “${r.topic}” any more.`;
+    const words = `Your blog won't suggest “${r.topic}” any more.`;
     status.textContent = words;
     const undo = h("action-button", { size: "sm", onClick: async () => { undoSlot.replaceChildren(); if (await put(true, M.withDisabled(data.entries, r.id, false))) status.textContent = `“${r.topic}” is back.`; } }, "Undo");
     undoSlot.replaceChildren(h("alert-banner", { variant: "info", dismissible: true, heading: words }, undo));
@@ -181,17 +187,25 @@ export async function createReminders({ api, go }) {
 
   function screenCommand(value) {
     if (value === "off") setEnabled(false);
-    if (value === "topics") open("/admin/#/reminders", "_blank", "noopener");
+    if (value === "topics") changeTopics(null, screenMore);
+  }
+
+  async function changeTopics(focusId, opener) {
+    if (!data) return;
+    topics = await openTopics({
+      sheet, api, opener, focusId: focusId && data.topics.some((t) => t.id === focusId) ? focusId : null,
+      getData: () => data,
+      setData: (reply) => { data = reply; draw(); },
+    });
   }
 
   function drawDetails() {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         `today ${data.today}, trade ${data.trade || "none"}, etag ${data.etag}`,
         ...data.reminders.map((r) => `${r.key} ${r.status} ${r.opens}–${r.closes}${r.snoozedUntil ? ` snoozed ${r.snoozedUntil}` : ""}${r.document ? ` draft ${r.document}` : ""}`),
         `entries ${JSON.stringify(data.entries || [])}`,
-      ].map((t) => h("li", { text: t }))),
-      h("p", {}, h("a", { href: "/admin/#/reminders", target: "_blank", rel: "noopener" }, "Reminders in the old Admin")));
+      ].map((t) => h("li", { text: t }))));
   }
 
   return {
@@ -199,16 +213,20 @@ export async function createReminders({ api, go }) {
     element,
     load,
     reload: load,
+    leave: () => guardedLeave(sheet),
+    isDirty: () => sheet.isDirty(),
     focus: () => heading.focus(),
     get palette() {
       if (!data) return [];
       return [
+        { id: "topics", label: "Change topics and dates", group: "Reminders" },
         ...data.reminders.filter((r) => r.status === "due").map((r) => ({ id: `start:${r.key}`, label: `Start a draft: ${r.topic}`, group: "Reminders" })),
         { id: "toggle", label: data.enabled ? "Turn reminders off" : "Turn reminders on", group: "Reminders" },
       ];
     },
     command(id) {
       if (id === "toggle") setEnabled(!data.enabled);
+      if (id === "topics") changeTopics(null, heading);
       const r = id.startsWith("start:") && data.reminders.find((x) => x.key === id.slice(6));
       if (r) start(r, { loading: false });
     },

@@ -142,3 +142,45 @@ fn each_step_ticks_from_the_files_and_unticks_when_they_go() {
     assert!(!done(&back).contains(&"review"));
     assert_eq!(back["done"], 3);
 }
+
+#[test]
+fn hiding_the_checklist_is_remembered_in_the_private_folder_and_can_be_undone() {
+    // G13: the dismissal lived in the old Admin's preferences, which go; now it has its own file.
+    let f = trade_fixture("trade-checklist-hide");
+    let session = login_ok(&f);
+    assert_eq!(checklist(&f, &session)["dismissed"], false);
+    let put = |body: Json, csrf: bool| {
+        handle(
+            &f.state,
+            &authed(json_req("PUT", PATH, body), &session, csrf),
+        )
+    };
+    assert_eq!(put(json!({"dismissed": true}), false).status, 403);
+    for bad in [
+        json!({}),
+        json!({"dismissed": "yes"}),
+        json!({"dismissed": true, "x": 1}),
+        json!([true]),
+    ] {
+        assert_eq!(put(bad.clone(), true).status, 400, "{bad}");
+    }
+    assert!(!f.dir.join(trade_checklist::DISMISSED_FILE).exists());
+    let hidden = put(json!({"dismissed": true}), true);
+    assert_eq!(hidden.status, 200);
+    assert_eq!(body_json(&hidden), json!({"dismissed": true}));
+    assert!(f.dir.join(trade_checklist::DISMISSED_FILE).exists());
+    let list = checklist(&f, &session);
+    assert_eq!(list["dismissed"], true);
+    assert_eq!(list["applies"], true, "the steps are still worked out");
+    assert_eq!(
+        body_json(&put(json!({"dismissed": false}), true)),
+        json!({"dismissed": false})
+    );
+    assert_eq!(checklist(&f, &session)["dismissed"], false);
+    assert!(!f.dir.join(trade_checklist::DISMISSED_FILE).exists());
+    assert_eq!(
+        put(json!({"dismissed": false}), true).status,
+        200,
+        "showing a shown card is fine"
+    );
+}

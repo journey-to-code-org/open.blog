@@ -150,7 +150,7 @@ test("callback is single use: a replay, a second tab and a concurrent pair excha
   assert.deepEqual(both.map((r) => r.statusCode).sort(), [200, 400]);
   const replay = await callback(handler, "linkedin", `code=${CODE}&state=${state}`);
   assert.equal(replay.statusCode, 400);
-  assert.match(replay.body, /not valid or was already used/);
+  assert.match(replay.body, /isn&#39;t valid or was already used/);
   assert.equal(w.provider.filter((call) => call.path === "/oauth/v2/accessToken").length, 1);
 });
 
@@ -180,7 +180,7 @@ test("callback: an expired attempt, a declined grant and a missing code end the 
   const expired = make();
   let { body } = await start(expired.handler);
   expired.clock.t += 11 * 60 * 1000;
-  assert.match((await callback(expired.handler, "linkedin", `code=${CODE}&state=${authorization(body.authorizeUrl).state}`)).body, /expired/);
+  assert.match((await callback(expired.handler, "linkedin", `code=${CODE}&state=${authorization(body.authorizeUrl).state}`)).body, /took too long/);
   assert.equal(connections(expired.w)[0].status, "expired");
   assert.equal(expired.w.provider.length, 0);
 
@@ -207,7 +207,7 @@ test("scopes are verified from the grant: a missing required scope fails the att
   const { body } = await start(handler);
   const result = await callback(handler, "linkedin", `code=${CODE}&state=${authorization(body.authorizeUrl).state}`);
   assert.equal(result.statusCode, 400);
-  assert.match(result.body, /permission this feature needs/);
+  assert.match(result.body, /permission your blog needs/);
   const row = connections(w)[0];
   assert.equal(row.status, "failed");
   assert.equal(row.error_code, "scopes-missing");

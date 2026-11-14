@@ -807,10 +807,6 @@ fn recovery_routes_relay_only_what_they_check() {
         ),
         (
             "announcements/resolve",
-            json!({"version": 1, "outcome": "published"}),
-        ),
-        (
-            "announcements/resolve",
             json!({"version": 1, "outcome": "published", "providerPostId": "has space"}),
         ),
         (
@@ -989,4 +985,43 @@ fn a_preview_names_the_cover_and_description_the_public_page_carries_and_counts_
     let long = preview("/posts/hello/", "a".repeat(476));
     assert_eq!(long["problems"][0]["code"], "caption-too-long");
     assert!(calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_owner_may_mark_a_share_as_posted_without_the_providers_id() {
+    // G7: she looked at her Page and it is there; the post id is Mikey's to add, not hers.
+    let f = social_site("resolve-without-id");
+    let calls = Calls::default();
+    let transport = fake(&calls, 200, json!({"announcement": announcement()}));
+    let path = format!("/admin/api/social/announcements/resolve?id={ANNOUNCEMENT}");
+    for body in [
+        json!({"version": 3, "outcome": "published"}),
+        json!({"version": 3, "outcome": "published", "providerPostId": null}),
+    ] {
+        let (s, _) = call(&f, &transport, "POST", &path, Some(body.clone()));
+        assert_eq!(s, 200, "{body}");
+    }
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    for sent in recorded.iter() {
+        assert_eq!(sent.1, "announcements/resolve");
+        assert_eq!(
+            sent.4,
+            Some(json!({"version": 3, "outcome": "published"})),
+            "no id is made up here: the hosted function records the owner's word"
+        );
+    }
+    drop(recorded);
+    let (s, b) = call(
+        &f,
+        &transport,
+        "POST",
+        &path,
+        Some(json!({"version": 3, "outcome": "published", "providerPostId": ""})),
+    );
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (400, Some("invalid-provider-post-id")),
+        "an id that is given must still be a real one"
+    );
 }

@@ -106,3 +106,13 @@ test("Rebuild is in the details, and Home passes axe at 320 px", async ({ page }
   expect(results).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
+
+test("an old Admin address opens its Studio screen, and one not in Studio yet says so", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${origin}/admin/studio/#/greetings`);
+  await expect(page).toHaveURL(/#\/cards$/);
+  await page.goto(`${origin}/admin/studio/#/research`);
+  await expect(page).toHaveURL(/#\/not-yet\/research$/);
+  await expect(page.getByRole("heading", { name: "Research isn't in Studio yet" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Research in the old Admin" })).toHaveAttribute("href", "/admin/#/research");
+});

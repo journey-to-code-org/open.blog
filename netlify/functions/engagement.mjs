@@ -6,7 +6,7 @@ import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/corr
 import { FUTURE_SUGGESTION_KIND, holdsIdentity, planConversion, planCredit, readClarification, readConversions, readerStanding, readSuggestionSubmissionJson, receiveSuggestion, scrubbedIdentity, suggestionCredit } from "../../web/components/future-suggestion.js";
 import { isWorkPath } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
-import { tellOwner } from "../lib/push-store.mjs";
+import { pageWords, tellOwner } from "../lib/push-store.mjs";
 import {
   INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, isPublishable, issuesReceipts, legacyCommentStatus,
   legacySupports, planErasure, planTransition, planUphold, retentionStep, timeKey,
@@ -738,7 +738,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         }));
         // Stored and waiting for review; the owner's phone hears about it if she asked (ADR 0412).
         const excerpt = commentBody.length > 90 ? `${commentBody.slice(0, 89)}…` : commentBody;
-        await tellOwner({ env, fetchImpl, kind: "comment", notice: { title: `${authorName} left a comment`, body: `On ${path}: “${excerpt}”`, url: "/admin/#/moderation", tag: `comment-${rows[0]?.id ?? path}` } });
+        await tellOwner({ env, fetchImpl, kind: "comment", notice: { title: `${authorName} left a comment`, body: `On ${pageWords(path)}: “${excerpt}”`, url: "/admin/studio/#/comments", tag: `comment-${rows[0]?.id ?? path}` } });
         return json(202, { id: rows[0]?.id, status: "pending", ...(captchaPass ? { captchaPass: captchaPass.pass, captchaPassExpiresAt: captchaPass.expiresAt } : {}) }, corsOrigin);
       }
       if (operation === "feedback" || operation === "admin/feedback") {
@@ -775,7 +775,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             headers: { Prefer: "return=representation" },
             body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending", receipt_hash: receiptDigest(receipt) }),
           }));
-          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: "New reader feedback", body: `On ${submission.work}`, url: "/admin/#/feedback", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
+          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: `A reader wrote about ${pageWords(submission.work)}.`, url: "/admin/studio/#/comments", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
           return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
         }
         if (submissionKind(text) === FUTURE_SUGGESTION_KIND) {
@@ -810,7 +810,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             headers: { Prefer: "return=representation" },
             body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending", receipt_hash: receiptDigest(receipt) }),
           }));
-          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: "New reader feedback", body: `On ${submission.work}`, url: "/admin/#/feedback", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
+          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: `A reader wrote about ${pageWords(submission.work)}.`, url: "/admin/studio/#/comments", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
           return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
         }
         // Bounds and every rule apply before anything else, an evidence block's too (ADR 0116);
@@ -862,7 +862,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             ...(record.evidence ? { evidence: record.evidence } : {}),
           }),
         }));
-        await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: "New reader feedback", body: `On ${submission.work}`, url: "/admin/#/feedback", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
+        await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: `A reader wrote about ${pageWords(submission.work)}.`, url: "/admin/studio/#/comments", tag: `feedback-${rows[0]?.id ?? submission.work}` } });
         return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt, ...(receipt ? { receipt } : {}) }, corsOrigin);
       }
       if (operation === "receipt" || operation === "reports") {
@@ -1351,7 +1351,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             headers: { Prefer: "return=representation" },
             body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending" }),
           }));
-          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: "An author answered a reflection", body: `On ${answer.work}`, url: "/admin/#/feedback", tag: `feedback-${rows[0]?.id ?? answer.work}` } });
+          await tellOwner({ env, fetchImpl, kind: "feedback", notice: { title: `An author answered on ${pageWords(answer.work)}.`, url: "/admin/studio/#/comments", tag: `feedback-${rows[0]?.id ?? answer.work}` } });
           return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at }, corsOrigin);
         }
         if (event.httpMethod === "PATCH") {

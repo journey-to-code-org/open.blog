@@ -8,6 +8,7 @@
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { sendOut, wentOutWords } from "./publish.js";
+import { say } from "./words.js";
 
 // Version names are lowercase letters, digits and "-", so "_usual" can never be one.
 const USUAL = "_usual";
@@ -107,7 +108,7 @@ export async function createDecorPieces({ api, meta }) {
     adopt(reply);
     const said = changeWords(piece, choice);
     if (reply.buildError) {
-      status.replaceChildren(h("alert-banner", { variant: "warning", heading: said }, "Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know."));
+      status.replaceChildren(h("alert-banner", { variant: "warning", heading: said }, `Saved, but your site couldn't be updated yet. Nothing is lost. ${say("common.letKnow")}`));
       return;
     }
     const result = await sendOut(api, "Change the decorations");

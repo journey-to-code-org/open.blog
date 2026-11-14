@@ -8,6 +8,7 @@ import { sayDay } from "../parts/dates.js";
 import { siteLink } from "../parts/publish.js";
 import { routeHash } from "../router.js";
 import { RANGES, rangeOf, headline, pagesLine, topReads, peopleWords, seriesLabel, sinceLine, visitorTrouble } from "../parts/visitor-words.js";
+import { say } from "../parts/words.js";
 
 export async function createVisitors({ api, meta, posts, go }, route) {
   await use("alert-banner", "action-button", "empty-state", "select-field", "skeleton-block");
@@ -37,7 +38,7 @@ export async function createVisitors({ api, meta, posts, go }, route) {
       if (error.status === 401) throw error;
       body.removeAttribute("aria-busy");
       body.replaceChildren(h("alert-banner", { variant: error.status === 404 ? "info" : "danger", heading: visitorTrouble(error) },
-        error.status === 404 ? "The person who set up your site can turn it on." : h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
+        error.status === 404 ? say("common.canTurnOn") : h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
       drawDetails(error);
       return;
     }
@@ -78,7 +79,7 @@ export async function createVisitors({ api, meta, posts, go }, route) {
 
   function drawDetails(error) {
     const s = summary || {};
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         `source ${meta.visitors === "hosted" ? "hosted counter (engagement/analytics)" : "built-in counter (analytics; analytics.builtin)"}`,
         error ? `error ${error.status}: ${error.message}` : null,

@@ -7,8 +7,9 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { askWhichToKeep } from "../parts/conflict.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
+import * as M from "../parts/business-rules.js";
+import { say } from "../parts/words.js";
 
-const MODEL = "/admin/business.js";
 const WEEKDAYS_AFTER_MONDAY = ["tuesday", "wednesday", "thursday", "friday"];
 
 /** "7 AM", "5:30 PM" from "07:00", "17:30". */
@@ -21,7 +22,6 @@ const clock = (hhmm) => {
 export async function createBusiness(context) {
   const { api, meta } = context;
   await use("text-field", "select-field", "toggle-switch", "action-button", "alert-banner", "skeleton-block");
-  const M = await import(MODEL);
   let reply = null; // GET business
   let saved = null; // the form as stored
   let form = null; // the form as she has it
@@ -144,7 +144,7 @@ export async function createBusiness(context) {
   }
 
   function drawDetails(serverText = "") {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("pre", { class: "studio-mono", text: JSON.stringify(reply?.business || {}, null, 2) }),
       h("p", { class: "studio-mono", text: `etag ${reply?.etag || ""}${reply?.buildError ? `; build: ${reply.buildError}` : ""}${serverText ? `; server: ${serverText}` : ""}` }),
       h("p", {}, h("a", { href: "/admin/#/business", target: "_blank", rel: "noopener" }, "Business facts in the old Admin")));
@@ -155,7 +155,7 @@ export async function createBusiness(context) {
   function plainProblem(p) {
     const own = M.validateForm(form).find((q) => q.field === p.field && (!p.day || q.day === p.day));
     if (own) return own.message;
-    return p.field ? "This doesn't look right. Check it, then Save." : "Something in your business facts needs fixing. Tell the person who set up your site.";
+    return p.field ? "This doesn't look right. Check it, then Save." : `Something in your business facts needs fixing. ${say("common.tell")}`;
   }
 
   /** Each problem on its field; the rest in the banner. Returns how many. */
@@ -201,7 +201,7 @@ export async function createBusiness(context) {
       if (saved.phone) saved.phone = M.formatPhone(saved.phone);
       if (JSON.stringify(form) === sent) form = { ...saved, hours: structuredClone(saved.hours), paymentMethods: [...saved.paymentMethods] };
       if (result.buildError) {
-        banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Saved, but your site didn't update yet" }, "Something elsewhere on your site needs fixing first. Tell the person who set up your site."));
+        banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Saved, but your site didn't update yet" }, `Something elsewhere on your site needs fixing first. ${say("common.tell")}`));
         drawDetails();
       } else {
         const out = await sendOut(api, "Change the business facts");

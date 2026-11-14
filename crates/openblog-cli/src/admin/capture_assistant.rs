@@ -46,10 +46,14 @@ fn engine_for(config: &SiteConfig) -> Engine {
 /// The stored note of a capture: its path, bytes and container, or why it cannot be read.
 fn stored_note(state: &AppState, id: &str) -> Result<(PathBuf, Vec<u8>, &'static str), Response> {
     if !capture::valid_id(id) {
-        return Err(Response::error(400, "That capture id is not valid"));
+        return Err(coded_error(
+            400,
+            "capture-id",
+            "That capture id is not valid",
+        ));
     }
     let name = stored_capture_audio(state, id)
-        .ok_or_else(|| Response::error(404, "No voice note is kept for that capture"))?;
+        .ok_or_else(|| coded_error(404, "no-note", "No voice note is kept for that capture"))?;
     let path = captures_dir(state).join(&name);
     let bytes = match fs::read(&path) {
         Ok(bytes) if bytes.len() <= capture::MAX_AUDIO_BYTES => bytes,
@@ -254,8 +258,9 @@ pub(super) fn job_draft(state: &AppState, req: &Request) -> Response {
             notes.trim().to_string()
         }
         _ => {
-            return Response::error(
+            return coded_error(
                 400,
+                "notes-too-long",
                 &format!(
                     "Notes must be text of at most {} characters",
                     capture::MAX_NOTES_CHARS
@@ -264,7 +269,11 @@ pub(super) fn job_draft(state: &AppState, req: &Request) -> Response {
         }
     };
     if notes.is_empty() {
-        return Response::error(400, "Add a few words or a transcript to draft from");
+        return coded_error(
+            400,
+            "no-notes",
+            "Add a few words or a transcript to draft from",
+        );
     }
     let mut photo_alts = Vec::new();
     match &body["photoAlts"] {
@@ -280,11 +289,23 @@ pub(super) fn job_draft(state: &AppState, req: &Request) -> Response {
                             photo_alts.push(alt.trim().to_string());
                         }
                     }
-                    _ => return Response::error(400, "A photo description is too long or invalid"),
+                    _ => {
+                        return coded_error(
+                            400,
+                            "bad-photo-alt",
+                            "A photo description is too long or invalid",
+                        )
+                    }
                 }
             }
         }
-        _ => return Response::error(400, "`photoAlts` must be a short list of text"),
+        _ => {
+            return coded_error(
+                400,
+                "bad-photo-alt",
+                "`photoAlts` must be a short list of text",
+            )
+        }
     }
     let input = JobDraftInput {
         notes,

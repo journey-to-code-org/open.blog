@@ -313,6 +313,17 @@ pub(crate) fn gather(
     (rows, families)
 }
 
+/// Whether anything has gone anywhere by the records (G16): a readable record holding a row, or a
+/// readable YouTube record (its rows need the posts' slugs, which this cheap check doesn't load).
+/// Studio shows Sharing, with "Where it went", for such a site even without social accounts.
+pub(crate) fn any_shared(root: &Path, config: &SiteConfig) -> bool {
+    let (rows, families) = gather(root, config, &BTreeMap::new());
+    !rows.is_empty()
+        || families
+            .iter()
+            .any(|family| family.id == "youtube" && family.state == "read")
+}
+
 // ---------------------------------------------------------------------------------------------
 // The report.
 

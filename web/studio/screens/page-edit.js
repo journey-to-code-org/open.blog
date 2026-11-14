@@ -60,7 +60,6 @@ export async function createPageEdit(context, k, arg) {
     more.items = [
       ...(path ? [{ value: "delete", label: `Delete this ${k.one}` }] : []),
       { value: "details", label: "Show details" },
-      ...(path ? [{ value: "old", label: "Open in the old Admin" }] : []),
     ];
   }
 
@@ -166,7 +165,6 @@ export async function createPageEdit(context, k, arg) {
           h("dt", { text: "Address" }), h("dd", { class: "studio-mono", text: doc.url || "After it's saved" })));
       details.open = true;
     }
-    if (value === "old") open(`/admin/#/edit/${encodeURIComponent(path)}`, "_blank", "noopener");
     if (value === "delete") {
       const done = await context.undo.deletePost({ path, etag: doc.etag, title: label(), state: "published", ask, list: k.many, one: k.one,
         note: [k.kind === "series" ? "Its posts stay; they just aren't gathered on one page." : "", isDirty() ? "Changes you haven't saved go with it." : ""].filter(Boolean).join(" ") });

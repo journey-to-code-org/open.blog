@@ -95,12 +95,15 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod pieces;
+mod post_settings;
 mod push;
 mod quote;
 mod reading_paths;
 mod seasonal;
 mod seasons;
 mod social;
+pub(crate) mod studio_words;
 mod theme_draft;
 mod trade_checklist;
 mod voice;
@@ -204,6 +207,8 @@ pub struct AppState {
     pub workspace_enabled: bool,
     /// This server starts again from its image when it restarts (ADR 0353).
     pub host_resets_files: bool,
+    /// The host's file of Studio's words (`OPENBLOG_STUDIO_WORDS_PATH`), read on every `meta`.
+    pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
@@ -286,6 +291,7 @@ impl AppState {
             workspace: Mutex::new(None),
             workspace_enabled: false,
             host_resets_files: crate::workspace::host_resets_files(),
+            studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
@@ -450,12 +456,28 @@ impl AppState {
         // Scheduled shared reflections are held privately and checked again as they fall due.
         fire_due_shared_publications(self);
         let mut status = lock(&self.build);
-        let due = status.next_due.is_some_and(|d| d <= clock::now());
-        if due {
-            Some(self.rebuild_locked(&mut status))
-        } else {
-            None
+        let now = clock::now();
+        let due = status.next_due.is_some_and(|d| d <= now);
+        if !due {
+            return None;
         }
+        // The posts going up now, by title, so the send-out says which (Studio R5 G37).
+        let titles: Vec<String> = status
+            .scheduled
+            .iter()
+            .filter(|(_, _, date)| DateTime::parse(date).is_some_and(|date| date <= now))
+            .map(|(title, _, _)| title.clone())
+            .collect();
+        let result = self.rebuild_locked(&mut status);
+        drop(status);
+        // A site that sends itself out after a save sends a scheduled post out when it goes up too,
+        // so it reaches readers by itself and not at the next save.
+        if result.is_ok() {
+            if let Some(summary) = post_settings::scheduled_summary(&titles) {
+                state_arc(self).auto_publish(summary);
+            }
+        }
+        Some(result)
     }
 
     fn out_dir(&self, config: &SiteConfig) -> PathBuf {
@@ -604,6 +626,22 @@ fn route(state: &AppState, req: &Request) -> Response {
     if path == "/admin/studio" || path.starts_with("/admin/studio/") {
         return studio_file(path);
     }
+    // The one service worker (ADR 0412, Studio R3 G21): Studio's file, at the address and scope
+    // existing installs and sign-ups already have, so a new file is an update of the same worker and
+    // every sign-up survives. Always asked again, so an update is seen at once; a site can't replace it.
+    if path == "/admin/sw.js" {
+        return match studio_bytes("sw.js") {
+            Some(bytes) => {
+                // Which release of Studio's files it keeps for opening with no signal (R4 G35): a
+                // new release is a new worker, which replaces the old copy.
+                let mut script = studio_release_line().into_bytes();
+                script.extend_from_slice(bytes);
+                Response::new(200, "text/javascript; charset=utf-8", script)
+                    .with_header("Cache-Control", "no-cache")
+            }
+            None => Response::error(404, "Not found"),
+        };
+    }
     if path == CODE_RUNNER_LANGUAGE_PATH {
         let config = site::load_config(&state.root).unwrap_or_default();
         return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
@@ -611,10 +649,16 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
-    // The installed app (ADR 0412): its manifest from the site's own name, and its icons, which a
-    // site may replace with its own under `<paths.web>/admin/icons/`.
+    // The installed app (ADR 0412): its manifest from the site's own name, and its icons (Studio's,
+    // `web/studio/icons/`), which a site may replace with its own under `<paths.web>/admin/icons/`.
     if path == "/admin/manifest.webmanifest" {
-        return push::manifest(&site::load_config(&state.root).unwrap_or_default());
+        let config = site::load_config(&state.root).unwrap_or_default();
+        let trade = {
+            let _guard = lock(&state.build);
+            let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+            is_trade_site(&config, &sources)
+        };
+        return push::manifest(&config, trade);
     }
     if let Some(icon) = path.strip_prefix("/admin/icons/") {
         let config = site::load_config(&state.root).unwrap_or_default();
@@ -655,8 +699,6 @@ fn route(state: &AppState, req: &Request) -> Response {
         "/admin/social.js" => "social.js",
         "/admin/quotes.js" => "quotes.js",
         "/admin/greetings.js" => "greetings.js",
-        "/admin/notifications.js" => "notifications.js",
-        "/admin/sw.js" => "sw.js",
         "/admin/announcements.js" => "announcements.js",
         "/admin/job-share.js" => "job-share.js",
         "/admin/voice-library.js" => "voice-library.js",
@@ -699,10 +741,17 @@ fn studio_file(path: &str) -> Response {
         "" => "index.html",
         rel => rel,
     };
-    let Some((_, bytes)) = crate::studio_files::STUDIO_FILES
-        .iter()
-        .find(|(name, _)| *name == rel)
-    else {
+    // The worker lives at /admin/sw.js only: served from here too, it could be registered with a
+    // second, narrower scope.
+    // Which release the page is (R4 Details: the worker's, the page's and the server's side by side).
+    if rel == "release.js" {
+        return Response::new(
+            200,
+            "text/javascript; charset=utf-8",
+            format!("export const RELEASE = \"{}\";\n", studio_release().0).into_bytes(),
+        );
+    }
+    let Some(bytes) = studio_bytes(rel).filter(|_| rel != "sw.js") else {
         return Response::error(404, "Not found");
     };
     let ctype = match rel.rsplit('.').next() {
@@ -712,17 +761,65 @@ fn studio_file(path: &str) -> Response {
         Some("json") => "application/json",
         Some("svg") => "image/svg+xml",
         Some("woff2") => "font/woff2",
+        Some("png") => "image/png",
         _ => "application/octet-stream",
     };
     Response::new(200, ctype, bytes.to_vec())
+}
+
+/// This release of Studio's files: its version (a hash of every Studio file) and the addresses of
+/// the files the worker keeps so Studio opens with no signal (R4 G35), including `release.js`, which
+/// tells the page its own version. Never an API address, never the old Admin's files.
+fn studio_release() -> &'static (String, Vec<String>) {
+    static RELEASE: std::sync::OnceLock<(String, Vec<String>)> = std::sync::OnceLock::new();
+    RELEASE.get_or_init(|| {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut files = vec!["/admin/studio/release.js".to_string()];
+        for (name, bytes) in crate::studio_files::STUDIO_FILES {
+            for byte in name.as_bytes().iter().chain(bytes.iter()) {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            let skip = *name == "sw.js"
+                || name.ends_with(".md")
+                || name.ends_with("LICENSE")
+                || name.ends_with(".json");
+            if !skip {
+                files.push(if *name == "index.html" {
+                    "/admin/studio/".to_string()
+                } else {
+                    format!("/admin/studio/{name}")
+                });
+            }
+        }
+        files.sort();
+        (format!("{hash:016x}"), files)
+    })
+}
+
+/// The first line of the served worker: this release's version and the files it keeps.
+pub(crate) fn studio_release_line() -> String {
+    let (version, files) = studio_release();
+    format!(
+        "self.STUDIO_RELEASE = {};\n",
+        json!({ "version": version, "files": files })
+    )
+}
+
+/// One of Studio's embedded files, by its path under `web/studio/`.
+pub(crate) fn studio_bytes(rel: &str) -> Option<&'static [u8]> {
+    crate::studio_files::STUDIO_FILES
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| *bytes)
 }
 
 fn secured(response: Response) -> Response {
     let response = header_default(
         response,
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
-         frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https: blob:; \
+         media-src 'self' blob:; frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     );
     let response = header_default(response, "X-Frame-Options", "DENY");
     let response = header_default(response, "Referrer-Policy", "same-origin");
@@ -873,6 +970,7 @@ fn authenticated_api(
         ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "job-share") => job_sharing::get(state, req),
         ("GET", "trade-checklist") => trade_checklist::get(state),
+        ("PUT", "trade-checklist") => trade_checklist::put(state, req),
         ("GET", "distribution") => crate::outcomes::admin_get(state, req),
         ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
@@ -1092,12 +1190,13 @@ fn authenticated_api(
                 None => Response::error(400, "Missing ?path="),
             }
         }
-        ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "document/restore") => restore_document(state, req),
         ("POST", "upload") => upload(state, req),
         ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
+        ("GET", "capture-audio") => capture_audio(state, req),
+        ("GET", "capture") => capture_status(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
@@ -1123,6 +1222,10 @@ fn authenticated_api(
             match crate::publish::status(&state.root, &config) {
                 Ok(mut v) => {
                     v["filesMayVanish"] = json!(state.files_may_vanish());
+                    // Studio R5 G37: how the site goes out and when the next scheduled post is due.
+                    v["mode"] = json!(post_settings::publish_mode(&state.root, &config));
+                    v["schedule"] = json!(post_settings::schedule_mode(&state.root, &config));
+                    v["nextDue"] = json!(lock(&state.build).next_due.map(|due| due.rfc3339()));
                     Response::json(200, &v)
                 }
                 Err(e) => Response::error(500, &e),
@@ -3931,6 +4034,11 @@ fn etag(text: &str) -> String {
     etag_bytes(text.as_bytes())
 }
 
+/// A refusal with a short `code` a screen can say in its own words, and the sentence as the detail.
+pub(crate) fn coded_error(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
+}
+
 fn etag_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -3963,15 +4071,102 @@ fn job_check(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     let front_matter = frontmatter::FrontMatter { fields };
-    let problems = match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades)
+    let mut messages =
+        match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades) {
+            Ok(_) => Vec::new(),
+            Err(problems) => problems,
+        };
+    // What the build checks across files (Studio R4 G32): the service is one of the site's published
+    // services, and the review one of its published reviews, when it has any.
+    let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+    let (services, reviews) = published_services_and_reviews(&sources);
+    if let Some(service) = front_matter
+        .get("job.service")
+        .and_then(|value| openblog_core::job::normalize_service(value).ok())
     {
-        Ok(_) => Vec::new(),
-        Err(problems) => problems,
-    };
+        let known: Vec<&str> = services.iter().map(|(id, _)| id.as_str()).collect();
+        messages.extend(openblog_core::service::unknown_service_problem(
+            &known, &service,
+        ));
+    }
+    if let Some(review) = front_matter.get("job.review").map(str::trim) {
+        let known: Vec<&str> = reviews.iter().map(String::as_str).collect();
+        if !review.is_empty() && !known.is_empty() {
+            messages.extend(openblog_core::proof::unknown_review_problem(&known, review));
+        }
+    }
+    let problems: Vec<Json> = messages
+        .iter()
+        .map(|message| {
+            let (field, code) = openblog_core::job::problem_code(message);
+            json!({ "field": field, "code": code, "message": message })
+        })
+        .collect();
+    // `messages` keeps the old Admin's list of sentences for one release.
     Response::json(
         200,
-        &json!({ "ok": problems.is_empty(), "problems": problems }),
+        &json!({ "ok": problems.is_empty(), "problems": problems, "messages": messages }),
     )
+}
+
+/// The site's published services, as `(id, title)`, and its published reviews' ids: the ones the build
+/// accepts a job naming.
+fn published_services_and_reviews(
+    sources: &openblog_core::Sources,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let mut services: Vec<(String, String)> = Vec::new();
+    for file in &sources.services {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        let Some(id) = doc.front_matter.get("id").map(str::trim) else {
+            continue;
+        };
+        if openblog_core::service::check_id(id).is_err()
+            || services.iter().any(|(known, _)| known == id)
+        {
+            continue;
+        }
+        let title = doc
+            .front_matter
+            .get("name")
+            .or_else(|| doc.front_matter.get("title"))
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(id)
+            .to_string();
+        services.push((id.to_string(), title));
+    }
+    let mut reviews = Vec::new();
+    for file in &sources.proof {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        if let Ok(review) = openblog_core::proof::from_front_matter(&doc.front_matter) {
+            reviews.push(review.id);
+        }
+    }
+    (services, reviews)
+}
+
+/// Whether the site is a trade site (`meta.siteUses.trade`): Studio's Business, Services, Reviews and
+/// New job show for it, and only for it.
+fn is_trade_site(config: &SiteConfig, sources: &openblog_core::Sources) -> bool {
+    config.business != openblog_core::business::BusinessConfig::default()
+        || !sources.services.is_empty()
+        || !sources.proof.is_empty()
+        || !config.business.trade.is_empty()
+        || config.seasonal_prompts.enabled
+        || sources.posts.iter().any(|file| {
+            frontmatter::parse(&file.contents)
+                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+        })
 }
 
 fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
@@ -4122,32 +4317,55 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
-    let mut services: Vec<String> = Vec::new();
+    // The services a job can name (Studio R4 G33): the published Services by their names, then any
+    // other service a job already names, by its id in words.
+    let (mut services, _) = published_services_and_reviews(&sources);
+    let mut regions: Vec<String> = Vec::new();
     for file in &sources.posts {
         if let Ok(doc) = frontmatter::parse(&file.contents) {
             if let Some(service) = doc.front_matter.get("job.service") {
                 if let Ok(service) = openblog_core::job::normalize_service(service) {
-                    if !services.contains(&service) {
-                        services.push(service);
+                    if !services.iter().any(|(known, _)| *known == service) {
+                        let words = service.replace('-', " ");
+                        let mut title = words.clone();
+                        if let Some(first) = words.chars().next() {
+                            title = first.to_uppercase().collect::<String>()
+                                + &words[first.len_utf8()..];
+                        }
+                        services.push((service, title));
                     }
+                }
+            }
+            if let Some(region) = doc.front_matter.get("job.place.region").map(str::trim) {
+                if !region.is_empty() {
+                    regions.push(region.to_string());
                 }
             }
         }
     }
-    for file in &sources.services {
-        let Ok(doc) = frontmatter::parse(&file.contents) else {
-            continue;
-        };
-        if let Some(id) = doc.front_matter.get("id").map(str::trim) {
-            if openblog_core::service::check_id(id).is_ok()
-                && !doc.front_matter.get_bool("draft").unwrap_or(false)
-                && !services.iter().any(|known| known == id)
+    services.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    // The state most of the site's jobs name, as the one a new job starts with.
+    let site_region = {
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for region in &regions {
+            match counts
+                .iter_mut()
+                .find(|(known, _)| known.eq_ignore_ascii_case(region))
             {
-                services.push(id.to_string());
+                Some((_, count)) => *count += 1,
+                None => counts.push((region.clone(), 1)),
             }
         }
-    }
-    services.sort();
+        counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(region, _)| region)
+            .unwrap_or_default()
+    };
     // The saved reviews a job can link (ADR 0389): published and valid ones only, newest first.
     let mut reviews: Vec<(String, Json)> = Vec::new();
     for file in &sources.proof {
@@ -4173,9 +4391,11 @@ fn meta(state: &AppState) -> Response {
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
         "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
-        "services": services,
+        "services": services.iter().map(|(id, title)| json!({ "id": id, "title": title })).collect::<Vec<_>>(),
         "reviews": reviews.into_iter().map(|(_, review)| review).collect::<Vec<_>>(),
         "scaffold": openblog_core::job::scaffold_body(),
+        "siteTrade": config.business.trade.trim().to_ascii_lowercase(),
+        "siteRegion": site_region,
     });
     let (owner_courses, owner_cuisines) =
         openblog_core::recipe_listing::owner_values(&sources.posts);
@@ -4203,14 +4423,25 @@ fn meta(state: &AppState) -> Response {
                 "label": profile.label,
                 "description": profile.description,
                 "starter": profile.starter,
-                "fields": profile.fields.iter().map(|field| json!({
-                    "key": field.key,
-                    "label": field.label,
-                    "kind": field.kind.as_str(),
-                    "help": openblog_core::profile::field_help(field, config.recipes.listing),
-                    "aliases": openblog_core::profile::field_aliases(field.key),
-                    "suggestions": suggestions(field.key),
-                })).collect::<Vec<_>>(),
+                "fields": profile.fields.iter().map(|field| {
+                    // Studio R5 G40: a web address, a file, or one of a few choices.
+                    let (kind, choices) = post_settings::field_control(field.key, field.kind.as_str());
+                    let mut out = json!({
+                        "key": field.key,
+                        "label": field.label,
+                        "kind": kind,
+                        "help": openblog_core::profile::field_help(field, config.recipes.listing),
+                        "aliases": openblog_core::profile::field_aliases(field.key),
+                        "suggestions": suggestions(field.key),
+                    });
+                    if let Some(choices) = choices {
+                        out["choices"] = json!(choices.iter().map(|value| json!({ "value": value })).collect::<Vec<_>>());
+                    }
+                    if let Some(max) = post_settings::field_max(field.key) {
+                        out["max"] = json!(max);
+                    }
+                    out
+                }).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -4235,15 +4466,7 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
-    let trade_site = config.business != openblog_core::business::BusinessConfig::default()
-        || !sources.services.is_empty()
-        || !sources.proof.is_empty()
-        || !config.business.trade.is_empty()
-        || config.seasonal_prompts.enabled
-        || sources.posts.iter().any(|file| {
-            frontmatter::parse(&file.contents)
-                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
-        });
+    let trade_site = is_trade_site(&config, &sources);
     let engagement_ready = config.engagement.enabled
         && engagement_credential_summary(&state.root, &config.engagement.endpoint)
             .is_ok_and(|summary| summary["configured"] == json!(true));
@@ -4273,7 +4496,13 @@ fn meta(state: &AppState) -> Response {
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
                 // A trade site: Studio's Business, Services and Reviews show for it, and only for it.
                 "trade": trade_site,
+                // Something has gone somewhere (G16): Sharing shows "Where it went" for it.
+                "shared": crate::outcomes::any_shared(&state.root, &config),
+                // Pins are sent (Studio R5 G39): a post's Pin words are on her layer.
+                "pinterest": config.syndication.pinterest.as_ref().is_some_and(|pins| pins.enabled),
             },
+            // How a scheduled post reaches readers (Studio R5 G37): "self" or "next-send".
+            "schedule": post_settings::schedule_mode(&state.root, &config),
             "job": job_form,
             "capture": openblog_core::capture::limits_json(
                 (upload_intake_bytes(&config) / (1024 * 1024)) as u32,
@@ -4307,6 +4536,9 @@ fn meta(state: &AppState) -> Response {
                 json!(false)
             },
             "now": clock::now().rfc3339(),
+            // Studio's words for this site (docs/studio-words.md): what's in effect and, for the
+            // developer only, what was dropped and why.
+            "studioWords": studio_words::for_meta(&config, state.studio_words_path.as_deref()),
         }),
     )
 }
@@ -12094,19 +12326,37 @@ fn status(state: &AppState) -> Response {
 /// Overview, and stays out of the content transaction: saves and builds don't
 /// wait for it. A write in progress can at worst make the notes stale or empty
 /// until the next look, and they are only advice.
+///
+/// `notes` are the finished sentences (the old Admin's); `items` are the same notes as facts beside
+/// each sentence, so Studio says them in its own words and links the page (R1, G14).
 fn recipe_notes(state: &AppState) -> Response {
-    Response::json(
-        200,
-        &json!({ "notes": published_recipe_notes(&state.root) }),
-    )
+    let plan = published_recipe_plan(&state.root);
+    let items: Vec<Json> = plan
+        .notes
+        .iter()
+        .zip(plan.facts.iter())
+        .map(|(text, fact)| {
+            json!({
+                "text": text,
+                "code": fact.code,
+                "address": fact.address,
+                "fallback": fact.fallback,
+                "page": fact.page.as_ref().map(|page| json!({ "path": page.path, "kind": page.kind, "title": page.title })),
+                "byAlias": fact.by_alias,
+                "facet": fact.facet,
+                "value": fact.value,
+            })
+        })
+        .collect();
+    Response::json(200, &json!({ "notes": plan.notes, "items": items }))
 }
 
-fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
+fn published_recipe_plan(root: &std::path::Path) -> openblog_core::recipe_listing::RecipePlan {
     let Ok(config) = site::load_config(root) else {
-        return Vec::new();
+        return Default::default();
     };
     let Ok(sources) = site::read_sources(root, &config) else {
-        return Vec::new();
+        return Default::default();
     };
     let options = LoadOptions {
         include_drafts: false,
@@ -12114,7 +12364,7 @@ fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
         preview_source: None,
     };
     Site::load(config, sources, options)
-        .map(|site| openblog_core::recipe_listing::plan(&site).notes)
+        .map(|site| openblog_core::recipe_listing::plan(&site))
         .unwrap_or_default()
 }
 
@@ -12184,7 +12434,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                                 json!({
                                     "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
                                     "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
-                                    "url": p.url, "words": p.word_count,
+                                    "url": p.url, "words": p.word_count, "profile": p.profile,
                                     "creditMode": credit_mode,
                                 }),
                             )
@@ -12288,10 +12538,32 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             } else {
                 Json::Null
             };
-            Response::json(
-                200,
-                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error }),
-            )
+            let mut reply = json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error });
+            // Studio R5 G38/G43: what the post is now, where it lives, whether it was ever on the
+            // site (its address stays put once it may have been), and its automatic excerpt.
+            if kind == "posts" {
+                let now = clock::now();
+                let facts = post_settings::post_facts(rel, &text, &config, now);
+                reply["status"] = json!(facts.status);
+                reply["url"] = json!(facts.url);
+                reply["slug"] = json!(facts.slug);
+                reply["excerpt"] = json!(facts.excerpt);
+                reply["wasPublished"] = json!(post_settings::was_published(
+                    &state.root,
+                    &config,
+                    rel,
+                    facts.status == "published",
+                    now,
+                ));
+                reply["hasHistory"] = json!(post_settings::has_history(&state.root));
+            }
+            // A job made on a phone: the capture it came from, for its voice note (Studio R4 G30).
+            if kind == "posts" && doc.front_matter.get("profile") == Some("job") {
+                if let Some(capture) = capture_for_path(state, rel) {
+                    reply["capture"] = capture;
+                }
+            }
+            Response::json(200, &reply)
         }
         Err(e) => Response::json(
             200,
@@ -12432,10 +12704,10 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
     let Some(contributors) = body.get("contributors").and_then(Json::as_object) else {
-        return Response::error(422, "contributors must be an object");
+        return coded_error(422, "invalid", "contributors must be an object");
     };
     if contributors.len() > 500 {
-        return Response::error(422, "contributors has too many entries");
+        return coded_error(422, "invalid", "contributors has too many entries");
     }
 
     let mut status = lock(&state.build);
@@ -12450,9 +12722,11 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot read {}: {error}", path.display()))
         }
     };
+    // Every refusal carries a `code` (Studio R5 G41).
     if body.get("etag").and_then(Json::as_str) != Some(etag_bytes(&current_bytes).as_str()) {
-        return Response::error(
+        return coded_error(
             409,
+            "changed",
             "Site settings changed on disk since you opened Contributors. Reload before saving.",
         );
     }
@@ -12480,7 +12754,12 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
     };
     let candidate_config = match SiteConfig::from_json(&candidate_text) {
         Ok(config) => config,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": error, "code": "invalid", "field": post_settings::contributor_field(&error) }),
+            )
+        }
     };
     let removed = current_config
         .contributors
@@ -12497,7 +12776,9 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Referenced contributors cannot be removed. Update these post credits first.",
+                "code": "named-on-posts",
                 "paths": references,
+                "posts": post_settings::posts_naming(&state.root, &current_config, &references),
             }),
         );
     }
@@ -12515,6 +12796,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors who take part in a shared reflection cannot be removed.",
+                "code": "in-shared-reflection",
                 "contributors": bound_removed,
             }),
         );
@@ -12538,6 +12820,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors named as interpreters in the source library cannot be removed. Change those interpretations first.",
+                "code": "named-in-sources",
                 "contributors": contributors,
                 "interpretations": interpretations,
             }),
@@ -16461,7 +16744,11 @@ fn validate_candidate(
     ) {
         Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e])?,
         Err(errors) => {
-            let sidecar = openblog_core::contributor::sidecar_path(rel);
+            // The credit file's own problems are this save's only when it changes the credits: a
+            // file that was already broken never stops the title saving (Studio R5).
+            let sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
+                .then(|| openblog_core::contributor::sidecar_path(rel))
+                .flatten();
             let mine: Vec<String> = errors
                 .into_iter()
                 .filter(|error| {
@@ -16850,17 +17137,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if let Err(r) = require_json(req) {
         return r;
     }
+    // Every refusal carries a `code` Studio says in its own words (Studio R5 G36).
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let mut fields = match fields_from_json(&body["fields"]) {
         Ok(f) => f,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return coded_error(422, "bad-request", &e),
     };
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Response::error(413, "The post body is too large");
+        return coded_error(413, "too-large", "The post body is too large");
     }
     // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0297).
     let capture_id = match body.get("captureId") {
@@ -16870,7 +17158,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         {
             Some(id.clone())
         }
-        Some(_) => return Response::error(422, "That capture id is not valid"),
+        Some(_) => return coded_error(422, "capture-id", "That capture id is not valid"),
     };
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -16908,54 +17196,57 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             let kind = body["kind"].as_str().unwrap_or("posts");
             match derive_new_path(kind, &fields) {
                 Ok(rel) => (rel, true),
-                Err(e) => return Response::error(422, &e),
+                Err(e) => return coded_error(422, "bad-request", &e),
             }
         }
     };
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
-        Err(e) => return Response::error(400, &e),
+        Err(e) => return coded_error(400, "bad-path", &e),
     };
     let kind = check_rel_path(&rel).unwrap_or("posts");
     let credit_path = if kind == "posts" {
         match resolve_credit_path(&state.root, &config, &rel) {
             Ok(path) => Some(path),
-            Err(error) => return Response::error(400, &error),
+            Err(error) => return coded_error(400, "bad-path", &error),
         }
     } else {
         None
     };
     let credit_edit = match requested_credit_edit(&body, kind) {
         Ok(edit) => edit,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => return coded_error(422, "bad-request", &error),
     };
 
     let mut retired_track = None;
     if created {
         if path.exists() {
-            return Response::error(
+            // Named by its address (`slug`), the address is what's taken; else the title.
+            return Response::json(
                 409,
-                "A file with that name already exists. Change the title, slug, or date.",
+                &json!({ "error": "A file with that name already exists. Change the title, slug, or date.", "code": "exists", "slug": field_scalar(&fields, "slug").is_some_and(|slug| !slug.trim().is_empty()) }),
             );
         }
         if matches!(credit_edit, CreditEdit::Unchanged)
             && credit_path.as_ref().is_some_and(|path| path.exists())
         {
-            return Response::error(
+            return coded_error(
                 409,
+                "credit-file-exists",
                 "A credit sidecar with that name already exists. Reload with a credits-aware Admin client or move the orphaned sidecar.",
             );
         }
     } else {
         let current = match fs::read_to_string(&path) {
             Ok(t) => t,
-            Err(_) => return Response::error(404, "No such document"),
+            Err(_) => return coded_error(404, "not-found", "No such document"),
         };
         match body["etag"].as_str() {
             Some(sent) if sent == etag(&current) => {}
             _ => {
-                return Response::error(
+                return coded_error(
                     409,
+                    "changed",
                     "This file changed on disk since you opened it. Reload it before saving.",
                 )
             }
@@ -17042,8 +17333,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             None => body.get("creditEtag").is_none_or(Json::is_null),
         };
         if !matches {
-            return Response::error(
+            return coded_error(
                 409,
+                "credits-changed",
                 "The post credits changed on disk since you opened them. Reload before saving.",
             );
         }
@@ -17066,8 +17358,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                 &config.contributors,
             );
             if !published.sections().is_empty() && edited.sections().is_empty() {
-                return Response::error(
+                return coded_error(
                     422,
+                    "shared-order",
                     "These credits no longer match the order in which each contributor first appears in this shared reflection, so readers could no longer write to or answer each author’s own section. List each contributor once, in the order they first appear.",
                 );
             }
@@ -17086,15 +17379,12 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             &credit_edit,
             &config,
         ) {
-            return Response::error(422, &message);
+            return coded_error(422, "shared-rebind", &message);
         }
     }
 
     if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
-        return Response::json(
-            422,
-            &json!({ "error": "This can't be saved yet.", "problems": problems }),
-        );
+        return post_settings::save_refused(&problems);
     }
     let sidecar = credit_path.as_deref().unwrap_or(&path);
     if let Err(e) = write_document_bundle(
@@ -17159,7 +17449,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
 fn replayed_capture(state: &AppState, config: &SiteConfig, ledger: &[u8]) -> Response {
     let rel = match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(ledger)) {
         Ok(rel) => rel,
-        Err(error) => return Response::error(409, &error),
+        Err(error) => return coded_error(409, "ledger-version", &error),
     };
     let source = resolve_content_path(&state.root, config, &rel)
         .ok()
@@ -17264,28 +17554,6 @@ fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
     target
 }
 
-fn post_context_path_pairs(
-    root: &Path,
-    old_document: &str,
-    new_document: &str,
-) -> Result<Vec<(PathBuf, PathBuf)>, Response> {
-    let mut pairs = Vec::new();
-    for visibility in ["portable", "private"] {
-        let (old, _, _) = assistant_context_target(root, "post", visibility, Some(old_document))?;
-        let (new, _, _) = assistant_context_target(root, "post", visibility, Some(new_document))?;
-        if old.exists() {
-            if !old.is_file() {
-                return Err(Response::error(
-                    409,
-                    "Associated post context is not a file",
-                ));
-            }
-            pairs.push((old, new));
-        }
-    }
-    Ok(pairs)
-}
-
 fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     for (from, to) in moves {
         if !from.is_file() {
@@ -17325,93 +17593,6 @@ fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String
         moved.push((from.clone(), to.clone()));
     }
     Ok(())
-}
-
-fn rename_document(state: &AppState, req: &Request) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid rename request"),
-    };
-    let Some(old_rel) = body["path"].as_str() else {
-        return Response::error(400, "Missing path");
-    };
-    let Some(new_rel) = body["newPath"].as_str() else {
-        return Response::error(400, "Missing newPath");
-    };
-    if old_rel == new_rel {
-        return Response::error(422, "The new document path is unchanged");
-    }
-    if check_rel_path(old_rel).ok() != Some("posts")
-        || check_rel_path(new_rel).ok() != Some("posts")
-    {
-        return Response::error(422, "Only post Markdown paths can be renamed here");
-    }
-    let mut status = lock(&state.build);
-    let _filesystem_transaction = match content_transaction(state) {
-        Ok(lock) => lock,
-        Err(response) => return response,
-    };
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let old_path = match resolve_content_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let new_path = match resolve_content_path(&state.root, &config, new_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let source = match fs::read_to_string(&old_path) {
-        Ok(source) => source,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Response::error(404, "No such document")
-        }
-        Err(error) => return Response::error(500, &format!("Cannot read document: {error}")),
-    };
-    if body["etag"].as_str() != Some(etag(&source).as_str()) {
-        return Response::error(
-            409,
-            "Document changed since it was opened; reload and retry",
-        );
-    }
-    let mut moves = vec![(old_path, new_path)];
-    let old_credit = match resolve_credit_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    if old_credit.is_file() {
-        let new_credit = match resolve_credit_path(&state.root, &config, new_rel) {
-            Ok(path) => path,
-            Err(error) => return Response::error(400, &error),
-        };
-        moves.push((old_credit, new_credit));
-    }
-    match post_context_path_pairs(&state.root, old_rel, new_rel) {
-        Ok(context_moves) => moves.extend(context_moves),
-        Err(response) => return response,
-    }
-    if let Err(error) = move_files_transactionally(&moves) {
-        let status = if error.contains("destination already exists") {
-            409
-        } else {
-            500
-        };
-        return Response::error(status, &format!("Cannot rename document bundle: {error}"));
-    }
-    let build = state.rebuild_locked(&mut status);
-    let build_json = match build {
-        Ok(report) => json!({ "ok": true, "posts": report.posts }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    };
-    Response::json(
-        200,
-        &json!({ "ok": true, "path": new_rel, "etag": etag(&source), "build": build_json }),
-    )
 }
 
 fn delete_document(state: &AppState, req: &Request) -> Response {
@@ -18244,24 +18425,25 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
 /// Check one piece's form values and return the Markdown that holds it in a
 /// post (ADR 0253). The engine is the only place a piece is validated or
 /// written, so the Admin cannot save one the build would refuse. Nothing is
-/// stored.
+/// stored. Problems carry codes (Studio R6 G44); a question for readers and a
+/// code block are checked here too (G45). See `admin/pieces.rs`.
 fn build_piece(req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
     }
     if req.body.len() > MAX_PIECE_REQUEST_BYTES {
-        return Response::error(413, "A piece is limited to 64 KiB");
+        return coded_error(413, "too-large", "A piece is limited to 64 KiB");
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let kind = body["kind"].as_str().unwrap_or("");
     if body["values"]
         .as_array()
         .is_some_and(|pairs| pairs.len() > MAX_PIECE_VALUES)
     {
-        return Response::error(413, "That piece has too many details");
+        return coded_error(413, "too-many", "That piece has too many details");
     }
     let Some(values) = body["values"].as_array().map(|pairs| {
         pairs
@@ -18274,23 +18456,15 @@ fn build_piece(req: &Request) -> Response {
             })
             .collect::<Vec<_>>()
     }) else {
-        return Response::error(400, "values must be a list of [field, value] pairs");
+        return coded_error(
+            400,
+            "bad-request",
+            "values must be a list of [field, value] pairs",
+        );
     };
-    if kind == openblog_core::compare::FENCE {
-        return match openblog_core::compare::from_values(&values) {
-            Ok(pair) => Response::json(200, &json!({ "markdown": pair.to_markdown() })),
-            Err(problems) => Response::json(
-                422,
-                &json!({ "error": "Check the highlighted details", "problems": problems }),
-            ),
-        };
-    }
-    match openblog_core::piece::Piece::from_values(kind, &values) {
-        Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
-        Err(problems) => Response::json(
-            422,
-            &json!({ "error": "Check the highlighted details", "problems": problems }),
-        ),
+    match pieces::build(kind, &values) {
+        Ok(markdown) => Response::json(200, &json!({ "markdown": markdown })),
+        Err(problems) => Response::json(422, &pieces::refusal(&problems)),
     }
 }
 
@@ -18779,11 +18953,12 @@ fn upload(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     if req.body.is_empty() {
-        return Response::error(400, "No image data");
+        return coded_error(400, "not-image", "No image data");
     }
     if req.body.len() > upload_intake_bytes(&config) {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture is over {} MB, which is too large to use. Try a smaller copy.",
                 upload_intake_bytes(&config) / (1024 * 1024)
@@ -18792,14 +18967,16 @@ fn upload(state: &AppState, req: &Request) -> Response {
     }
     let Some(sniffed) = sniff_image(&req.body) else {
         if is_heic(&req.body) {
-            return Response::error(
+            return coded_error(
                 415,
+                "heic",
                 "This photo is in the HEIC format iPhones use, which web pages cannot show. \
                  Choose it directly from the iPhone, or save a copy as a JPEG and upload that.",
             );
         }
-        return Response::error(
+        return coded_error(
             415,
+            "not-image",
             "Only PNG, JPEG, GIF, WebP, and AVIF images can be uploaded",
         );
     };
@@ -18810,8 +18987,9 @@ fn upload(state: &AppState, req: &Request) -> Response {
         None => (req.body.as_slice(), sniffed),
     };
     if bytes.len() > config.admin.max_upload_mb as usize * 1024 * 1024 {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture could not be made smaller and is over the {} MB limit. Try a smaller copy.",
                 config.admin.max_upload_mb
@@ -18830,10 +19008,22 @@ fn upload(state: &AppState, req: &Request) -> Response {
                 .and_then(|slot| openblog_core::capture::photo_stem(id, slot))
             {
                 Some(stem) => Some(stem),
-                None => return Response::error(400, "That capture id or photo slot is not valid"),
+                None => {
+                    return coded_error(
+                        400,
+                        "capture-slot",
+                        "That capture id or photo slot is not valid",
+                    )
+                }
             }
         }
-        _ => return Response::error(400, "A capture upload needs both capture and slot"),
+        _ => {
+            return coded_error(
+                400,
+                "capture-slot",
+                "A capture upload needs both capture and slot",
+            )
+        }
     };
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
@@ -18950,14 +19140,15 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         .get("capture")
         .filter(|id| openblog_core::capture::valid_id(id))
     else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     if req.body.is_empty() {
-        return Response::error(400, "No audio data");
+        return coded_error(400, "not-audio", "No audio data");
     }
     if req.body.len() > openblog_core::capture::MAX_AUDIO_BYTES {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "A voice note can be at most {} MB",
                 openblog_core::capture::MAX_AUDIO_BYTES / (1024 * 1024)
@@ -18965,10 +19156,14 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         );
     }
     let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
-        return Response::error(415, "That is not an audio recording this site can keep");
+        return coded_error(
+            415,
+            "not-audio",
+            "That is not an audio recording this site can keep",
+        );
     };
     let Some(name) = openblog_core::capture::audio_file_name(id, extension) else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     let _guard = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -18983,6 +19178,134 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
     }
     eprintln!("admin: kept a voice note ({} bytes)", req.body.len());
     Response::json(201, &json!({ "stored": true, "bytes": req.body.len() }))
+}
+
+/// The image extensions a capture's photo can be stored under (what `sniff_image` and
+/// `photo::fit_for_web` produce).
+const CAPTURE_PHOTO_EXTENSIONS: [&str; 5] = ["jpg", "png", "webp", "gif", "avif"];
+
+/// What the server already has of a capture (Studio R4 G29): the photos stored for each slot, whether
+/// its voice note is kept, and the draft it became, so a phone sending it again skips what arrived.
+/// Reads only; the same lock as a save, so it never sees half a capture.
+fn capture_status(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("id")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let _guard = lock(&state.build);
+    let static_dir = state.root.join(&config.paths.static_dir);
+    let mut photos = Vec::new();
+    for slot in 0..openblog_core::capture::MAX_PHOTOS {
+        let Some(stem) = openblog_core::capture::photo_stem(id, slot) else {
+            continue;
+        };
+        if let Some(ext) = CAPTURE_PHOTO_EXTENSIONS.iter().find(|ext| {
+            static_dir
+                .join(format!("images/uploads/captures/{stem}.{ext}"))
+                .is_file()
+        }) {
+            photos.push(
+                json!({ "slot": slot, "url": format!("/images/uploads/captures/{stem}.{ext}") }),
+            );
+        }
+    }
+    let draft = match read_optional_bytes(&captures_dir(state).join(format!("{id}.json"))) {
+        Ok(Some(bytes)) => {
+            match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(&bytes)) {
+                Ok(rel) => {
+                    let status = resolve_content_path(&state.root, &config, &rel)
+                        .ok()
+                        .and_then(|path| fs::read_to_string(path).ok())
+                        .map_or("removed", |source| {
+                            describe(&rel, &source, &config, clock::now()).0
+                        });
+                    json!({ "path": rel, "status": status })
+                }
+                Err(_) => Json::Null,
+            }
+        }
+        _ => Json::Null,
+    };
+    Response::json(
+        200,
+        &json!({ "photos": photos, "audio": stored_capture_audio(state, id).is_some(), "draft": draft }),
+    )
+}
+
+/// A capture's kept voice note, for the post it became (Studio R4 G30). Signed in only, never cached,
+/// and typed by its own bytes.
+fn capture_audio(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("capture")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let _guard = lock(&state.build);
+    let Some(name) = stored_capture_audio(state, id) else {
+        return coded_error(404, "no-note", "No voice note is kept for that capture");
+    };
+    let Ok(bytes) = fs::read(captures_dir(state).join(name)) else {
+        return Response::error(500, "Cannot read the voice note");
+    };
+    let ctype = match openblog_core::capture::sniff_audio(&bytes) {
+        Some("webm") => "audio/webm",
+        Some("ogg") => "audio/ogg",
+        Some("m4a") => "audio/mp4",
+        Some("wav") => "audio/wav",
+        Some("mp3") => "audio/mpeg",
+        _ => return coded_error(415, "not-audio", "That voice note can't be read"),
+    };
+    Response::new(200, ctype, bytes)
+        .with_header("Cache-Control", "no-store")
+        .with_header("X-Content-Type-Options", "nosniff")
+}
+
+/// Most ledger entries read to find which capture a post came from.
+const MAX_LEDGERS_SCANNED: usize = 2000;
+
+/// The capture a post was made from, by the ledger entry naming its path (Studio R4 G30): its id,
+/// whether its voice note is kept and whether it has been turned into words. The ledger is the index;
+/// entries whose id starts with the post's slug suffix (a capture's slug ends with the id's first six
+/// digits) are read first, so the usual case reads one file.
+fn capture_for_path(state: &AppState, rel: &str) -> Option<Json> {
+    let dir = captures_dir(state);
+    let hint = rel
+        .trim_end_matches(".md")
+        .rsplit('-')
+        .next()
+        .filter(|tail| tail.len() == 6)
+        .unwrap_or("")
+        .to_string();
+    let mut ids: Vec<String> = fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            let id = name.strip_suffix(".json")?.to_string();
+            openblog_core::capture::valid_id(&id).then_some(id)
+        })
+        .take(MAX_LEDGERS_SCANNED)
+        .collect();
+    ids.sort_by_key(|id| !(!hint.is_empty() && id.starts_with(&hint)));
+    let id = ids.into_iter().find(|id| {
+        fs::read_to_string(dir.join(format!("{id}.json")))
+            .ok()
+            .and_then(|text| openblog_core::capture::parse_ledger(&text).ok())
+            .is_some_and(|path| path == rel)
+    })?;
+    let transcript = openblog_core::capture::transcript_file_name(&id)
+        .is_some_and(|name| dir.join(name).is_file());
+    Some(
+        json!({ "id": id, "audio": stored_capture_audio(state, &id).is_some(), "transcript": transcript }),
+    )
 }
 
 fn upload_track(state: &AppState, req: &Request) -> Response {
@@ -19185,6 +19508,8 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod piece_routes;
+    mod post_settings_routes;
     mod proof_routes;
     mod push_routes;
     mod quote_routes;
@@ -19194,7 +19519,9 @@ mod tests {
     mod seasons_routes;
     mod service_routes;
     mod social_routes;
+    mod studio_job_routes;
     mod studio_routes;
+    mod studio_words_routes;
     mod theme_draft_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;
@@ -26445,6 +26772,76 @@ What I read:
     }
 
     #[test]
+    fn recipe_notes_come_with_facts_so_studio_can_word_them_and_link_the_page() {
+        // G14: beside each sentence, its code, the addresses, the page that holds the address and
+        // the course or cuisine, so Studio never shows "Settings" or "Slug".
+        let f = fixture("recipe-note-facts");
+        assert_eq!(body_json(&recipe_notes(&f.state))["items"], json!([]));
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncourse: \"\u{1F370}\"\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(f.dir.join("content/pages")).unwrap();
+        std::fs::write(
+            f.dir.join("content/pages/recipes.md"),
+            "---\ntitle: My recipes\nslug: recipes\n---\nMine.\n",
+        )
+        .unwrap();
+        let body = body_json(&recipe_notes(&f.state));
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "{items:?}");
+        assert_eq!(
+            items[0]["text"], body["notes"][0],
+            "each fact sits beside its sentence"
+        );
+        assert_eq!(items[0]["code"], "address-taken");
+        assert_eq!(items[0]["address"], "/recipes/");
+        assert_eq!(items[0]["fallback"], "/recipes/all/");
+        assert_eq!(items[0]["page"]["kind"], "page");
+        assert_eq!(items[0]["page"]["title"], "My recipes");
+        assert_eq!(items[0]["page"]["path"], "pages/recipes.md");
+        assert_eq!(items[0]["byAlias"], false);
+        assert_eq!(items[1]["code"], "wordless");
+        assert_eq!(items[1]["facet"], "course");
+        assert_eq!(items[1]["value"], "\u{1F370}");
+        assert_eq!(items[1]["page"], Json::Null);
+    }
+
+    #[test]
+    fn listed_posts_say_their_profile_so_studio_can_tell_a_job() {
+        // G15: Posts offers "Share this job" on a job, so the list says each post's profile.
+        let f = fixture("documents-profile");
+        let session = login_ok(&f);
+        std::fs::write(
+            f.dir.join("content/posts/oak.md"),
+            "---\ntitle: New oak floor\ndate: 2026-10-01\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2026-09-14\n  finished: 2026-09-16\n---\nSanded and sealed.\n",
+        )
+        .unwrap();
+        let listed = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        ));
+        let items = listed["items"].as_array().unwrap();
+        let oak = items
+            .iter()
+            .find(|item| item["path"] == "posts/oak.md")
+            .unwrap();
+        assert_eq!(oak["profile"], "job", "{oak}");
+        assert!(
+            items
+                .iter()
+                .filter(|item| item["status"] != "error")
+                .all(|item| item["profile"].is_string()),
+            "every readable post names one: {items:?}"
+        );
+    }
+
+    #[test]
     fn admin_meta_promises_browsing_by_course_only_on_a_site_with_a_recipe_list() {
         let f = fixture("recipe-listing-off");
         let help = |state: &AppState| {
@@ -26568,7 +26965,12 @@ What I read:
             .iter()
             .any(|t| t == "flooring"));
         assert_eq!(job["costBands"][0], "under-500");
-        assert_eq!(job["services"], json!(["hardwood-install"]));
+        assert_eq!(
+            job["services"],
+            json!([{ "id": "hardwood-install", "title": "Hardwood install" }])
+        );
+        assert_eq!(job["siteTrade"], "");
+        assert_eq!(job["siteRegion"], "");
         assert!(job["scaffold"]
             .as_str()
             .unwrap()
@@ -26635,11 +27037,19 @@ What I read:
             true,
         );
         assert_eq!(bad.status, 200);
-        let problems = body_json(&bad)["problems"].to_string();
+        let problems = body_json(&bad)["messages"].to_string();
         assert!(
             problems.contains("welding") && problems.contains("job.costBand"),
             "{problems}"
         );
+        let coded = &body_json(&bad)["problems"];
+        assert!(coded
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["field"] == "job.trade"
+                && p["code"] == "unknown-trade"
+                && p["message"].as_str().unwrap().contains("welding")));
         assert!(
             problems.contains("job.place.town"),
             "every problem at once: {problems}"
@@ -32825,78 +33235,6 @@ What I read:
     }
 
     #[test]
-    fn document_rename_moves_post_context_and_conflicts_without_partial_changes() {
-        let f = fixture("post-context-rename");
-        let session = login_ok(&f);
-        let old_rel = "posts/2026-01-01-old-name.md";
-        let new_rel = "posts/2026-01-01-new-name.md";
-        let source = "---\ntitle: Old name\ndate: 2026-01-01\n---\n\nBody.\n";
-        fs::write(f.dir.join("content").join(old_rel), source).unwrap();
-        for root in ["assistant/context", ".openblog/private/context"] {
-            let directory = f.dir.join(root).join("posts");
-            fs::create_dir_all(&directory).unwrap();
-            fs::write(
-                directory.join("2026-01-01-old-name.md"),
-                "## Goal\n\nKeep me.\n",
-            )
-            .unwrap();
-        }
-
-        let renamed = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": old_rel, "newPath": new_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(
-            renamed.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&renamed.body)
-        );
-        assert!(!f.dir.join("content").join(old_rel).exists());
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        for root in ["assistant/context", ".openblog/private/context"] {
-            assert!(!f
-                .dir
-                .join(root)
-                .join("posts/2026-01-01-old-name.md")
-                .exists());
-            assert_eq!(
-                fs::read_to_string(f.dir.join(root).join("posts/2026-01-01-new-name.md")).unwrap(),
-                "## Goal\n\nKeep me.\n"
-            );
-        }
-
-        let conflict_rel = "posts/2026-01-01-conflict.md";
-        fs::write(f.dir.join("content").join(conflict_rel), "occupied").unwrap();
-        let conflict = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": new_rel, "newPath": conflict_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(conflict.status, 409);
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        assert!(f
-            .dir
-            .join("assistant/context/posts/2026-01-01-new-name.md")
-            .is_file());
-    }
-
-    #[test]
     fn document_bundle_move_rolls_back_completed_moves_after_a_later_failure() {
         let f = fixture("document-bundle-move-rollback");
         let source = f.dir.join("source.md");
@@ -34464,8 +34802,19 @@ href: /about/
 
         let config = site::load_config(&f.dir).unwrap();
         let source = fs::read_to_string(&markdown).unwrap();
-        let problems =
-            validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).unwrap_err();
+        // A credit file that was already broken doesn't stop a save that leaves it alone (Studio
+        // R5); one that changes the credits answers for them.
+        assert!(validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).is_ok());
+        let problems = validate_candidate(
+            &f.dir,
+            &config,
+            &rel,
+            &source,
+            &CreditEdit::Set(
+                r#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#.into(),
+            ),
+        )
+        .unwrap_err();
         assert!(problems.iter().any(|problem| {
             problem.contains(".credits.json") && problem.contains("unknown contributor `missing`")
         }));

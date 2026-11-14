@@ -15,8 +15,8 @@ Failed and so on, as on the Announcements screen).
 
 - **Copy the words**, **Save the photo** and **Open Nextdoor** (or Facebook, or your Business Profile) let you post
   it yourself. Then press **I posted it** so the screen remembers. If the job changes afterwards, the screen says so.
-- **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected under
-  Connected accounts, and the job has no after photo. It schedules the job's words and link on your Page five
+- **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected in
+  Studio's **Your accounts** (Sharing, then **Manage your accounts**), and the job has no after photo. It schedules the job's words and link on your Page five
   minutes ahead, through the same queue as your other announcements. open.blog posts to a Page without a photo, so
   a job with an after photo goes to Facebook by hand. Once the job is scheduled or posted there, the button is not
   offered again; it comes back only if that announcement failed or was canceled.

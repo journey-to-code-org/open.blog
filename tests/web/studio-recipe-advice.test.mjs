@@ -59,7 +59,7 @@ test("the design's words for the fields, with Studio's field names", () => {
     words: "Time to cook can't be read as a length of time. Write it like 20 minutes.", target: { field: "cook" }, code: "time-not-exported",
   });
   assert.equal(adviceFor(problem("time-not-exported", { field: "prep" })).words, "Time to get ready can't be read as a length of time. Write it like 20 minutes.");
-  assert.equal(adviceFor(problem("time-not-exported", { field: "total" })).words, "Total time can't be read as a length of time. Write it like 20 minutes.");
+  assert.equal(adviceFor(problem("time-not-exported", { field: "total" })).words, "Time from start to table can't be read as a length of time. Write it like 20 minutes.");
   assert.deepEqual(adviceFor(problem("zero-time", { field: "prep" })).target, { field: "prep" });
   assert.equal(adviceFor(problem("incomplete-times", { field: "total" })).words, "Only one of the times is filled in. Add the other.");
   assert.deepEqual(adviceFor(problem("no-image")).target, { field: "cover" });

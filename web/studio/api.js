@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 const PLAIN = {
-  0: "Studio can't reach your site right now. Check your connection, then try again.",
+  0: "Your blog can't be reached right now. Check your connection, then try again.",
   413: "That's too big to save.",
   415: "That kind of file can't be used here.",
   429: "Too many tries. Wait a minute, then try again.",
@@ -27,8 +27,13 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
     /** Set by the shell: resolves once the person has signed in again, or rejects if they gave up. */
     onSignedOut: null,
 
-    async call(method, path, { json, body, headers = {}, retry = true, busyTries = 0 } = {}) {
+    /**
+     * `retry: false` never asks her to sign in again (a background send marks "Needs you" instead);
+     * `signal` limits how long it may take: running out is "no answer" (status 0).
+     */
+    async call(method, path, { json, body, headers = {}, retry = true, busyTries = 0, signal } = {}) {
       const init = { method, credentials: "same-origin", headers: { ...headers } };
+      if (signal) init.signal = signal;
       if (method !== "GET" && method !== "HEAD") init.headers["X-CSRF-Token"] = api.csrf;
       if (json !== undefined) {
         init.headers["Content-Type"] = "application/json";
@@ -49,11 +54,11 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
       // so it's asked again shortly, a few times, before saying so.
       if (response.status === 409 && (method === "GET" || data?.code === "busy") && (busyTries ?? 0) < 4) {
         await new Promise((resolve) => setTimeout(resolve, 120 * ((busyTries ?? 0) + 1)));
-        return api.call(method, path, { json, body, headers, retry, busyTries: (busyTries ?? 0) + 1 });
+        return api.call(method, path, { json, body, headers, retry, busyTries: (busyTries ?? 0) + 1, signal });
       }
       if (response.status === 401 && retry && path !== "login" && api.onSignedOut) {
         await api.onSignedOut(data?.error);
-        return api.call(method, path, { json, body, headers, retry: false });
+        return api.call(method, path, { json, body, headers, retry: false, signal });
       }
       const message = (data && typeof data.error === "string" && data.error) || PLAIN[response.status] || PLAIN[500];
       throw new ApiError(message, response.status, data);

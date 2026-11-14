@@ -23,12 +23,21 @@ import { createQuotes } from "./quotes.js";
 import { createReminders } from "./reminders.js";
 import { createSharing } from "./sharing.js";
 import { createShareNew } from "./share-new.js";
+import { createJobShare } from "./job-share.js";
+import { createAccounts } from "./accounts.js";
+import { createNotYet } from "./not-yet.js";
+import { createNotifications } from "./notifications.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
+import { createNewJob } from "./new-job.js";
+import { createPeople } from "./people.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
   { name: "posts", nav: "Posts", area: "posts", create: (context) => createPosts(context) },
+  // R4: a job from the site. Always present (an old Capture link, or something waiting on a phone,
+  // never lands on a blank Home); in the navigation on a trade site.
+  { name: "new-job", nav: "New job", area: "jobs", navWhen: tradeSite, create: (context, route) => createNewJob(context, route) },
   { name: "pages", nav: "Pages", area: "pages", create: (context) => createDocuments(context, KINDS.pages) },
   { name: "page", area: "pages", create: (context, route) => createPageEdit(context, KINDS.pages, route.arg) },
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
@@ -52,8 +61,26 @@ export const SCREENS = [
   // Each only when it applies: the quote form is set up, reminders are for this trade, sharing is set up.
   { name: "quotes", nav: "Requests", area: "quotes", when: (meta) => meta.quote === true, create: (context) => createQuotes(context) },
   { name: "reminders", nav: "Reminders", area: "reminders", when: (meta) => meta.siteUses?.reminders === true, create: (context) => createReminders(context) },
-  // #/sharing/new is the composer.
-  { name: "sharing", nav: "Sharing", area: "sharing", when: (meta) => meta.social === true, create: (context, route) => (route.arg === "new" ? createShareNew(context, route) : createSharing(context)) },
+  // #/sharing/new is the composer; #/sharing/accounts is Your accounts (R2: connect, reconnect,
+  // disconnect; only "not set up" when sharing isn't); #/sharing/job/<path> shares one finished job; ?view=posts is
+  // "Where each post went", which a site that shared something has even without accounts (G16).
+  // Share this job opens on any trade site (the checklist's last step); the nav item only once
+  // there's something to show.
+  { name: "sharing", nav: "Sharing", area: "sharing", when: (meta) => meta.social === true || meta.siteUses?.shared === true || meta.siteUses?.trade === true,
+    navWhen: (meta) => meta.social === true || meta.siteUses?.shared === true,
+    create: (context, route) => (route.arg === "new" && context.meta.social === true ? createShareNew(context, route)
+      : route.arg === "accounts" ? createAccounts(context, route)
+        : route.arg.startsWith("job/") ? createJobShare(context, route.arg.slice(4), route)
+        : createSharing(context, route)) },
+  // R3: the phone in her hand, not in the navigation (account menu, Find, and the quiet link on
+  // Comments and Requests). Always present, so an old link never lands on a blank Home; with no
+  // push settings it says "not set up". ?sheet=home-screen opens Add to Home Screen.
+  { name: "notifications", area: "notifications", create: (context, route) => createNotifications(context, route) },
+  // R5: who can be named on her posts (the old Contributors). Not in the navigation: reached from
+  // Who wrote it on any post, and from Find. ?from=<post>&add=1 returns to that post.
+  { name: "people", area: "people", create: (context, route) => createPeople(context, route) },
+  // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
+  { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },
@@ -63,5 +90,7 @@ export const SCREENS = [
   { name: "tools", area: "tools", create: () => createTools() },
   // #/write asks "a recipe or a story?" (when the site has recipes); #/write/new/recipe|story starts
   // one; #/write/<path> opens a post.
-  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && hasRecipes(context.meta) ? createNewPost(context) : createWrite(context, route.arg)) },
+  // #/write asks what she's writing (recipes on, or a trade site with jobs: R4); #/write/new/job
+  // starts a job at a desk.
+  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && (hasRecipes(context.meta) || tradeSite(context.meta)) ? createNewPost(context) : createWrite(context, route.arg, route)) },
 ];

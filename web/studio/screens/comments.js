@@ -9,10 +9,12 @@ import { ask } from "../parts/dialogs.js";
 import { sayDay, sayWhen } from "../parts/dates.js";
 import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { routeHash } from "../router.js";
+import { quietNotifyLink } from "../parts/notify-link.js";
 import {
   VIEWS, viewOf, otherViewWords, reasonWords, handled, cardLabel, buttonsFor, quietReason,
   decidedWords, undoWords, decisionLine, troubleWords, decisionRequest, reportReason,
 } from "../parts/comment-words.js";
+import { say } from "../parts/words.js";
 
 const LONG = 600;
 
@@ -50,8 +52,10 @@ export async function createComments({ api, meta, go }, route) {
   const switchSection = h("section", { class: "studio-section studio-comment-switch", "aria-labelledby": "studio-taking-h" },
     h("h3", { id: "studio-taking-h", text: "Taking comments" }), switcher);
   const details = h("details", { class: "studio-help" });
+  const notifyLink = h("p", { class: "studio-quiet-link" });
+  quietNotifyLink(notifyLink, { meta, what: "someone comments" });
   const element = h("section", { class: "studio-page studio-comments", "aria-labelledby": "studio-comments-h" },
-    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: view.lede }), picker),
+    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: view.lede }), notifyLink, picker),
     undoSlot, banner, status,
     h("div", { class: "studio-comment-columns" },
       h("div", { class: "studio-comment-main" }, list, more, after),
@@ -73,8 +77,8 @@ export async function createComments({ api, meta, go }, route) {
       list.replaceChildren();
       switchSection.hidden = true;
       banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Comments aren't ready yet" },
-        "Your site is set up for comments, but Studio can't reach them. Tell the person who set up your site."));
-      details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+        `Your site is set up for comments, but Studio can't reach them. ${say("common.tell")}`));
+      details.replaceChildren(h("summary", { text: say("common.forHelper") }),
         h("p", { class: "studio-mono", text: "engagement.enabled is on with an endpoint, but no usable key is bound to it: set OPENBLOG_ENGAGEMENT_API_KEY and OPENBLOG_ENGAGEMENT_API_ORIGIN where Admin runs, or save a key in the old Admin." }),
         h("p", {}, h("a", { href: "/admin/#/analytics", target: "_blank", rel: "noopener" }, "Comments setup in the old Admin")));
       return;
@@ -456,7 +460,7 @@ export async function createComments({ api, meta, go }, route) {
   function cardDetails(item) {
     const offered = (item.actions || []).map((a) => `${a.action}: ${a.label}${a.guidance ? ` (${a.guidance})` : ""}${a.confirm ? ` [confirm: ${a.confirm}]` : ""}`);
     return h("details", { class: "studio-help studio-comment-details" },
-      h("summary", { text: "For the person who set up your site" }),
+      h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" },
         ...[
           `id ${item.id}`, `source ${item.source}, kind ${item.kind} (${item.kindLabel || ""})`, `status ${item.status}, version ${item.version}`,
@@ -469,7 +473,7 @@ export async function createComments({ api, meta, go }, route) {
   }
 
   function drawDetails() {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" },
         ...[
           `state ${view.state}${kind ? `, kind ${kind}` : ""}`, `protocol ${page?.protocol || "?"}`, `invalid ${page?.invalid || 0}`, `next ${next || "none"}`,

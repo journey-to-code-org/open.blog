@@ -704,6 +704,18 @@ What the hosted service keeps, and how it goes, once you run the optional
   records of decisions after `auditDays`. Comments are included only if you set `retention`
   yourself.
 
+## Studio's words
+
+`studio` holds the site's changes to the words Studio (the new Admin) uses with the person who
+writes: `{ "words": { "vars": { "helper": "Mikey", "owner": "Grammi" }, "text": { "cards.signOff":
+"Love, {owner}" } } }`. `vars` names who helps her (`helper`), what she calls the blog (`product`)
+and her name (`owner`, by default the first word of `author.name`); `text` changes sentences by
+word id. Absent, Studio uses its built-in words, which name no particular owner. A bad entry is
+dropped and reported in Studio's Home details and by `openblog check`; an unknown key under
+`studio` or `studio.words` stops the configuration loading. A host serving many sites can set the
+same in a file named by `OPENBLOG_STUDIO_WORDS_PATH`; the site wins per key. See
+[Studio's words](studio-words.md) for every id, the limits and examples.
+
 ## Documentation section
 
 `docs` publishes `content/docs/` as a tree of pages at `/docs/` with a sidebar: `{ "enabled": true, "title":

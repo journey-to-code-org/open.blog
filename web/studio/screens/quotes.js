@@ -1,25 +1,31 @@
 // Requests: who wants a quote, and has she called them back? New, Handled and Archived, newest
 // first. Each request has Call on top, then Email and Mark handled; status changes can be undone;
 // erasing one (a customer who asks to be forgotten) is always checked first and asked once. Customers'
-// words are only ever text. Studio slice 10b; docs/specs/studio/slice-10bc/ux.md.
+// words are only ever text. Screen More: download chosen days, clean up archived requests (sheets in
+// parts/quote-sheets.js). Studio slice 10b, R1; docs/specs/studio/slice-10bc/ux.md, r1/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { sayWhen } from "../parts/dates.js";
+import { createSheet, guardedLeave } from "../parts/sheet.js";
+import { quietNotifyLink } from "../parts/notify-link.js";
+import { openDownload, openCleanup } from "../parts/quote-sheets.js";
 import { LISTS, listLabel, emailLine, troubleBanner, eraseLine, statusWords, telHref, quoteTrouble } from "../parts/quote-words.js";
+import { say as word } from "../parts/words.js";
 
-export async function createQuotes({ api }) {
+export async function createQuotes({ api, meta }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
   let reply = null;
   let list = "new";
   let service = "";
   let undo = null;
+  const sheet = await createSheet({ label: "Requests" });
 
   const heading = h("h2", { id: "studio-quotes-h", class: "studio-question", tabindex: "-1", text: "Who's asking for a quote?" });
   const screenMore = h("dropdown-menu", {
     class: "studio-row-menu",
-    items: [{ value: "export", label: "Download a spreadsheet" }, { value: "cleanup", label: "Clean up archived requests (old Admin)" }],
-    onItemselect: (e) => (e.detail === "export" ? download() : open("/admin/#/quotes", "_blank", "noopener")),
+    items: [{ value: "export", label: "Download a spreadsheet…" }, { value: "cleanup", label: "Clean up archived requests…" }],
+    onItemselect: (e) => (e.detail === "export" ? download() : cleanup()),
   }, h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: " for quote requests" })));
   const banner = h("div", { class: "studio-banner" });
   const undoSlot = h("div", { class: "studio-banner" });
@@ -27,9 +33,11 @@ export async function createQuotes({ api }) {
   const pickers = h("div", { class: "studio-quote-pickers" });
   const cards = h("ul", { class: "studio-comment-list", "aria-labelledby": "studio-quotes-h", "aria-busy": "true" }, ...[1, 2, 3].map(() => h("li", {}, h("skeleton-block", { shape: "card" }))));
   const details = h("details", { class: "studio-help" });
+  const notifyLink = h("p", { class: "studio-quiet-link" });
+  quietNotifyLink(notifyLink, { meta, what: "someone asks for a quote" });
   const element = h("section", { class: "studio-page studio-quotes", "aria-labelledby": "studio-quotes-h" },
     h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, screenMore),
-      h("p", { class: "studio-lede", text: "Newest first. Only you see these; they're never on your site." })),
+      h("p", { class: "studio-lede", text: "Newest first. Only you see these; they're never on your site." }), notifyLink),
     undoSlot, banner, status, pickers, cards, details);
 
   const requests = () => reply?.requests || [];
@@ -41,7 +49,7 @@ export async function createQuotes({ api }) {
       if (!state.enabled) {
         cards.removeAttribute("aria-busy");
         cards.replaceChildren();
-        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Studio can't open your quote requests" }, "The quote form isn't connected properly. Tell the person who set up your site."));
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog can't open your quote requests" }, `The quote form isn't connected properly. ${word("common.tell")}`));
         drawDetails(state);
         return;
       }
@@ -65,7 +73,7 @@ export async function createQuotes({ api }) {
     banner.replaceChildren(
       ...(trouble ? [h("alert-banner", { variant: "warning", heading: trouble.heading }, trouble.text, trouble.retry ? " " : "",
         trouble.retry ? h("action-button", { variant: "secondary", size: "sm", onClick: (e) => retry(e.currentTarget) }, "Send those emails again") : "")] : []),
-      ...(reply.unreadable ? [h("alert-banner", { variant: "warning", heading: `${reply.unreadable} ${reply.unreadable === 1 ? "request" : "requests"} can't be shown here` }, "They're still stored. Tell the person who set up your site.")] : []));
+      ...(reply.unreadable ? [h("alert-banner", { variant: "warning", heading: `${reply.unreadable} ${reply.unreadable === 1 ? "request" : "requests"} can't be shown here` }, `They're still stored. ${word("common.tell")}`)] : []));
     const services = reply.services || [];
     pickers.replaceChildren(
       h("select-field", { label: "Which requests", options: LISTS.map((l) => ({ value: l.id, label: listLabel(l, all) })), value: list, onValuechange: (e) => { list = e.detail; draw(); } }),
@@ -127,7 +135,7 @@ export async function createQuotes({ api }) {
       await navigator.clipboard.writeText(String(text || ""));
       status.textContent = said;
     } catch {
-      status.textContent = "Studio couldn't copy it. Select it and copy it instead.";
+      status.textContent = "That didn't copy. Select it and copy it instead.";
     }
   }
 
@@ -217,31 +225,27 @@ export async function createQuotes({ api }) {
     }
   }
 
-  async function download() {
-    try {
-      const file = await api.get("quote/export");
-      const blob = new Blob([file.csv], { type: "text/csv" });
-      const link = h("a", { href: URL.createObjectURL(blob), download: file.filename || "quote-requests.csv" });
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      status.textContent = `Downloaded ${file.count === 1 ? "1 request" : `${file.count} requests`}. It has customers' phone numbers, so keep it somewhere private.`;
-    } catch (error) {
-      if (error.status === 401) throw error;
-      status.textContent = quoteTrouble(error);
-    }
+  const say = (words) => { status.textContent = words; toast(words); };
+
+  function download() {
+    openDownload({ sheet, api, opener: screenMore, say });
+  }
+
+  function cleanup() {
+    openCleanup({ sheet, api, opener: screenMore, reply, say, onChanged: (saved) => {
+      if (saved && reply) { reply.retentionDays = saved.days; reply.retentionSource = saved.source; drawDetails(); }
+      else load();
+    } });
   }
 
   function drawDetails(state = null, error = null) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: word("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         state ? `state ${state.state}${(state.problems || []).length ? `: ${state.problems.join(", ")}` : ""}` : null,
         error ? `error ${error.status}: ${error.message}` : null,
         reply ? `retention ${reply.retentionDays ?? "none"} (${reply.retentionSource || "none"}), notify ${reply.notifyEnabled}` : null,
         ...requests().map((r) => `${r.id} ${r.status} created ${r.createdAt}${r.handledAt ? ` handled ${r.handledAt}` : ""}${r.eraseAfter ? ` erase ${r.eraseAfter}` : ""} notify ${r.notify || "none"}/${r.notifyAttempts}${r.notifyError ? ` ${r.notifyError}` : ""}${r.page ? ` from ${r.page}` : ""}`),
-      ].filter(Boolean).map((t) => h("li", { text: t }))),
-      h("p", {}, h("a", { href: "/admin/#/quotes", target: "_blank", rel: "noopener" }, "Quote requests in the old Admin")));
+      ].filter(Boolean).map((t) => h("li", { text: t }))));
   }
 
   return {
@@ -249,16 +253,20 @@ export async function createQuotes({ api }) {
     element,
     load,
     reload: load,
+    leave: () => guardedLeave(sheet),
+    isDirty: () => sheet.isDirty(),
     focus: () => heading.focus(),
     get palette() {
       return [
         ...LISTS.map((l) => ({ id: `list:${l.id}`, label: `Show ${l.label.toLowerCase()} requests`, group: "Requests" })),
         { id: "export", label: "Download a spreadsheet", group: "Requests" },
+        { id: "cleanup", label: "Clean up archived requests", group: "Requests" },
       ];
     },
     command(id) {
       if (id.startsWith("list:")) { list = id.slice(5); draw(); }
       if (id === "export") download();
+      if (id === "cleanup") cleanup();
     },
   };
 }

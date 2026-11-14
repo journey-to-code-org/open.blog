@@ -1,7 +1,7 @@
 // The save rules (architecture §1): Studio's keys merged into the fields the server sent, the
 // draft / publish / schedule rule, and the status words. DOM-free.
 
-import { isFuture, joinInstant, sayWhen, splitInstant } from "./dates.js";
+import { isDayOnly, isFutureOnServer, joinInstant, sayDay, sayWhen, serverInstant, splitInstant } from "./dates.js";
 
 /** The front-matter keys Studio edits. Every other key is sent back as it came. */
 export const STUDIO_KEYS = Object.freeze(["title", "date", "tags", "cover", "coverAlt", "draft"]);
@@ -104,7 +104,7 @@ export function fieldsToSend(received, form, intent, { now = new Date(), timeZon
   if (picked && had != null && sameDate(picked, had)) date = had;
   else date = picked || null;
   if (intent === "publish" && !date) {
-    const past = had != null && String(had).trim() && !isFuture(had, now, timeZone);
+    const past = had != null && String(had).trim() && !isFutureOnServer(had, now);
     date = past ? had : nowInstant(now, timeZone);
   }
   fields.date = date;
@@ -124,7 +124,7 @@ export function postState(post, now = new Date(), timeZone) {
   if (post && typeof post.status === "string" && !post.fields) return post.status;
   const form = formFromDocument(post);
   if (form.draft) return "draft";
-  return isFuture(form.date, now, timeZone) ? "scheduled" : "published";
+  return isFutureOnServer(form.date, now) ? "scheduled" : "published";
 }
 
 /**
@@ -137,23 +137,10 @@ export function postState(post, now = new Date(), timeZone) {
  */
 export function primaryAction(state, formDate, now = new Date(), timeZone) {
   if (state === "published") return "Update";
-  return isFuture(formDate, now, timeZone) ? "Schedule" : "Publish";
+  return isFutureOnServer(formDate, now) ? "Schedule" : "Publish";
 }
 
 const lowerFirstWord = (words) => words.replace(/^(Today|Yesterday)\b/, (w) => w.toLowerCase());
-
-const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Nov 3", or "Nov 3, 2025" in another year; "today" for today. */
-function shortDay(value, now, timeZone) {
-  const { date } = splitInstant(value, timeZone);
-  if (!date) return "";
-  const today = splitInstant(now, timeZone).date;
-  if (date === today) return "today";
-  const [y, m, d] = date.split("-").map(Number);
-  const words = `${SHORT_MONTHS[m - 1]} ${d}`;
-  return String(y) === today.slice(0, 4) ? words : `${words}, ${y}`;
-}
 
 function savedWords(savedAt, now, timeZone) {
   const ms = savedAt instanceof Date ? savedAt.getTime() : Date.parse(savedAt);
@@ -167,8 +154,8 @@ function savedWords(savedAt, now, timeZone) {
 /**
  * Write's status line in words:
  * new → "Add a title and your draft will save itself."; draft → "Draft · saved just now" /
- * "Draft · saved 2 minutes ago"; published with unsent changes → "Published Nov 3 · changes not
- * on your site yet"; published → "Published today at 4 PM"; scheduled → "Scheduled for Friday,
+ * "Draft · saved 2 minutes ago"; published with unsent changes → "Changed · not on your site yet.
+ * Press Update to put them up."; published → "Published today at 4 PM"; scheduled → "Scheduled for Friday,
  * November 27 at 8 AM".
  * @param {{ state: "new"|"draft"|"scheduled"|"published", savedAt?: string|Date, dirtyPublished?: boolean, date?: string }} info
  * @param {Date} [now]
@@ -182,10 +169,8 @@ export function statusLine({ state, savedAt, dirtyPublished = false, date } = {}
   }
   if (state === "scheduled") return date ? `Scheduled for ${when(date)}` : "Scheduled";
   if (state === "published") {
-    if (dirtyPublished) {
-      const day = date ? shortDay(date, now, timeZone) : "";
-      return `Published${day ? ` ${day}` : ""} · changes not on your site yet`;
-    }
+    // R5: what she changed stays visible until Update or a discard.
+    if (dirtyPublished) return "Changed · not on your site yet. Press Update to put them up.";
     return date ? `Published ${lowerFirstWord(when(date))}` : "Published";
   }
   return "Add a title and your draft will save itself.";
@@ -214,4 +199,35 @@ export function onlyChanges(received, fields) {
     if (had === undefined || !sameValue(had, value)) out[key] = value;
   }
   return out;
+}
+
+/**
+ * The help under When it appears, by what it is and when it goes up (G37 `meta.schedule`):
+ * { words, ask? } where `ask` is the question Update asks before taking a live post off until then.
+ * @param {{ state: string, date: string, time?: string, schedule?: string|null, defaulted?: boolean, problem?: string }} info
+ *   `date` is the value to send; `defaulted` when the time was filled in as 8 AM for her
+ */
+export function whenHelp({ state, date, time = "", schedule = null, defaulted = false, problem = "" } = {}, now = new Date(), timeZone) {
+  if (problem) return { words: problem, error: true };
+  const value = String(date || "").trim();
+  if (!value) return { words: "Leave it empty to use the day you publish." };
+  // A day with no time goes up when the server's day starts (world time): said as her clock time,
+  // with why, so the promise is the one the server keeps.
+  const dayOnly = isDayOnly(value);
+  const when = sayWhen(dayOnly ? serverInstant(value) : value, { now, timeZone });
+  const note = dayOnly ? ` No time is set, so that's when ${sayDay(value, { now, timeZone }).replace(/^(Today|Yesterday)$/, (w) => w.toLowerCase())} starts in world time. Add a time to choose your own.` : "";
+  const future = isFutureOnServer(value, now);
+  if (future && state === "published") return { words: `Your post comes off your site until ${when}.${note}`, ask: { heading: `Take it off until ${sayDay(value, { now, timeZone })}?`, yes: "Yes, schedule it", no: "Keep it up" } };
+  if (future) {
+    if (defaulted) return { words: "It goes up at 8 AM unless you change the time." };
+    if (schedule === "self") return { words: `It goes up by itself on ${when}, even with your blog closed.${note}` };
+    return { words: `It's ready to go up on ${when}. Your blog puts it up the next time it's sent out after that.${note}` };
+  }
+  if (state !== "published" && state !== "scheduled") return { words: `That day has passed, so it will show as published on ${sayDay(value, { now, timeZone }).replace(/^(Today|Yesterday)/, (w) => w.toLowerCase())}.` };
+  return { words: "Leave it empty to use the day you publish." };
+}
+
+/** "Add the day too, or clear the time." when a time has no day, else "". */
+export function whenProblem(date, time) {
+  return String(time || "").trim() && !String(date || "").trim() ? "Add the day too, or clear the time." : "";
 }

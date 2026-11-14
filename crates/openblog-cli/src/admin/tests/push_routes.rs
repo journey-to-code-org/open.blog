@@ -307,43 +307,256 @@ fn a_device_is_saved_through_the_function_and_its_refusals_are_plain_words() {
     assert!(seen[2].starts_with("POST /api/push/test "));
 }
 
+fn header(r: &Response, name: &str) -> String {
+    r.headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default()
+}
+
 #[test]
-fn admin_installs_as_an_app_with_the_sites_name_its_icons_and_a_worker() {
+fn the_installed_app_opens_studio_under_the_same_id_and_scope_with_studios_worker_and_icons() {
     let f = fixture("push-app");
     let manifest = handle(&f.state, &req("GET", "/admin/manifest.webmanifest"));
     assert_eq!(manifest.status, 200);
     assert!(ctype(&manifest).starts_with("application/manifest+json"));
     let value: Json = serde_json::from_slice(&manifest.body).unwrap();
-    assert!(value["name"].as_str().unwrap().ends_with("Admin"));
-    assert_eq!(value["start_url"], "/admin/");
+    // Same app as before Studio (id, scope), now opening Studio's Home, named in her words.
+    assert_eq!(value["id"], "/admin/");
+    assert_eq!(value["start_url"], "/admin/studio/");
     assert_eq!(value["scope"], "/admin/");
     assert_eq!(value["display"], "standalone");
-    for icon in ["icon-192.png", "icon-512.png", "apple-touch-icon.png"] {
+    for field in ["name", "short_name"] {
+        let name = value[field].as_str().unwrap();
+        assert!(
+            !name.is_empty() && !name.contains("Admin"),
+            "{field}: {name}"
+        );
+    }
+    assert!(value["short_name"].as_str().unwrap().chars().count() <= 12);
+    let icons: Vec<&str> = value["icons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["src"].as_str().unwrap())
+        .collect();
+    assert!(icons.contains(&"/admin/icons/badge-96.png"));
+    for icon in [
+        "icon-192.png",
+        "icon-512.png",
+        "apple-touch-icon.png",
+        "badge-96.png",
+    ] {
         let r = handle(&f.state, &req("GET", &format!("/admin/icons/{icon}")));
         assert_eq!(r.status, 200, "{icon}");
         assert_eq!(ctype(&r), "image/png");
         assert!(r.body.starts_with(b"\x89PNG"));
+        let studio = crate::admin::studio_bytes(&format!("icons/{icon}")).unwrap();
+        assert_eq!(r.body, studio, "{icon} is Studio's own");
     }
-    assert_eq!(
-        handle(&f.state, &req("GET", "/admin/icons/../admin.js")).status,
-        404
-    );
-    assert_eq!(
-        handle(&f.state, &req("GET", "/admin/icons/other.png")).status,
-        404
-    );
+    for bad in [
+        "/admin/icons/../admin.js",
+        "/admin/icons/other.png",
+        "/admin/icons/icons/icon-192.png",
+    ] {
+        assert_eq!(handle(&f.state, &req("GET", bad)).status, 404, "{bad}");
+    }
+
+    // The one worker is Studio's, at the old address and always asked again; never under /admin/studio/.
     let worker = handle(&f.state, &req("GET", "/admin/sw.js"));
     assert_eq!(worker.status, 200);
     assert!(ctype(&worker).starts_with("text/javascript"));
-    assert!(String::from_utf8_lossy(&worker.body).contains("showNotification"));
-    let page = String::from_utf8_lossy(&handle(&f.state, &req("GET", "/admin/")).body).to_string();
-    assert!(page.contains(r#"<link rel="manifest" href="/admin/manifest.webmanifest">"#));
+    assert_eq!(header(&worker, "cache-control"), "no-cache");
+    // Studio's file, after the one line naming this release's own files (R4 G35).
+    let mut expected = crate::admin::studio_release_line().into_bytes();
+    expected.extend_from_slice(crate::admin::studio_bytes("sw.js").unwrap());
+    assert_eq!(worker.body, expected);
+    let code = String::from_utf8_lossy(&worker.body).to_string();
+    assert!(code.contains("showNotification") && code.contains("/admin/studio/"));
+    assert_eq!(
+        handle(&f.state, &req("GET", "/admin/studio/sw.js")).status,
+        404
+    );
 
-    // A site can bring its own icon.
+    // Both pages point at the manifest.
+    for page in ["/admin/", "/admin/studio/"] {
+        let body = String::from_utf8_lossy(&handle(&f.state, &req("GET", page)).body).to_string();
+        assert!(
+            body.contains(r#"<link rel="manifest" href="/admin/manifest.webmanifest">"#),
+            "{page}"
+        );
+    }
+
+    // A site can bring its own icon, but not its own worker.
     let config = site::load_config(&f.state.root).unwrap_or_default();
-    let own = f.state.root.join(&config.paths.web).join("admin/icons");
-    std::fs::create_dir_all(&own).unwrap();
-    std::fs::write(own.join("icon-192.png"), b"\x89PNG-grammi").unwrap();
+    let web = f.state.root.join(&config.paths.web).join("admin");
+    std::fs::create_dir_all(web.join("icons")).unwrap();
+    std::fs::write(web.join("icons/icon-192.png"), b"\x89PNG-grammi").unwrap();
+    std::fs::write(web.join("sw.js"), b"self.close()").unwrap();
     let r = handle(&f.state, &req("GET", "/admin/icons/icon-192.png"));
     assert_eq!(r.body, b"\x89PNG-grammi");
+    let worker = handle(&f.state, &req("GET", "/admin/sw.js"));
+    // Studio's file, after the one line naming this release's own files (R4 G35).
+    let mut expected = crate::admin::studio_release_line().into_bytes();
+    expected.extend_from_slice(crate::admin::studio_bytes("sw.js").unwrap());
+    assert_eq!(worker.body, expected);
+}
+
+#[test]
+fn studio_knows_which_release_it_is_and_the_worker_keeps_that_file_too() {
+    let f = fixture("push-release");
+    let line = crate::admin::studio_release_line();
+    let release: Json = serde_json::from_str(
+        line.trim()
+            .trim_start_matches("self.STUDIO_RELEASE = ")
+            .trim_end_matches(';'),
+    )
+    .unwrap();
+    let version = release["version"].as_str().unwrap().to_string();
+    assert_eq!(version.len(), 16);
+    let r = handle(&f.state, &req("GET", "/admin/studio/release.js"));
+    assert_eq!(r.status, 200);
+    assert!(ctype(&r).starts_with("text/javascript"));
+    assert_eq!(
+        String::from_utf8_lossy(&r.body),
+        format!("export const RELEASE = \"{version}\";\n")
+    );
+    let files: Vec<&str> = release["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Json::as_str)
+        .collect();
+    assert!(files.contains(&"/admin/studio/release.js"));
+    assert!(files.contains(&"/admin/studio/"));
+    assert!(!files.iter().any(|file| file.contains("/api/")));
+    // Not a file of its own anywhere else, and only ever read.
+    assert_eq!(
+        handle(&f.state, &req("GET", "/admin/release.js")).status,
+        404
+    );
+    assert_eq!(
+        handle(&f.state, &req("POST", "/admin/studio/release.js")).status,
+        405
+    );
+}
+
+#[test]
+fn the_manifest_names_the_app_after_the_site_or_my_blog() {
+    let mut config = SiteConfig::default();
+    let named = |config: &SiteConfig| -> Json {
+        serde_json::from_slice(&crate::admin::push::manifest(config, false).body).unwrap()
+    };
+    config.title = "Grammi's House".into();
+    let value = named(&config);
+    assert_eq!(value["name"], "Grammi's House");
+    assert_eq!(value["short_name"], "My blog", "more than 12 characters");
+    config.title = "Grammi".into();
+    assert_eq!(named(&config)["short_name"], "Grammi");
+    config.title = "  ".into();
+    let value = named(&config);
+    assert_eq!(value["name"], "My blog");
+    assert_eq!(value["short_name"], "My blog");
+}
+
+#[test]
+fn every_push_error_carries_a_code_studio_can_choose_its_words_by() {
+    let code = |r: &Response| body_json(r)["code"].as_str().unwrap_or("").to_string();
+    // Not set up.
+    let off = |_: &str| None;
+    let r = route_with(&off, &json_req("POST", "/x", json!({})), "grammi", "test");
+    assert_eq!((r.status, code(&r)), (404, "not-set-up".into()));
+
+    let (endpoint, server) = hosted(vec![
+        (401, json!({ "error": "unauthorized" }).to_string()),
+        (503, json!({ "error": "storage-unavailable" }).to_string()),
+        (409, json!({ "error": "too-many" }).to_string()),
+        (200, "not json".to_string()),
+        (
+            200,
+            json!({ "enabled": true, "publicKey": PUBLIC, "kinds": [], "devices": [], "limits": { "devices": 25, "label": 60 } }).to_string(),
+        ),
+        (
+            200,
+            json!({ "enabled": true, "publicKey": PUBLIC, "kinds": [], "devices": [] }).to_string(),
+        ),
+    ]);
+    let env = env_for(&endpoint);
+    let body = json!({ "id": ID });
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", body.clone()),
+        "grammi",
+        "test",
+    );
+    assert_eq!(
+        (r.status, code(&r)),
+        (502, "hosted-key-rejected".into()),
+        "never a 401, which would sign her out"
+    );
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", body.clone()),
+        "grammi",
+        "test",
+    );
+    assert_eq!((r.status, code(&r)), (502, "storage-unavailable".into()));
+    let r = route_with(
+        &env,
+        &json_req(
+            "POST",
+            "/x",
+            json!({ "subscription": {}, "label": "x", "kinds": [] }),
+        ),
+        "grammi",
+        "devices",
+    );
+    assert_eq!((r.status, code(&r)), (409, "too-many".into()));
+    let r = route_with(&env, &json_req("POST", "/x", body), "grammi", "test");
+    assert_eq!((r.status, code(&r)), (502, "bad-reply".into()));
+    let r = route_with(&env, &req("GET", "/x"), "grammi", "status");
+    assert_eq!(body_json(&r)["limits"], json!({ "devices": 25 }));
+    let r = route_with(&env, &req("GET", "/x"), "grammi", "status");
+    assert_eq!(
+        body_json(&r)["limits"],
+        json!({ "devices": 20 }),
+        "an older function"
+    );
+    server.join().unwrap();
+
+    // Admin's own refusals, before anything is sent.
+    let (endpoint, _server) = hosted(vec![]);
+    let env = env_for(&endpoint);
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", json!({ "id": "nope" })),
+        "grammi",
+        "test",
+    );
+    assert_eq!((r.status, code(&r)), (400, "device-required".into()));
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", json!({ "label": "x", "extra": 1 })),
+        "grammi",
+        "devices",
+    );
+    assert_eq!((r.status, code(&r)), (400, "unknown-field".into()));
+    let r = route_with(
+        &env,
+        &json_req("POST", "/x", json!([1])),
+        "grammi",
+        "devices",
+    );
+    assert_eq!((r.status, code(&r)), (400, "invalid-request".into()));
+
+    // Nothing listening: unreachable.
+    let closed = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        format!("http://{address}/api/push")
+    };
+    let r = route_with(&env_for(&closed), &req("GET", "/x"), "grammi", "status");
+    assert_eq!((r.status, code(&r)), (502, "hosted-unavailable".into()));
 }

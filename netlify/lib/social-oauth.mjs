@@ -39,24 +39,49 @@ export class SocialOAuthError extends Error {
   }
 }
 
-// What the callback page and Admin say for each way a handshake can end. Fixed text only.
+// What the callback page says for each way a handshake can end, and what a connection's `message`
+// carries (Studio shows it only in details; it says each outcome in its own words). Fixed text only,
+// in her words: the product is "your blog", never Studio or Admin.
 export const OUTCOMES = Object.freeze({
-  authorized: "Authorized. Return to Admin to choose where to post.",
-  denied: "The authorization was declined, so nothing was connected.",
-  "invalid-state": "This link is not valid or was already used. Start again from Admin.",
-  expired: "This connection attempt expired. Start again from Admin.",
-  "invalid-request": "The provider's reply was not valid. Start again from Admin.",
-  "scopes-missing": "A permission this feature needs was not granted. Start again and allow every permission requested.",
-  "code-rejected": "The provider did not accept the authorization. Start again from Admin.",
-  "provider-error": "The provider reported a problem. Start again from Admin.",
-  "provider-unavailable": "The provider could not be reached. Try again shortly.",
-  "identity-mismatch": "That is a different account from the one being reconnected. Sign in as the original account.",
-  "no-destination": "Nothing this app may post to was found for that account.",
-  "storage-failed": "The connection could not be saved. Try again.",
-  canceled: "This connection attempt was canceled.",
-  "credentials-rejected": "Bluesky did not accept that handle and app password. Check both, or make a new app password in Bluesky's settings.",
-  "provider-rate-limited": "The provider asked us to slow down. Wait a few minutes and try again.",
+  authorized: "Go back to your blog to choose where your posts go.",
+  denied: "You said no, so nothing was connected.",
+  "invalid-state": "That sign-in link isn't valid or was already used. Start again on your blog.",
+  expired: "That took too long, so it stopped. Start again on your blog.",
+  "invalid-request": "The reply that came back wasn't valid. Start again on your blog.",
+  "scopes-missing": "A permission your blog needs wasn't allowed. Start again on your blog and leave every box ticked.",
+  "code-rejected": "The sign-in wasn't accepted. Start again on your blog.",
+  "provider-error": "Something went wrong on the other side. Start again on your blog.",
+  "provider-unavailable": "It couldn't be reached. Try again on your blog in a few minutes.",
+  "identity-mismatch": "That's a different account from the one being reconnected. Sign in to the account you used the first time, then start again on your blog.",
+  "no-destination": "Nothing your blog can post to was found for that account.",
+  "storage-failed": "The connection couldn't be saved. Start again on your blog.",
+  canceled: "This connection was stopped on your blog.",
+  "credentials-rejected": "Bluesky didn't accept that name and app password. Check the name, or make a new app password in Bluesky.",
+  "provider-rate-limited": "It asked your blog to slow down. Wait a few minutes, then try again.",
 });
+
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+export const MAX_RETURN_TO_CHARS = 300;
+
+/**
+ * Where the callback may send the browser on to (G6): the Studio the author started from, exactly
+ * `<origin>/admin/studio/`. `https`, or `http` to a loopback address; no credentials, query or
+ * fragment; at most 300 characters; written the way URL writes it. Anything else is null.
+ */
+export function validReturnTo(value) {
+  if (typeof value !== "string" || !value || value.length > MAX_RETURN_TO_CHARS) return null;
+  if (/[\s?#@\\]/.test(value)) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  // An https host is a plain name or IPv4 address, as the store's check (social-return.sql) also says.
+  const secure = (url.protocol === "https:" && /^[a-z0-9.-]+$/.test(url.hostname)) || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
+  if (!secure || url.username || url.password || url.search || url.hash || url.pathname !== "/admin/studio/") return null;
+  return url.href === value ? value : null;
+}
 
 // The HTTP status an app-password sign-in failure is answered with: a refusal of what the author
 // typed is theirs to fix (400), the rest is the provider's or ours.
@@ -300,9 +325,24 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       return { connection: connectionOf(done || row) };
     },
 
+    // Whether the store has social-return.sql (schema version 5, the return_to column), so a start
+    // may keep a return address (G6). Anything that stops it being read answers no: then Admin names
+    // none and Studio offers its new-tab way, which works on any store.
+    async returns() {
+      try {
+        const rows = await rest("GET", "openblog_social_schema", "select=version&version=eq.5");
+        return rows.some((row) => Number(row.version) === 5);
+      } catch {
+        return false;
+      }
+    },
+
     // Begins a handshake. Returns what Admin may show and the URL to send the author's browser to.
-    async start({ provider: name, actor, reauthAccountId = null }) {
+    async start({ provider: name, actor, reauthAccountId = null, returnTo = undefined }) {
       const provider = providerOf(name);
+      // Where the callback sends the browser on to (G6). Only Admin names it, built from the request it
+      // checked; it is stored on the row the single-use state finds, never read from the callback.
+      if (returnTo !== undefined && !validReturnTo(returnTo)) throw new SocialOAuthError(400, "invalid-return-to", "The return address must be https (or http to this computer) and end in /admin/studio/.");
       if (provider.login === "app-password") throw new SocialOAuthError(400, "app-password-required", "Bluesky is connected with your handle and an app password.");
       if (reauthAccountId !== null && !UUID.test(String(reauthAccountId))) throw new SocialOAuthError(400, "invalid-account", "That is not an account id.");
       await expireDue();
@@ -325,6 +365,8 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
         created_by: actor,
         expires_at: iso(now() + PENDING_TTL_MS),
         ...sealedVerifier,
+        // Written only when there is one, so a store from before social-return.sql still takes the row.
+        ...(returnTo ? { return_to: returnTo } : {}),
       };
       const [created] = owned(await rest("POST", CONNECTIONS, "", row));
       return {
@@ -350,8 +392,19 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
       } catch {
         return refused("storage-failed");
       }
-      // Wrong provider, already used, canceled or unknown all look the same to the caller.
-      if (!row || row.provider !== provider.provider || row.status !== "pending") return refused("invalid-state");
+      // Wrong provider or unknown: a fixed page, never a redirect.
+      if (!row || row.provider !== provider.provider) return refused("invalid-state");
+      // From here a row was found by its single-use state: every outcome may send the browser back to
+      // the Studio that started it, with the connection's id, and to nowhere else (G6).
+      const back = { connectionId: row.id, returnTo: validReturnTo(row.return_to) };
+      const result = await self.finishCallback(row, provider, params);
+      return { ...result, ...back };
+    },
+
+    async finishCallback(row, provider, params) {
+      const refused = (code) => ({ ok: false, code, text: OUTCOMES[code] });
+      // Already used, canceled or ended: the same refusal as an unknown state.
+      if (row.status !== "pending") return refused("invalid-state");
       try {
         if (Date.parse(row.expires_at) <= now()) {
           await finish(row, "expired", "expired");
@@ -396,7 +449,7 @@ export function createConnector({ settings, providers, fetchImpl = globalThis.fe
           return refused("scopes-missing");
         }
         const next = await authorize({ connection: claimed, provider, tokens });
-        return next.ok ? { ok: true, code: "authorized", text: OUTCOMES.authorized, connectionId: claimed.id } : refused(next.code);
+        return next.ok ? { ok: true, code: "authorized", text: OUTCOMES.authorized } : refused(next.code);
       } catch {
         // Storage failed part-way. The row stays `exchanging` until its short lease runs out and expireDue erases it; it cannot be reused.
         return refused("storage-failed");

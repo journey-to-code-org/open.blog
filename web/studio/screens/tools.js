@@ -13,7 +13,7 @@ export const TOOLS = [
   ] },
   { group: "Business", items: [
     ["Business facts", "Name, phone, hours and license, for a trade site", "#/business", "studio"],
-    ["Jobs", "Post a finished job with its photos", "#/capture"],
+    ["Jobs", "Post a job from the site, with its photos", "#/new-job", "studio"],
     ["Quote requests", "Requests from your quote form", "#/quotes", "studio"],
     ["Reminders", "What to write about, by season", "#/reminders", "studio"],
     ["Sharing", "Share a post to your accounts, and the accounts", "#/sharing", "studio"],
