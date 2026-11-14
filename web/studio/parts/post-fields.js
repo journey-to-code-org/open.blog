@@ -1,7 +1,7 @@
 // The save rules (architecture §1): Studio's keys merged into the fields the server sent, the
 // draft / publish / schedule rule, and the status words. DOM-free.
 
-import { isFuture, joinInstant, sayDay, sayWhen, splitInstant } from "./dates.js";
+import { isDayOnly, isFutureOnServer, joinInstant, sayDay, sayWhen, serverInstant, splitInstant } from "./dates.js";
 
 /** The front-matter keys Studio edits. Every other key is sent back as it came. */
 export const STUDIO_KEYS = Object.freeze(["title", "date", "tags", "cover", "coverAlt", "draft"]);
@@ -104,7 +104,7 @@ export function fieldsToSend(received, form, intent, { now = new Date(), timeZon
   if (picked && had != null && sameDate(picked, had)) date = had;
   else date = picked || null;
   if (intent === "publish" && !date) {
-    const past = had != null && String(had).trim() && !isFuture(had, now, timeZone);
+    const past = had != null && String(had).trim() && !isFutureOnServer(had, now);
     date = past ? had : nowInstant(now, timeZone);
   }
   fields.date = date;
@@ -124,7 +124,7 @@ export function postState(post, now = new Date(), timeZone) {
   if (post && typeof post.status === "string" && !post.fields) return post.status;
   const form = formFromDocument(post);
   if (form.draft) return "draft";
-  return isFuture(form.date, now, timeZone) ? "scheduled" : "published";
+  return isFutureOnServer(form.date, now) ? "scheduled" : "published";
 }
 
 /**
@@ -137,7 +137,7 @@ export function postState(post, now = new Date(), timeZone) {
  */
 export function primaryAction(state, formDate, now = new Date(), timeZone) {
   if (state === "published") return "Update";
-  return isFuture(formDate, now, timeZone) ? "Schedule" : "Publish";
+  return isFutureOnServer(formDate, now) ? "Schedule" : "Publish";
 }
 
 const lowerFirstWord = (words) => words.replace(/^(Today|Yesterday)\b/, (w) => w.toLowerCase());
@@ -211,13 +211,17 @@ export function whenHelp({ state, date, time = "", schedule = null, defaulted = 
   if (problem) return { words: problem, error: true };
   const value = String(date || "").trim();
   if (!value) return { words: "Leave it empty to use the day you publish." };
-  const when = sayWhen(value, { now, timeZone });
-  const future = isFuture(value, now, timeZone);
-  if (future && state === "published") return { words: `Your post comes off your site until ${when}.`, ask: { heading: `Take it off until ${sayDay(value, { now, timeZone })}?`, yes: "Yes, schedule it", no: "Keep it up" } };
+  // A day with no time goes up when the server's day starts (world time): said as her clock time,
+  // with why, so the promise is the one the server keeps.
+  const dayOnly = isDayOnly(value);
+  const when = sayWhen(dayOnly ? serverInstant(value) : value, { now, timeZone });
+  const note = dayOnly ? ` No time is set, so that's when ${sayDay(value, { now, timeZone }).replace(/^(Today|Yesterday)$/, (w) => w.toLowerCase())} starts in world time. Add a time to choose your own.` : "";
+  const future = isFutureOnServer(value, now);
+  if (future && state === "published") return { words: `Your post comes off your site until ${when}.${note}`, ask: { heading: `Take it off until ${sayDay(value, { now, timeZone })}?`, yes: "Yes, schedule it", no: "Keep it up" } };
   if (future) {
     if (defaulted) return { words: "It goes up at 8 AM unless you change the time." };
-    if (schedule === "self") return { words: `It goes up by itself on ${when}, even with your blog closed.` };
-    return { words: `It's ready to go up on ${when}. Your blog puts it up the next time it's sent out after that.` };
+    if (schedule === "self") return { words: `It goes up by itself on ${when}, even with your blog closed.${note}` };
+    return { words: `It's ready to go up on ${when}. Your blog puts it up the next time it's sent out after that.${note}` };
   }
   if (state !== "published" && state !== "scheduled") return { words: `That day has passed, so it will show as published on ${sayDay(value, { now, timeZone }).replace(/^(Today|Yesterday)/, (w) => w.toLowerCase())}.` };
   return { words: "Leave it empty to use the day you publish." };

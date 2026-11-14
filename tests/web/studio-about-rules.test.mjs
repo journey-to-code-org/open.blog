@@ -7,7 +7,7 @@ import test from "node:test";
 
 import {
   ABOUT_KEYS, aboutExtra, aboutFromDocument, aboutKeys, aboutLine, aboutProblems, cardSummary, fileSlug, issueWords, kindChange,
-  kindOf, otherKeys, pinCounts, saveProblem, slugEditable, slugPreview, slugProblem, slugify, summaryCount, withRecipeParts,
+  kindOf, otherKeys, pinCounts, saveProblem, slugEditable, slugHelp, slugPreview, slugProblem, slugify, summaryCount, withRecipeParts,
 } from "../../web/studio/parts/about-rules.js";
 import { fieldsForSave } from "../../web/studio/parts/post-session.js";
 import { kindChoices, groupFor, groupKeys } from "../../web/studio/parts/profile-words.js";
@@ -112,6 +112,11 @@ test("the About this post line", () => {
 });
 
 test("the address is editable only while a post was never on the site", () => {
+  assert.equal(slugHelp({ state: "new" }), "Leave it empty to make it from the title.");
+  assert.equal(slugHelp({ state: "draft", wasPublished: true, hasHistory: true }), "The address stays as it is once a post may have been on your site, so saved links keep working. It can be changed only in the file.");
+  // A site with no history to ask: said so, not "it may have been on your site".
+  assert.equal(slugHelp({ state: "draft", wasPublished: true, hasHistory: false }), "Your blog has no history of this post, so its address is kept as it is. It can be changed only in the file.");
+  assert.match(slugHelp({ state: "published", wasPublished: true, hasHistory: false }), /^The address stays as it is/, "a live post is simply live");
   assert.equal(slugEditable({ state: "new" }), true);
   assert.equal(slugEditable({ state: "draft", wasPublished: false }), true);
   assert.equal(slugEditable({ state: "draft", wasPublished: true }), false);
@@ -194,6 +199,7 @@ test("every refusal is said in her words, beside the right field", () => {
   assert.equal(saveProblem(e(404, {})).where, "gone");
   assert.equal(saveProblem(e(0, null)).where, "status");
   assert.equal(saveProblem(e(503, null)).where, "status");
+  assert.doesNotMatch(saveProblem(e(503, null)).words, /^Not saved yet/, "the status already says that");
   assert.equal(issueWords({ code: "shared-order" }).where, "credits");
   assert.equal(issueWords({ code: "credit-no-role" }).field, "roles");
 });

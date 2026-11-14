@@ -217,3 +217,21 @@ test("When it appears says when it goes up, and only what's true", async () => {
   assert.equal(whenProblem("", "08:00"), "Add the day too, or clear the time.");
   assert.equal(whenProblem("2026-11-27", "08:00"), "");
 });
+
+test("a day with no time is said as the moment the server uses: the start of that day in world time", async () => {
+  const { whenHelp } = await import("../../web/studio/parts/post-fields.js");
+  // The engine has no time zone: "2026-11-27" goes up at midnight UTC, 7 PM the evening before in New York.
+  const note = "No time is set, so that's when Friday, November 27 starts in world time. Add a time to choose your own.";
+  assert.equal(whenHelp({ state: "draft", date: "2026-11-27", schedule: "self" }, now, timeZone).words,
+    `It goes up by itself on Thursday, November 26 at 7 PM, even with your blog closed. ${note}`);
+  assert.equal(whenHelp({ state: "draft", date: "2026-11-27", schedule: "next-send" }, now, timeZone).words,
+    `It's ready to go up on Thursday, November 26 at 7 PM. Your blog puts it up the next time it's sent out after that. ${note}`);
+  assert.equal(whenHelp({ state: "published", date: "2026-11-27" }, now, timeZone).words, `Your post comes off your site until Thursday, November 26 at 7 PM. ${note}`);
+  // At 8 PM on November 12 in New York, November 13 has already started in world time: it's up.
+  const evening = new Date("2026-11-13T01:00:00Z");
+  assert.equal(whenHelp({ state: "draft", date: "2026-11-13" }, evening, timeZone).words, "That day has passed, so it will show as published on Friday, November 13.");
+  assert.equal(postState({ fields: { title: "A", date: "2026-11-13" } }, evening, timeZone), "published", "the server has put it up");
+  assert.equal(primaryAction("draft", "2026-11-13", evening, timeZone), "Publish");
+  // A date with a time is unchanged.
+  assert.equal(postState({ fields: { title: "A", date: "2026-11-13T08:00:00-05:00" } }, evening, timeZone), "scheduled");
+});

@@ -185,6 +185,32 @@ export function isFuture(value, now = new Date(), timeZone) {
 }
 
 /**
+ * When the blog's server counts a value as reached. The engine has no time zone, so a plain date
+ * is the start of that day in world time (UTC), the evening before in the Americas; anything else
+ * is its own instant. `null` for an empty or unreadable value.
+ * @param {string|Date} value
+ * @returns {Date|null}
+ */
+export function serverInstant(value) {
+  const parsed = parse(value);
+  if (!parsed) return null;
+  return new Date(parsed.dateOnly ? Date.UTC(parsed.y, parsed.m - 1, parsed.d) : parsed.ms);
+}
+
+/** Whether a value is a plain date, with no time of day. */
+export const isDayOnly = (value) => DATE_ONLY.test(String(value ?? "").trim());
+
+/**
+ * Whether the server hasn't reached a value yet (a post with it is still scheduled there).
+ * @param {string|Date} value
+ * @param {Date} [now]
+ */
+export function isFutureOnServer(value, now = new Date()) {
+  const at = serverInstant(value);
+  return Boolean(at) && at.getTime() > now.getTime();
+}
+
+/**
  * A short day for a badge: "Nov 27", or "Nov 27, 2027" in another year. "" when unreadable.
  * @param {string|Date} iso
  * @param {{ now?: Date, timeZone?: string }} [options]

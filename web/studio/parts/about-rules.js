@@ -133,6 +133,16 @@ export function slugEditable({ state, wasPublished } = {}) {
 }
 
 /**
+ * The help under the address: how to fill it while it can change, else why it can't. A site with
+ * no history to ask (`hasHistory: false`, not in Git) says that, instead of "it may have been".
+ */
+export function slugHelp({ state, wasPublished, hasHistory } = {}) {
+  if (slugEditable({ state, wasPublished })) return "Leave it empty to make it from the title.";
+  if (hasHistory === false && state !== "published" && state !== "scheduled") return "Your blog has no history of this post, so its address is kept as it is. It can be changed only in the file.";
+  return "The address stays as it is once a post may have been on your site, so saved links keep working. It can be changed only in the file.";
+}
+
+/**
  * "grammishouse.com/pumpkin-bread/": what the address will be. `slug` is what she typed; empty
  * means the file's own name (an existing post) or the title (a new one).
  */
@@ -255,7 +265,7 @@ export function saveProblem(error) {
     const issue = (Array.isArray(data.issues) ? data.issues : [])[0] || { code, field: data.field || "" };
     return issueWords(issue);
   }
-  if (status === 0 || status >= 500) return { where: "status", words: "Not saved yet. Your blog didn't answer; your words are kept on this computer. It tries again when you next change something." };
+  if (status === 0 || status >= 500) return { where: "status", words: "Your blog didn't answer. Your words are kept on this computer, and it tries again when you next change something." };
   return { where: "banner", words: "Something in this post stops your blog from building it. Tell the person who set up your site." };
 }
 

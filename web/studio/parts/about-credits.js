@@ -3,7 +3,7 @@
 // the site: each person's roles, "Name no one on this post", and repairing a credit file that
 // can't be read. The list is sent only when it changed, always with its `creditEtag` (the save
 // does that; this keeps the draft). Every name is text. Studio R5.
-import { h } from "./dom.js";
+import { fill, h } from "./dom.js";
 import { ask } from "./dialogs.js";
 import {
   AUTHOR_ROLE, creditLineProblems, creditNames, creditState, creditsToSend, moveCredit, nextCredit, normalizeCreditDraft,
@@ -27,6 +27,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
   let editing = false;
   let registry = null; // { author, contributors }
   let problemWords = "";
+  let repairing = false; // she chose how to repair a file that can't be read: always sent
 
   const current = () => (draft === undefined ? before : draft);
   const state = () => (error && draft === undefined ? "broken" : creditState({ credits: current() }));
@@ -55,13 +56,13 @@ export function createCredits({ meta, people, onChange, goPeople }) {
         : s === "empty" ? [h("p", { text: "No one is named on this post." })]
           : [h("ol", { class: "studio-about-names" }, list.map((credit) => h("li", { text: nameOf(credit.contributor) })))];
       const canEdit = s !== "inherited" || author || pool.length;
-      element.replaceChildren(...shown, problem(),
+      fill(element, ...shown, problem(),
         canEdit ? h("action-button", { variant: "secondary", class: "studio-about-change-credits", onClick: () => { editing = true; draw(); element.querySelector("select")?.focus(); } }, "Change who wrote it") : null);
       return drawRoles();
     }
     // The editor.
     if (!pool.length) {
-      element.replaceChildren(h("p", { text: "Add the people who write with you first." }),
+      fill(element, h("p", { text: "Add the people who write with you first." }),
         h("action-button", { variant: "secondary", onClick: () => goPeople?.() }, "Open People"), problem());
       return drawRoles();
     }
@@ -85,7 +86,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
       return h("li", { class: "studio-about-credit" }, select, words ? h("p", { class: "studio-field-error", role: "alert", text: words }) : null, tools);
     });
     const next = nextCredit(lines, pool);
-    element.replaceChildren(
+    fill(element,
       h("p", { class: "studio-help", id: `${id}-help`, text: "The first name shows first. Everyone listed is shown as having written it." }),
       h("ol", { class: "studio-about-credit-list", "aria-describedby": `${id}-help` }, rows),
       h("div", { class: "studio-row" },
@@ -136,9 +137,9 @@ export function createCredits({ meta, people, onChange, goPeople }) {
       parts.push(h("p", { class: "studio-detail", text: error }),
         h("p", { class: "studio-help", text: "Choose one before changing who wrote it. Everything else saves meanwhile." }),
         h("div", { class: "studio-row" },
-          h("action-button", { variant: "secondary", onClick: () => { draft = null; error = ""; changed(); } }, "Use the blog's usual name"),
-          h("action-button", { variant: "secondary", onClick: () => { draft = []; error = ""; editing = true; changed(); } }, "Start a new list")));
-      rolesHost.replaceChildren(...parts);
+          h("action-button", { variant: "secondary", onClick: () => { draft = null; error = ""; repairing = true; changed(); } }, "Use the blog's usual name"),
+          h("action-button", { variant: "secondary", onClick: () => { draft = []; error = ""; repairing = true; editing = true; changed(); } }, "Start a new list")));
+      fill(rolesHost, ...parts);
       return;
     }
     const none = h("toggle-switch", { label: "Name no one on this post", checked: s === "empty",
@@ -163,7 +164,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
         unknown.length ? h("p", { class: "studio-field-error", text: `Not recognised: ${unknown.join(", ")}. Remove roles your blog doesn't know before saving.` }) : null,
         group("crossref", "Publishing roles"), group("credit", "CRediT roles")));
     });
-    rolesHost.replaceChildren(...parts);
+    fill(rolesHost, ...parts);
   }
 
   return {
@@ -175,6 +176,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
       error = reply.creditError ? String(reply.creditError) : "";
       draft = undefined;
       editing = false;
+      repairing = false;
       problemWords = "";
       draw();
     },
@@ -204,7 +206,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
       changed();
     },
     /** What a save sends as `credits`: undefined when nothing changed. */
-    toSend: () => (state() === "broken" ? undefined : creditsToSend(before, draft)),
+    toSend: () => (state() === "broken" ? undefined : creditsToSend(before, draft, { repair: repairing })),
     names,
     /** Her checks: the first line with no one, or a person with no roles. */
     problems() {
@@ -216,7 +218,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
     /** The server's answer beside the list. */
     showProblem(words) { problemWords = words; draw(); element.querySelector(".studio-field-error")?.focus?.(); },
     /** After a save: what was sent is what the post has now. */
-    saved(sent) { if (sent !== undefined) { before = sent === null ? null : normalizeCreditDraft(sent); draft = undefined; error = ""; } problemWords = ""; editing = false; draw(); },
+    saved(sent) { if (sent !== undefined) { before = sent === null ? null : normalizeCreditDraft(sent); draft = undefined; error = ""; repairing = false; } problemWords = ""; editing = false; draw(); },
     /** The other computer's list, taken in place of hers (409 credits-changed: Use that list). */
     takeTheirs(reply) { this.reset(reply); onChange?.(); },
     focus: () => (element.querySelector("select, button") || element).focus?.(),

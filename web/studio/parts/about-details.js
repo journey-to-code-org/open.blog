@@ -3,8 +3,8 @@
 // the theme, a picture by web address, every kind, the technical facts of a video or research
 // post, who wrote it in full (roles, name no one, repair), the keys Studio doesn't edit, and the
 // raw truth about the file and how scheduled posts go up. Open or closed is kept for this visit.
-import { h } from "./dom.js";
-import { otherKeys, slugEditable, slugPreview } from "./about-rules.js";
+import { fill, h } from "./dom.js";
+import { otherKeys, slugEditable, slugHelp, slugPreview } from "./about-rules.js";
 import { PROFILE_GROUPS } from "./profile-words.js";
 import { postDetails } from "./post-details.js";
 
@@ -35,7 +35,7 @@ export function createDetails({ meta, controls, credits, post, setCoverAddress, 
     const willBe = (slug) => { preview.textContent = `Will be: ${slugPreview({ siteUrl: meta.siteUrl, postPath: meta.postPath, slug, title: p.title, path: p.path })}`; };
     const address = controls.text("slug", {
       label: "Address on your site", mono: true, readonly: !open, maxlength: 120,
-      help: open ? "Leave it empty to make it from the title." : "The address stays as it is once a post may have been on your site, so saved links keep working. It can be changed only in the file.",
+      help: slugHelp({ state: p.state, wasPublished: p.wasPublished, hasHistory: p.hasHistory }),
       live: willBe,
     });
     willBe(String(address.value || ""));
@@ -49,7 +49,7 @@ export function createDetails({ meta, controls, credits, post, setCoverAddress, 
     const others = otherKeys(fields, p.keys);
     const zone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ""; } })();
     const serverNow = meta.now ? new Date(meta.now) : null;
-    body.replaceChildren(
+    fill(body,
       h("div", { class: "studio-about-group" }, address, preview,
         aliases.length ? h("div", {}, h("p", { class: "studio-label", text: "Old addresses" }),
           h("ul", { class: "studio-mono studio-about-aliases" }, aliases.map((a) => h("li", { text: a }))),

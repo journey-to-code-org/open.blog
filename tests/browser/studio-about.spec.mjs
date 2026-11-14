@@ -97,7 +97,9 @@ async function openPost(page, file, text) {
   if (text !== undefined) writeFileSync(join(dir, "content", "posts", file), text);
   await open(page, `#/write/${encodeURIComponent(`posts/${file}`)}`);
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeVisible();
-  // Loaded: the status and the About this post line are painted once the post is in.
+  // Loaded: Write is busy until the post is in and listening for changes (typing earlier would
+  // never save), then the status and the About this post line are painted.
+  await expect(page.locator(".studio-write")).not.toHaveAttribute("aria-busy", "true");
   await expect(status(page)).not.toHaveText("");
 }
 
@@ -130,6 +132,8 @@ test("a summary-only change on a published post rewrites one line, under the nam
   const summary = sheet(page).getByRole("textbox", { name: "Summary" });
   await expect(summary).toHaveValue("Moist and spiced.");
   await expect(sheet(page).locator(".studio-about-card-summary")).toHaveText("Moist and spiced.");
+  // No cover: the card has no picture area at all, not an empty box.
+  await expect(sheet(page).locator(".studio-about-card .card-media")).toBeHidden();
   await summary.fill("Moist, spiced and easy.");
   await expect(sheet(page).locator(".studio-about-card-summary")).toHaveText("Moist, spiced and easy.");
   await expect(sheet(page).getByText("Press Update to put these on your site.")).toBeVisible();
@@ -149,9 +153,12 @@ test("the line under the title is written as subtitle and its older names go; cr
   await openPost(page, file, text);
   const bodies = [];
   page.on("request", (request) => { if (request.method() === "PUT" && request.url().includes("/api/document")) bodies.push(request.postDataJSON()); });
-  // A title change: the credit file is never touched.
+  // A title change: the credit file is never touched. Each step waits for its own save, never
+  // for a status an earlier save already left.
   await page.getByRole("textbox", { name: "Title", exact: true }).fill("Skillet cornbread");
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("title: Skillet cornbread");
   await expect(status(page)).toHaveText(/Draft · saved/, { timeout: 10000 });
+  expect(bodies).toHaveLength(1);
   expect(bodies.at(-1).credits, "no credits key on a title change").toBeUndefined();
   expect("creditEtag" in bodies.at(-1)).toBe(false);
   await aboutButton(page).click();
@@ -159,6 +166,7 @@ test("the line under the title is written as subtitle and its older names go; cr
   await expect(line).toHaveValue("Skillet style");
   await line.fill("Skillet style, with honey");
   await page.keyboard.press("Escape");
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("subtitle: Skillet style, with honey");
   await expect(status(page)).toHaveText(/Draft · saved/, { timeout: 10000 });
   const saved = fileOf(file);
   expect(saved).toContain("subtitle: Skillet style, with honey");
@@ -211,6 +219,161 @@ test("who wrote it: change, add, move and Just me, each sent with its etag; a br
   await expect(status(page)).toHaveText(/Draft · saved/, { timeout: 10000 });
   expect(fileOf(file)).toContain("title: Flaky biscuits");
   expect(readFileSync(sidecar, "utf8")).toBe("{ not json");
+});
+
+const creditFile = (file) => join(dir, "content", "posts", file.replace(/\.md$/, ".credits.json"));
+const creditList = (...people) => JSON.stringify({ version: 1, credits: people.map((contributor) => ({ contributor, roles: [{ vocabulary: "crossref", role: "author" }] })) });
+const namesIn = (file) => JSON.parse(readFileSync(creditFile(file), "utf8")).credits.map((c) => c.contributor);
+
+// Her list: Ruth then Ann, made in the sheet while the file on disk says someone else.
+async function addAnn(page) {
+  await aboutButton(page).click();
+  const credits = sheet(page).locator(".studio-about-credits");
+  await credits.getByRole("button", { name: "Change who wrote it" }).click();
+  await credits.getByRole("button", { name: "Add someone", exact: true }).click();
+  await expect(aboutButton(page)).toContainText("By Ruth Nichols and Ann");
+  await page.keyboard.press("Escape");
+}
+
+test("who wrote it changed on another computer: closing the question chooses nothing and saves nothing about who wrote it", async ({ page }) => {
+  const file = "2026-10-07-rolls.md";
+  writeFileSync(creditFile(file), creditList("ruth"));
+  await openPost(page, file, "---\ntitle: Rolls\ndate: 2026-10-07\ndraft: true\n---\n\nSoft.\n");
+  // Another computer names only Ann.
+  writeFileSync(creditFile(file), creditList("ann"));
+  const bodies = [];
+  page.on("request", (request) => { if (request.method() === "PUT" && request.url().includes("/api/document")) bodies.push(request.postDataJSON()); });
+  page.removeAllListeners("dialog");
+  await addAnn(page);
+  // The autosave meets their list: it says so and waits; it never springs the question.
+  const waiting = page.locator("alert-banner", { hasText: "Who wrote this post was changed on another computer." });
+  await expect(waiting).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(status(page)).toContainText("Not saved yet: choose which list of who wrote it to keep.");
+  // She opens the question and closes it with Escape: no choice.
+  await waiting.getByRole("button", { name: "Choose which list to keep" }).click();
+  const question = page.getByRole("dialog", { name: "Who wrote this post was changed on another computer." });
+  await expect(question).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(question).toHaveCount(0);
+  await expect(waiting).toBeVisible();
+  // Her other words still save, leaving who wrote it alone.
+  const sent = bodies.length;
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("Soft rolls");
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("title: Soft rolls");
+  expect(bodies.slice(sent).every((body) => !("credits" in body)), "nothing about who wrote it is sent while she hasn't chosen").toBe(true);
+  expect(namesIn(file), "the other computer's list is untouched").toEqual(["ann"]);
+  await expect(waiting, "the question stays in reach after a save").toBeVisible();
+  // Keep mine: now, and only now, hers replaces theirs.
+  await waiting.getByRole("button", { name: "Choose which list to keep" }).click();
+  await question.getByRole("button", { name: "Keep mine" }).click();
+  await expect.poll(() => namesIn(file), { timeout: 10000 }).toEqual(["ruth", "ann"]);
+  await expect(waiting).toHaveCount(0);
+  await expect(status(page)).toHaveText(/Draft · saved/);
+});
+
+test("Publish that runs into the question about who wrote it is still a Publish once she answers", async ({ page }) => {
+  const file = "2026-10-08-pie.md";
+  writeFileSync(creditFile(file), creditList("ruth"));
+  await openPost(page, file, "---\ntitle: Pie\ndate: 2026-10-08\ndraft: true\n---\n\nFlaky.\n");
+  writeFileSync(creditFile(file), creditList("ann"));
+  page.removeAllListeners("dialog");
+  await addAnn(page);
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  const question = page.getByRole("dialog", { name: "Who wrote this post was changed on another computer." });
+  await expect(question).toBeVisible({ timeout: 10000 });
+  await expect(status(page)).toContainText("Not published yet: choose which list of who wrote it to keep.");
+  await question.getByRole("button", { name: "Use that list" }).click();
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).not.toContain("draft: true");
+  expect(namesIn(file)).toEqual(["ann"]);
+  await expect(status(page)).toContainText("Published");
+});
+
+test("repairing a credit file that can't be read sends her choice", async ({ page }) => {
+  const file = "2026-10-09-scones.md";
+  writeFileSync(creditFile(file), "{ not json");
+  await openPost(page, file, "---\ntitle: Scones\ndate: 2026-10-09\ndraft: true\n---\n\nCrumbly.\n");
+  await aboutButton(page).click();
+  await sheet(page).getByText("Details for the person who set up your site").click();
+  await sheet(page).getByRole("button", { name: "Use the blog's usual name" }).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(() => existsSync(creditFile(file)), { timeout: 10000 }).toBe(false);
+  // A new list, saved empty: a file that names no one.
+  writeFileSync(creditFile(file), "{ not json");
+  await openPost(page, file);
+  await aboutButton(page).click();
+  // Details stays open for the rest of the visit.
+  await sheet(page).getByRole("button", { name: "Start a new list" }).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(() => readFileSync(creditFile(file), "utf8"), { timeout: 10000 }).not.toBe("{ not json");
+  expect(JSON.parse(readFileSync(creditFile(file), "utf8")).credits).toEqual([]);
+});
+
+test("when the blog doesn't answer, the reason is said once and Try again sends it", async ({ page }) => {
+  const file = "2026-10-14-hash.md";
+  await openPost(page, file, "---\ntitle: Hash\ndate: 2026-10-14\ndraft: true\n---\n\nCrisp.\n");
+  let down = true;
+  await page.route("**/admin/api/document?*", (route) => (down && route.request().method() === "PUT" ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy" }) }) : route.continue()));
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill("Crisp hash");
+  await expect(status(page)).toHaveText("Not saved yet", { timeout: 10000 });
+  await expect(page.getByText(/didn't answer/)).toHaveCount(1);
+  down = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("title: Crisp hash");
+  await expect(page.getByText(/didn't answer/)).toHaveCount(0);
+});
+
+test("Tab and Shift+Tab stay inside the sheet", async ({ page }) => {
+  await openPost(page, "2026-10-01-pumpkin-bread.md");
+  await aboutButton(page).click();
+  await expect(sheet(page).getByRole("heading", { name: "About this post" })).toBeVisible();
+  await expect(sheet(page).locator(".studio-about-credits skeleton-block")).toHaveCount(0);
+  const inside = () => page.evaluate(() => Boolean(document.activeElement?.closest("side-sheet.studio-about-sheet")));
+  const stops = await sheet(page).evaluate((node) => node.querySelectorAll("button, input, select, textarea, summary, a[href]").length);
+  for (let i = 0; i < stops + 3; i += 1) {
+    await page.keyboard.press("Tab");
+    expect(await inside(), `Tab ${i + 1} stays in the sheet`).toBe(true);
+  }
+  for (let i = 0; i < stops + 3; i += 1) {
+    await page.keyboard.press("Shift+Tab");
+    expect(await inside(), `Shift+Tab ${i + 1} stays in the sheet`).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(aboutButton(page)).toBeFocused();
+});
+
+test("the sheet never shows null or undefined as words, in any state", async ({ page }) => {
+  const words = async (label) => {
+    await expect(sheet(page).getByRole("heading", { name: "About this post" })).toBeVisible();
+    // Wait for People to be asked, so the credits part is drawn.
+    await expect(sheet(page).locator(".studio-about-credits skeleton-block")).toHaveCount(0);
+    const text = await sheet(page).evaluate((node) => node.textContent);
+    expect(text, label).not.toMatch(/\bnull\b|\bundefined\b|\[object /);
+  };
+  const states = [
+    ["a story by the blog's usual name", "2026-10-10-story.md", "---\ntitle: A story\ndate: 2026-10-10\ndraft: true\n---\n\nOnce.\n", null],
+    ["a recipe naming no one", "2026-10-11-soup.md", "---\ntitle: Soup\ndate: 2026-10-11\ndraft: true\nprofile: recipe\n---\n\nHot.\n", JSON.stringify({ version: 1, credits: [] })],
+    ["a post naming two people", "2026-10-12-cake.md", "---\ntitle: Cake\ndate: 2026-10-12\ndraft: true\nfoo: bar\n---\n\nSweet.\n", creditList("ruth", "ann")],
+    ["a credit file that can't be read", "2026-10-13-tea.md", "---\ntitle: Tea\ndate: 2026-10-13\ndraft: true\n---\n\nWarm.\n", "{ not json"],
+  ];
+  for (const [label, file, text, credits] of states) {
+    if (credits !== null) writeFileSync(creditFile(file), credits);
+    await openPost(page, file, text);
+    await aboutButton(page).click();
+    await words(label);
+    const details = sheet(page).locator("details.studio-about-details");
+    if (!(await details.evaluate((node) => node.open))) await sheet(page).getByText("Details for the person who set up your site").click();
+    await words(`${label}, with Details open`);
+    await page.keyboard.press("Escape");
+  }
+  // After changing the kind: the help and Undo under the choice.
+  await openPost(page, "2026-10-10-story.md");
+  await aboutButton(page).click();
+  await sheet(page).getByRole("radio", { name: "A recipe" }).check();
+  await expect(sheet(page).getByRole("button", { name: "Undo" })).toBeVisible();
+  await words("after changing the kind");
+  await sheet(page).getByRole("button", { name: "Undo" }).click();
+  await words("after Undo");
 });
 
 test("the address is editable only while a post was never on the site", async ({ page }) => {

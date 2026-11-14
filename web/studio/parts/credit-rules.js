@@ -88,12 +88,16 @@ const sameList = (a, b) => JSON.stringify(normalizeCreditDraft(a)) === JSON.stri
 
 /**
  * What a save sends as `credits`: `undefined` when nothing changed (the key is left out, so the
- * credit file is never touched), `null` for "the blog's usual name", else the list.
+ * credit file is never touched), `null` for "the blog's usual name", else the list. A repair of a
+ * file that can't be read (`repair`) always sends her choice: `null` removes the file, a list
+ * rewrites it, even when it matches what was read.
  * @param {Array|null|undefined} before what the post had (`null`: no file)
  * @param {Array|null|undefined} after what she has now (`undefined`: not edited)
+ * @param {{ repair?: boolean }} [options]
  */
-export function creditsToSend(before, after) {
+export function creditsToSend(before, after, { repair = false } = {}) {
   if (after === undefined) return undefined;
+  if (repair) return after === null ? null : normalizeCreditDraft(after);
   if (after === null) return before === null || before === undefined ? undefined : null;
   if (Array.isArray(before) && sameList(before, after)) return undefined;
   return normalizeCreditDraft(after);

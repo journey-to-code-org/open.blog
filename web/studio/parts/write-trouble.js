@@ -33,6 +33,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
       return;
     }
     banner.replaceChildren(mineAside(mine, copy));
+    creditsWaiting = null;
     await takeTheirs(theirs);
   }
 
@@ -55,14 +56,42 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
   }
 
   // Who wrote it changed on another computer: use theirs, or keep hers against their version.
-  async function creditsChanged(intent) {
+  // Until she chooses, nothing about who wrote it is sent (her other changes still save) and a
+  // banner keeps the question in reach; closing the question is not a choice. An autosave never
+  // springs it on her. What she pressed (Publish, Save) is what happens once she has chosen.
+  let creditsWaiting = null; // { theirs, intent } while she hasn't chosen
+
+  const waitingWords = (intent) => `${intent === "publish" ? "Not published yet" : "Not saved yet"}: choose which list of who wrote it to keep.`;
+
+  function creditsBanner() {
+    banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Who wrote this post was changed on another computer." },
+      "Your list is still here. Nothing about who wrote it is saved until you choose.",
+      h("action-button", { variant: "secondary", class: "studio-credits-choose", onClick: () => chooseCredits() }, "Choose which list to keep")));
+  }
+
+  async function creditsChanged(intent, quiet) {
     let theirs;
     try { theirs = await api.get(`document?path=${encodeURIComponent(doc.path)}`); } catch { return; }
+    creditsWaiting = { theirs, intent: creditsWaiting?.intent === "publish" ? "publish" : intent };
+    notSaved(waitingWords(creditsWaiting.intent));
+    creditsBanner();
+    paint();
+    if (!quiet) await chooseCredits();
+  }
+
+  async function chooseCredits() {
+    if (!creditsWaiting) return;
+    const { theirs, intent } = creditsWaiting;
     const choice = await ask({ heading: "Who wrote this post was changed on another computer.", text: "Keep the list from there, or the one you made here?",
       choices: [{ label: "Use that list", value: "theirs" }, { label: "Keep mine", value: "mine", variant: "secondary" }] });
+    if (choice !== "theirs" && choice !== "mine") return banner.querySelector(".studio-credits-choose button")?.focus();
+    creditsWaiting = null;
+    banner.replaceChildren();
+    // Only her answer takes their version's tag: "Keep mine" now replaces it on purpose.
     doc.creditEtag = theirs.creditEtag ?? null;
     if (choice === "theirs") about.takeCredits(theirs);
-    if (choice) { markDirty(); await saveNow(intent === "publish" && doc.state !== "published" ? "draft" : intent, { force: true, quiet: true }); }
+    markDirty();
+    await saveNow(intent, { force: true, quiet: intent !== "publish" });
   }
 
   // The server's own sentences, for the person who set up the site.
@@ -77,7 +106,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
     const said = saveProblem(error);
     if (said.where === "conflict" && doc.path) return conflict(quiet);
     notSaved("Not saved yet");
-    if (said.where === "credits" && error.data?.code === "credits-changed" && doc.path) { paint(); return creditsChanged(intent); }
+    if (said.where === "credits" && error.data?.code === "credits-changed" && doc.path) return creditsChanged(intent, quiet);
     if (said.where === "title") {
       const name = read().title.trim();
       title.error = said.words;
@@ -93,8 +122,8 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
         h("action-button", { onClick: () => saveAsNew() }, "Save it as a new post"),
         h("action-button", { variant: "secondary", href: "#/posts" }, "Back to your posts")));
     } else if (said.where === "status") {
-      notSaved(said.words);
-      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Not saved yet" }, said.words,
+      // Said once: the status says it isn't saved, the banner says why and offers Try again.
+      banner.replaceChildren(h("alert-banner", { variant: "warning" }, said.words,
         h("action-button", { variant: "secondary", onClick: () => saveNow(intent) }, "Try again")));
     } else if (said.where === "signin") {
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: intent === "publish" ? "Not published" : "Not saved" },
@@ -107,7 +136,15 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
     paint();
   }
 
-  return { problem, conflict, copy };
+  return {
+    problem, conflict, copy,
+    /** While she hasn't chosen whose list to keep, a save leaves who wrote it alone. */
+    creditsWaiting: () => Boolean(creditsWaiting),
+    /** After a save that went through: the question about who wrote it stays in reach. */
+    afterSave() { if (creditsWaiting) { notSaved(waitingWords(creditsWaiting.intent)); creditsBanner(); } },
+    /** The post was reloaded from the other computer: nothing is waiting any more. */
+    forgetCredits() { creditsWaiting = null; },
+  };
 }
 
 /** A post that didn't open at all: why, and the way back. */

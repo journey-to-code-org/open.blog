@@ -4,13 +4,14 @@
 // It has no Save of its own: every value is part of the post (drafts save themselves; a published
 // post keeps changes on this device until Update). Write reads `extra()` and `credits()` when it
 // saves. Everything she or the server wrote is placed as text. Studio R5.
-import { h, toast } from "./dom.js";
+import { fill, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
 import { choosePicture } from "./picture-picker.js";
 import { createControls } from "./about-fields.js";
 import { createCredits } from "./about-credits.js";
 import { createDetails } from "./about-details.js";
+import { trapFocus } from "./focus-trap.js";
 import {
   aboutExtra, aboutFromDocument, aboutKeys, aboutLine, aboutProblems, cardSummary, pinCounts, slugEditable, slugPreview, summaryCount,
 } from "./about-rules.js";
@@ -52,6 +53,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
   const element = h("side-sheet", { label: "About this post", side: "right", class: "studio-about-sheet" },
     heading, h("div", { class: "studio-about-body" }, groups.kind, groups.own, groups.page, groups.search, groups.credits, details.element),
     h("div", { slot: "actions", class: "studio-about-actions" }, footStatus, done));
+  trapFocus(element, () => element.open);
   // Closed by Escape or the × (openchange), or by Done (setting `open` fires no openchange).
   element.addEventListener("openchange", (event) => {
     if (event.target !== element || event.detail) return;
@@ -89,7 +91,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     controls.forget(["profile"]);
     const box = controls.choice("profile", { legend: "What kind of post", choices, confirm: (to) => changeKind(current, to) });
     box.querySelector("legend").id = "studio-about-kind-h";
-    groups.kind.replaceChildren(box,
+    fill(groups.kind, box,
       kindHelp ? h("p", { class: "studio-help", role: "status", text: kindHelp }) : null,
       kindParts ? h("action-button", { variant: "secondary", onClick: () => { addParts?.(); kindParts = false; drawKind(); } }, "Add the recipe parts") : null,
       kindUndo ? h("action-button", { variant: "link", class: "studio-about-kind-undo", onClick: () => undoKind() }, "Undo") : null);
@@ -204,7 +206,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
         controls.text("cardTitle", { label: "Pin title", maxlength: 300, live: () => paintPins() }),
         controls.text("cardDescription", { label: "Pin description", rows: 3, live: () => paintPins() }), pinSay, pinLive)
       : null;
-    groups.search.replaceChildren(
+    fill(groups.search,
       h("h3", { id: "studio-about-search-h", tabindex: "-1", text: "In search and when shared" }),
       controls.text("description", { label: "Summary", rows: 3, maxlength: 500, help: "One or two sentences. Leave empty and your blog uses the first lines of your post." }),
       count, countSay,

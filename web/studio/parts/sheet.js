@@ -5,6 +5,7 @@
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
+import { trapFocus } from "./focus-trap.js";
 
 /**
  * `question` is { heading, text?, save, leave } for the leave-guard; `save()` resolves true once
@@ -13,6 +14,7 @@ import { ask } from "./dialogs.js";
 export async function createSheet({ label, wide = true }) {
   await use("side-sheet", "action-button");
   const element = h("side-sheet", { label, side: "right", class: wide ? "studio-wide-sheet" : "" });
+  trapFocus(element, () => element.open);
   let current = null; // { dirty, save, question, opener }
   let asking = false;
   // While a close we asked for is still reaching the native dialog: its "close" event comes a task

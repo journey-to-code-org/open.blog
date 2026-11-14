@@ -42,6 +42,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/doc-kinds.js", include_bytes!("../../../web/studio/parts/doc-kinds.js")),
     ("parts/dom.js", include_bytes!("../../../web/studio/parts/dom.js")),
     ("parts/field-form.js", include_bytes!("../../../web/studio/parts/field-form.js")),
+    ("parts/focus-trap.js", include_bytes!("../../../web/studio/parts/focus-trap.js")),
     ("parts/gift-card.js", include_bytes!("../../../web/studio/parts/gift-card.js")),
     ("parts/home-jobs.js", include_bytes!("../../../web/studio/parts/home-jobs.js")),
     ("parts/home-ready.js", include_bytes!("../../../web/studio/parts/home-ready.js")),

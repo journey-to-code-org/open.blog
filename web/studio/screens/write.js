@@ -9,7 +9,7 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { coverPicker } from "../parts/cover-picker.js";
 import { createKept } from "../parts/kept.js";
-import { isFuture, joinInstant, sayDay, splitInstant } from "../parts/dates.js";
+import { isFutureOnServer, joinInstant, sayDay, splitInstant } from "../parts/dates.js";
 import { formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
 import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../parts/post-session.js";
 import { howItGoesOut, servedHere, siteLink } from "../parts/publish.js";
@@ -41,7 +41,7 @@ export async function createWrite(context, arg, route = {}) {
   const path = starting ? "" : arg;
   const keptKey = starting ? `new-${starting}` : path;
   const kept = createKept(safeStorage(), api.user);
-  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, excerpt: "", slug: "" };
+  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, hasHistory: undefined, excerpt: "", slug: "" };
   let form = { title: "", date: "", tags: [], cover: "", coverAlt: "", draft: true, body: "", extra: {} };
   let baseline = "";
   let dirty = false;
@@ -67,7 +67,7 @@ export async function createWrite(context, arg, route = {}) {
   const when = createWhen({ day, time, help: whenHelp, state: () => doc.state, schedule: () => scheduleTruth() });
   const about = await createAboutPost({
     api, meta, maxBytes: meta.capture?.maxPhotoBytes || 0,
-    post: () => ({ state: doc.state, wasPublished: doc.wasPublished, path: doc.path, fields: doc.fields, title: String(title.value || "").trim(), url: doc.url,
+    post: () => ({ state: doc.state, wasPublished: doc.wasPublished, hasHistory: doc.hasHistory, path: doc.path, fields: doc.fields, title: String(title.value || "").trim(), url: doc.url,
       excerpt: doc.excerpt, cover: form.cover, coverAlt: form.coverAlt, collection: collectionName(), body: bodyText(), dirty, facts: facts() }),
     onChange: () => changed(), onKind: (from, to, options) => switchKind(from, to, options), addParts: () => addRecipeParts(),
     goPeople: (options) => goPeople(options), setCoverAddress: (url) => picker?.setAddress(url),
@@ -276,10 +276,10 @@ export async function createWrite(context, arg, route = {}) {
       return false;
     }
     // A post on her site moved to a later day comes off until then: asked once.
-    if (intent === "publish" && doc.state === "published" && isFuture(fields.date || "", now()) && !(await when.confirmMove())) { pending = false; paint(); return false; }
+    if (intent === "publish" && doc.state === "published" && isFutureOnServer(fields.date || "", now()) && !(await when.confirmMove())) { pending = false; paint(); return false; }
     const wasLive = doc.state === "published";
     const wasScheduled = doc.state === "scheduled";
-    const credits = about.credits();
+    const credits = trouble.creditsWaiting() ? undefined : about.credits();
     const aboutSent = about.extra();
     if (!quiet) button.loading = true;
     saving = (async () => {
@@ -310,6 +310,7 @@ export async function createWrite(context, arg, route = {}) {
       notSaved = "";
       when.reset(); // the time is hers now: the help says when it really goes up
       banner.replaceChildren();
+      trouble.afterSave();
       paint();
       if (intent === "publish") await announce(wasLive);
       else if (wasScheduled && doc.state === "draft") toast(`It won't go up on ${sayDay(form.date, { now: now() }).replace(/^(Today|Yesterday)/, (w) => w.toLowerCase()) || "its day"}. It's a draft again.`);
@@ -415,7 +416,13 @@ export async function createWrite(context, arg, route = {}) {
 
   // ---- loading
   let captureOf = null; // the job's capture: its voice note (R4 G30)
+  // Busy until the post is in and listening for her changes: words typed before that would never
+  // be saved, so screen readers (and the tests) wait for it.
   async function load() {
+    element.setAttribute("aria-busy", "true");
+    try { await loadPost(); } finally { element.removeAttribute("aria-busy"); }
+  }
+  async function loadPost() {
     const asking = howItGoesOut(api).then((how) => { goesOut = how; paint(); });
     let reply = {};
     if (path) {
@@ -436,6 +443,7 @@ export async function createWrite(context, arg, route = {}) {
       doc.fields = { ...reply.fields };
       doc.creditEtag = reply.creditEtag ?? null;
       doc.wasPublished = typeof reply.wasPublished === "boolean" ? reply.wasPublished : undefined;
+      doc.hasHistory = typeof reply.hasHistory === "boolean" ? reply.hasHistory : undefined;
       doc.excerpt = String(reply.excerpt || "");
       doc.slug = String(reply.slug || fileSlug(path));
       captureOf = reply.capture && typeof reply.capture.id === "string" ? reply.capture : null;
@@ -487,6 +495,7 @@ export async function createWrite(context, arg, route = {}) {
     if (query.add) about.addPerson(String(query.add));
     if (query.sheet === "about" || (query.sheet === "copy" && doc.path)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
     paint();
+    element.removeAttribute("aria-busy");
     await asking;
   }
 

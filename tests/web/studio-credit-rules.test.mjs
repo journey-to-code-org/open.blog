@@ -71,6 +71,18 @@ test("credits are sent only when they changed", () => {
   assert.deepEqual(creditsToSend(ruth, [...ruth, { contributor: "ann", roles: [author] }]).map((c) => c.contributor), ["ruth", "ann"]);
 });
 
+test("repairing a credit file that can't be read always sends her choice", () => {
+  const ruth = [{ contributor: "ruth", roles: [author] }];
+  // The file is broken, so what the post "had" says nothing: the repair is always sent.
+  assert.equal(creditsToSend(null, null, { repair: true }), null, "the blog's usual name removes the file");
+  assert.deepEqual(creditsToSend(null, [], { repair: true }), [], "a new list starts empty");
+  assert.deepEqual(creditsToSend([], [], { repair: true }), []);
+  assert.equal(creditsToSend(ruth, null, { repair: true }), null);
+  assert.deepEqual(creditsToSend(ruth, ruth, { repair: true }), ruth, "the same names still rewrite a file that can't be read");
+  // Not chosen yet: nothing is sent.
+  assert.equal(creditsToSend(null, undefined, { repair: true }), undefined);
+});
+
 test("names on a post in order, and the by-line", () => {
   const registry = { ruth: { name: "Ruth Nichols" } };
   assert.deepEqual(creditNames(null, registry, { name: "Grammi" }), ["Grammi"]);
