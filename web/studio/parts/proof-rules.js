@@ -184,12 +184,12 @@ export function validateForm(form) {
   const problems = [];
   const add = (field, message) => problems.push({ field, message });
   const id = clean(form.id);
-  if (!id) add("id", "Add a short id, such as dana-r-2026-10-20. A job uses it to show this review.");
+  if (!id) add("id", "Add a short id, such as sam-r-2026-10-20. A job uses it to show this review.");
   else if (!isReviewId(id)) add("id", `Use letters, digits, - and _, up to ${LIMITS.id} characters.`);
   if (form.draft) return problems;
 
   const author = clean(form.author);
-  if (!author) add("author", "Add the name the reviewer shows, such as Dana R.");
+  if (!author) add("author", "Add the name the reviewer shows, such as Sam R.");
   else if (CONTROL.test(author) || [...author].length > LIMITS.author) add("author", `Use 1 to ${LIMITS.author} characters on one line.`);
 
   const date = clean(form.date);

@@ -187,8 +187,8 @@ const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")
   .filter((line) => !/^\s*(\/\/|\*)/.test(line)).map((line) => line.replace(/\s\/\/\s.*$/, "")).join("\n");
 
 test("no shipped string names one owner, her family, her site or her food", () => {
-  const PERSONA = /Grammi|Mikey|grammishouse|Family Wall|Kitchen iPad|Thanksgiving recipes|windowsill/i;
-  const found = sources.filter((file) => PERSONA.test(code(readFileSync(file, "utf8")))).map((file) => file.slice(studio.length + 1));
+  const PERSONA = /Grammi|Mikey|grammishouse|Family Wall|Kitchen iPad|Thanksgiving recipes|windowsill|Pumpkin|\bRuth\b|\bElkins\b|\bDana\b/i;
+  const found = sources.flatMap((file) => code(readFileSync(file, "utf8")).split("\n").filter((line) => PERSONA.test(line)).map((line) => `${file.slice(studio.length + 1)}: ${line.trim().slice(0, 80)}`));
   assert.deepEqual(found, []);
 });
 

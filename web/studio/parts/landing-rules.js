@@ -251,7 +251,7 @@ export const SECTION_CATALOG = Object.freeze([
     label: "Reviews",
     icon: "\u2B50",
     description: "Your newest customer reviews, each with a link to where it was left.",
-    sample: "On time, careful with our things, and the floor looks great. Dana R., on Google.",
+    sample: "On time, careful with our things, and the floor looks great. Sam R., on Google.",
     blank: () => ({ heading: "What customers say" }),
     fields: [
       text("heading", "Heading", { required: true, max: LIMITS.heading, hint: "Reviews are saved under Reviews. Nothing is shown here until you save one." }),

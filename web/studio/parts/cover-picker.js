@@ -21,7 +21,7 @@ export async function coverPicker({ api, cover = "", coverAlt = "", coverCredit 
       const notYet = h("p", { class: "studio-help", text: "Not described yet. A few words let everyone enjoy it, including people who use a screen reader.", hidden: Boolean(String(state.coverAlt || "").trim()) });
       const alt = h("text-field", {
         label: "Describe the picture", value: state.coverAlt,
-        description: "For people who can't see it, like “Pumpkin bread sliced on a board”.",
+        description: "For people who can't see it, like “A red barn in the snow”.",
         onValuechange: (e) => { state.coverAlt = e.detail; notYet.hidden = Boolean(String(e.detail || "").trim()); changed(); },
       });
       const credit = h("text-field", {
