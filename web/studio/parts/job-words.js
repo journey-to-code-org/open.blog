@@ -39,7 +39,7 @@ export function tooManyWords(names, max = 12) {
 /** The voice note, by recorder state and by why it stopped. */
 export const RECORD_WORDS = Object.freeze({
   idle: (maxSeconds = 180) => `Up to ${Math.round(maxSeconds / 60)} minutes.`,
-  unsupported: "Voice notes don't work in this browser. Type a few words instead.",
+  unsupported: "Voice notes don't work here. Type a few words instead.",
   starting: "Your phone may ask to use the microphone. Tap Allow.",
   unavailable: "The microphone didn't start. If another app is using it, close that app and try again. Or type a few words.",
   time: "Stopped at 3 minutes, the longest a voice note can be. It's kept.",

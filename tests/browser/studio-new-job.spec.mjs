@@ -349,6 +349,50 @@ test("a voice note is recorded after a tap, turned into words only after she's t
   expect(readFileSync(draftsIn(trade, "voicetown")[0], "utf8")).not.toMatch(/webm|audio/);
 });
 
+/** What New job says, read as she'd see it: never "null" or "undefined". */
+async function noStrayWords(page, label) {
+  const text = await screen(page).evaluate((node) => node.innerText);
+  expect(text, label).not.toMatch(/\bnull\b|\bundefined\b/);
+}
+
+test("New job never says null or undefined, in any voice note state", async ({ page, context }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: true });
+  await page.route(/\/admin\/api\/assistant\/transcribe$/, (route) => route.fulfill({ json: { available: true, engine: "local", leavesServer: false } }));
+  await openNewJob(page);
+  const voice = page.locator("[data-voice]");
+  await noStrayWords(page, "idle");
+  await voice.getByRole("button", { name: "Record a voice note" }).click();
+  await expect(voice.getByRole("button", { name: "Stop" })).toBeVisible();
+  await noStrayWords(page, "recording");
+  await voice.getByRole("button", { name: "Stop" }).click();
+  await expect(voice.getByRole("button", { name: "Turn it into words" })).toBeVisible();
+  await noStrayWords(page, "recorded, with a signal");
+  await context.setOffline(true);
+  await page.evaluate(() => dispatchEvent(new Event("offline")));
+  await expect(voice).toContainText("When there's a signal");
+  await noStrayWords(page, "recorded, no signal");
+  await context.setOffline(false);
+  await page.evaluate(() => dispatchEvent(new Event("online")));
+  await voice.getByRole("button", { name: "Throw away your voice note" }).click();
+  await page.getByRole("dialog", { name: "Throw away your voice note?" }).getByRole("button", { name: "Throw it away" }).click();
+  await expect(voice.getByRole("button", { name: "Record a voice note" })).toBeVisible();
+  await noStrayWords(page, "thrown away");
+});
+
+test("New job never says null when voice notes can't work or the microphone is refused", async ({ page, context }) => {
+  await page.addInitScript(fakeMicrophone, { denied: "", supported: false });
+  await openNewJob(page);
+  await expect(page.locator("[data-voice]")).toContainText("Voice notes don't work here. Type a few words instead.");
+  await noStrayWords(page, "can't record");
+  const other = await context.newPage();
+  await other.addInitScript(fakeMicrophone, { denied: "NotAllowedError", supported: true });
+  await other.goto(`${trade.origin}/admin/studio/#/new-job`);
+  await other.locator("[data-voice]").getByRole("button", { name: "Record a voice note" }).click();
+  await expect(other.locator("[data-voice]")).toContainText("Or type a few words instead.");
+  await noStrayWords(other, "refused");
+  await other.close();
+});
+
 test("a refused microphone shows only this phone's steps, and typing still works", async ({ page }) => {
   await page.addInitScript(fakeMicrophone, { denied: "NotAllowedError", supported: true });
   await openNewJob(page);

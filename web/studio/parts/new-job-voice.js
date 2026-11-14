@@ -2,7 +2,7 @@
 // words, over the old Admin's recorder (parts/capture-recorder.js, unchanged). The button's name
 // follows the state; the live region hears "Recording" once, "30 seconds left" once and "Stopped";
 // the ticking timer is not read out. Leaving or hiding the page while recording stops and keeps it.
-import { h } from "./dom.js";
+import { fill, h } from "./dom.js";
 import { ask } from "./dialogs.js";
 import { audioLimits, clock, createRecorder } from "./capture-recorder.js";
 import { appendTranscript } from "./capture-assistant-rules.js";
@@ -131,11 +131,11 @@ export function createVoiceNote({ meta, here, noun, api, sheet, captureId, notes
     const state = recorder.state;
     const online = globalThis.navigator?.onLine !== false;
     if (!recorder.support.supported && !note) {
-      body.replaceChildren(h("p", { class: "studio-help", text: RECORD_WORDS.unsupported }));
+      fill(body, h("p", { class: "studio-help", text: RECORD_WORDS.unsupported }));
       return;
     }
     if (state === "recording") {
-      body.replaceChildren(
+      fill(body, 
         h("p", { class: "studio-recording" }, h("span", { class: "studio-recording-dot", "aria-hidden": "true" }), h("span", { "data-timer": "true", "aria-live": "off", text: `Recording 0:00 of ${clock(limits.maxAudioSeconds)}` })),
         h("div", { class: "studio-row" },
           h("action-button", { "data-stop": "true", onClick: () => recorder.stop() }, "Stop"),
@@ -149,7 +149,7 @@ export function createVoiceNote({ meta, here, noun, api, sheet, captureId, notes
         checking = true;
         transcribeSetup(api).then((found) => { setup = found; checking = false; draw(); });
       }
-      body.replaceChildren(
+      fill(body, 
         leftNote ? h("p", { class: "studio-help", text: RECORD_WORDS.left }) : null,
         player,
         h("p", { class: "studio-help", text: lengthWords(clock(note.seconds)) }),
@@ -164,7 +164,7 @@ export function createVoiceNote({ meta, here, noun, api, sheet, captureId, notes
       ? h("div", { class: "studio-help", role: "note" }, h("p", { text: RECORD_WORDS.denied(noun) }), h("ol", { class: "studio-steps" }, ...micSteps(here).map((line) => h("li", { text: line }))), h("p", { text: RECORD_WORDS.deniedAfter }))
       : problem === "unavailable" ? h("p", { class: "studio-help", text: RECORD_WORDS.unavailable })
         : null;
-    body.replaceChildren(
+    fill(body, 
       h("action-button", { variant: "secondary", "data-record": "true", loading: state === "starting", onClick: start }, state === "starting" ? "Starting…" : "Record a voice note"),
       h("p", { class: "studio-help", text: state === "starting" ? RECORD_WORDS.starting : RECORD_WORDS.idle(limits.maxAudioSeconds) }),
       why);

@@ -132,7 +132,7 @@ States from `createRecorder` (ported unchanged): `idle`, `starting`, `recording`
 | State | Shows | Buttons |
 | --- | --- | --- |
 | idle, can record | "Up to 3 minutes." | **Record a voice note** |
-| idle, can't | "Voice notes don't work in this browser. Type a few words instead." | none |
+| idle, can't | "Voice notes don't work here. Type a few words instead." | none |
 | starting | "Your phone may ask to use the microphone. Tap Allow." | loading |
 | recording | red dot + "Recording 0:42 of 3:00" (dot static under reduced motion) | **Stop** (primary-styled, focused), **Throw it away** |
 | recorded | `<audio controls>` named "Your voice note", "1:12 long." | **Record again** (asks "Replace your voice note?" **Replace** / **Keep it**), **Throw it away**; **Turn it into words** |
