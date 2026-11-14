@@ -32,7 +32,14 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "voice", "capture", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["research", "voice", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+});
+
+test("R4: Capture, whatever came after it, is New job, and the query stays", () => {
+  assert.equal(legacyRoute("#/capture"), "#/new-job");
+  assert.equal(legacyRoute("#/capture/anything/else"), "#/new-job");
+  assert.equal(legacyRoute("#/capture?from=checklist"), "#/new-job?from=checklist");
+  assert.equal(legacyRoute("#/new-job"), null, "Studio's own address stays");
 });
 
 test("R3: Notifications is Studio's own; anything after it goes, the query stays", () => {

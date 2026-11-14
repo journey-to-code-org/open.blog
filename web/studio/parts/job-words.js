@@ -147,10 +147,25 @@ export function flushWords({ total = 0, done = 0, sent = 0, blocked = "", waitin
 /** "Sent. Roof repair in Elkins is a draft on your blog." */
 export const sentWords = (title) => `Sent. ${title} is a draft on your blog.`;
 
+const COMPANIES = { "open-ai": "OpenAI", openai: "OpenAI", anthropic: "Anthropic", google: "Google", gemini: "Google", mistral: "Mistral" };
+
+/** The company a helper sends to, by name: "OpenAI", never an address or a model. */
+export function companyName({ provider = "", destination = "" } = {}) {
+  if (COMPANIES[String(provider).toLowerCase()]) return COMPANIES[String(provider).toLowerCase()];
+  const text = String(destination || "").trim();
+  try {
+    const host = new URL(text).hostname.replace(/^(api|www)\./, "");
+    const known = Object.entries(COMPANIES).find(([key]) => host.includes(key.replace("-", "")));
+    return known ? known[1] : host;
+  } catch {
+    return text || "another company";
+  }
+}
+
 /** Where the voice note goes to be turned into words: the place, never the model. */
 export function transcribeDisclosure(disclosure = {}) {
   if (disclosure.engine === "local" || disclosure.leavesServer === false) return "Your blog turns it into words on its own computer. Nothing leaves it.";
-  const where = String(disclosure.destination || "another company").trim() || "another company";
+  const where = companyName(disclosure);
   return `Your voice note goes to ${where} to be turned into words. Only the recording goes: not your photos or your notes. ${where}'s own rules cover what it keeps.`;
 }
 

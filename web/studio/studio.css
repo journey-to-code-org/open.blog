@@ -481,3 +481,34 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-notifications-undo p { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .studio-quiet-link { margin: 0; }
 .studio-quiet-link:empty { display: none; }
+
+/* New job (R4): photos, the voice note, the picks, and the bar that keeps Save this job in reach. */
+.studio-new-job { scroll-padding-bottom: 6rem; }
+.studio-new-job-form { gap: var(--space-4); }
+.studio-thumbs { gap: var(--space-2); }
+.studio-thumb { position: relative; aspect-ratio: 1; border-radius: var(--radius); overflow: hidden; background: var(--studio-sage); border: 1px solid var(--studio-linen); }
+.studio-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.studio-thumb skeleton-block { display: block; height: 100%; }
+.studio-thumb-remove { position: absolute; top: 0; right: 0; }
+.studio-thumb-remove .action-button { min-width: 2.75rem; min-height: 2.75rem; background: var(--studio-flour-lift); border-radius: 0 0 0 var(--radius); }
+.studio-new-job-photos { display: grid; gap: var(--space-2); }
+@media (min-width: 30rem) { .studio-new-job-photos { grid-template-columns: 1fr 1fr; } }
+.studio-voice { margin: 0; padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-voice legend { padding-inline: var(--space-1); font-weight: 600; }
+.studio-voice-body { display: grid; gap: var(--space-2); }
+.studio-audio { width: 100%; max-width: 100%; }
+.studio-recording { margin: 0; display: flex; align-items: center; gap: var(--space-2); font-variant-numeric: tabular-nums; font-weight: 600; }
+.studio-recording-dot { inline-size: 0.8rem; block-size: 0.8rem; border-radius: 50%; background: var(--studio-beet); flex: none; }
+@media (prefers-reduced-motion: no-preference) { .studio-recording-dot { animation: studio-recording 1.2s ease-in-out infinite; } }
+@keyframes studio-recording { 50% { opacity: 0.35; } }
+.studio-picks-box { display: grid; gap: var(--space-2); }
+.studio-picks-line { align-items: center; }
+.studio-picks-summary { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.studio-picks { display: grid; gap: var(--space-3); }
+.studio-new-job-bar { justify-content: stretch; }
+.studio-new-job-bar > * { flex: 1; }
+.studio-new-job-bar .action-button { width: 100%; }
+.studio-sent-list { margin: 0; padding-inline-start: 1.25rem; display: grid; gap: var(--space-2); }
+.studio-home-start { align-items: center; }
+@media (max-width: 40rem) { .studio-home-start > * { flex: 1 1 100%; } .studio-home-start .action-button { width: 100%; } }
+.studio-waiting p { margin: 0; overflow-wrap: anywhere; }

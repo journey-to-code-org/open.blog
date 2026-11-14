@@ -13,6 +13,12 @@ test("Notifications, from any old address, goes to Studio's", () => {
   assert.equal(studioBridge("#/notificationsx", false), null);
 });
 
+test("R4 G28: Capture, from any old address, is Studio's New job, with its query", () => {
+  for (const hash of ["#/capture", "#capture", "#/capture/x"]) assert.equal(studioBridge(hash, false), "/admin/studio/#/new-job", hash);
+  assert.equal(studioBridge("#/capture?from=x", true), "/admin/studio/#/new-job?from=x");
+  assert.equal(studioBridge("#/captures", false), null);
+});
+
 test("launched from an old icon with no address, it opens Studio; anything else stays", () => {
   assert.equal(studioBridge("", true), "/admin/studio/");
   assert.equal(studioBridge("#", true), "/admin/studio/");

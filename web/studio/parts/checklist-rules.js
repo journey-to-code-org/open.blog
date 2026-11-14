@@ -40,7 +40,8 @@ export function checklistDone(data) {
 }
 
 /**
- * Where a step's button opens in Studio, or null when Studio can't do it yet (Capture until R4).
+ * Where a step's button opens in Studio, or null when Studio can't do it yet. Since R4 the job
+ * step's old Capture address opens New job.
  * The server's hrefs are old Admin addresses; sharing a job opens Share this job.
  */
 export function stepHref(step) {

@@ -99,3 +99,11 @@ test("each job check problem is said for her field", () => {
   assert.equal(say("job", "invalid"), "Something about this job needs fixing. Tell the person who set up your site.");
   assert.equal(words.checkHeading(2), "Before this job goes on your site (2)");
 });
+
+test("the company is named, never its address or model", () => {
+  assert.equal(words.companyName({ provider: "open-ai", destination: "https://api.openai.com" }), "OpenAI");
+  assert.equal(words.companyName({ destination: "https://api.openai.com" }), "OpenAI");
+  assert.equal(words.companyName({ destination: "https://api.anthropic.com/v1" }), "Anthropic");
+  assert.equal(words.companyName({ destination: "Acme" }), "Acme");
+  assert.match(words.transcribeDisclosure({ engine: "provider", provider: "open-ai", destination: "https://api.openai.com", leavesServer: true }), /^Your voice note goes to OpenAI /);
+});

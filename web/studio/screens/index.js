@@ -29,10 +29,14 @@ import { createNotYet } from "./not-yet.js";
 import { createNotifications } from "./notifications.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
+import { createNewJob } from "./new-job.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
   { name: "posts", nav: "Posts", area: "posts", create: (context) => createPosts(context) },
+  // R4: a job from the site. Always present (an old Capture link, or something waiting on a phone,
+  // never lands on a blank Home); in the navigation on a trade site.
+  { name: "new-job", nav: "New job", area: "jobs", navWhen: tradeSite, create: (context, route) => createNewJob(context, route) },
   { name: "pages", nav: "Pages", area: "pages", create: (context) => createDocuments(context, KINDS.pages) },
   { name: "page", area: "pages", create: (context, route) => createPageEdit(context, KINDS.pages, route.arg) },
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },

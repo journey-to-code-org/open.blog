@@ -45,11 +45,11 @@ test("only known steps, real booleans and in-Admin links are kept from an answer
   ]);
 });
 
-test("each step opens its Studio screen; sharing a job opens Share this job; Capture isn't built yet", () => {
+test("each step opens its Studio screen; sharing a job opens Share this job; Start a job opens New job (R4)", () => {
   const steps = checklistSteps(answer(["job"]));
   const by = Object.fromEntries(steps.map((step) => [step.id, stepHref(step)]));
   assert.deepEqual(by, { business: "#/business", service: "#/services", job: "#/write/posts%2Foak.md", review: "#/reviews", destination: "#/sharing/job/posts%2Foak.md" });
-  assert.equal(stepHref(checklistSteps(answer())[2]), null, "Capture is R4: hint, no button");
+  assert.equal(stepHref(checklistSteps(answer())[2]), "#/new-job", "the old Capture address opens New job");
   assert.equal(stepHref({ id: "destination", href: null }), null);
   assert.equal(progressWords(steps), "1 of 5 done");
   assert.equal(STEP_TEXT.destination.waiting, "Publish a job first.");

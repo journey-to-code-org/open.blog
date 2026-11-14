@@ -11772,7 +11772,7 @@ export class ObAdmin extends AdminElement {
       h("a", { class: "oba-tab", ...simpleOnly("services"), "aria-current": active === "services" ? "page" : null, href: "#/services" }, "Services"),
       h("a", { class: "oba-tab", ...simpleOnly("reviews"), "aria-current": active === "reviews" ? "page" : null, href: "#/reviews" }, "Reviews"),
       h("a", { class: "oba-tab", ...simpleOnly("shared"), "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
-      h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "#/capture" }, "Capture"),
+      h("a", { class: "oba-tab", ...simpleOnly("capture"), "aria-current": active === "capture" ? "page" : null, href: "/admin/studio/#/new-job" }, "Capture"),
       h("a", { class: "oba-tab", "aria-current": active === "landing" ? "page" : null, href: "#/landing" }, "Landing page"),
       h("a", { class: "oba-tab", ...simpleOnly("paths"), "aria-current": active === "paths" ? "page" : null, href: "#/paths" }, "Reading paths"),
       h("a", { class: "oba-tab", ...simpleOnly("comparisons"), "aria-current": active === "comparisons" ? "page" : null, href: "#/comparisons" }, "Comparisons"),
@@ -12357,7 +12357,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "quotes") await this.showQuotes();
       else if (head === "greetings") await this.showGreetings();
       else if (head === "notifications") location.replace(studioBridge(nextHash, false));
-      else if (head === "capture") await this.showCapture();
+      else if (head === "capture") location.replace(studioBridge(nextHash, false));
       else if (head === "landing") await this.showLanding();
       else if (head === "announcements") await this.showAnnouncements();
       else if (head === "share" && tail) await this.showJobShare(decodeURIComponent(tail));
@@ -26551,6 +26551,8 @@ export class Editor {
 export function studioBridge(hash, standalone) {
   const raw = String(hash || "");
   if (/^#\/?notifications(?:[/?]|$)/.test(raw)) return `/admin/studio/#/notifications${raw.includes("?") ? raw.slice(raw.indexOf("?")) : ""}`;
+  // Studio R4, G28: Capture is Studio's New job, on the same list of jobs kept on this phone.
+  if (/^#\/?capture(?:[/?]|$)/.test(raw)) return `/admin/studio/#/new-job${raw.includes("?") ? raw.slice(raw.indexOf("?")) : ""}`;
   if (standalone && (raw === "" || raw === "#")) return "/admin/studio/";
   return null;
 }

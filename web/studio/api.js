@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 const PLAIN = {
-  0: "Studio can't reach your site right now. Check your connection, then try again.",
+  0: "Your blog can't be reached right now. Check your connection, then try again.",
   413: "That's too big to save.",
   415: "That kind of file can't be used here.",
   429: "Too many tries. Wait a minute, then try again.",

@@ -9,14 +9,18 @@ import { waitingLine } from "../parts/comment-words.js";
 import { homeCardLine } from "../parts/card-words.js";
 import { homeQuoteLine } from "../parts/quote-words.js";
 import { createReadyList, recipeNotesBanner } from "../parts/home-ready.js";
+import { homeJobsCard } from "../parts/home-jobs.js";
+import { tradeSite } from "../parts/record-kinds.js";
 
-export async function createHome({ api, meta, posts }) {
+export async function createHome({ api, meta, posts, jobs }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
   const health = siteHealth({ api, meta });
   const ready = meta.siteUses?.trade === true ? await createReadyList({ api }) : null;
   const notes = h("div", { class: "studio-banner" });
-  const extras = () => [notes, ready?.element];
+  // R4: jobs kept on this phone, on any site, only when something is waiting.
+  const waitingJobs = jobs ? homeJobsCard(jobs) : null;
+  const extras = () => [waitingJobs, notes, ready?.element];
   async function loadExtras() {
     ready?.load();
     try {
@@ -67,7 +71,11 @@ export async function createHome({ api, meta, posts }) {
     }
     waiting.replaceChildren(...rows);
   }
-  const write = () => h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new");
+  const write = () => (tradeSite(meta)
+    ? h("div", { class: "studio-row studio-home-start" },
+      h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new"),
+      h("action-button", { href: "#/new-job", size: "lg", variant: "secondary" }, "Add a job from the site"))
+    : h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new"));
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-home-q" },
     h("h2", { id: "studio-home-q", class: "studio-question", tabindex: "-1", text: "What would you like to do?" }),
     body);
@@ -78,7 +86,7 @@ export async function createHome({ api, meta, posts }) {
     try {
       items = await posts.list({ fresh: true });
     } catch (error) {
-      body.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your posts didn't load" }, error.message));
+      body.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your posts didn't load" }, error.message), waitingJobs);
       body.removeAttribute("aria-busy");
       return;
     }

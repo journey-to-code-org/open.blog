@@ -5,7 +5,7 @@ import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 
 const NAMES = {
-  capture: "Jobs", comparisons: "Comparisons", contributors: "Contributors", design: "Design a theme",
+  comparisons: "Comparisons", contributors: "Contributors", design: "Design a theme",
   distribution: "Where your posts went", paths: "Reading paths",
   research: "Research", shared: "Writing together", voice: "Voice",
 };

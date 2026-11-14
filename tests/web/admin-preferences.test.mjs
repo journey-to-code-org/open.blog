@@ -414,7 +414,8 @@ test("Simple hides a page until the site uses it or it is open, and no other pre
 });
 
 test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
-  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Reviews", "Shared reflections", "Capture", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Seasons", "Design a theme", "Business facts", "Reminders", "Where it went"];
+  // Capture's tab opens Studio's New job since R4 (G28), so it is no longer one of the #/ links.
+  const content = ["Overview", "Posts", "Pages", "Series", "Services", "Reviews", "Shared reflections", "Landing page", "Reading paths", "Comparisons", "Appearance", "Customize look", "Seasons", "Design a theme", "Business facts", "Reminders", "Where it went"];
   const simple = ["Overview", "Posts", "Pages", "Landing page", "Customize look", "Seasons", "Design a theme"];
   const research = "Research workspace";
   const voice = "Voice";

@@ -783,8 +783,8 @@ fn secured(response: Response) -> Response {
     let response = header_default(
         response,
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
-         frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https: blob:; \
+         media-src 'self' blob:; frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     );
     let response = header_default(response, "X-Frame-Options", "DENY");
     let response = header_default(response, "Referrer-Policy", "same-origin");

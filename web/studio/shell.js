@@ -14,16 +14,22 @@ import { registerWorker } from "./parts/push-here.js";
 import { installPrompt } from "./parts/install-state.js";
 import { menuLabel } from "./parts/install-rules.js";
 import { herePhone } from "./parts/notification-rules.js";
+import { createJobSender } from "./parts/job-sender.js";
+import { captureTitle } from "./parts/new-job-rules.js";
+import { sentWords } from "./parts/job-words.js";
+import { tradeSite } from "./parts/record-kinds.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-/** The account menu: the phone in her hand (Notifications, Add to Home Screen) before the rest. */
-function accountMenu(meta) {
+/** The account menu: the phone in her hand (Notifications, Add to Home Screen, its jobs) before the rest. */
+function accountMenu(meta, jobs) {
   const install = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
   return [
     { value: "site", label: "View my site" },
+    ...(tradeSite(meta) ? [{ value: "new-job", label: "New job" }] : []),
+    ...(jobs?.entries().length ? [{ value: "send-jobs", label: "Send waiting jobs now" }] : []),
     ...(meta.push ? [{ value: "notifications", label: "Notifications" }] : []),
     ...(install ? [{ value: "home-screen", label: install }] : []),
     { value: "tools", label: "More tools" },
@@ -40,7 +46,9 @@ export async function startShell(root, api, meta) {
   const shortName = meta.siteTitle && meta.siteTitle.length <= 12 ? meta.siteTitle : "My blog";
   document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", shortName);
   const posts = createPostsStore(api);
-  const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
+  // R4: one sender per window, so a job kept with no signal goes when it comes back, from any screen.
+  const jobs = createJobSender({ api, meta, title: (record) => captureTitle(record.fields, new Date(record.createdAt), meta.job?.services || []) });
+  const context = { api, meta, siteName, posts, jobs, go: (hash) => router.go(hash) };
   // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
   context.refreshMeta = async () => {
     try {
@@ -64,7 +72,7 @@ export async function startShell(root, api, meta) {
     nav: NAV,
     current: "home",
     user: api.user,
-    menu: accountMenu(meta),
+    menu: accountMenu(meta, jobs),
     onMenuselect: (event) => account(event.detail),
   }, h("div", { slot: "actions", class: "studio-actions-wrap" }, actions, find), content);
 
@@ -96,6 +104,8 @@ export async function startShell(root, api, meta) {
     if (choice === "tools") router.go("#/tools");
     if (choice === "notifications") router.go("#/notifications");
     if (choice === "home-screen") router.go("#/notifications?sheet=home-screen");
+    if (choice === "new-job") router.go("#/new-job");
+    if (choice === "send-jobs") jobs.sendNow();
     if (choice === "signout") signOut();
   }
 
@@ -139,6 +149,7 @@ export async function startShell(root, api, meta) {
     }
     palette.items = [
       ...(context.undo?.has() ? [{ id: "undo", label: "Undo the delete", group: "Do" }] : []),
+      ...(jobs.entries().length ? [{ id: "send-jobs", label: "Send waiting jobs now", group: "Do" }] : []),
       ...withBase(router.current()?.palette || paletteScreen),
       ...items.filter((p) => p.status !== "error").map((p) => ({
         id: `post:${p.path}`, label: p.title || p.path, group: "Posts", href: `#/write/${encodeURIComponent(p.path)}`,
@@ -166,6 +177,7 @@ export async function startShell(root, api, meta) {
   function runCommand(id) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
+    else if (id === "send-jobs" && !router.current()?.palette?.some((item) => item.id === "send-jobs")) jobs.sendNow();
     else if (id === "undo") context.undo?.restore();
     else if (id === "rebuild-all") {
       api.post("rebuild", {}).then(
@@ -181,6 +193,10 @@ export async function startShell(root, api, meta) {
     screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (!s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
+      // Jobs kept on this phone (by the old Admin in another tab, say) show as soon as any screen
+      // opens; trying again after "no signal" only while New job or Home is in view.
+      if (!jobs.available()) jobs.start().catch(() => {});
+      jobs.watch(route.name === "new-job" || route.name === "home");
       shell.heading = screen.title;
       document.title = `${screen.title} · ${siteName}`;
       screenHost.replaceChildren(screen.element);
@@ -195,8 +211,18 @@ export async function startShell(root, api, meta) {
   });
   context.replaceRoute = (hash) => router.replace(hash);
   // The browser offering to install changes what the account menu says.
-  addEventListener("beforeinstallprompt", () => setTimeout(() => { shell.menu = accountMenu(meta); }, 0));
-  addEventListener("appinstalled", () => { shell.menu = accountMenu(meta); toast("Added."); });
+  addEventListener("beforeinstallprompt", () => setTimeout(() => { shell.menu = accountMenu(meta, jobs); }, 0));
+  addEventListener("appinstalled", () => { shell.menu = accountMenu(meta, jobs); toast("Added."); });
+  // A job sent from any screen says so, with the way to finish it; one another window sent is quiet.
+  let anyWaiting = false;
+  jobs.subscribe((event) => {
+    if (event.type === "sent" && !event.quiet) toast(sentWords(event.title), { action: { label: "Finish it", href: `#/write/${encodeURIComponent(event.path)}` } });
+    if (anyWaiting !== jobs.entries().length > 0) {
+      anyWaiting = !anyWaiting;
+      shell.menu = accountMenu(meta, jobs);
+    }
+  });
+  jobs.start().catch(() => {});
   // The blog's one worker (it only shows notifications, so registering early is harmless), and a
   // tapped notification asking this window to move: through the router, so the leave-guard asks.
   registerWorker(navigator, globalThis)?.catch(() => {});
