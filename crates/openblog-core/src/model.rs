@@ -2323,7 +2323,7 @@ fn load_post_in(
         .filter(|s| !s.is_empty());
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
-        .unwrap_or_else(|| markdown::excerpt(&rendered.prose, 180));
+        .unwrap_or_else(|| markdown::excerpt(&rendered.lead, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
     let cover_light = optional_string(first(fm, &["coverLight", "cover_light"]));
@@ -3085,6 +3085,27 @@ docs: Vec::new(),
                 .map(|series| series.slug.as_str())
                 .collect::<Vec<_>>(),
             vec!["pinned", "newer", "older"]
+        );
+    }
+
+    #[test]
+    fn a_summary_from_the_first_lines_skips_picture_descriptions() {
+        let s = site(Sources {
+            posts: vec![post(
+                "posts/pie.md",
+                "---\ntitle: Pie\ndate: 2026-01-01\n---\n![IMG_2041.jpg](/images/pie.jpg)\n\nThe crust is flaky and the filling is spiced.\n\n![Pie cooling on the sill](/images/sill.jpg)\n\nServe it warm.",
+            )],
+            ..Default::default()
+        });
+        let pie = &s.posts[0];
+        assert_eq!(
+            pie.description,
+            "The crust is flaky and the filling is spiced. Serve it warm."
+        );
+        assert!(
+            pie.word_count >= 13,
+            "picture descriptions still count where they did: {}",
+            pie.word_count
         );
     }
 

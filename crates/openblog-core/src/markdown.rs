@@ -40,6 +40,9 @@ pub struct Rendered {
     /// citation notes region. Descriptions, word counts and reading time
     /// come from it; search keeps the full text.
     pub prose: String,
+    /// [`Rendered::prose`] without picture descriptions: where a summary drawn
+    /// from a post's first lines starts, so it never opens with "IMG_2041.jpg".
+    pub lead: String,
     /// Words of [`Rendered::prose`].
     pub word_count: usize,
     /// Languages of fenced code blocks, in order of first appearance.
@@ -2968,6 +2971,11 @@ fn render_events<'a>(
     };
     let mut prose_end = None;
     let mut after_marker = false;
+    // Where picture descriptions sit in `text` and in the post's own words,
+    // left out of `lead` (and only there).
+    let mut in_image = 0usize;
+    let mut alt_in_text: Vec<(usize, usize)> = Vec::new();
+    let mut alt_in_own: Vec<(usize, usize)> = Vec::new();
 
     // Spacing goes to both texts; a word goes to the post's own only outside
     // a supplement.
@@ -3046,10 +3054,12 @@ fn render_events<'a>(
             }
             Event::End(TagEnd::CodeBlock) => in_code_block = false,
             Event::Start(Tag::Image { dest_url, .. }) => {
+                in_image += 1;
                 if first_image.is_none() {
                     first_image = Some(dest_url.to_string());
                 }
             }
+            Event::End(TagEnd::Image) => in_image = in_image.saturating_sub(1),
             // A heading inside a supplement is a heading, but not an entry of
             // the outline (ADR 0142).
             Event::Start(Tag::Heading { level, .. }) if !inside => {
@@ -3068,9 +3078,17 @@ fn render_events<'a>(
                             own.truncate(own.trim_end_matches(' ').len());
                         }
                     }
+                    let at = text.len();
                     text.push_str(t);
+                    if in_image > 0 {
+                        alt_in_text.push((at, text.len()));
+                    }
                     if let (Some(own), false) = (own.as_mut(), inside) {
+                        let at = own.len();
                         own.push_str(t);
+                        if in_image > 0 {
+                            alt_in_own.push((at, own.len()));
+                        }
                     }
                 }
             }
@@ -3204,6 +3222,10 @@ fn render_events<'a>(
         Some(own) => collapse_whitespace(&own[..own_end.unwrap_or(own.len())]),
         None => collapse_whitespace(&text[..prose_end.unwrap_or(text.len())]),
     };
+    let lead = match &own {
+        Some(own) => without_ranges(own, own_end.unwrap_or(own.len()), &alt_in_own),
+        None => without_ranges(&text, prose_end.unwrap_or(text.len()), &alt_in_text),
+    };
     let text = collapse_whitespace(&text);
     let mut capabilities = blocks.capabilities;
     if reading_depth
@@ -3226,6 +3248,7 @@ fn render_events<'a>(
         headings,
         text,
         prose,
+        lead,
         word_count,
         code_languages,
         first_image,
@@ -3247,6 +3270,22 @@ fn heading_level(level: HeadingLevel) -> u8 {
         HeadingLevel::H5 => 5,
         HeadingLevel::H6 => 6,
     }
+}
+
+/// `input` up to `end`, without the byte `ranges` (in order), whitespace collapsed.
+fn without_ranges(input: &str, end: usize, ranges: &[(usize, usize)]) -> String {
+    let mut out = String::with_capacity(end);
+    let mut from = 0;
+    for &(start, stop) in ranges {
+        if start >= end {
+            break;
+        }
+        out.push_str(&input[from.min(start)..start]);
+        out.push(' ');
+        from = stop.min(end);
+    }
+    out.push_str(&input[from.min(end)..end]);
+    collapse_whitespace(&out)
 }
 
 fn collapse_whitespace(input: &str) -> String {
