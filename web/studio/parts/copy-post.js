@@ -9,6 +9,7 @@ import {
   DESTINATIONS, checkedState, differenceHeading, differences, downloadName, htmlFrame, portabilityAcknowledgementScope,
   portabilityGroups, portableDiagnosticsForDisplay, portablePreviewArtifact, previewDestinationPolicy,
 } from "./portable-rules.js";
+import { say } from "./words.js";
 
 /**
  * `post()` → { path, kind, fields (as a save would send them), body, title, slug, credits, unsent };
@@ -65,7 +66,7 @@ export async function createCopyPost({ api, post, goTo }) {
     } catch (error) {
       if (turn !== asked) return;
       shown.replaceChildren(h("alert-banner", { variant: "warning", heading: "It can't be copied right now" },
-        "Something in this post stops your blog from making the copy. Tell the person who set up your site.",
+        `Something in this post stops your blog from making the copy. ${say("common.tell")}`,
         h("p", { class: "studio-detail", text: error.message || "" }),
         h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
       more.replaceChildren();
@@ -83,7 +84,7 @@ export async function createCopyPost({ api, post, goTo }) {
     copy.disabled = !artifact;
     download.disabled = !artifact;
     if (!artifact) {
-      shown.replaceChildren(h("alert-banner", { variant: "warning", heading: "That one isn't ready" }, "Your blog can't make a copy for it right now. Try another, or tell the person who set up your site."));
+      shown.replaceChildren(h("alert-banner", { variant: "warning", heading: "That one isn't ready" }, say("copy.notReady")));
     } else if (artifact.extension === "html") {
       // A sandbox with scripts and no same-origin: the copy can't reach Studio or the session.
       const frame = h("iframe", { class: "studio-copy-frame", title: "What will be copied", sandbox: "allow-scripts" });
@@ -117,7 +118,7 @@ export async function createCopyPost({ api, post, goTo }) {
         mark, said);
     }));
     const plan = (portable?.destinationTagPlans || []).find((p) => p?.policy?.version === 1 && `destination:${p.policy.provider}` === d.value);
-    more.replaceChildren(h("summary", { text: "Details for the person who set up your site" }),
+    more.replaceChildren(h("summary", { text: say("common.detailsFor") }),
       h("dl", { class: "studio-details" },
         h("dt", { text: "Representation" }), h("dd", { class: "studio-mono", text: policy?.representation || d.value }),
         policy ? [h("dt", { text: "Destination policy" }), h("dd", { text: [policy.canonicalBehavior, policy.workflow, policy.conversionReview].filter(Boolean).join(" ") })] : null,

@@ -4,6 +4,7 @@
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { howItGoesOut } from "./publish.js";
+import { say } from "./words.js";
 
 const KEY = "studio:undo";
 
@@ -34,7 +35,7 @@ export async function createUndo({ api, posts, slot, onRestored }) {
     if (!last) { slot.replaceChildren(); return; }
     const undo = h("action-button", { onClick: () => restore() }, "Undo");
     const detail = h("details", { class: "studio-undo-details" },
-      h("summary", { text: "For the person who set up your site" }),
+      h("summary", { text: say("common.forHelper") }),
       h("p", { class: "studio-mono", text: `Moved content/${last.path} to .openblog/trash/${last.trashedTo}` }));
     const banner = h("alert-banner", { variant: "info", dismissible: true, heading: `Deleted “${last.title}”.` },
       last.wasLive && last.sendsOut ? "Readers stop seeing it in about a minute. " : "",
@@ -60,8 +61,8 @@ export async function createUndo({ api, posts, slot, onRestored }) {
       onRestored?.(reply);
       requestAnimationFrame(() => document.querySelector("#studio-main h2")?.focus());
     } catch (error) {
-      const words = error.status === 404 ? `“${what.title}” can't come back from here. The person who set up your site may still find it.`
-        : error.status === 409 ? `There's a new ${what.one || "post"} with that name now. Ask the person who set up your site to help bring this one back.`
+      const words = error.status === 404 ? say("undo.mayFind", { title: what.title })
+        : error.status === 409 ? say("undo.askHelp", { one: what.one || "post" })
           : error.message;
       toast(words, { variant: "warning", duration: 0 });
     }

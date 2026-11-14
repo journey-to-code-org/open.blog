@@ -1,4 +1,4 @@
-// "Details for the person who set up your site", at the end of About this post: the address
+// "Details for {helper}", at the end of About this post: the address
 // (editable only while the post was never on the site), old addresses, first published elsewhere,
 // the theme, a picture by web address, every kind, the technical facts of a video or research
 // post, who wrote it in full (roles, name no one, repair), the keys Studio doesn't edit, and the
@@ -7,6 +7,7 @@ import { fill, h } from "./dom.js";
 import { otherKeys, slugEditable, slugHelp, slugPreview } from "./about-rules.js";
 import { PROFILE_GROUPS } from "./profile-words.js";
 import { postDetails } from "./post-details.js";
+import { say } from "./words.js";
 
 const OPEN_KEY = "studio-about-details";
 
@@ -24,7 +25,7 @@ const text = (value) => (Array.isArray(value) ? value.join(", ") : value == null
 export function createDetails({ meta, controls, credits, post, setCoverAddress, setKind }) {
   const body = h("div", { class: "studio-about-details-body" });
   const element = h("details", { class: "studio-about-details", open: session.get() },
-    h("summary", { class: "studio-about-details-summary", text: "Details for the person who set up your site" }), body);
+    h("summary", { class: "studio-about-details-summary", text: say("common.detailsFor") }), body);
   element.addEventListener("toggle", () => session.set(element.open));
 
   function draw() {

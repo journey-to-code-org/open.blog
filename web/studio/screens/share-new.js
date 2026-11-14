@@ -10,6 +10,7 @@ import { accountLabel, captionWords, providerName, sentWords, shareTrouble } fro
 import { sayWhen } from "../parts/dates.js";
 import * as M from "../parts/announcements-rules.js";
 import { createSharePreview } from "../parts/share-preview.js";
+import { say } from "../parts/words.js";
 
 const SOON_MS = 5 * 60 * 1000;
 const CHOSEN = "studio:share:accounts";
@@ -104,7 +105,7 @@ export async function createShareNew({ api, go }, route) {
     for (const field of [day, time]) field.addEventListener("valuechange", () => preview.schedule());
     body.replaceChildren(post, accounts, caption, count, preview.element, whenPick, picked,
       h("p", { class: "studio-help", text: "The link to your post goes with it." }), button,
-      h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+      h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
         h("p", { class: "studio-mono", text: `zone ${zone}; ${posts.length} posts can be shared; ${destinations.map((d) => `${d.provider}:${d.id}`).join(", ")}` })));
     recount();
   }

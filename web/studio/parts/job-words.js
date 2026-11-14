@@ -3,6 +3,12 @@
 // says upload, sync, offline, queue, storage or capture. DOM-free and tested
 // (tests/web/studio-job-words.test.mjs).
 import { sayClock, sayWhen } from "./dates.js";
+import { say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  "job.newerVersion": { text: "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}.", layer: "her" },
+};
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const stem = (name) => String(name || "photo").replace(/\.[a-z0-9]{2,5}$/i, "");
@@ -77,7 +83,7 @@ export function cameraHelp(here = {}) {
 export function refusedWords(code, noun = "phone") {
   if (code === "capture-id") return `This job's label got damaged on this ${noun}, so it can't be sent. Save its photos, then throw it away.`;
   if (code === "ledger-version") return "Your blog was updated in a way this page doesn't understand yet. Reload, then try again.";
-  return "Your blog said no to this job. Tell the person who set up your site.";
+  return `Your blog said no to this job. ${say("common.tell")}`;
 }
 
 /** "4 photos, voice note. Saved today at 11:40 AM." Never sizes. */
@@ -122,7 +128,7 @@ export function waitingWords(state, { record = null, live = {}, step = "", now =
     case "someone-else":
       return { badge: "Needs you", variant: "warning", words: `Saved while ${record?.by || "someone else"} was signed in on this ${noun}.` };
     case "newer":
-      return { badge: "Needs you", variant: "warning", words: "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell the person who set up your site." };
+      return { badge: "Needs you", variant: "warning", words: say("job.newerVersion") };
     case "unreadable":
       return { badge: "Can't read", variant: "danger", words: `Part of this job can't be read on this ${noun}, so it can't be sent.` };
     default:
@@ -208,7 +214,7 @@ export function jobProblemWords(problem = {}, { service = "" } = {}) {
   if (field === "job.costBand") return "Choose a price range from the list.";
   if (field.startsWith("job.media")) return "A photo marked Before or After isn't on your site any more. Mark another.";
   if (field === "job.review") return "That review isn't saved any more. Choose another.";
-  return "Something about this job needs fixing. Tell the person who set up your site.";
+  return `Something about this job needs fixing. ${say("common.tell")}`;
 }
 
 /** "Before this job goes on your site (2)". */

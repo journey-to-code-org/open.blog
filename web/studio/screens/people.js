@@ -9,6 +9,7 @@ import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { newId, peopleProblem, personProblem, siteWords } from "../parts/people-rules.js";
+import { say } from "../parts/words.js";
 
 export async function createPeople(context, route = {}) {
   const { api } = context;
@@ -59,7 +60,7 @@ export async function createPeople(context, route = {}) {
       ? h("li", { class: "studio-person" }, h("div", { class: "studio-comment-head" },
         h("strong", { class: "studio-person-name", text: author.name }), h("status-badge", { variant: "outline" }, "Your blog's name")),
         h("p", { class: "studio-help", text: "Your blog's usual name." }))
-      : h("li", { class: "studio-person" }, h("p", { class: "studio-help", text: "Your blog doesn't have your name yet. Tell the person who set up your site." }));
+      : h("li", { class: "studio-person" }, h("p", { class: "studio-help", text: `Your blog doesn't have your name yet. ${say("common.tell")}` }));
     const rows = people().map(([id, person]) => {
       const more = h("dropdown-menu", { class: "studio-row-menu", items: [{ value: "remove", label: "Remove…" }], onItemselect: () => remove(id, more) },
         h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${person.name || id}` })));
@@ -72,7 +73,7 @@ export async function createPeople(context, route = {}) {
     list.replaceChildren(h("ul", { class: "studio-comment-list" }, own, ...rows),
       rows.length ? null : h("empty-state", { heading: "No one else yet" }, "Add the people who write with you, so you can name them on a post.",
         h("action-button", { slot: "actions", onClick: (e) => edit(null, e.currentTarget) }, "Add someone")));
-    details.replaceChildren(h("summary", { text: "Details for the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.detailsFor") }),
       h("p", { text: "Saved in openblog.json, under contributors. The blog's own name is author there." }),
       h("p", { class: "studio-detail", text: `Version ${data.etag || "unknown"}` }),
       h("pre", { class: "studio-mono studio-people-raw", tabindex: "0", "aria-label": "The registry as saved", text: JSON.stringify(data.contributors || {}, null, 2) }));
@@ -129,7 +130,7 @@ export async function createPeople(context, route = {}) {
     sheet.show({
       heading: id ? `Change ${person.name || id}` : "Add someone",
       children: [said, name, url,
-        h("details", { class: "studio-help" }, h("summary", { text: "Details for the person who set up your site" }),
+        h("details", { class: "studio-help" }, h("summary", { text: say("common.detailsFor") }),
           idLine, h("p", { class: "studio-help", text: "Posts name them by this, so it doesn't change." }), sameAs, orcid),
         cancel, save],
       dirty: () => current() !== start,

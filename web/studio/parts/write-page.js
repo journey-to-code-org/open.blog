@@ -3,6 +3,7 @@
 // fills it in and wires what each button does. Also the list of what she can do with a post, one
 // list for More (her items first) and Find (all of them, with their keys).
 import { h } from "./dom.js";
+import { say } from "./words.js";
 
 /** How the engine names a series from what a post says (`series: Thanksgiving` is `thanksgiving`). */
 export const seriesSlug = (value) => String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -34,7 +35,7 @@ export function writePage({ meta, body, on }) {
     tags: h("tag-input", { label: "Tags", max: 20, suggestions: meta.tags || [] }),
     cover: h("div"),
     // A post can belong to one collection (a series). Its choices come fresh when Write opens.
-    collection: h("select-field", { label: "Collection", description: "Put it with others, like all your Thanksgiving recipes.", options: [{ value: "", label: "None" }], value: "", hidden: true }),
+    collection: h("select-field", { label: "Collection", description: say("write.collectionHelp"), options: [{ value: "", label: "None" }], value: "", hidden: true }),
     saveLabel: h("span", { text: "Save draft" }),
     primaryLabel: h("span", { text: "Publish" }),
     // R5: the help under When it appears follows what's true about when it goes up.
@@ -84,7 +85,7 @@ export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narr
     { id: "about-search", label: "Summary for search and sharing", more: false },
     { id: "about-credits", label: "Who wrote it", more: false },
     { id: "about-recipe", label: "More about this recipe", when: recipe, more: false },
-    { id: "about-details", label: "Details for the person who set up your site", more: false },
+    { id: "about-details", label: say("common.detailsFor"), more: false },
     { id: "copy", label: "Copy it for another blog", when: Boolean(path) },
     { id: "people", label: "People", more: false },
     { id: "takeoff", label: "Take it off my site", when: state === "published" },

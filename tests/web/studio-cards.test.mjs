@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   cardTitle, sections, cardLine, homeCardLine, newCard, nextYearly, cardTrouble, designLabel,
 } from "../../web/studio/parts/card-words.js";
+import { configureWords } from "../../web/studio/parts/words.js";
 
 const DESIGNS = [{ id: "birthday", label: "Birthday", subject: "Happy birthday!" }, { id: "just-because", label: "Just because", subject: "Thinking of you" }, { id: "christmas", label: "Christmas", subject: "Merry Christmas" }];
 const ricky = { id: "r", name: "Ricky", email: "r@example.com", birthday: "1990-09-07" };
@@ -50,7 +51,14 @@ test("a new card starts on their birthday, every year, signed as she last signed
   assert.equal(forJimmy.design, "just-because");
   assert.equal(forJimmy.yearly, false);
   assert.equal(forJimmy.sendOn, "2026-11-13");
-  assert.equal(forJimmy.signOff, "Love, Grammi");
+  // The built-in sign-off is her name alone, and nothing when the blog has no name for her.
+  assert.equal(forJimmy.signOff, "");
+  configureWords({ vars: { owner: "Dana" } });
+  assert.equal(newCard({ contacts: [jimmy], designs: DESIGNS, today: "2026-11-13" }).signOff, "Dana");
+  // A site that signs with love says so in its words.
+  configureWords({ vars: { owner: "Grammi" }, text: { "cards.signOff": "Love, {owner}" } });
+  assert.equal(newCard({ contacts: [jimmy], designs: DESIGNS, today: "2026-11-13" }).signOff, "Love, Grammi");
+  configureWords();
 });
 
 test("a yearly day comes round next year once it has passed", () => {

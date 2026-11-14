@@ -15,6 +15,7 @@ import { createAccountSheets } from "../parts/account-sheets.js";
 import { detailsBox } from "../parts/account-details.js";
 import { createAccountCards } from "../parts/account-cards.js";
 import * as R from "../parts/social-rules.js";
+import { say as word } from "../parts/words.js";
 
 const POLL_MS = 3000;
 const POLL_TRIES = 40; // two minutes
@@ -113,13 +114,13 @@ export async function createAccounts(context, route = { query: {} }) {
     primarySlot.replaceChildren();
     side.replaceChildren();
     if (state.state === "invalid" || state.state === "unavailable") {
-      main.replaceChildren(h("alert-banner", { variant: "warning", heading: "Sharing isn't set up right" }, "Tell the person who set up your site."));
+      main.replaceChildren(h("alert-banner", { variant: "warning", heading: "Sharing isn't set up right" }, word("common.tell")));
       side.replaceChildren(detailsBox(state.state === "invalid"
         ? ["These settings aren't valid:", ...(state.problems || [])]
         : [state.message || "The sharing service says it isn't turned on (OPENBLOG_SOCIAL_ENABLED)."]));
       return;
     }
-    main.replaceChildren(h("empty-state", { heading: "Sharing to Facebook isn't set up" }, "The person who set up your site can turn it on. Your site works the same without it."));
+    main.replaceChildren(h("empty-state", { heading: "Sharing to Facebook isn't set up" }, word("social.canTurnOn")));
     side.replaceChildren(detailsBox(["Set OPENBLOG_SOCIAL_ENDPOINT and OPENBLOG_SOCIAL_ADMIN_KEY where Studio runs (docs/social-publishing.md)."]));
   }
 
@@ -131,7 +132,7 @@ export async function createAccounts(context, route = { query: {} }) {
     const mine = shown().sort((a, b) => Number(needs(b)) - Number(needs(a)));
     primarySlot.replaceChildren(next.kind === "share" ? h("action-button", { href: "#/sharing/new" }, "Share a post") : "");
     if (!providers.length && !mine.length) {
-      main.replaceChildren(h("empty-state", { heading: "No accounts can be connected yet" }, "The person who set up your site needs to add Facebook or another place first."));
+      main.replaceChildren(h("empty-state", { heading: "No accounts can be connected yet" }, word("social.noPlaces")));
     } else {
       main.replaceChildren(
         ...(attempts.length ? [h("ul", { class: "studio-comment-list", "aria-label": "Not finished" }, ...attempts.map((c) => cards.attempt(c)))] : []),

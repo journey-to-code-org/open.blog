@@ -4,6 +4,7 @@
 // `ingredient` and `step` count from 1. DOM-free.
 
 import { recipeKeys } from "./recipe-fields.js";
+import { say } from "./words.js";
 
 /** The names Studio shows for the time fields the check names. */
 const TIME_NAMES = { prep: "Time to get ready", cook: "Time to cook", total: "Time from start to table" };
@@ -35,9 +36,9 @@ const ADVICE = {
   "calories-without-yield": () => ["Calories don't say what they're for. Fill in Serves.", { field: "servings" }],
   "unreadable-adapted-from": () => ["Where you found it should be a web address starting with https://.", { field: "adaptedFrom" }],
   "no-image": () => ["Add a cover photo. Many recipe apps and search results look for one.", { field: "cover" }],
-  "canonical-elsewhere": () => ["This recipe says its original is on another website, so recipe apps are sent there. Ask the person who set up your site.", null],
-  "no-canonical-address": () => ["Your site's web address isn't set up, so recipe apps can't link back here. Ask the person who set up your site.", null],
-  "no-author": () => ["This recipe doesn't say who wrote it. Ask the person who set up your site to add your name.", null],
+  "canonical-elsewhere": () => [`This recipe says its original is on another website, so recipe apps are sent there. ${say("common.ask")}`, null],
+  "no-canonical-address": () => [`Your site's web address isn't set up, so recipe apps can't link back here. ${say("common.ask")}`, null],
+  "no-author": () => [say("recipe.askAddName"), null],
   // Studio's own checks, not the engine's (design §5): no course or cuisine, and TODO lines left.
   "no-course": () => ["Add a course, like Dessert, so readers find it with the others.", { field: "course" }],
   "todo-left": () => ["Some lines still say TODO.", null],

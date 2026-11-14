@@ -1,6 +1,8 @@
-// The two kinds of writing that aren't posts, in her words: pages (About, the Family Wall) and
-// collections (a series of posts: all the Thanksgiving recipes). One description each, so the list
-// and the editor say the same things. On disk they are `pages/*.md` and `series/*.md`.
+// The two kinds of writing that aren't posts, in her words: pages (About, Contact) and collections
+// (a series of posts on one topic). One description each, so the list and the editor say the same
+// things. On disk they are `pages/*.md` and `series/*.md`. Sentences a site may change are word ids
+// (kind-words.js), read when used.
+import { say } from "./words.js";
 
 export const KINDS = {
   pages: {
@@ -11,7 +13,7 @@ export const KINDS = {
     many: "pages",
     heading: "Your pages",
     lede: (n) => (n === 1 ? "1 page on your site" : `${n} pages on your site`),
-    about: "Pages stay put, like About or the Family Wall. Posts come and go by date.",
+    get about() { return say("kinds.pagesAbout"); },
     add: "Add a page",
     empty: "Pages are for things that stay put, like a page about you.",
     nameKey: "title",
@@ -29,9 +31,9 @@ export const KINDS = {
     many: "collections",
     heading: "Your collections",
     lede: (n) => (n === 1 ? "1 collection" : `${n} collections`),
-    about: "A collection gathers posts on one page, like all your Thanksgiving recipes. Put a post in one from the post itself.",
+    get about() { return say("kinds.collectionsAbout"); },
     add: "Add a collection",
-    empty: "A collection gathers posts on one page, like all your Thanksgiving recipes.",
+    get empty() { return say("kinds.collectionsEmpty"); },
     nameKey: "name",
     nameLabel: "Name",
     describe: "One line about the collection, shown on its page and in search results.",

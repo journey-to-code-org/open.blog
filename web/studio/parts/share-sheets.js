@@ -7,6 +7,7 @@ import { sayWhen, splitInstant } from "./dates.js";
 import { localToInstant, eventText, REFRESH_CODES } from "./announcements-rules.js";
 import { accountLabel, captionWords, checkQuestion, shareTrouble, historyLines, triedWords } from "./share-words.js";
 import { createSharePreview } from "./share-preview.js";
+import { say } from "./words.js";
 
 /** What a refused change says, and whether the list must be read again. */
 function refusal(error) {
@@ -152,7 +153,7 @@ export async function openCheck({ sheet, api, item, title, opener, onDone, onRef
       h("p", { text: checkQuestion(item.destination) }),
       choice, status,
       h("div", { class: "studio-sheet-actions" }, save, h("action-button", { variant: "secondary", onClick: () => sheet.cancel() }, "Cancel")),
-      h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up the site" }), id),
+      h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), id),
     ],
     dirty: () => Boolean(outcome || postId),
     save: saveIt,
@@ -165,7 +166,7 @@ export async function openCheck({ sheet, api, item, title, opener, onDone, onRef
 export async function openHistory({ sheet, api, item, title, zone, opener }) {
   await use("skeleton-block");
   const body = h("div", { "aria-busy": "true" }, h("skeleton-block", { lines: 3 }));
-  const details = h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }));
+  const details = h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }));
   sheet.show({ heading: "What happened to this share", opener, children: [h("p", { class: "studio-help", text: `${title}, to ${accountLabel(item.destination)}` }), body, details] });
   try {
     const reply = await api.get(`social/announcements/attempts?id=${encodeURIComponent(item.id)}`);

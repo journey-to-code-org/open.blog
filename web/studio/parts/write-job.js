@@ -9,6 +9,7 @@ import { appendTranscript, draftBody } from "./capture-assistant-rules.js";
 import { photosIn } from "./photo-strip.js";
 import { checkHeading, jobProblemWords } from "./job-words.js";
 import { askToWriteUp, writeUpSetup } from "./job-writeup.js";
+import { say as word } from "./words.js";
 
 const MARKS = [{ value: "before", label: "Before" }, { value: "after", label: "After" }, { value: "neither", label: "Neither" }];
 const AUTO_TITLE = /^(Job notes, .+|.+ job|.+ in .+)$/;
@@ -80,7 +81,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
   async function writeUp(opener) {
     setup ||= await writeUpSetup(api);
     if (!setup.ready) {
-      say("Writing it up isn't set up for your blog. Tell the person who set up your site.");
+      say(`Writing it up isn't set up for your blog. ${word("common.tell")}`);
       return;
     }
     const text = body.text();
@@ -150,7 +151,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
       }
       return h("li", { id }, words, " ",
         control || problem.field.startsWith("job.media") ? h("action-button", { variant: "link", label: `Go to it: ${words}`, onClick: () => focusProblem(problem.field) }, "Go to it") : null,
-        h("details", { class: "studio-help" }, h("summary", { text: "Details for the person who set up your site" }), h("p", { class: "studio-mono", text: String(problem.message || "") })));
+        h("details", { class: "studio-help" }, h("summary", { text: word("common.detailsFor") }), h("p", { class: "studio-mono", text: String(problem.message || "") })));
     });
     banner.replaceChildren(h("alert-banner", { variant: "warning", heading: checkHeading(problems.length), role: "alert" }, h("ul", { class: "studio-checks" }, items)));
     return false;

@@ -3,6 +3,7 @@
 // validateContributorDraft, contributorDraftPayload keep their behaviour and tests); Studio adds a
 // stable id made from a new person's name, the ORCID check digit, and her words for every refusal
 // the server names by code (G41). DOM-free.
+import { say } from "./words.js";
 
 export function normalizeContributorDraft(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
@@ -125,11 +126,11 @@ export function peopleProblem(error, name = "They") {
     return { words: `${name} is named on ${count} post${count === 1 ? "" : "s"}, so ${name} stays for now. Take ${name} off ${count === 1 ? "it" : "them"} first:`, posts };
   }
   if (code === "in-shared-reflection") return { words: `${name} wrote part of a reflection with others, so ${name} stays.` };
-  if (code === "named-in-sources") return { words: `${name} is named in your research notes, so ${name} stays. The person who set up your site can change that.` };
+  if (code === "named-in-sources") return { words: `${name} is named in your research notes, so ${name} stays. ${say("common.canChange")}` };
   if (code === "invalid" && data.field) {
-    const words = { name: "Add their name.", url: "A full web address, starting with https://.", sameAs: "Each one needs to be a full web address, starting with https://.", orcid: "That isn't an ORCID iD.", id: "That didn't save. Tell the person who set up your site." }[data.field];
-    return { words: words || "That didn't save. Tell the person who set up your site.", field: data.field };
+    const words = { name: "Add their name.", url: "A full web address, starting with https://.", sameAs: "Each one needs to be a full web address, starting with https://.", orcid: "That isn't an ORCID iD.", id: `That didn't save. ${say("common.tell")}` }[data.field];
+    return { words: words || `That didn't save. ${say("common.tell")}`, field: data.field };
   }
   if (error?.status === 0) return { words: "Not saved yet. Your blog didn't answer. Try again in a moment." };
-  return { words: "That didn't save. Tell the person who set up your site." };
+  return { words: `That didn't save. ${say("common.tell")}` };
 }

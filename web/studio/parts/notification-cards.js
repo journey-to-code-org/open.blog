@@ -2,6 +2,7 @@
 // with Remove and More (Send it a test, Change what it tells you, Rename), the Rename dialog and the
 // Change sheet. Names are only ever text. docs/specs/studio/r3/ux.md, "Other phones and computers".
 import { h } from "./dom.js";
+import { say } from "./words.js";
 import { KIND_WORDS, kindsSummary, lastToldWords } from "./notification-rules.js";
 import { detailsBox } from "./account-details.js";
 import { focusSheetHeading } from "./home-screen-sheet.js";
@@ -41,7 +42,7 @@ export function kindSwitches({ offered, picked = [], onChange = null, legend = "
 export function renameDialog({ title, label, save }) {
   return new Promise((resolve) => {
     let done = false;
-    const field = h("text-field", { label: "Name", value: label, required: true, maxlength: 60, description: "So you can tell them apart, like Kitchen iPad." });
+    const field = h("text-field", { label: "Name", value: label, required: true, maxlength: 60, description: say("notify.nameHelp") });
     const finish = (value) => {
       if (done) return;
       done = true;
@@ -51,7 +52,7 @@ export function renameDialog({ title, label, save }) {
     };
     const go = h("action-button", { slot: "actions", onClick: async () => {
       const value = String(field.value || "").replace(/\s+/g, " ").trim();
-      if (!value) { field.error = "Give it a name, like Kitchen iPad."; field.querySelector("input")?.focus(); return; }
+      if (!value) { field.error = say("notify.nameMissing"); field.querySelector("input")?.focus(); return; }
       go.loading = true;
       try {
         await save(value);

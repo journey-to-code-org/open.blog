@@ -157,7 +157,7 @@ test("denied steps and 'didn't see it' are this phone's only", () => {
 
 test("her words: the other apps switch, and the phone taken off elsewhere", () => {
   // The push function knows no app names (one notify key), so the switch names them by what they are.
-  assert.equal(KIND_WORDS.app.switch, "News from your family's other apps, like a card game");
+  assert.equal(KIND_WORDS.app.switch, "News from your other apps");
   assert.equal(stateWords("removed", phone({ userAgent: IPHONE })), "This iPhone was removed from the phones your blog tells, so it's off.");
 });
 
@@ -171,7 +171,7 @@ test("trouble is told by the server's code, never as a code", () => {
   assert.match(pushTrouble(e(404, "not-found"), { during: "test" }), /This iPhone was removed from the phones your blog tells, on another phone or computer/);
   assert.match(pushTrouble(e(502, "send-failed"), { during: "test" }), /didn't reach this iPhone/);
   assert.equal(pushTrouble(e(410, "gone"), { during: "other-test", name: "Kitchen iPad" }), "Kitchen iPad stopped taking notifications, so your blog forgot it.");
-  assert.equal(pushTrouble(e(400, "label-required")), "Give it a name, like Kitchen iPad.");
+  assert.equal(pushTrouble(e(400, "label-required")), "Give it a name, like Work phone.");
   assert.match(stopWords("dismissed"), /choose Allow/);
   assert.match(stopWords("worker", "iPad"), /couldn't get this iPad ready/);
 });

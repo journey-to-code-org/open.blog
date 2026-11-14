@@ -9,6 +9,7 @@ import {
   AUTHOR_ROLE, creditLineProblems, creditNames, creditState, creditsToSend, moveCredit, nextCredit, normalizeCreditDraft,
   toggleCreditRole, unknownRoles,
 } from "./credit-rules.js";
+import { say as word } from "./words.js";
 
 let uid = 0;
 
@@ -46,13 +47,13 @@ export function createCredits({ meta, people, onChange, goPeople }) {
     }
     if (s === "broken") {
       element.replaceChildren(h("alert-banner", { variant: "warning", heading: "Who wrote this post can't be read right now" },
-        "Everything else saves as usual. Tell the person who set up your site."));
+        `Everything else saves as usual. ${word("common.tell")}`));
       return drawRoles();
     }
     if (!editing) {
       const shown = s === "inherited"
         ? (author ? [h("p", { class: "studio-about-name", text: author }), h("p", { class: "studio-help", text: "The name your blog uses on every post." })]
-          : [h("p", { class: "studio-help", text: "Your blog doesn't have your name yet. Tell the person who set up your site." })])
+          : [h("p", { class: "studio-help", text: `Your blog doesn't have your name yet. ${word("common.tell")}` })])
         : s === "empty" ? [h("p", { text: "No one is named on this post." })]
           : [h("ol", { class: "studio-about-names" }, list.map((credit) => h("li", { text: nameOf(credit.contributor) })))];
       const canEdit = s !== "inherited" || author || pool.length;

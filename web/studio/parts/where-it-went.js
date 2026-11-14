@@ -6,6 +6,7 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { announcementRow, mergeReport, placeWords, reachedWords, unreadableWords } from "./distribution-rules.js";
 import { sayWhen } from "./dates.js";
+import { say } from "./words.js";
 
 /** `days` is 30, 90 or 365; `social` says whether the hosted queue exists (meta.social). */
 export async function createWhereItWent({ api, days, social, posts: store = null }) {
@@ -97,7 +98,7 @@ export async function createWhereItWent({ api, days, social, posts: store = null
   }
 
   function drawDetails(report, posts = []) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         lastError ? `error ${lastError.status}: ${lastError.message}` : null,
         report ? `days ${report.days}, visits ${report.visitsAvailable ? "counted" : "off"}` : null,

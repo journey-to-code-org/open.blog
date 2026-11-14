@@ -8,6 +8,7 @@ import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
 import { MONTHS, daysIn, monthDay, sayMonthDay } from "./season-windows.js";
 import * as M from "./seasonal-rules.js";
+import { say as word } from "./words.js";
 
 const split = (mmdd) => {
   const [month, day] = String(mmdd || "").split("-").map(Number);
@@ -80,7 +81,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
         return null;
       }
       if (error.status === 422) {
-        say("That didn't save. Tell the person who set up your site.");
+        say(`That didn't save. ${word("common.tell")}`);
         drawDetails(error.data?.problems || [error.message]);
         return null;
       }
@@ -292,7 +293,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
 
   function drawDetails(problems = []) {
     const entries = data().entries || [];
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: word("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         ...problems.map((p) => `problem: ${p}`),
         ...(data().topics || []).map((t) => `${t.id}${t.custom ? " (custom)" : ""} ${t.start}–${t.end}${t.disabled ? " off" : ""}${entries.some((e) => e.id === t.id) ? ` entry ${JSON.stringify(entries.find((e) => e.id === t.id))}` : ""}`),

@@ -5,6 +5,7 @@ import { use } from "./zubra.js";
 import { startShell } from "./shell.js";
 import { showSignIn } from "./screens/signin.js";
 import { listenForInstall } from "./parts/install-state.js";
+import { configureWords } from "./parts/words.js";
 
 // The browser's "Install" question can come at any moment from the start: keep it for Add to Home
 // Screen (Studio R3).
@@ -44,12 +45,16 @@ function remember(user, meta) {
 
 async function start() {
   await use("toast-region", "loading-spinner");
+  // The site's words (docs/studio-words.md) before anything is drawn: the last ones kept on this
+  // phone for sign-in and no signal, then the server's.
+  configureWords(remembered()?.meta?.studioWords);
   try {
     await api.session();
   } catch (error) {
     const last = error.status === 0 ? remembered() : null;
     if (last) {
       api.user = last.user;
+      configureWords(last.meta.studioWords);
       await startShell(root, api, last.meta);
       return;
     }
@@ -61,6 +66,7 @@ async function start() {
   }
   const meta = await api.get("meta");
   remember(api.user, meta);
+  configureWords(meta.studioWords);
   await startShell(root, api, meta);
 }
 

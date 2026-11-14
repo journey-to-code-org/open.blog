@@ -13,6 +13,7 @@ import { sendOut, wentOutWords } from "../parts/publish.js";
 import { choosePicture } from "../parts/picture-picker.js";
 import { landingVersions } from "../parts/landing-versions.js";
 import * as L from "../parts/landing-rules.js";
+import { say as word } from "../parts/words.js";
 
 
 export async function createLanding(context) {
@@ -190,7 +191,7 @@ export async function createLanding(context) {
       const reply = await api.call("PUT", "landing", { json: { revision, page: L.pagePayload(sent) } });
       adopt(reply, { keep: !L.pageSame(draft, sent) ? draft : null });
       if (reply.build && reply.build.ok === false) {
-        toast("Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know.", { variant: "warning", duration: 0 });
+        toast(`Saved, but your site couldn't be updated yet. Nothing is lost. ${word("common.letKnow")}`, { variant: "warning", duration: 0 });
         return true;
       }
       const result = await sendOut(api, "Change the front page");
@@ -229,8 +230,8 @@ export async function createLanding(context) {
     if (!quiet) banner.replaceChildren();
     if (reply.valid === false) {
       banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "Your front page needs fixing first" },
-        "Something in its settings can't be read here. Tell the person who set up your site.",
-        h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+        `Something in its settings can't be read here. ${word("common.tell")}`,
+        h("details", { class: "studio-help" }, h("summary", { text: word("common.forHelper") }),
           h("p", { class: "studio-mono", text: `openblog.json "landing": ${(reply.problems || []).map((p) => p.message || p).join("; ") || reply.error || "not valid"}` }))));
     }
     delete saved.unsaved;

@@ -1,6 +1,7 @@
 // Visitors in her words: how many people came, which recipes they read (by title, never a raw
 // address), and a spoken summary of the days. DOM-free, tested. Studio slice 9;
 // docs/specs/studio/slice-9/ux.md.
+import { say } from "./words.js";
 
 export const RANGES = [7, 30, 90];
 
@@ -62,5 +63,5 @@ export function visitorTrouble(error) {
   if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
   if (status === 404) return "Visitor counting is switched off.";
   if (status === 502 || status === 503 || status === 504) return "Your visitor numbers aren't answering right now. Try again in a few minutes.";
-  return "Your visitor numbers didn't load. Try again, and if it keeps happening, tell the person who set up your site.";
+  return `Your visitor numbers didn't load. ${say("common.keepsHappening")}`;
 }

@@ -9,6 +9,7 @@ import { ask } from "../parts/dialogs.js";
 import { showPreview } from "../parts/preview.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
 import * as M from "../parts/look-rules.js";
+import { say as word } from "../parts/words.js";
 
 const OWN = "";
 
@@ -151,9 +152,9 @@ export async function createLook({ api, meta }) {
         return false;
       }
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },
-        error.status === 422 ? "Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell the person who set up your site."
+        error.status === 422 ? word("look.notAccepted")
           : error.status ? "Something went wrong on your site. Your choices are still here; try again in a moment." : "Check your connection and try again. Your choices are still here.",
-        error.status ? h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
+        error.status ? h("details", { class: "studio-help" }, h("summary", { text: word("common.forHelper") }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
       return false;
     } finally {
       saveButton.loading = false;

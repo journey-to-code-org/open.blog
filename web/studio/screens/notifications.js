@@ -13,6 +13,7 @@ import { createPushHere, PushStop } from "../parts/push-here.js";
 import { deviceCard, openChangeSheet, renameDialog } from "../parts/notification-cards.js";
 import { createHereCard } from "../parts/notification-here.js";
 import * as R from "../parts/notification-rules.js";
+import { say as word } from "../parts/words.js";
 
 export async function createNotifications(context, route = { query: {} }) {
   const { api, meta = {} } = context;
@@ -81,12 +82,12 @@ export async function createNotifications(context, route = { query: {} }) {
     main.removeAttribute("aria-busy");
     lede.textContent = R.ledeWords(R.offeredKinds(meta, {}));
     if (state.state === "invalid" || state.state === "unavailable") {
-      main.replaceChildren(h("alert-banner", { variant: "warning", heading: "Notifications aren't set up right" }, "Tell the person who set up your site."));
+      main.replaceChildren(h("alert-banner", { variant: "warning", heading: "Notifications aren't set up right" }, word("common.tell")));
       side.replaceChildren(detailsBox(state.state === "invalid"
         ? ["These settings aren't valid:", ...(state.problems || [])]
         : ["The push function answered but isn't switched on: set OPENBLOG_PUSH_ENABLED=true and its other settings there."]));
     } else {
-      main.replaceChildren(h("empty-state", { heading: "Notifications aren't set up for your blog" }, "The person who set up your site can turn them on. Your blog works the same without them."));
+      main.replaceChildren(h("empty-state", { heading: "Notifications aren't set up for your blog" }, word("notify.canTurnOn")));
       side.replaceChildren(detailsBox(["Set OPENBLOG_PUSH_ENDPOINT and OPENBLOG_PUSH_ADMIN_KEY where Studio runs, after the steps in docs/notifications.md."]));
     }
     followLink();

@@ -18,6 +18,7 @@ import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { openChange, openCheck, openHistory } from "../parts/share-sheets.js";
 import { createWhereItWent } from "../parts/where-it-went.js";
 import { DAY_CHOICES, daysFrom, daysWords } from "../parts/distribution-rules.js";
+import { say } from "../parts/words.js";
 
 const SENDING_RELOAD_MS = 60 * 1000;
 
@@ -241,7 +242,7 @@ export async function createSharing({ api, go, meta = {}, posts: store = null },
   }
 
   function drawDetails(error = null) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         error ? `error ${error.status}${error.data?.code ? ` (${error.data.code})` : ""}: ${error.message}` : null,
         ...destinations.map((d) => `destination ${d.id} ${d.provider} ${d.kind} ${d.displayName}`),

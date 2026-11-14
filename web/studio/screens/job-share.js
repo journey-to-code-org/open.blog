@@ -7,6 +7,7 @@
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, offersPosting, pageOpen, problemWords, soon, standing, standingText, troubleAction, wayFor } from "../parts/job-share-rules.js";
+import { say as word } from "../parts/words.js";
 
 export async function createJobShare({ api, go }, path, route = { query: {} }) {
   await use("action-button", "alert-banner", "skeleton-block", "status-badge");
@@ -200,7 +201,7 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
   const focusCard = (d) => requestAnimationFrame(() => list.querySelector(`[data-destination="${d.destination}"] h3`)?.focus());
 
   function drawDetails(error = null) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: word("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         error ? `error ${error.status}${error.data?.code ? ` (${error.data.code})` : ""}: ${error.message}` : null,
         data ? `job ${data.path} at ${data.work}; announcements ${data.announcements ? "on" : "off"}; google sending ${data.googleSending ? "on" : "off"}` : null,

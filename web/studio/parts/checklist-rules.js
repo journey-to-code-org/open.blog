@@ -5,6 +5,7 @@
 // it. Studio's words for the steps, where each opens, and the recipe notes' words are new in R1;
 // docs/specs/studio/r1/ux.md.
 import { legacyRoute } from "../router.js";
+import { say } from "./words.js";
 
 /** The words for each step the server names, in the server's order. An id this version does not know is skipped. */
 export const STEP_TEXT = Object.freeze({
@@ -81,7 +82,7 @@ export function recipeNoteWords(note) {
   const open = page && page.path && !note.byAlias && SCREENS[page.kind]
     ? { href: `#/${SCREENS[page.kind]}/${encodeURIComponent(page.path)}`, label: `Open “${title}”` }
     : null;
-  const help = page && note.byAlias ? "Ask the person who set up your site to free that spot." : "";
+  const help = page && note.byAlias ? say("checklist.freeSpot") : "";
   const facet = note.facet === "cuisine" ? "cuisine" : "course";
   const name = shownName(note.value);
   const details = [

@@ -1,6 +1,7 @@
 // What kind of post it is, and each kind's own facts, in her words. The engine's profiles come in
 // `meta.profiles` (ids, keys, aliases, choices: G40); the labels and help here are Studio's own.
 // A story and a job have no group in About this post (About this job is under the title). DOM-free.
+import { say } from "./words.js";
 
 /** Each kind as she hears it. */
 export const KIND_WORDS = Object.freeze({
@@ -12,7 +13,7 @@ export const KIND_WORDS = Object.freeze({
   research: { label: "Research", help: "Writing with sources and references." },
 });
 
-const UNKNOWN = { label: "Something else", help: "Your blog shows it as a story. The person who set up your site chose this." };
+const UNKNOWN = { label: "Something else", get help() { return `Your blog shows it as a story. ${say("common.chose")}`; } };
 
 /**
  * The kinds she can choose: a story, a recipe, a job on a trade site, and the post's own kind when

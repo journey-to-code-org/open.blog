@@ -3,6 +3,7 @@
 // ## Steps with "1." rows), through recipe-body.js, so scaling and timers keep working and anything
 // Studio doesn't edit is kept byte for byte.
 import { h } from "./dom.js";
+import { say as word } from "./words.js";
 import { use } from "../zubra.js";
 import { splitPasted, writeRecipeBody } from "./recipe-body.js";
 import { photoStrip, withoutPhoto } from "./photo-strip.js";
@@ -24,7 +25,7 @@ export async function recipeEditor(parsed, { onChange, onPutPhoto }) {
     steps: parsed.steps?.length ? [...parsed.steps] : [""],
     notes: parsed.notes ? parsed.notes.text : "",
   };
-  const notesHeading = parsed.notes?.heading || "Grammi's notes";
+  const notesHeading = parsed.notes?.heading || word("recipe.notesHeading");
   const strips = {
     story: photoStrip({ onRemove: (photo) => takeOut("story", photo) }),
     notes: photoStrip({ onRemove: (photo) => takeOut("notes", photo) }),

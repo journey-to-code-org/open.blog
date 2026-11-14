@@ -2,6 +2,12 @@
 // to do; the badge for each; the shortest caption limit across the accounts she chose; and account
 // health. DOM-free, tested. Studio slice 10c; docs/specs/studio/slice-10bc/ux.md.
 import { sayDay, sayShortDay, sayWhen } from "./dates.js";
+import { say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  "share.tellOrSkip": { text: "Tell {helper}, or choose Don't share it.", layer: "her" },
+};
 
 const LIMITS = { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 };
 const PROVIDERS = { linkedin: "LinkedIn", facebook: "Facebook", bluesky: "Bluesky", mastodon: "Mastodon" };
@@ -129,7 +135,7 @@ export function shareTrouble(error) {
   const status = error?.status ?? 0;
   const code = error?.data?.code;
   if (!status) return "Your site's server couldn't be reached. Check your connection, then try again.";
-  if (code === "hosted-key-rejected" || code === "hosted-unavailable" || status === 404) return "Sharing isn't working right now. Tell the person who set up your site.";
+  if (code === "hosted-key-rejected" || code === "hosted-unavailable" || status === 404) return `Sharing isn't working right now. ${say("common.tell")}`;
   if (status === 502 || status === 503 || status === 504) return "Your sharing service couldn't be reached. Try again in a minute.";
   return "That didn't go through. Try again.";
 }
@@ -199,10 +205,10 @@ export function lateBanner(health) {
   if (!health || health.installed !== true || !Array.isArray(health.alerts)) return null;
   const lines = [];
   const late = health.alerts.includes("backlog-overdue");
-  if (late) lines.push("Some posts should have gone out by now. Tell the person who set up your site.");
+  if (late) lines.push(`Some posts should have gone out by now. ${say("common.tell")}`);
   if (health.alerts.includes("provider-not-configured")) {
     const n = Number.isSafeInteger(health.waitingOnProvider) && health.waitingOnProvider > 0 ? health.waitingOnProvider : 0;
-    lines.push(`${n === 1 ? "1 share is" : n ? `${n} shares are` : "Some shares are"} waiting for an account that isn't set up to post. Tell the person who set up your site, or choose Don't share it.`);
+    lines.push(`${n === 1 ? "1 share is" : n ? `${n} shares are` : "Some shares are"} waiting for an account that isn't set up to post. ${say("share.tellOrSkip")}`);
   }
   if (!lines.length) return null;
   return { heading: late ? "Shares are running late" : "Some shares can't go out yet", lines };

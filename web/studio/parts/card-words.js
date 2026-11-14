@@ -1,6 +1,14 @@
 // Greeting cards in her words: how the list is grouped, what each card is called, what Home says
 // about the week ahead, the editor's starting values, and failures. DOM-free, tested. Studio slice 9;
 // docs/specs/studio/slice-9/ux.md.
+import { say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  // A new card's sign-off: her name alone; a site adds "Love," or "Thanks," if it likes.
+  "cards.signOff": { text: "{owner}", bare: "", layer: "her", max: 80 },
+  "cards.notSetUp": { text: "{helper} needs to finish setting them up. Your site works the same without them.", layer: "her" },
+};
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -111,7 +119,7 @@ export function newCard({ contacts, designs, forId, today, signOff }) {
     design: birthday ? "birthday" : has("just-because") ? "just-because" : designs[0]?.id || "",
     subject: "",
     message: "",
-    signOff: signOff || "Love, Grammi",
+    signOff: signOff || say("cards.signOff"),
     sendOn: birthday ? person.birthday : today,
     hour: 8,
     yearly: birthday,
@@ -134,7 +142,7 @@ export function cardTrouble(error, doing = "save") {
   const code = error?.data?.code || error?.data?.error;
   if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
   if (status === 400 && error?.data?.field && error.message) return error.message;
-  if (code === "invalid-time-zone") return "Studio couldn't work out your time zone. Tell the person who set up your site.";
+  if (code === "invalid-time-zone") return `Studio couldn't work out your time zone. ${say("common.tell")}`;
   if (status === 404) return "That card isn't there any more. Here's your list as it is now.";
   if (code === "too-many") return doing === "person" ? "Your address book is full." : "Your card list is full. Stop one you don't need, then try again.";
   if (code === "busy") return "That card is going out right now. Try again in a minute.";

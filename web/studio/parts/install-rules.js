@@ -2,6 +2,7 @@
 // Home Screen or installs it as an app, the steps for that way only, and the account menu's words.
 // Pure: `here` comes from notification-rules.js herePhone(). docs/specs/studio/r3/ux.md.
 import { BAR } from "./notification-rules.js";
+import { say } from "./words.js";
 
 /**
  * prompt (the browser can ask), ios-safari, ios-other (Chrome or Firefox on an iPhone), in-app,
@@ -35,7 +36,7 @@ export function menuLabel(here, hasPrompt = false) {
 }
 
 // An iPhone's Home Screen app keeps its own sign-in, so she signs in once more from the new icon.
-const SIGN_IN_FIRST = "You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask the person who set up your site first.";
+const signInFirst = () => say("install.signInFirst");
 
 const IOS_STEPS = (ipad) => [
   { text: `Tap the Share button ${ipad ? "at the top right" : "at the bottom of the screen"}.`, share: true, more: ipad ? "" : "Don't see it? Tap the three dots (•••) at the bottom right first." },
@@ -54,8 +55,8 @@ export function installSteps(way, here) {
   const app = here.android ? "Chrome" : "Safari";
   switch (way) {
     case "prompt": return { intro, before: "", steps: [], words: "Your browser asks first. Choose Install.", copy: false, ask: true };
-    case "ios-safari": return { intro, before: SIGN_IN_FIRST, steps: IOS_STEPS(here.ipad), words: "", copy: false, ask: false };
-    case "ios-other": return { intro, before: SIGN_IN_FIRST, steps: IOS_STEPS(here.ipad), words: "Don't see Add to Home Screen? Open your blog in Safari:", copy: true, ask: false };
+    case "ios-safari": return { intro, before: signInFirst(), steps: IOS_STEPS(here.ipad), words: "", copy: false, ask: false };
+    case "ios-other": return { intro, before: signInFirst(), steps: IOS_STEPS(here.ipad), words: "Don't see Add to Home Screen? Open your blog in Safari:", copy: true, ask: false };
     case "in-app": return { intro, before: "", steps: [], words: `This page is open inside another app. Open your blog in ${app}:`, copy: true, ask: false };
     case "android-menu": return { intro, before: "", steps: [{ text: "Open the menu: the three dots at the top right." }, { text: "Tap Add to Home screen, or Install." }, { text: "Open your blog from its new icon." }], words: "", copy: false, ask: false };
     case "desktop-chromium": return { intro, before: "", steps: [], words: `Look for the Install button at the right end of ${BAR}. Or open the menu (the three dots at the top right) and choose Install.`, copy: false, ask: false };

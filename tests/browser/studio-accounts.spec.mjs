@@ -407,6 +407,8 @@ test("Bluesky by keyboard: a refused shape empties the password, a good one is s
   await expect(name).toBeFocused();
   await expect(secret).toHaveAttribute("type", "password");
   await expect(name).toHaveAttribute("autocapitalize", "none");
+  // The example is anyone's name, never one owner's (Studio's words).
+  await expect(name).toHaveAttribute("placeholder", "yourname.bsky.social");
   await expect(sheet(page)).toContainText("Bluesky lets you make a separate password just for your blog");
   await page.keyboard.type("ada.bsky.social");
   await page.keyboard.press("Tab");

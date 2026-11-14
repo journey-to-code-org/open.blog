@@ -11,6 +11,7 @@ import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { quietNotifyLink } from "../parts/notify-link.js";
 import { openDownload, openCleanup } from "../parts/quote-sheets.js";
 import { LISTS, listLabel, emailLine, troubleBanner, eraseLine, statusWords, telHref, quoteTrouble } from "../parts/quote-words.js";
+import { say as word } from "../parts/words.js";
 
 export async function createQuotes({ api, meta }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
@@ -48,7 +49,7 @@ export async function createQuotes({ api, meta }) {
       if (!state.enabled) {
         cards.removeAttribute("aria-busy");
         cards.replaceChildren();
-        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog can't open your quote requests" }, "The quote form isn't connected properly. Tell the person who set up your site."));
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog can't open your quote requests" }, `The quote form isn't connected properly. ${word("common.tell")}`));
         drawDetails(state);
         return;
       }
@@ -72,7 +73,7 @@ export async function createQuotes({ api, meta }) {
     banner.replaceChildren(
       ...(trouble ? [h("alert-banner", { variant: "warning", heading: trouble.heading }, trouble.text, trouble.retry ? " " : "",
         trouble.retry ? h("action-button", { variant: "secondary", size: "sm", onClick: (e) => retry(e.currentTarget) }, "Send those emails again") : "")] : []),
-      ...(reply.unreadable ? [h("alert-banner", { variant: "warning", heading: `${reply.unreadable} ${reply.unreadable === 1 ? "request" : "requests"} can't be shown here` }, "They're still stored. Tell the person who set up your site.")] : []));
+      ...(reply.unreadable ? [h("alert-banner", { variant: "warning", heading: `${reply.unreadable} ${reply.unreadable === 1 ? "request" : "requests"} can't be shown here` }, `They're still stored. ${word("common.tell")}`)] : []));
     const services = reply.services || [];
     pickers.replaceChildren(
       h("select-field", { label: "Which requests", options: LISTS.map((l) => ({ value: l.id, label: listLabel(l, all) })), value: list, onValuechange: (e) => { list = e.detail; draw(); } }),
@@ -238,7 +239,7 @@ export async function createQuotes({ api, meta }) {
   }
 
   function drawDetails(state = null, error = null) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: word("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         state ? `state ${state.state}${(state.problems || []).length ? `: ${state.problems.join(", ")}` : ""}` : null,
         error ? `error ${error.status}: ${error.message}` : null,

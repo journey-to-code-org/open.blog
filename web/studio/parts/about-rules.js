@@ -6,6 +6,7 @@
 
 import { byLine } from "./credit-rules.js";
 import { groupKeys, kindLabel } from "./profile-words.js";
+import { say } from "./words.js";
 
 /** Each value the sheet edits, by Studio's name, with the names the engine reads (first canonical). */
 export const ABOUT_NAMES = Object.freeze({
@@ -266,7 +267,7 @@ export function saveProblem(error) {
     return issueWords(issue);
   }
   if (status === 0 || status >= 500) return { where: "status", words: "Your blog didn't answer. Your words are kept on this computer, and it tries again when you next change something." };
-  return { where: "banner", words: "Something in this post stops your blog from building it. Tell the person who set up your site." };
+  return { where: "banner", words: `Something in this post stops your blog from building it. ${say("common.tell")}` };
 }
 
 /** One of the build's coded problems, in her words and where it belongs. */
@@ -282,9 +283,9 @@ export function issueWords(issue = {}) {
   if (code === "credit-no-role") return { where: "about", field: "roles", words: "Give everyone at least one role." };
   if (code === "credit-duplicate") return { where: "credits", field: "credits", words: "Someone is listed twice. Remove one of them." };
   if (code === "shared-order" || code === "shared-rebind") return { where: "credits", field: "credits", words: "This was written together with others, so who wrote each part can't change here." };
-  if (code === "alias") return { where: "about", field: "aliases", words: "An old address in this post can't be used. The person who set up your site can fix it in the file." };
+  if (code === "alias") return { where: "about", field: "aliases", words: say("about.aliasFix") };
   if (code === "profile-field" && field) return { where: "about", field, words: PROFILE_FIELD_WORDS[field] || "This doesn't look right. Check it against the help under it." };
-  return { where: "banner", words: "Something in this post stops your blog from building it. Tell the person who set up your site." };
+  return { where: "banner", words: `Something in this post stops your blog from building it. ${say("common.tell")}` };
 }
 
 const PROFILE_FIELD_WORDS = {

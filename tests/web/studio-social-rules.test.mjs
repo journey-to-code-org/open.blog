@@ -37,7 +37,7 @@ test("a Mastodon sign-in address must be that instance's own /oauth/authorize", 
 test("an app password is four groups of four letters or digits; anything else is refused on the device", () => {
   for (const good of ["abcd-efgh-ijkl-mnop", "ABCD-1234-ijkl-MNOP", " abcd-efgh-ijkl-mnop "]) assert.equal(R.isAppPassword(good), true, good);
   for (const bad of ["correct horse battery", "abcd-efgh-ijkl", "abcd-efgh-ijkl-mnop-qrst", "abcd_efgh_ijkl_mnop", "abcd-efgh-ijkl-mnø1", "", null]) assert.equal(R.isAppPassword(bad), false, String(bad));
-  assert.deepEqual(R.blueskyCheck("", "abcd-efgh-ijkl-mnop"), { field: "name", text: "Type your Bluesky name, like grammi.bsky.social." });
+  assert.deepEqual(R.blueskyCheck("", "abcd-efgh-ijkl-mnop"), { field: "name", text: "Type your Bluesky name, like yourname.bsky.social." });
   assert.deepEqual(R.blueskyCheck("grammi.bsky.social", ""), { field: "password", text: "Paste the app password you made in Bluesky." });
   assert.match(R.blueskyCheck("grammi.bsky.social", "hunter2").text, /^That isn't an app password\. .*Never use your real password/);
   assert.equal(R.blueskyCheck("grammi.bsky.social", "abcd-efgh-ijkl-mnop"), null);

@@ -2,6 +2,7 @@
 // reasons, and Home's waiting line. The server sends each item's actions and reasons; Studio only
 // renames the ones it knows, so a new server action or reason still shows (under its own label).
 // DOM-free, tested. Studio slice 8.
+import { say } from "./words.js";
 
 /** The views, in the order the picker lists them. `state` is the server's moderation state. */
 export const VIEWS = [
@@ -155,7 +156,7 @@ export function troubleWords(error, place) {
       : "That didn't go through: your comments service isn't answering. Nothing changed. Try again in a few minutes.";
   }
   return place === "list"
-    ? "Your comments didn't load. Try again, and if it keeps happening, tell the person who set up your site."
+    ? `Your comments didn't load. ${say("common.keepsHappening")}`
     : "That didn't go through. Nothing changed. Try again.";
 }
 

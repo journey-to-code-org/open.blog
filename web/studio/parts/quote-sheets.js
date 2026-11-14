@@ -5,6 +5,7 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
 import { cleanupTrouble, exportDayProblem, exportWords, retentionWords, retentionDaysProblem, eraseOldQuestion, erasedOldWords, quoteTrouble } from "./quote-words.js";
+import { say as word } from "./words.js";
 
 const DEFAULT_DAYS = 30;
 
@@ -107,7 +108,7 @@ export async function openCleanup({ sheet, api, opener, reply, say, onChanged })
       return true;
     } catch (error) {
       if (error.status === 401) throw error;
-      status.textContent = error.data?.code === "retention-set-by-host" ? "The person who set up your site chose this, so it can't be changed here." : quoteTrouble(error);
+      status.textContent = error.data?.code === "retention-set-by-host" ? word("quote.hostChose") : quoteTrouble(error);
       drawDetails(error);
       return false;
     } finally {
@@ -141,7 +142,7 @@ export async function openCleanup({ sheet, api, opener, reply, say, onChanged })
   }
 
   function drawDetails(error = null) {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: word("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         `retentionDays ${saved.days ?? "none"}, retentionSource ${saved.source || "none"}`,
         dryRun ? `dry run ${JSON.stringify(dryRun)}` : null,

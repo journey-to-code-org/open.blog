@@ -10,6 +10,7 @@ import { providerName } from "./share-words.js";
 import * as R from "./social-rules.js";
 import { blueskySheet } from "./bluesky-sheet.js";
 import { connectionLines, detailsBox, providerLines, redirectRow } from "./account-details.js";
+import { say as word } from "./words.js";
 
 let uid = 0;
 
@@ -43,7 +44,7 @@ export function createAccountSheets(ctx) {
     const url = R.safeAuthorizeUrl(reply?.authorizeUrl, instance);
     if (!url) {
       if (reply?.connection?.id) await api.post(`social/connections/${reply.connection.id}/cancel`, {}).catch(() => {});
-      say(status, `Your blog couldn't open ${providerName(provider)}. Tell the person who set up your site.`, "danger");
+      say(status, `Your blog couldn't open ${providerName(provider)}. ${word("common.tell")}`, "danger");
       heading.focus();
       return { refused: true, lines: ["authorizeUrl refused"] };
     }
@@ -310,7 +311,7 @@ export function createAccountSheets(ctx) {
       children: [
         failure ? h("alert-banner", { variant: "warning" }, R.outcomeWords(failure.errorCode || failure.status, account.provider, { reconnecting: true, name: account.displayName })) : null,
         status,
-        h("p", { text: `${p} will ask you to sign in. Use the ${p} account you used the first time. If ${p} shows someone else's name, tell the person who set up your site.` }),
+        h("p", { text: word("social.signInAgain", { service: p }) }),
         go,
         detailsBox([`If ${p} signs you in by itself as someone else, log out of ${p} first, then press Continue to ${p} again.`, ...providerLines(provider), ...connectionLines(failure), ...extra], redirectRow(provider))],
       focus: focusOn(heading),

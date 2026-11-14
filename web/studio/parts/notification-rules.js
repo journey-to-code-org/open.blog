@@ -3,6 +3,7 @@
 // kinds kept when she changes them, every sentence the screen says, the denied steps for this phone
 // only, and the worker's address rule (a copy of studioAddress in web/studio/sw.js; a test keeps
 // them the same). Pure data and functions: no page. docs/specs/studio/r3/ux.md.
+import { say } from "./words.js";
 
 /** What each kind of news is called, as a switch and inside a sentence. Studio's words, not the server's labels. */
 export const KIND_WORDS = Object.freeze({
@@ -10,7 +11,7 @@ export const KIND_WORDS = Object.freeze({
   feedback: { switch: "A reader sends you a note about a post", summary: "notes from readers" },
   quote: { switch: "Someone asks for a quote", summary: "quote requests" },
   // The push function knows no app names (one notify key for all of them), so they're named by what they are.
-  app: { switch: "News from your family's other apps, like a card game", summary: "news from your other apps" },
+  app: { get switch() { return say("notify.appSwitch"); }, summary: "news from your other apps" },
 });
 const ORDER = Object.keys(KIND_WORDS);
 const byOrder = (list) => [...new Set(list)].sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
@@ -192,7 +193,7 @@ export function stateWords(state, here) {
     case "home-screen-first": return `On an ${noun}, your blog can only send notifications once it's on your Home Screen. It takes four taps.`;
     case "update-first": return `This ${noun} needs a newer iOS before your blog can send it notifications. In the Settings app: General, then Software Update.`;
     case "in-app": return `This page is open inside another app, which can't show notifications. Open your blog in ${app}:`;
-    case "not-secure": return "Notifications only work at your blog's secure address. Tell the person who set up your site.";
+    case "not-secure": return `Notifications only work at your blog's secure address. ${say("common.tell")}`;
     case "unsupported": return "This browser can't show notifications from your blog. On a computer, try Chrome, Edge, Firefox or Safari. On a phone, use Safari on an iPhone or Chrome on Android.";
     default: return "";
   }
@@ -248,10 +249,10 @@ export function ledeWords(offered = []) {
 export function pushTrouble(error = {}, { noun = "iPhone", name = "", limit = 20, during = "" } = {}) {
   const code = error?.data?.code || error?.code || "";
   const status = Number(error?.status ?? 0);
-  if (code === "label-required") return "Give it a name, like Kitchen iPad.";
+  if (code === "label-required") return say("notify.nameMissing");
   if (code === "too-many" || status === 409) return `Your blog can tell up to ${limit} phones and computers. Remove one you don't use any more, below.`;
   if (code === "invalid-subscription") return "This browser's notifications can't be used by your blog. Try Safari, Chrome, Edge or Firefox.";
-  if (["hosted-key-rejected", "not-enabled", "not-set-up"].includes(code)) return "Notifications aren't working right now. Tell the person who set up your site.";
+  if (["hosted-key-rejected", "not-enabled", "not-set-up"].includes(code)) return `Notifications aren't working right now. ${say("common.tell")}`;
   if (during === "other-test" && (code === "gone" || status === 410)) return `${name} stopped taking notifications, so your blog forgot it.`;
   if (code === "gone" || status === 410) return `This ${noun} stopped taking notifications, so your blog forgot it. Turn them on again.`;
   if (during === "test" && status === 404) return `This ${noun} was removed from the phones your blog tells, on another phone or computer. Turn them on again.`;

@@ -1,5 +1,19 @@
 // Today's sentence and the words around putting a look up, from GET seasons and her calendar.
 // DOM-free, tested.
+import { say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md): {product} is "your blog" unless it says. */
+export const WORDS = {
+  "decorations.calendarOff": { text: "{product} wears {theme} every day. The calendar is off.", layer: "her" },
+  "decorations.putUpEarly": { text: "{product} is decorated for {theme}, put up early. It stays up through {until}.", layer: "her" },
+  "decorations.decorated": { text: "{product} is decorated for {theme}.", layer: "her" },
+  "decorations.everyday": { text: "{product} is wearing its everyday look: {theme}.", layer: "her" },
+  "decorations.betweenOff": { text: "The look {product} wears while the calendar is off.", layer: "her" },
+  "decorations.noSeasons": { text: "Add one, like Christmas from December 1 to January 6, and {product} changes by itself.", layer: "her" },
+  "decorations.byItself": { text: "{product} changes by itself on the days below.", layer: "her" },
+  "decorations.whenYouSave": { text: "When you save, {product} wears {theme} every day. Your seasons are kept for when you turn this back on.", layer: "her" },
+  "decorations.everyDay": { text: "{product} wears {theme} every day.", layer: "her" },
+};
 
 const DAY = 86400000;
 
@@ -28,13 +42,13 @@ export function todaySentence(state, label, { today, now = new Date() } = {}) {
   const off = !state.seasons?.enabled && !isUp;
   const lines = [];
   if (off) {
-    lines.push(`Your house wears ${label(state.theme)} every day. The calendar is off.`);
+    lines.push(say("decorations.calendarOff", { theme: label(state.theme) }));
     return lines;
   }
   const inSeason = (state.seasons?.windows || []).some((w) => w.theme === wearing) || isUp;
-  if (isUp) lines.push(`Your house is decorated for ${label(wearing)}, put up early. It stays up through ${sayLongDate(up.until, { now })}.`);
-  else if (inSeason && wearing !== state.theme) lines.push(`Your house is decorated for ${label(wearing)}.`);
-  else lines.push(`Your house is wearing its everyday look: ${label(wearing)}.`);
+  if (isUp) lines.push(say("decorations.putUpEarly", { theme: label(wearing), until: sayLongDate(up.until, { now }) }));
+  else if (inSeason && wearing !== state.theme) lines.push(say("decorations.decorated", { theme: label(wearing) }));
+  else lines.push(say("decorations.everyday", { theme: label(wearing) }));
   if (state.next) lines.push(`On ${sayLongDate(state.next.day, { now })} it changes to ${label(state.next.theme)}.`);
   return lines;
 }

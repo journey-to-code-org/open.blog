@@ -234,7 +234,7 @@ test("turn on, change a switch, send a test, turn off and Undo, then remove anot
   await expect(page.locator("li[data-device]")).toContainText("Hasn't told you anything yet.");
 
   // A switch before turning on decides what this one hears about.
-  await card.getByRole("switch", { name: "News from your family's other apps, like a card game" }).click();
+  await card.getByRole("switch", { name: "News from your other apps" }).click();
   await card.getByRole("button", { name: "Turn on notifications" }).click();
   await expect(statusLine(page)).toHaveText("On. A test is on its way to this computer.");
   await expect(card.locator("status-badge")).toHaveText("On");
@@ -369,7 +369,7 @@ test("another computer: send it a test, change what it tells you (asking before 
   await expect(page.locator("modal-dialog text-field label")).not.toContainText("optional");
   await field.fill("");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
-  await expect(page.getByText("Give it a name, like Kitchen iPad.")).toBeVisible();
+  await expect(page.getByText("Give it a name, like Work phone.")).toBeVisible();
   await field.fill("Grammi's iPad");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(statusLine(page)).toHaveText("Renamed to “Grammi's iPad”.");

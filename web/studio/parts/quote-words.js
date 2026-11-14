@@ -2,6 +2,12 @@
 // when an archived request goes, and Home's line. Customers' words are never handled here: they're
 // set as text where they're shown. DOM-free, tested. Studio slice 10b;
 // docs/specs/studio/slice-10bc/ux.md.
+import { say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  "quote.hostChose": { text: "{helper} chose this, so it can't be changed here.", layer: "her" },
+};
 
 const DAY = 24 * 60 * 60 * 1000;
 const STALE_PENDING_MS = 10 * 60 * 1000;
@@ -46,8 +52,8 @@ export function troubleBanner(requests, notifyEnabled, now = Date.now()) {
   const stuck = requests.filter((r) => emailTrouble(r, now));
   if (!stuck.length) return null;
   const heading = stuck.length === 1 ? "The email about 1 request didn't reach you." : `The email about ${stuck.length} requests didn't reach you.`;
-  if (!notifyEnabled) return { heading, text: "Emails to you are turned off. Tell the person who set up your site.", retry: false };
-  if (stuck.every((r) => (r.notifyAttempts || 0) >= MAX_NOTIFY_ATTEMPTS)) return { heading, text: `They were tried ${MAX_NOTIFY_ATTEMPTS} times. Tell the person who set up your site.`, retry: false };
+  if (!notifyEnabled) return { heading, text: `Emails to you are turned off. ${say("common.tell")}`, retry: false };
+  if (stuck.every((r) => (r.notifyAttempts || 0) >= MAX_NOTIFY_ATTEMPTS)) return { heading, text: `They were tried ${MAX_NOTIFY_ATTEMPTS} times. ${say("common.tell")}`, retry: false };
   return { heading, text: "The requests are safe here.", retry: true };
 }
 
@@ -85,14 +91,14 @@ export function homeQuoteLine(requests) {
 export function quoteTrouble(error) {
   const status = error?.status ?? 0;
   if (!status) return "Your site's server couldn't be reached. Check your connection, then try again.";
-  if (status === 404 || status === 401) return "The quote form isn't connected properly. Tell the person who set up your site.";
+  if (status === 404 || status === 401) return `The quote form isn't connected properly. ${say("common.tell")}`;
   if (status === 502 || status === 503 || status === 504) return "Your quote requests aren't answering right now. Try again in a minute.";
   return "That didn't go through. Try again.";
 }
 
 /** A refusal while cleaning up archived requests; an older requests service is said plainly. */
 export function cleanupTrouble(error) {
-  if (error?.data?.code === "hosted-too-old") return "Your requests service needs updating before your blog can clean up. Tell the person who set up your site.";
+  if (error?.data?.code === "hosted-too-old") return `Your requests service needs updating before your blog can clean up. ${say("common.tell")}`;
   return quoteTrouble(error);
 }
 
@@ -124,7 +130,7 @@ export function exportWords(count, from, to) {
 export function retentionWords(days, source) {
   if (!days) return "Archived requests stay until you erase them.";
   const said = `Archived requests are erased ${plural(days, "day", "days")} after you archive them.`;
-  return source === "host" ? `${said} The person who set up your site chose this.` : said;
+  return source === "host" ? `${said} ${say("common.chose")}` : said;
 }
 
 /** The days field's problem, or "" (a whole number from 1 to 3650). */

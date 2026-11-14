@@ -5,6 +5,7 @@
 // tests/web/studio-social-rules.test.mjs; docs/specs/studio/r2/ux.md.
 import { providerName } from "./share-words.js";
 import { sayClock } from "./dates.js";
+import { say } from "./words.js";
 
 // ---- Safety ------------------------------------------------------------------------------------
 
@@ -142,8 +143,8 @@ export function reasonWords(reason, provider = "facebook") {
 }
 
 const FIRST_NOTES = Object.freeze({
-  "pages-truncated": "Facebook sent only some of your Pages. If yours isn't here, tell the person who set up your site.",
-  "organizations-truncated": "LinkedIn sent only some of your company pages. If yours isn't here, tell the person who set up your site.",
+  get "pages-truncated"() { return say("social.pagesTruncated"); },
+  get "organizations-truncated"() { return say("social.orgsTruncated"); },
   "media-not-granted": "Your post's photo won't be added on Mastodon; it shows its own preview.",
   "instance-limit-low": "This Mastodon server takes short posts only, so keep what you say short.",
 });
@@ -162,7 +163,7 @@ export function outcomeWords(code, provider, { reconnecting = false, name = "" }
     case "denied": return `You said no on ${p}, so nothing was connected.`;
     case "scopes-missing": return `${p} didn't allow everything your blog needs to post. Try again and leave every box ticked.`;
     case "no-destination":
-      if (provider === "facebook") return "Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask the person who set up your site to add you to its Facebook app.";
+      if (provider === "facebook") return say("social.facebookNoPage");
       if (provider === "linkedin") return "LinkedIn didn't show anywhere you can post.";
       return `${p} says this account can't post.`;
     case "expired": return "That took too long, so it stopped. Try again.";
@@ -192,8 +193,8 @@ export function actionTrouble(error, provider = "") {
   const p = providerName(provider) || "That place";
   if (!status) return "Your sharing service couldn't be reached. Try again in a minute.";
   if (code === "too-many-attempts") return "Too many connections are unfinished. Stop one above, or wait 10 minutes.";
-  if (code === "provider-not-configured") return `${p} isn't set up on your site any more. Tell the person who set up your site.`;
-  if (code === "hosted-key-rejected" || code === "hosted-unavailable" || code === "not-set-up" || status === 404) return "Sharing isn't working right now. Tell the person who set up your site.";
+  if (code === "provider-not-configured") return `${p} isn't set up on your site any more. ${say("common.tell")}`;
+  if (code === "hosted-key-rejected" || code === "hosted-unavailable" || code === "not-set-up" || status === 404) return `Sharing isn't working right now. ${say("common.tell")}`;
   if (code === "provider-unavailable") return `${p} couldn't be reached. Try again in a few minutes.`;
   if (code === "provider-rate-limited" || status === 429) return `${p} asked your blog to slow down. Wait a few minutes, then try again.`;
   if (status === 502 || status === 503 || status === 504) return "Your sharing service couldn't be reached. Try again in a minute.";
@@ -211,7 +212,7 @@ export function blueskyFieldError(error) {
 }
 
 export const BLUESKY = Object.freeze({
-  name: "Type your Bluesky name, like grammi.bsky.social.",
+  get name() { return say("bluesky.nameError"); },
   empty: "Paste the app password you made in Bluesky.",
   shape: "That isn't an app password. One looks like abcd-efgh-ijkl-mnop. Never use your real password. Paste an app password.",
   rejected: "Bluesky didn't accept that name and app password. Check the name, then paste the app password again, or make a new one.",

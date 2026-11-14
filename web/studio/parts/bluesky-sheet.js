@@ -2,6 +2,7 @@
 // password field is emptied before anything is checked or sent, every time, and the password is
 // never put in a status, a detail or the leave question. docs/specs/studio/r2/ux.md.
 import { h } from "./dom.js";
+import { say as word } from "./words.js";
 import { use } from "../zubra.js";
 import { detailsBox, providerLines } from "./account-details.js";
 import * as R from "./social-rules.js";
@@ -14,7 +15,7 @@ export function blueskySheet({ api, sheet, ctx, say, statusBox, headingOf, openC
     const title = account ? `Reconnect ${account.displayName}` : "Connect Bluesky";
     const heading = headingOf(title);
     const status = statusBox();
-    const nameField = h("text-field", { label: "Your Bluesky name", autocomplete: "username", required: true, value: start, placeholder: "grammi.bsky.social",
+    const nameField = h("text-field", { label: "Your Bluesky name", autocomplete: "username", required: true, value: start, placeholder: word("bluesky.namePlaceholder"),
       onValuechange: () => { if (nameField.value) nameField.error = ""; } });
     const secret = h("text-field", { label: "App password", type: "password", autocomplete: "off", required: true, description: R.appPasswordHelp,
       onValuechange: () => { if (secret.value) secret.error = ""; } });

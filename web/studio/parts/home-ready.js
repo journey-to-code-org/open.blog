@@ -5,6 +5,7 @@
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { STEP_TEXT, checklistDone, checklistSteps, checklistVisible, progressWords, recipeNoteWords, stepHref } from "./checklist-rules.js";
+import { say } from "./words.js";
 
 const SAID_READY = "studio:checklist:ready-said";
 
@@ -25,7 +26,7 @@ export async function recipeNotesBanner(api) {
       h("p", { text: note.text }),
       note.open ? h("action-button", { variant: "secondary", size: "sm", href: note.open.href }, note.open.label) : null,
       note.help ? h("p", { class: "studio-help", text: note.help }) : null)),
-    h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+    h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...notes.flatMap((note) => note.details || []).map((line) => h("li", { text: line })))));
 }
 

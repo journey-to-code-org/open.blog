@@ -10,6 +10,7 @@ import { postHref } from "../parts/post-list.js";
 import * as M from "../parts/seasonal-rules.js";
 import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { openTopics } from "../parts/topics-sheet.js";
+import { say } from "../parts/words.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -199,7 +200,7 @@ export async function createReminders({ api, go }) {
   }
 
   function drawDetails() {
-    details.replaceChildren(h("summary", { text: "For the person who set up your site" }),
+    details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         `today ${data.today}, trade ${data.trade || "none"}, etag ${data.etag}`,
         ...data.reminders.map((r) => `${r.key} ${r.status} ${r.opens}–${r.closes}${r.snoozedUntil ? ` snoozed ${r.snoozedUntil}` : ""}${r.document ? ` draft ${r.document}` : ""}`),

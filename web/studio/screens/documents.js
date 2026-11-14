@@ -4,6 +4,7 @@ import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { editHref } from "../parts/doc-kinds.js";
+import { say } from "../parts/words.js";
 
 export async function createDocuments({ api, undo, go }, k) {
   await use("action-button", "dropdown-menu", "empty-state", "skeleton-block", "alert-banner");
@@ -26,7 +27,7 @@ export async function createDocuments({ api, undo, go }, k) {
     return h("li", { class: "studio-post-row" },
       h("a", { class: "studio-post-link", href: editHref(k, item.path) },
         h("span", { class: "studio-post-title", text: item.title || "Untitled" }),
-        item.status === "error" ? h("span", { class: "studio-post-when", text: `Something's wrong with this ${k.one}. Ask the person who set up your site.` })
+        item.status === "error" ? h("span", { class: "studio-post-when", text: `Something's wrong with this ${k.one}. ${say("common.ask")}` })
           : k.row?.(item) ? h("span", { class: "studio-post-when", text: k.row(item) }) : null),
       menu);
   }

@@ -13,6 +13,7 @@ import { postState } from "./post-fields.js";
 import { mineAside } from "./post-details.js";
 import { askWhichToKeep, busyBanner, chooseLaterBanner } from "./conflict.js";
 import { saveProblem } from "./about-rules.js";
+import { say } from "./words.js";
 
 export function createTrouble({ api, banner, title, day, doc, read, now, paint, notSaved, saveNow, markDirty, takeTheirs, about, aboutProblem, saveAsNew }) {
   async function copy(text) {
@@ -97,7 +98,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
   // The server's own sentences, for the person who set up the site.
   const serverDetail = (error) => {
     const lines = Array.isArray(error.data?.problems) ? error.data.problems : [];
-    return h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+    return h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
       h("p", { class: "studio-detail", text: error.message || "" }), lines.length ? h("ul", {}, lines.map((line) => h("li", { class: "studio-detail", text: String(line) }))) : null);
   };
 
@@ -156,8 +157,8 @@ export function cantOpen(banner, error) {
 /** A post whose settings at the top can't be read: the server's reason and the file, so it can be fixed. */
 export function unreadable(banner, path, reply) {
   banner.replaceChildren(h("alert-banner", { variant: "warning", heading: "This post can't be changed here" },
-    "Something at the top of its file needs fixing first. Tell the person who set up your site.",
-    h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }),
+    `Something at the top of its file needs fixing first. ${say("common.tell")}`,
+    h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
       h("p", { class: "studio-mono", text: `content/${path || ""}${reply.error ? `: ${reply.error}` : ""}` }),
       h("text-field", { label: "The file as it is", rows: 12, readonly: true, value: String(reply.raw || "") }))));
 }

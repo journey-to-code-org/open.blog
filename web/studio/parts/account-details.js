@@ -1,15 +1,14 @@
-// Mikey's layer on Your accounts (Studio R2): "Details for the person who set up your site" with
+// Mikey's layer on Your accounts (Studio R2): "Details for {helper}" with
 // the permission codes, the redirect address and its Copy, versions, and what came back from an
 // attempt. Text only. docs/specs/studio/r2/ux.md.
 import { h } from "./dom.js";
 import { providerName } from "./share-words.js";
 import * as R from "./social-rules.js";
-
-const SUMMARY = "Details for the person who set up your site";
+import { say } from "./words.js";
 
 /** Mikey's details: lines of text, and optionally nodes (the redirect address with Copy). */
 export function detailsBox(lines, ...nodes) {
-  return h("details", { class: "studio-help" }, h("summary", { text: SUMMARY }),
+  return h("details", { class: "studio-help" }, h("summary", { text: say("common.detailsFor") }),
     h("ul", { class: "studio-mono studio-account-details" }, ...lines.filter(Boolean).map((line) => h("li", { text: line }))), ...nodes);
 }
 
