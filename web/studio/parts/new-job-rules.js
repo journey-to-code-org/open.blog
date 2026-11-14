@@ -179,3 +179,16 @@ export function photosToRemove(photos, otherBytes, maxBytes) {
   }
   return count;
 }
+
+const SAFARI_WARN_MS = 5 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether Safari may soon clear a job kept in this window: a Safari tab (not the Home Screen app,
+ * which is exempt) clears what a site keeps after 7 days without a visit, so a job waiting more
+ * than 5 days gets a warning.
+ */
+export function safariMayClear(record, here = {}, now = new Date()) {
+  if (!record || here.browser !== "safari" || here.standalone || here.inApp) return false;
+  const saved = Date.parse(record.createdAt);
+  return Number.isFinite(saved) && now.getTime() - saved > SAFARI_WARN_MS;
+}

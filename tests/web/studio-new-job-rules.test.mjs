@@ -102,3 +102,18 @@ test("too many large photos says how many to take out, largest first", () => {
   assert.equal(photosToRemove(photos, 0, 25), 3);
   assert.equal(photosToRemove(photos, 15, 20), 4);
 });
+
+test("Safari may clear a job kept in a Safari tab for more than 5 days; never in the Home Screen app or another browser", async () => {
+  const { safariMayClear } = await import("../../web/studio/parts/new-job-rules.js");
+  const now = new Date("2026-11-13T12:00:00Z");
+  const record = (days) => ({ createdAt: new Date(now.getTime() - days * 86_400_000).toISOString() });
+  const safari = { apple: true, browser: "safari", standalone: false, inApp: false };
+  assert.equal(safariMayClear(record(6), safari, now), true);
+  assert.equal(safariMayClear(record(5), safari, now), false, "five days is still fine");
+  assert.equal(safariMayClear(record(6), { ...safari, standalone: true }, now), false, "the Home Screen app is exempt");
+  assert.equal(safariMayClear(record(6), { ...safari, apple: false, mac: true }, now), true, "Safari on a Mac too");
+  assert.equal(safariMayClear(record(6), { ...safari, browser: "chrome", apple: false }, now), false);
+  assert.equal(safariMayClear(record(6), { ...safari, inApp: true }, now), false);
+  assert.equal(safariMayClear({ createdAt: "not a date" }, safari, now), false);
+  assert.equal(safariMayClear(null, safari, now), false);
+});

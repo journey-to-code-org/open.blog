@@ -136,6 +136,9 @@ const codeOf = (record) => /^\[([a-z0-9-]+)\]/.exec(String(record?.lastError || 
 /** The name of a job that can't be read: "A job kept on this iPhone", then "(2)", "(3)"… so each card and its More are told apart. */
 export const keptTitle = (index = 0, noun = "phone") => `A job kept on this ${noun}${index ? ` (${index + 1})` : ""}`;
 
+/** A job waiting more than 5 days in a Safari tab. */
+export const safariClearWords = (noun = "phone") => `Safari may clear jobs kept here if your blog isn't opened for a week. Send it, or save its photos to this ${noun}.`;
+
 /** "2 jobs waiting on this iPhone". */
 export const waitingCount = (count, noun = "phone") => `${plural(count, "job")} waiting on this ${noun}`;
 

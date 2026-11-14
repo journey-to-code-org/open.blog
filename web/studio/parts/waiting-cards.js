@@ -5,9 +5,9 @@ import { h } from "./dom.js";
 import { detailsBox } from "./account-details.js";
 import { ask } from "./dialogs.js";
 import { captureBytes } from "./capture-queue.js";
-import { savedWords, waitingWords } from "./job-words.js";
+import { safariClearWords, savedWords, waitingWords } from "./job-words.js";
 import { stepWords } from "./job-sender.js";
-import { captureSlug } from "./new-job-rules.js";
+import { captureSlug, safariMayClear } from "./new-job-rules.js";
 
 const MB = 1024 * 1024;
 
@@ -62,7 +62,16 @@ export function waitingCard(entry, { jobs, title, noun = "phone", here = {}, now
   const id = `studio-waiting-${entry.id || Math.random().toString(16).slice(2)}`;
   const buttons = [];
   const step = nextStep(state);
-  if (step && state !== "sending") {
+  // Waiting more than 5 days in a Safari tab: say Safari may clear it, with Send now and Save the
+  // photos right there (the card's own Send now moves into it).
+  const clearing = state !== "sending" && state !== "sent" && safariMayClear(record, here, now);
+  const sendsHere = step?.[1] === "send";
+  const warning = clearing ? h("alert-banner", { variant: "warning", "data-safari": "true" },
+    h("p", { text: safariClearWords(noun) }),
+    h("div", { class: "studio-row" },
+      sendsHere ? h("action-button", { variant: "secondary", size: "sm", label: `Send ${name} now`, "data-step": "send", onClick: (event) => on.send?.(entry, event.currentTarget) }, "Send now") : null,
+      record.photos.length ? h("action-button", { variant: "secondary", size: "sm", label: `Save the photos from ${name} to this ${noun}`, onClick: () => on.save(entry) }, "Save the photos") : null)) : null;
+  if (step && state !== "sending" && !(clearing && sendsHere)) {
     buttons.push(h("action-button", {
       variant: "secondary",
       label: step[1] === "send" && state !== "signin" ? `Send ${name} now` : `${step[0]}: ${name}`,
@@ -88,6 +97,7 @@ export function waitingCard(entry, { jobs, title, noun = "phone", here = {}, now
       h("status-badge", { variant: said.variant === "neutral" ? "outline" : said.variant === "info" ? "primary" : said.variant }, said.badge)),
     record ? h("p", { class: "studio-help", text: savedWords(record, now) }) : null,
     h("p", { text: said.words, "aria-live": state === "sending" ? "off" : null }),
+    warning,
     buttons.length || menu ? h("div", { class: "studio-comment-actions" }, ...buttons, menu) : null,
     detailsBox([
       `id ${entry.id || "(none)"}`,

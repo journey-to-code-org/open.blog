@@ -305,6 +305,38 @@ test("jobs that can't be read have names of their own, a newer one says who to t
   expect(await stored(page)).toEqual([]);
 });
 
+const IPHONE_SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+
+test("in a Safari tab, a job waiting more than 5 days says Safari may clear it, with Send now and Save the photos", async ({ browser }) => {
+  const context = await browser.newContext({ userAgent: IPHONE_SAFARI, viewport: { width: 400, height: 800 }, serviceWorkers: "block" });
+  const page = await context.newPage();
+  await signIn(page, trade, "#/posts");
+  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await page.evaluate(async () => {
+    const queue = await import("/admin/studio/parts/capture-queue.js");
+    const store = await queue.openIndexedStore();
+    const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" });
+    const make = (id, town, days) => queue.makeRecord({ id, fields: { trade: "roofing", service: "roof-repair", town, notes: "Kept a while." }, photos: [{ name: "old.png", type: "image/png", size: png.size, blob: png }], audio: null }, new Date(Date.now() - days * 86_400_000), "writer");
+    await store.put(make("1123456789abcdef0123456789abcdef", "Weekold", 6));
+    await store.put(make("2123456789abcdef0123456789abcdef", "Fresh", 1));
+    store.close();
+  });
+  await page.goto(`${trade.origin}/admin/studio/#/new-job`);
+  await expect(waitingCards(page)).toHaveCount(2);
+  const old = page.locator('[data-waiting="1123456789abcdef0123456789abcdef"]');
+  await expect(old.locator("[data-safari]")).toContainText("Safari may clear jobs kept here if your blog isn't opened for a week. Send it, or save its photos to this iPhone.");
+  await expect(old.getByRole("button", { name: "Save the photos from Roof repair in Weekold to this iPhone" })).toBeVisible();
+  await expect(old.getByRole("button", { name: "Send Roof repair in Weekold now" })).toHaveCount(1);
+  await expect(page.locator('[data-waiting="2123456789abcdef0123456789abcdef"] [data-safari]')).toHaveCount(0);
+  await noStrayWords(page, "Safari warning");
+  await axeClean(page, "Safari warning");
+  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await old.getByRole("button", { name: "Send Roof repair in Weekold now" }).click();
+  await expect.poll(() => draftsIn(trade, "weekold").length).toBe(1);
+  expect(draftsIn(trade, "fresh")).toHaveLength(0);
+  await context.close();
+});
+
 test("a reload in the middle of a job puts back every photo and word", async ({ page }) => {
   await openNewJob(page);
   await fillJob(page, "Parsons", "Half typed when the camera opened");

@@ -207,6 +207,7 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 | Unreadable | Can't read | "Part of this job can't be read on this phone, so it can't be sent." | More |
 
 - A card that can't be read (unreadable or newer) is titled "A job kept on this phone", the next "A job kept on this phone (2)", and so on, so each card and its **More** have names of their own.
+- **Safari tab, waiting more than 5 days** (`safariMayClear`: Safari, not the Home Screen app, not inside another app): the card gets `alert-banner warning` "Safari may clear jobs kept here if your blog isn't opened for a week. Send it, or save its photos to this phone." with **Send now** (the card's own moves into it) and **Save the photos**.
 - A card's **Send now** sends that job only; Home's **Send now**, the palette and the account menu send them all.
 
 - **More** ("More for Roof repair in Elkins"): **Save the photos to this phone** (phones: `navigator.share({files})`; computers: one download per photo, `roof-repair-elkins-1.jpg`; refused: "Your phone didn't let them be saved. Try again from the Photos button."), **Throw it away…**.

@@ -123,3 +123,8 @@ test("jobs that can't be read get names of their own", () => {
   assert.equal(words.keptTitle(1, "iPhone"), "A job kept on this iPhone (2)");
   assert.equal(words.keptTitle(2), "A job kept on this phone (3)");
 });
+
+test("Safari may clear it: send it, or save its photos to the phone in her hand", () => {
+  assert.equal(words.safariClearWords("iPhone"), "Safari may clear jobs kept here if your blog isn't opened for a week. Send it, or save its photos to this iPhone.");
+  assert.doesNotMatch(words.safariClearWords("iPhone"), BANNED);
+});
