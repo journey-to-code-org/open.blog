@@ -360,6 +360,8 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
       controls.error(name, words);
       open({ focusName: controls.get(name) ? name : "", from });
     },
+    /** The words beside a field that stops a save, without opening or moving focus (an autosave). */
+    markProblem(name, words) { if (controls.get(name)) controls.error(name, words); },
     clearProblems: () => controls.clear(),
     /** After a save went through: what was sent is what the post has now. */
     saved({ fields, sentCredits, sent } = {}) {

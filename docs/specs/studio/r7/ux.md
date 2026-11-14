@@ -268,7 +268,9 @@ One row saying what readers get (`routeLine`): "Route: readers see the numbers o
 | --- | --- | --- |
 | `exact-route` | "Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live." (`alert-banner warning`, always first while exact) | **Show less of the route** (opens Your route at the choice) |
 | `no-area` | "Add where you went, as an area that's safe to share, like the Dolly Sods." | **Go to it** (About this post › Where) |
-| `area-looks-like-address` | "“12 Laurel Lane” looks like a street address. Use an area name instead, like the Dolly Sods." (R4 `looksLikeAddress`) | **Go to it** |
+| `area-looks-like-address` | "“12 Laurel Lane” looks like a street address. Use an area name instead, like a park or a mountain range." (R4 `looksLikeAddress`; shows only for a post written elsewhere, because the field itself refuses it, below) | **Go to it** |
+
+**The Where field refuses an address** (Safety): About this post › Where on a trip post uses R4's town rule (`looksLikeAddress`: a digit or a comma). Before any save, an autosave too, it stops the save with the field error "Just an area's name, not a street address or a house number." (`trip.areaField`), shown on the field at once when About this post is open, and the status "Not saved yet: one thing in About this post needs a look." with **Go to it**; her words stay in the form.
 | `no-conditions` | "Add the conditions: weather, trail, water, what you saw." | **Go to it** |
 | `no-distance` | "Add your route, or fill in the distance, so readers know how far you went." | **Add your route** |
 

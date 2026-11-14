@@ -294,6 +294,7 @@ export async function createWrite(context, arg, route = {}) {
     notSaved = "Not saved yet: one thing in About this post needs a look.";
     goToProblem = () => about.showProblem(first.name, first.words, { from: aboutButton });
     if (!quiet) goToProblem();
+    else about.markProblem?.(first.name, first.words);
     return true;
   }
 

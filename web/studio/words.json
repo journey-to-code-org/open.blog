@@ -4353,6 +4353,12 @@
         "area"
       ]
     },
+    "trip.areaField": {
+      "text": "Just an area's name, not a street address or a house number.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
     "trip.exactRoute": {
       "text": "Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live.",
       "layer": "her",

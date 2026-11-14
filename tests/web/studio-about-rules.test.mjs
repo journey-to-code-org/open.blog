@@ -150,6 +150,14 @@ test("checks before a save name the value and the fix", () => {
   assert.equal(aboutProblems({ profile: "field-journal", distanceKm: "far" })[0].words, "A number, like 4.2.");
 });
 
+test("a trip's Where refuses a street address, as a job's town does (R7 Safety)", () => {
+  for (const value of ["12 Laurel Lane", "Laurel Lane, Davis", "Route 32 pull-off"]) {
+    assert.deepEqual(aboutProblems({ profile: "field-journal", location: value }), [{ name: "location", words: "Just an area's name, not a street address or a house number." }], value);
+  }
+  assert.deepEqual(aboutProblems({ profile: "field-journal", location: "Dolly Sods" }), []);
+  assert.deepEqual(aboutProblems({ profile: "article", location: "12 Laurel Lane" }), [], "only a trip's own field");
+});
+
 test("counters say a limit only when crossing it", () => {
   assert.equal(summaryCount("x".repeat(160)), "");
   assert.equal(summaryCount("x".repeat(212)), "Google usually shows about 160 letters; this has 212. The rest may be cut off.");

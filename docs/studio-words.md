@@ -792,6 +792,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `thing.video` | her | Video | none | 40 |
 | `thing.watchOut` | her | Watch out | none | 40 |
 | `trip.areaAddress` | her | “{area}” looks like a street address. Use an area name instead, like a park or a mountain range. | `{area}` | 192 |
+| `trip.areaField` | her | Just an area's name, not a street address or a house number. | none | 120 |
 | `trip.exactRoute` | her | Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live. | none | 240 |
 | `trip.noArea` | her | Add where you went, as an area that's safe to share, like a park or a mountain range. | none | 170 |
 | `trip.noConditions` | her | Add the conditions: weather, trail, water, what you saw. | none | 112 |

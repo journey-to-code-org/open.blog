@@ -7,6 +7,7 @@
 import { byLine } from "./credit-rules.js";
 import { groupKeys, kindLabel } from "./profile-words.js";
 import { say } from "./words.js";
+import { looksLikeAddress } from "./route-rules.js";
 
 /** Each value the sheet edits, by Studio's name, with the names the engine reads (first canonical). */
 export const ABOUT_NAMES = Object.freeze({
@@ -192,6 +193,8 @@ export function aboutProblems(about = {}, { collection = false, slugOpen = false
   if (kindKeys.has("videoUrl")) check("videoUrl", isYouTube, "That isn't a YouTube link. Copy it from Share under the video.");
   if (kindKeys.has("videoTitle")) check("videoTitle", (v) => String(v).trim().length <= 100, `YouTube takes up to 100 letters; this has ${String(about.videoTitle || "").trim().length}.`);
   if (kindKeys.has("license")) check("license", isWebAddress, "A full web address, starting with https://.");
+  // A trip's Where is an area, never a home: the same rule as a job's town (R4, R7 Safety).
+  if (kindKeys.has("location")) check("location", (v) => !looksLikeAddress(v), say("trip.areaField"));
   for (const name of ["distanceKm", "elevationGainM"]) if (kindKeys.has(name)) check(name, isNumber, "A number, like 4.2.");
   for (const name of ["seasonNumber", "episodeNumber"]) if (kindKeys.has(name)) check(name, (v) => /^\d+$/.test(String(v).trim()), "A whole number, like 3.");
   return out;

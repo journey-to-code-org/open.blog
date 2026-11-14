@@ -84,6 +84,7 @@ export const WORDS = {
   "trip.exactRoute": { text: "Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live.", layer: "her" },
   "trip.showLess": { text: "Show less of the route", layer: "her" },
   "trip.noArea": { text: "Add where you went, as an area that's safe to share, like a park or a mountain range.", layer: "her" },
+  "trip.areaField": { text: "Just an area's name, not a street address or a house number.", layer: "her" },
   "trip.areaAddress": { text: "“{area}” looks like a street address. Use an area name instead, like a park or a mountain range.", layer: "her" },
   "trip.noConditions": { text: "Add the conditions: weather, trail, water, what you saw.", layer: "her" },
   "trip.noDistance": { text: "Add your route, or fill in the distance, so readers know how far you went.", layer: "her" },

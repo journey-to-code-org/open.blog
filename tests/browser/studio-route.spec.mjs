@@ -227,3 +227,19 @@ test("Take the route off clears it, and Undo puts it back", async ({ page }) => 
   await sheet(page).locator(".studio-ready-did").getByRole("button", { name: "Undo" }).click();
   await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("distanceKm: 4.2");
 });
+
+test("Where refuses a street address with words on the field, and nothing saves until it's an area", async ({ page }) => {
+  const file = "2026-10-08-where.md";
+  await openPost(page, file, TRIP.replace("Ridge walk", "Where walk"));
+  await page.getByRole("button", { name: /^About this post:/ }).click();
+  const where = page.getByRole("textbox", { name: "Where", exact: true });
+  await where.fill("12 Laurel Lane");
+  await where.press("Tab");
+  await expect(page.locator(".studio-write > [role=status]")).toContainText("Not saved yet: one thing in About this post needs a look.", { timeout: 8000 });
+  await page.waitForTimeout(3500);
+  expect(fileOf(file), "an address never reaches the file").not.toContain("Laurel");
+  // The words sit on the field itself, in the open sheet.
+  await expect(page.locator("text-field").filter({ has: where }).getByText("Just an area's name, not a street address or a house number.")).toBeVisible();
+  await where.fill("Dolly Sods");
+  await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("location: Dolly Sods");
+});
