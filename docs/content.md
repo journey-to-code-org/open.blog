@@ -628,6 +628,9 @@ saved under `static/images/uploads/<year>/`.
 `draft: true` hides a post everywhere. Preview drafts locally with
 `openblog serve --drafts`, or in the admin editor, where drafts have their own badge.
 
+A post can't be hidden from search engines on its own: there is no per-post `noindex`. A draft
+is how a post stays out of the site, its feeds and the sitemap.
+
 ### Scheduling
 
 A post whose `date` is in the future is held back from the site, the feeds, the sitemap,

@@ -773,33 +773,59 @@ site author. A malformed sidecar does not hide the Markdown document: Admin repo
 credit error and keeps a separate revision token so a credits-aware client can safely repair
 or remove it. Editing the JSON files by hand remains supported.
 
-### Credit contributors and roles
+### About this post, and who wrote it
 
-For posts, open **Settings → Contributors** to choose between inheriting the site author
-and an explicit ordered credit list. Add people from the contributor registry, arrange the
-public byline order with the arrow buttons, and choose publishing roles or CRediT taxonomy
-roles for each person. Every selected person needs at least one role. An explicit list with
-no people intentionally suppresses inherited authorship; the editor labels this state so it
-cannot be confused with inheritance.
+In Studio every setting of a post is in Write's **About this post** (the button at the end of
+the side column, More, `?sheet=about`, or Find: "About this post", "Summary for search and
+sharing", "Who wrote it", "More about this recipe", "Details for the person who set up your
+site"). The old Settings pane (`#/edit/<post>?pane=settings`) opens it. It has no Save of its
+own: a draft saves itself, and a published post keeps the changes on that device until
+**Update**, with Write saying "Changed · not on your site yet".
 
-The people available in the picker come from the site contributor registry. Open
-**Site → Contributors** to add or update a public name, stable ID, profile URL, same-as
-profiles, and optional ORCID iD. Existing IDs cannot be renamed in Admin because post
-sidecars refer to them; a contributor cannot be removed while any sidecar still uses that
-ID. If the registry is empty, **Prefill legacy author** copies the existing site author into
-an unsaved draft for review—it does not change configuration or post credits until you save.
+- **What kind of post**: a story, a recipe, a job on a trade site, and the post's own kind
+  (video, trip outdoors, research). Changing it keeps the words; a story turned recipe offers
+  **Add the recipe parts**, and **Undo** sits under the choice until the sheet closes. A
+  legacy `recipe: true` post shows as a recipe and writes `profile` only when changed.
+- **This recipe / This video / This trip outdoors**: only the post's own kind's fields
+  (`course`, `cuisine`, `yield`, `totalTime`, `calories`, `adaptedFrom`; the video and field
+  journal fields). Serves and the two times stay under the title. A job's `job.*` stay in
+  About this job, never in the sheet.
+- **On the page**: the line under the title (`subtitle`; an old `subheading` or `dek` goes
+  when it changes), the part in its collection (`seriesOrder`), and comments for this post.
+- **In search and when shared**: the summary (`description`, or whichever of `summary`,
+  `brief`, `excerpt` the post already uses), a rough card of how a shared link looks, and
+  Pin words when the site sends Pins.
+- **Who wrote it**: the names in order. **Change who wrote it** picks people from People,
+  moves them, removes them, or **Just me** (no credit file). The list is sent only when it
+  changed, always with its `creditEtag`; a save of the title never touches the credit file,
+  and a credit file that can't be read never stops the rest of the post saving.
+- **Details for the person who set up your site**: the address (`slug`), editable only while
+  the post was never on the site (the server's `wasPublished`, from the file's history in
+  Git; without history it counts as published), old addresses, first published elsewhere
+  (`canonical`), the theme, a picture by web address, every kind, the technical video and
+  research fields, each person's roles, "Name no one on this post", repairing a broken credit
+  file, the keys Studio doesn't edit ("Also in this post", kept exactly as written), and the
+  file's facts. There is no rename: a post's file never moves.
 
-Registry saves use their own `openblog.json` revision token. If configuration changed on
-disk after the workspace opened, Admin refuses the stale save and asks you to reload. It
-updates only the `contributors` member of the parsed JSON object, preserving unrelated and
-future configuration members, validates the complete candidate with the publishing engine,
-then rebuilds the preview. ORCID iDs entered here are manual and unauthenticated: format and
-checksum validation does not verify the person or ownership of the record.
+Every value is written under the name the post already uses, only when it changed, and a
+summary-only change rewrites one line of the file.
 
-If a sidecar is malformed, Settings shows the error without hiding
-the Markdown and requires an explicit repair choice: inherit to remove the broken sidecar,
-or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
-warnings, production preview, conflict detection, and the normal save validation.
+**People** (`#/people`; the old `#/contributors` opens it) lists the blog's own name and
+everyone who can be named on a post. Add someone with a name and a website; their id comes
+from the name and never changes; other pages and an ORCID iD are under its details. A person
+named on posts, in a shared reflection or in research notes can't be removed, and People says
+which posts. A removal can be undone. **Add someone who isn't listed** on a post comes back to
+it with the new person on its list. Saves use the `openblog.json` revision token and change
+only `contributors`. ORCID iDs are checked for their check digit but not verified.
+
+### Copy it for another blog
+
+Write › More › **Copy it for another blog** shows the post as it will go to Medium, Ghost,
+Hashnode, DEV, WordPress, a web page or plain words, made from what's on the screen (saved or
+not), with **Copy** and **Download**. The differences there are listed in plain words with
+**Go to it**; the engine's findings, the destination's policy, the tag plan and **Mark as
+checked** (portability acknowledgements, per version) are under its details. Nothing there
+saves the post.
 
 ### Curate a reading path
 
@@ -1122,14 +1148,20 @@ A post's status is one of:
 - **Published**: the date is now or in the past.
 - **Scheduled**: the date is in the future.
 
-Pick *Scheduled* and a date and time (your local time; it is stored as UTC) and save. The
-post is held back from the pages, feeds, sitemap, search index, tags, series, and the
-latest-posts JSON. The server checks every few seconds and rebuilds at the moment the post
-comes due, so it appears by itself.
+In Studio, pick a day under **When it appears** (and a time, in your own time zone; a future
+day with no time gets 8:00 AM, shown in the time field) and press **Schedule**. The help says
+when it really goes up: "by itself" only when the server keeps that promise (`meta.schedule`
+is `self`: this server is the site, or it sends the built pages out after the scheduled
+rebuild), otherwise "the next time your blog is sent out after that" (`next-send`, the live
+site is built elsewhere). Scheduled posts are held back from the pages, feeds, sitemap, search
+index, tags, series and the latest-posts JSON. The server checks every few seconds and
+rebuilds when one comes due; with `publish.auto` it then sends the site out too
+(`Publish scheduled post <title>`). **Make it a draft again** unschedules it, keeping the day.
+Moving a published post to a later day asks first, because it comes off the site until then.
 
 This works in plain files too: any post with a future `date:` stays hidden until a build
 runs after that time. So a scheduled post also goes live on a static host if something runs
-`openblog build` periodically, such as a cron job or a scheduled GitHub Action.
+`openblog build` periodically: see [Scheduled builds](deploy.md#scheduled-builds).
 
 ```yaml
 date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00

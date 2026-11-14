@@ -39,6 +39,17 @@ and evidence" sections and `/claim-evidence.json` come from `.openblog/private/r
 which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes
 written in posts' front matter are published either way.
 
+## Scheduled builds
+
+A post with a future date is left out of every build until a build runs after its time. On
+`openblog serve` that happens by itself: the server rebuilds the moment a post comes due, and
+with `publish.auto` (and the built pages in `publish.paths`) sends the result out. A site built
+somewhere else (GitHub Pages, Netlify, Cloudflare, ...) shows a scheduled post only when that
+host builds again after its time, so give it a scheduled build: the Pages workflow below runs
+once an hour, and Netlify and the others take a build hook called on a schedule. Studio says
+which applies under When it appears and in About this post's details (`meta.schedule`:
+`self` or `next-send`; `GET publish` also gives `mode` and `nextDue`).
+
 ## GitHub Pages
 
 1. Create the blog with the workflow included, or add it to an existing blog:
