@@ -231,8 +231,8 @@ export function durationWords(seconds) {
 /** "8.4 km · 420 m climb · 2 hr 15 min", from what the file has. */
 export function numbersWords(analysis) {
   return [
-    `${analysis.distanceKm} km`,
-    analysis.elevationGainM !== null ? `${analysis.elevationGainM} m climb` : "",
+    say("route.km", { km: String(analysis.distanceKm) }),
+    analysis.elevationGainM !== null ? say("route.climbM", { m: String(analysis.elevationGainM) }) : "",
     analysis.durationSeconds !== null ? durationWords(analysis.durationSeconds) : "",
   ].filter(Boolean).join(" · ");
 }

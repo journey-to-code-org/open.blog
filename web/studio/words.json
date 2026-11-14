@@ -3696,6 +3696,14 @@
       "max": 54,
       "vars": []
     },
+    "route.climbM": {
+      "text": "{m} m climb",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "m"
+      ]
+    },
     "route.comesOff": {
       "text": "Your route file comes off your site when you press Update.",
       "layer": "her",
@@ -3838,6 +3846,14 @@
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "route.km": {
+      "text": "{km} km",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "km"
+      ]
     },
     "route.leaveOff": {
       "text": "Leave off at each end",

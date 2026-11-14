@@ -64,6 +64,8 @@ export const WORDS = {
   "route.lineWhole": { text: "Route: readers see a drawing of the whole route.", layer: "her" },
   "route.lineExact": { text: "Route: readers can download your exact route.", layer: "her" },
   "route.lineNone": { text: "No route added.", layer: "her" },
+  "route.km": { text: "{km} km", layer: "her" },
+  "route.climbM": { text: "{m} m climb", layer: "her" },
   "route.addRoute": { text: "Add your route", layer: "her" },
   "route.changeRoute": { text: "Change your route", layer: "her" },
   // File problems (gpxProblem)

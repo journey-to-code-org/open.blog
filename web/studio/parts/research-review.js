@@ -112,7 +112,7 @@ export function createResearchReview({ api, context, show, reload, tell }) {
       `${finding.validator || ""}: ${finding.code || ""} · ${finding.gate || ""} · ${publicationReviewPlace(finding, ctx)}`));
     const marks = review?.acknowledgements || {};
     return h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
-      h("p", { class: "studio-mono", text: `Research checks: ${publicationReviewCountsText({ ...review, scope: "post" })}` }),
+      h("p", { class: "studio-mono", text: `${say("review.heading")}: ${publicationReviewCountsText({ ...review, scope: "post" })}` }),
       marks.error ? h("p", { class: "studio-mono", text: say("review.detailsMarksFile", { file: String(marks.file || ""), error: String(marks.error || "") }) }) : null,
       rows.length ? h("ul", {}, ...rows) : null);
   }

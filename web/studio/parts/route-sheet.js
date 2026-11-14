@@ -138,7 +138,7 @@ export async function createRouteSheet({ api, write }) {
     const shown_ = [];
     if (values.routeShape) shown_.push(drawing(values.routeShape, choice === "trimmed" ? say("route.drawTrimmed", { trim: trimWords(trim) }) : say("route.drawWhole")));
     if (values.elevationProfile) shown_.push(drawing(values.elevationProfile, say("route.drawClimb")));
-    const numbers = a ? numbersWords(a) : [current.distanceKm ? `${current.distanceKm} km` : "", current.elevationGainM ? `${current.elevationGainM} m climb` : "", current.duration || ""].filter(Boolean).join(" · ");
+    const numbers = a ? numbersWords(a) : [current.distanceKm ? say("route.km", { km: String(current.distanceKm) }) : "", current.elevationGainM ? say("route.climbM", { m: String(current.elevationGainM) }) : "", current.duration || ""].filter(Boolean).join(" · ");
     return h("section", { class: "studio-ready-group", "aria-labelledby": "studio-route-see-h" },
       h("h3", { id: "studio-route-see-h", text: say("route.whatReadersSee") }),
       ...(shown_.length ? shown_ : [h("p", { class: "studio-help", text: say("route.noDrawing") })]),

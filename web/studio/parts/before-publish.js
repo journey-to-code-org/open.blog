@@ -228,7 +228,7 @@ export async function createBeforePublish({ api, meta, write }) {
     const hasRoute = Boolean(String(fields.distanceKm || fields.routeShape || "").trim());
     const items = g.trip.map((s) => {
       const fix = s.fix === "show-less" ? button(say("trip.showLess"), () => write.openSheet("route", primary))
-        : s.fix === "route" ? button(say("route.addRoute"), () => write.openSheet("route", primary))
+        : s.fix === "route" ? button(say("route.addRoute"), () => write.openSheet("route", primary), { label: `${say("route.addRoute")}: ${s.words}` })
           : button(say("ready.goToIt"), () => leaveTo({ field: s.fix }), { label: `${say("ready.goToIt")}: ${s.words}` });
       return s.warning
         ? h("li", {}, h("alert-banner", { variant: "warning" }, s.words, h("div", { class: "studio-ready-actions" }, fix)))

@@ -268,3 +268,14 @@ test("the lede says what goes to the blog for each choice, the exact route's fil
   assert.match(exact, /this iPad/);
   for (const choice of PRIVACY) assert.doesNotMatch(routeLede(choice, "phone"), HER_BANNED, choice);
 });
+
+test("the route's numbers are words a site can change, not fixed strings", async () => {
+  const { configureWords } = await import("../../web/studio/parts/words.js");
+  configureWords({ text: { "route.km": "{km} kilometres", "route.climbM": "{m} metres up" } });
+  try {
+    assert.equal(numbersWords({ distanceKm: 8.4, elevationGainM: 420, durationSeconds: null }), "8.4 kilometres · 420 metres up");
+  } finally {
+    configureWords();
+  }
+  assert.equal(numbersWords({ distanceKm: 8.4, elevationGainM: 420, durationSeconds: 8100 }), "8.4 km · 420 m climb · 2 hr 15 min");
+});

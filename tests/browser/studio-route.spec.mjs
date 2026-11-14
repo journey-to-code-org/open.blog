@@ -243,3 +243,13 @@ test("Where refuses a street address with words on the field, and nothing saves 
   await where.fill("Dolly Sods");
   await expect.poll(() => fileOf(file), { timeout: 10000 }).toContain("location: Dolly Sods");
 });
+
+test("Your trip in Before you publish: every button has its own name", async ({ page }) => {
+  await openPost(page, "2026-10-09-names.md", TRIP.replace("Ridge walk", "Names walk"));
+  await page.getByRole("button", { name: /^Before you publish:/ }).click();
+  const trip = page.locator("side-sheet.studio-ready-sheet section.studio-ready-trip");
+  await expect(trip.getByRole("button", { name: /^Add your route: / })).toBeVisible({ timeout: 15000 });
+  const names = await trip.getByRole("button").evaluateAll((buttons) => buttons.map((b) => b.getAttribute("aria-label") || b.textContent.trim()));
+  expect(names.length).toBeGreaterThan(1);
+  expect(new Set(names).size, names.join(" | ")).toBe(names.length);
+});

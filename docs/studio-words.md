@@ -692,6 +692,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.choose` | her | Choose a route file | none | 40 |
 | `route.chooseAgain` | her | Choose your route file again to show it this way. | none | 98 |
 | `route.climb` | her | Show a drawing of the climb | none | 54 |
+| `route.climbM` | her | {m} m climb | `{m}` | 40 |
 | `route.comesOff` | her | Your route file comes off your site when you press Update. | none | 116 |
 | `route.detailsCleaned` | details | Cleaned file: {size}, {points} track points with position and height. Removed: times, waypoints, routes, names, descriptions, links, the app's details and extensions. | `{size}` `{points}` | 240 |
 | `route.detailsKeys` | details | Keys written: {keys} | `{keys}` | 40 |
@@ -713,6 +714,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.hiddenHelp` | her | Readers see the numbers only. | none | 58 |
 | `route.howMuch` | her | How much of the route readers see | none | 66 |
 | `route.keepHidden` | her | Keep it hidden | none | 40 |
+| `route.km` | her | {km} km | `{km}` | 40 |
 | `route.leaveOff` | her | Leave off at each end | none | 42 |
 | `route.leaveOut` | her | Leave it out | none | 40 |
 | `route.lede` | her | Choose the route file from your hiking app or watch. It stays on this {phone}: only the numbers and a drawing go to {product}. | `{phone}` `{product}` | 240 |
