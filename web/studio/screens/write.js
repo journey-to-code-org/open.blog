@@ -22,9 +22,11 @@ import { collectionOptions, crumbs, isMacLike, writeCommands, writePage } from "
 import { postActions } from "../parts/write-actions.js";
 import { localDay } from "../parts/job-rules.js";
 import { createAboutPost } from "../parts/about-post.js";
+import { createCopyPost } from "../parts/copy-post.js";
 import { createWhen } from "../parts/write-when.js";
 import { createKindParts } from "../parts/write-kind.js";
 import { fileSlug } from "../parts/about-rules.js";
+import { portabilitySourceSelection } from "../parts/portable-rules.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -55,7 +57,7 @@ export async function createWrite(context, arg, route = {}) {
   let goesOut = null;
   let writeUpReady = false;
   let picker = null;
-  let sheetOnOpen = null; // ?sheet=about: opened once the screen has focus
+  let sheetOnOpen = null; // ?sheet=about|copy: opened once the screen has focus
 
   // ---- the page
   const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
@@ -75,7 +77,8 @@ export async function createWrite(context, arg, route = {}) {
     capture: () => captureOf, onWriteUp: (ready) => { writeUpReady = ready; paint(); } });
   const numbers = () => kindPart.numbers();
   const job = () => kindPart.job();
-  element.append(about.element);
+  const copySheet = await createCopyPost({ api, post: () => copyPost(), goTo: (range) => goToRange(range) });
+  element.append(about.element, copySheet.element);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
   // ---- reading the form
@@ -192,6 +195,13 @@ export async function createWrite(context, arg, route = {}) {
     else if (target.field === "series") collection.querySelector("select")?.focus();
     else if (target.field === "cover") cover.querySelector("input, button")?.focus();
     else body.focus(target);
+  }
+
+  // A difference found by Copy it for another blog: her words at that place, when they're in one box.
+  function goToRange(range) {
+    const area = element.querySelector(".studio-body > text-field textarea");
+    const at = area && !body.usesBoxes() ? portabilitySourceSelection(bodyText(), range) : null;
+    if (at) { area.focus(); area.setSelectionRange(at.start, at.end); } else body.focus();
   }
 
   // ---- changes and saving
@@ -354,11 +364,13 @@ export async function createWrite(context, arg, route = {}) {
 
   // ---- More and Find
   async function run(value) {
+    const opener = more.querySelector("button") || aboutButton;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
     if (value === "preview") preview(look.querySelector("button"));
     if (value === "about-post") about.open({ from: aboutButton });
     if (SHEET_GROUPS[value]) about.open({ group: SHEET_GROUPS[value], from: aboutButton });
+    if (value === "copy" && doc.path) copySheet.open({ from: opener });
     if (value === "people") context.go("#/people");
     if (value === "view" && doc.url) open(link(), "_blank", "noopener");
     if (value === "share-job" && doc.path) context.go(shareJobHref());
@@ -376,6 +388,13 @@ export async function createWrite(context, arg, route = {}) {
     return h("div", {},
       postDetails({ path: doc.path, link: doc.url ? link() : "", words: values.body.trim() ? values.body.trim().split(/\s+/).length : 0, savedAt, layout: lastLayout, publish: lastPublish, goesOut, schedule: scheduleTruth(), nextDue: goesOut?.info?.nextDue ?? null }),
       body.plainWhy() ? h("p", { class: "studio-help", text: `Recipe boxes: not used, because ${body.plainWhy()}.` }) : null);
+  }
+
+  // What Copy it for another blog copies: what's on her screen, saved or not.
+  function copyPost() {
+    const values = read();
+    return { path: doc.path, fields: fieldsFor(values, doc.state === "published" ? "publish" : "draft"), body: values.body, title: values.title.trim(),
+      slug: doc.slug || fileSlug(doc.path), credits: about.credits(), creditEtag: doc.creditEtag, unsent: dirty };
   }
 
   // People, to add someone who isn't listed: a new post saves first, so there's a way back to it.
@@ -463,10 +482,10 @@ export async function createWrite(context, arg, route = {}) {
       titleLeft = true;
       if (doc.state === "new" && dirty && ready() && !timer) changed();
     });
-    // ?sheet=about (an old Settings link, Find, People's Back): opened once Write has focus.
+    // ?sheet=about|copy (an old Settings link, Find, People's Back): opened once Write has focus.
     const query = route.query || {};
     if (query.add) about.addPerson(String(query.add));
-    if (query.sheet === "about") sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
+    if (query.sheet === "about" || (query.sheet === "copy" && doc.path)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
     paint();
     await asking;
   }
@@ -491,7 +510,8 @@ export async function createWrite(context, arg, route = {}) {
       if (sheetOnOpen) {
         const { sheet, group } = sheetOnOpen;
         sheetOnOpen = null;
-        if (sheet === "about") about.open({ group, from: aboutButton, closed: plainAddress });
+        if (sheet === "copy") copySheet.open({ from: more, closed: plainAddress });
+        else about.open({ group, from: aboutButton, closed: plainAddress });
       }
     },
     get palette() {

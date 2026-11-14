@@ -562,6 +562,12 @@ side-sheet.studio-about-sheet dialog, side-sheet.studio-about-sheet .sheet { wid
 .studio-field-error { margin: 0; color: var(--studio-beet); font-weight: 600; }
 .studio-field-error[hidden] { display: none; }
 
+/* Copy it for another blog (R5). */
+.studio-copy-frame { width: 100%; height: 50dvh; border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-copy-text { margin: 0; max-height: 50dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-copy-text:focus-visible, .studio-people-raw:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.studio-copy-diff { display: grid; gap: var(--space-2); }
+
 /* People (R5). */
 .studio-people-page { display: grid; gap: var(--space-4); }
 .studio-person { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }

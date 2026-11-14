@@ -40,12 +40,14 @@ test("the post's commands follow its state", () => {
   assert.ok(ids({ job: true, writeUp: true }).includes("write-up"));
   assert.ok(!ids({ job: true, writeUp: false }).includes("write-up"));
   assert.ok(!ids({ job: false, writeUp: true }).includes("write-up"));
-  // R5: About this post replaces Show details and More about this recipe.
+  // R5: About this post replaces Show details and More about this recipe; Copy needs a saved post.
   assert.ok(!ids({}).includes("details"));
   assert.ok(ids({}).includes("about-post"));
   assert.ok(ids({ recipe: true }).includes("about-recipe"));
   assert.ok(!ids({ recipe: false }).includes("about-recipe"));
+  assert.ok(ids({}).includes("copy"));
+  assert.ok(!ids({ path: "" }).includes("copy"));
   const more = writeCommands({ state: "draft", path: "posts/x.md", recipe: true, boxes: true, saveLabel: "Save draft" }).filter((c) => c.more !== false).map((c) => c.label);
-  assert.ok(more.includes("About this post"));
+  assert.ok(more.includes("About this post") && more.includes("Copy it for another blog"));
   assert.ok(!more.includes("More about this recipe") && !more.includes("Show details"));
 });

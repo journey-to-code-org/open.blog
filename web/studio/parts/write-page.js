@@ -72,7 +72,7 @@ export const isMacLike = () => /Mac|iPhone|iPad/.test(globalThis.navigator?.plat
 /**
  * What she can do with this post. Pure: given the post's state, the list. Exported for tests.
  * R5: About this post (and its groups, from Find) replaces Show details and More about this
- * recipe.
+ * recipe; Copy it for another blog is on any saved post.
  */
 export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narrow, mac, job = false, writeUp = false }) {
   const published = state === "published" || state === "scheduled";
@@ -85,6 +85,7 @@ export function writeCommands({ state, path, url, recipe, boxes, saveLabel, narr
     { id: "about-credits", label: "Who wrote it", more: false },
     { id: "about-recipe", label: "More about this recipe", when: recipe, more: false },
     { id: "about-details", label: "Details for the person who set up your site", more: false },
+    { id: "copy", label: "Copy it for another blog", when: Boolean(path) },
     { id: "people", label: "People", more: false },
     { id: "takeoff", label: "Take it off my site", when: state === "published" },
     { id: "draft", label: saveLabel, when: narrow && state !== "published", palette: false },
