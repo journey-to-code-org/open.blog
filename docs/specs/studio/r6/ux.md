@@ -367,7 +367,7 @@ Until G44, `pieceProblem(message)` maps today's strings to field codes; unmatche
 
 ## Gaps
 
-- **G44. Codes on `POST pieces` problems:** 422 `{error, problems: [{field, item, code, message}]}` with `required`, `too-long` (+ `max`), `one-line`, `bad-address`, `bad-video`, `bad-email`, `bad-phone`, `bad-choice`, `out-of-range`, `html`, `unknown-field`, `repeated`, `unknown-kind`; 413 `too-large`/`too-many`; 400 `bad-request`. Same for `compare`. Strings stay as `message` for one release.
+- **G44. Codes on `POST pieces` problems:** 422 `{error, code, problems: ["sentence", ...], issues: [{field, item, code, message, max}]}`: `problems` stays the list of sentences older clients read, and the coded list sits beside it as `issues` (one entry per problem, in the same order; `field`, `item` and `max` only when they apply; `code` at the top is the first issue's). Codes: `required`, `too-long` (+ `max`), `one-line`, `bad-address`, `bad-video`, `bad-email`, `bad-phone`, `bad-choice`, `out-of-range`, `html`, `unknown-field`, `repeated`, `unknown-kind`; 413 `too-large`/`too-many`; 400 `bad-request`. Same for `compare`. Strings stay as `message` for one release.
 - **G45. Quiz and code checked through `POST pieces`:** `kind: "quiz"` (`question`, `answer`, `right`, `explanation`) and `kind: "code"` (`language`, `title`, `highlight`, `lineNumbers`, `runnable`, `body`) return `markdown` or G44 problems using `markdown.rs`'s validators, so Studio's forms and `openblog check` agree. Until then Studio uses the lifted client checks.
 - **Not gaps:** `meta.pieces`, `meta.compare`, `meta.codeRunnerLanguages`, `meta.siteUses.trade`; `upload`, `images`; `documents?kind=posts`; `POST preview`.
 

@@ -497,7 +497,8 @@ focus goes there. Tips, checklists, tables, headings, quotes, links, questions f
 written by Studio and work with no signal. Pieces (a video, a button, links to other pages, questions and
 answers, a map, opening hours, how to reach you, a photo with words under it) and before and after photos
 are checked and written by the server (`POST /admin/api/pieces`), so the file holds exactly what the build
-reads; with no signal the form keeps what you filled in on this device and **Finish adding the video**
+reads (a refusal is a 422 whose `problems` are sentences and whose `issues` are the same problems coded as
+`{field, item, code, message, max}`, which Studio uses to say each one beside its field); with no signal the form keeps what you filled in on this device and **Finish adding the video**
 appears at the top of the sheet the next time. Closing a filled-in form asks once ("Add this table?").
 
 With the caret in a link, a heading or a quote, Add something opens **Change this link** (heading, quote)
