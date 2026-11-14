@@ -402,6 +402,7 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
   await mockSeasonal(page);
   await signIn(page, "#/reminders");
   const sheet = page.locator("side-sheet");
+  const focusInSheet = () => page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)));
   const openSheet = async () => {
     await page.getByRole("button", { name: /More/ }).first().click();
     await page.getByRole("menuitem", { name: "Change topics and dates…" }).click();
@@ -418,7 +419,8 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
     await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
     await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
     await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
-    expect(await page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)))).toBe(true);
+    // sheet.js puts focus back on the next animation frame: wait for it.
+    await expect.poll(focusInSheet).toBe(true);
   }
   // The × asks too, and Escape there also keeps the sheet and her edits.
   await sheet.getByRole("button", { name: "Close" }).click();
@@ -427,7 +429,7 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
   await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
   await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
   await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
-  expect(await page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)))).toBe(true);
+  await expect.poll(focusInSheet).toBe(true);
   // Leaving without saving closes it; it opens again, and again after an Escape with nothing changed.
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Leave without saving" }).click();

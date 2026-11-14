@@ -183,6 +183,9 @@ is ported in the slice of its area (`admin-behavior` is the Assistant's: R8).
   override (Decide 3). Keep `/admin/manifest.webmanifest`, `/admin/icons/*` (from `web/studio/icons`,
   site override kept) and `/admin/sw.js` (from `web/studio/sw.js`, scope `/admin/`); manifest
   `start_url` becomes `/admin/studio/`, `id` stays `/admin/` so installed apps keep working.
+- **`POST document/rename` (R15):** delete the route (`admin.rs` dispatch, `rename_document`) and its
+  two route tests. Studio never moves a post's file (R5: "There is no rename"); no file in
+  `web/studio` or `web/admin` calls it as of 2026-11-13, so it goes with the old Admin.
 - **Sign-in/session/CSRF:** the old Admin owns no separate page; `login`, `session`, `logout` and
   `check_csrf` are API routes Studio already uses. Nothing to move.
 - **CSP** (`admin.rs:723`): `'wasm-unsafe-eval'` and `frame-src https://codepen.io` serve the old

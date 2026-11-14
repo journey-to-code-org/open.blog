@@ -31,7 +31,6 @@ const SLOW_ROUTES = [
   "#/contributors",
   "#/voice",
   "#/voice/library",
-  "#/capture",
   "#/landing",
   "#/seasons",
   "#/design",
@@ -62,7 +61,8 @@ const SLOW_ROUTES = [
 ];
 // Routes with nothing to hold: Social is where the tests land, a new document opens at once, and
 // Notifications leaves for Studio (R3, G25).
-const OTHER_HEADS = ["social", "new", "notifications"];
+// `capture` loads nothing here: the old Admin hands it to Studio's New job (admin.js `studioBridge`).
+const OTHER_HEADS = ["social", "new", "notifications", "capture"];
 
 let parent;
 let origin;
@@ -283,8 +283,22 @@ test("a kept panel she stopped returning to stays kept, and comes back later", a
 test("staying put when asked drops the page she had started to move to", async ({ page }) => {
   await signIn(page);
   await moveTo(page, "#/look");
+  // A change on Look asks for a preview half a second later (POST look/preview, then the frame's
+  // GET preview/<hash>). It must have answered before the hold starts, or release() finds it
+  // still running and counts it against the view.
+  const previews = new Set();
+  let previewed = false;
+  const isPreview = (request) => /\/admin\/api\/(look\/preview|preview\/)/.test(request.url());
+  page.on("request", (request) => { if (isPreview(request)) previews.add(request); });
+  const settled = (request) => { if (previews.delete(request) && request.url().includes("/look/preview")) previewed = true; };
+  page.on("requestfinished", settled);
+  page.on("requestfailed", settled);
   await page.locator('[data-control="textSize"].oba-look-control input[data-choice="extra-large"]').check();
   await expect(page.locator("[data-look-dirty]")).toContainText("unsaved changes");
+  await expect.poll(() => previewed && previews.size === 0, { timeout: 20000 }).toBe(true);
+  // The frame's page is asked for just after the preview answers: let it start and finish too.
+  await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
+  await expect.poll(() => previews.size, { timeout: 20000 }).toBe(0);
   await tagPage(page);
 
   const answers = await holdAnswers(page);
