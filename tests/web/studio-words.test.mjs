@@ -33,6 +33,13 @@ test("a site's variables and per-call values fill every sentence", () => {
   configureWords({ vars: { helper: "your son" } });
   assert.equal(say("common.canTurnOn"), "Your son can turn it on.", "first letter capital when the text starts with a variable");
   assert.equal(say("common.tell"), "Tell your son.", "not mid-sentence");
+  // A variable at the start of a sentence (after . ! or ?) starts with a capital too.
+  assert.equal(say("card.cantChange"), "This one can't be changed here. Your son can.");
+  assert.equal(say("form.cantAddYet"), "Your blog can't add this yet. Your son can update it.");
+  assert.equal(say("about.aliasFix"), "An old address in this post can't be used. Your son can fix it in the file.");
+  assert.equal(say("undo.mayFind", { title: "Pie" }), "“Pie” can't come back from here. Your son may still find it.");
+  configureWords();
+  assert.equal(say("card.cantChange"), "This one can't be changed here. The person who set up your site can.");
   configureWords({ vars: { product: "your website" } });
   assert.equal(say("decorations.everyDay", { theme: "Autumn" }), "Your website wears Autumn every day.");
   configureWords();

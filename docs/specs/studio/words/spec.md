@@ -85,8 +85,10 @@ Both places have the same shape:
   (default "your blog"), `owner` (default: the first word of `author.name`, else empty). An override
   may use the three variables plus the ones its built-in text uses (`{label}`, `{theme}`...); any
   other `{...}` is a problem. Variable values contain no `{` or `}`.
-- **Capitals:** `say()` capitalises the first letter when the text starts with a variable
-  ("Tell {helper}." / "{helper} can turn it on." → "Your son can turn it on.").
+- **Capitals:** `say()` capitalises a variable's first letter when it starts a sentence: at the
+  start of the text, or after `.`, `!` or `?` and a space ("Tell {helper}." / "{helper} can turn
+  it on." → "Your son can turn it on." / "It can't be changed here. {helper} can." → "… Your son
+  can.").
 - **Empty owner:** an id whose text uses `{owner}` declares `bare` (its text with no name); `say()`
   uses it when `owner` is empty.
 - **Not overridable:** sentences built from counts or lists ("3 recipes waiting", "By A, B and

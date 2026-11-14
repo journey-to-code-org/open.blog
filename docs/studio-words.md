@@ -45,7 +45,8 @@ In `openblog.json` it sits under `studio.words`:
 | `{product}` | your blog | What she calls her site |
 | `{owner}` | the first word of `author.name`, or nothing | Her name, for sign-offs and headings |
 
-A sentence that starts with a variable starts with a capital: `"{helper} can turn it on."` reads
+A variable that starts a sentence (at the start, or after `.`, `!` or `?` and a space) starts with a
+capital: `"{helper} can turn it on."` reads
 "Mikey can turn it on." or "The person who set up your site can turn it on." Write sentences that
 read right with any value: "Tell {helper}.", never "Tell him."
 

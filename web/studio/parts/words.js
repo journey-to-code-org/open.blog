@@ -10,7 +10,7 @@
 //
 // Three variables fill every sentence: `{helper}` (who helps her with the site), `{product}` (what
 // she calls her site) and `{owner}` (her name; may be empty, when an id's `bare` text is used).
-// A sentence that starts with a variable starts with a capital. An unknown id throws: callers
+// A variable that starts a sentence starts with a capital. An unknown id throws: callers
 // pass a literal id, so the tests find every one. What `say()` returns is text: it is placed with
 // `textContent` or non-address attributes only, never as markup, an address or a style. Pure.
 import { WORDS as common } from "./common-words.js";
@@ -104,7 +104,21 @@ export function configureWords(studioWords) {
 /** The variables in effect (for Details). */
 export const wordVars = () => ({ ...vars });
 
-const fillIn = (words, values) => words.replace(/\{([a-zA-Z]+)\}/g, (all, name) => (name in values ? String(values[name] ?? "") : all));
+const capital = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+
+/** Fill in the variables; one that starts a sentence (the text's start, or after . ! ? and a space) starts with a capital. */
+function fillIn(words, values) {
+  let out = "";
+  let from = 0;
+  for (const m of words.matchAll(/\{([a-zA-Z]+)\}/g)) {
+    out += words.slice(from, m.index);
+    from = m.index + m[0].length;
+    if (!(m[1] in values)) { out += m[0]; continue; }
+    const value = String(values[m[1]] ?? "");
+    out += /(^|[.!?]\s+)$/.test(out) ? capital(value) : value;
+  }
+  return out + words.slice(from);
+}
 
 /**
  * The words for `id`, with the site's change if it has one, its variables filled in.
@@ -124,8 +138,7 @@ export function say(id, values = {}) {
     if (own !== undefined && !usesOwner(entry.text)) words = entry.text;
     else if (entry.bare !== undefined) words = entry.bare;
   }
-  const out = fillIn(words, all);
-  return /^\{[a-zA-Z]+\}/.test(words) ? out.charAt(0).toUpperCase() + out.slice(1) : out;
+  return fillIn(words, all);
 }
 
 /**
