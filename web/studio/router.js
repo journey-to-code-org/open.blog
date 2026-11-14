@@ -29,7 +29,7 @@ const OLD_RENAMED = {
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
-const NOT_YET = new Set(["comparisons", "contributors", "design", "paths", "research", "shared", "voice"]);
+const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -44,7 +44,9 @@ export function legacyRoute(hash) {
     let file = rest.join("/");
     try { file = decodeURIComponent(file); } catch { /* as typed */ }
     const screen = OLD_FOLDERS[file.split("/")[0]] || "write";
-    return `#/${screen}/${encodeURIComponent(file)}`;
+    // R5: a post's old Settings pane is its About this post sheet; other panes open the post.
+    const sheet = screen === "write" && new URLSearchParams(search).get("pane") === "settings" ? "?sheet=about" : "";
+    return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
   if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
   // The old inbox named the server's states; Studio's Comments names its own views.
@@ -59,6 +61,8 @@ export function legacyRoute(hash) {
   // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
   if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
+  // R5: Contributors is People.
+  if (name === "contributors") return `#/people${tail}`;
   // R4: Capture is New job, whatever came after it.
   if (name === "capture") return `#/new-job${tail}`;
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";

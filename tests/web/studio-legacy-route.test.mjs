@@ -32,7 +32,15 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "voice", "contributors"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["research", "voice", "design"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+});
+
+test("R5: Contributors is People, and a post's Settings pane is About this post", () => {
+  assert.equal(legacyRoute("#/contributors"), "#/people");
+  assert.equal(legacyRoute("#/people"), null, "Studio's own address stays");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=settings"), "#/write/posts%2F2026-11-06-pie.md?sheet=about");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=social"), "#/write/posts%2F2026-11-06-pie.md", "other panes open the post");
+  assert.equal(legacyRoute("#/edit/pages/about.md?pane=settings"), "#/page/pages%2Fabout.md");
 });
 
 test("R4: Capture, whatever came after it, is New job, and the query stays", () => {

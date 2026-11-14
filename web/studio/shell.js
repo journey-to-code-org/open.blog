@@ -129,6 +129,7 @@ export async function startShell(root, api, meta) {
     { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
+    { id: "go-people", label: "People", group: "Go to", href: "#/people" },
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },

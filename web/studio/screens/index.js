@@ -30,6 +30,7 @@ import { createNotifications } from "./notifications.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 import { createNewJob } from "./new-job.js";
+import { createPeople } from "./people.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -75,6 +76,9 @@ export const SCREENS = [
   // Comments and Requests). Always present, so an old link never lands on a blank Home; with no
   // push settings it says "not set up". ?sheet=home-screen opens Add to Home Screen.
   { name: "notifications", area: "notifications", create: (context, route) => createNotifications(context, route) },
+  // R5: who can be named on her posts (the old Contributors). Not in the navigation: reached from
+  // Who wrote it on any post, and from Find. ?from=<post>&add=1 returns to that post.
+  { name: "people", area: "people", create: (context, route) => createPeople(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },

@@ -561,3 +561,10 @@ side-sheet.studio-about-sheet dialog, side-sheet.studio-about-sheet .sheet { wid
 .studio-mono-field input { font-family: var(--font-mono); }
 .studio-field-error { margin: 0; color: var(--studio-beet); font-weight: 600; }
 .studio-field-error[hidden] { display: none; }
+
+/* People (R5). */
+.studio-people-page { display: grid; gap: var(--space-4); }
+.studio-person { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-person-name { overflow-wrap: anywhere; }
+.studio-people-raw { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }
+.studio-back { justify-self: start; }
