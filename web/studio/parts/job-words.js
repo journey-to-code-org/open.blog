@@ -100,7 +100,7 @@ export function waitingWords(state, { record = null, live = {}, step = "", now =
   const at = live.triedAt ? sayClock(live.triedAt.toISOString?.() ?? live.triedAt) : "";
   switch (state) {
     case "sending":
-      return { badge: "Sending", variant: "info", words: step || "Sending…" };
+      return { badge: "Sending", variant: "info", words: live.elsewhere ? "Sending in another window…" : step || "Sending…" };
     case "tried": {
       const server = live.code === "server" || /^\[server\]/.test(record?.lastError || "");
       const lead = server ? "Your blog didn't answer when it last tried" : "No signal when it last tried";

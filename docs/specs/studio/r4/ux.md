@@ -197,7 +197,7 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 | --- | --- | --- | --- |
 | Waiting, not tried | Waiting | "It sends by itself when there's a signal." | **Send now** |
 | Waiting, tried, retryable | Waiting | "No signal when it last tried, at 11:52 AM. It tries again by itself." | **Send now** |
-| Sending | Sending | "Sending photo 3 of 4…" → "Sending the voice note…" → "Making the draft…" | none |
+| Sending | Sending | "Sending photo 3 of 4…" → "Sending the voice note…" → "Making the draft…" (in another window: "Sending in another window…") | none (More has no Throw it away) |
 | Sign-in needed (401) | Needs you | "Sign in again to send it." | **Sign in** (shell dialog), then it sends |
 | Refused | Didn't send | words by code (below) + "Nothing is lost: it's still on this phone." | **Try again**; More |
 | Sent before, deleted since (`duplicate`, `removed`) | Needs you | "This job went to your blog before, and was deleted there since." | **Send it again** (new id: copy, put copy, remove old, send); More |
@@ -219,7 +219,7 @@ One list over `openblog-capture` (DB v1, store `captures`). One `content-card` p
 - **Starts when** any Studio screen opens and the store exists (`indexedDB.databases()` lists `openblog-capture`; without `databases()`, only on trade sites or New job). Never creates an empty store on Grammi's phone.
 - **Tries:** after a save; on `online`; on `visibilitychange` visible; on **Send now** / **Try again**; while New job or Home is visible after a retryable try: 30 s, 1 min, 2 min, then every 5 min.
 - **Order:** oldest first; stops at the first retryable failure or 401; a refused one is marked and the next goes. Background tries use `retry: false` so a 401 marks "Needs you" without popping the sign-in dialog. **Send now** uses the normal dialog.
-- **One at a time across windows:** Web Lock `openblog-capture:<id>` (`ifAvailable`); `BroadcastChannel("openblog-capture")` "changed" refreshes other windows. Without locks the server's idempotency keeps it to one draft.
+- **One at a time across windows:** Web Lock `openblog-capture:<id>` (`ifAvailable`); `BroadcastChannel("openblog-capture")` carries "changed" (read the list again), "sending <id>" (at the start and at each step) and "done <id>". Other windows show that card as **Sending** ("Sending in another window…") with no **Send now** and no **Throw it away**, until "done", the sender's lock lets go (its window closed), or, without locks, 2 minutes pass with no word. Without locks the server's idempotency keeps it to one draft.
 - **Per record** (`sendCapture`, ported): `GET capture?id=` (G29) first, skipping photos the server has; each photo `POST upload?name&capture&slot`; voice `POST capture-audio?capture=`; `POST document {kind: "posts", captureId, fields: captureFields, body: captureBody}` (honours an old record's `fields.draft`). Each request has a time limit (`api.call` gains `signal`; `AbortSignal.timeout(max(60 s, bytes / 25 KB/s))`); running out counts as no signal.
 - **Removed only after** `document` answers with a `path` (201, or 200 `duplicate`). With skipped photos it stays as `sent: {path, skipped}` until **Done**.
 

@@ -451,6 +451,35 @@ test("two windows sending one job make one draft, and the list loses nothing", a
   await other.close();
 });
 
+test("a window sending a job tells the others: they show Sending and offer neither Send now nor Throw it away", async ({ page, context }) => {
+  await openNewJob(page);
+  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await fillJob(page, "Busytown");
+  await saveButton(page).click();
+  await expect(waitingCards(page)).toHaveCount(1);
+  const other = await context.newPage();
+  await other.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
+  await other.goto(`${trade.origin}/admin/studio/#/new-job`);
+  await expect(waitingCards(other)).toHaveCount(1);
+  await other.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
+  // The first window's photos go slowly.
+  await page.route(/\/admin\/api\/upload/, async (route) => { await new Promise((done) => setTimeout(done, 1500)); await route.continue(); });
+  await page.getByRole("button", { name: "Send Roof repair in Busytown now" }).click();
+  const card = waitingCards(other).first();
+  await expect(card).toHaveAttribute("data-state", "sending");
+  await expect(card).toContainText("Sending in another window…");
+  await expect(card.locator("status-badge")).toHaveText("Sending");
+  await expect(other.getByRole("button", { name: "Send Roof repair in Busytown now" })).toHaveCount(0);
+  await other.getByRole("button", { name: "More for Roof repair in Busytown" }).click();
+  await expect(other.getByRole("menuitem", { name: "Throw it away…" })).toHaveCount(0);
+  await other.keyboard.press("Escape");
+  await expect(waitingCards(other)).toHaveCount(0, { timeout: 15000 });
+  await expect.poll(() => draftsIn(trade, "busytown").length).toBe(1);
+  await page.unroute(/\/admin\/api\/upload/);
+  await other.close();
+});
+
 test("the old Admin sending and Studio sending on one phone make one draft each and lose nothing", async ({ page, context }) => {
   await openNewJob(page);
   // The old Admin's own modules, in a window of their own, keep a job and send it as they always did.

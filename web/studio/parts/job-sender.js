@@ -7,8 +7,9 @@
 //   it, or (when the browser can't say) on a trade site or New job, or to keep a job.
 // - Oldest first. Stops at the first "no signal" or "sign in again"; a job her blog refused is
 //   marked and the next goes.
-// - One window sends a job at a time (Web Lock `openblog-capture:<id>`); the others hear "changed"
-//   on `BroadcastChannel("openblog-capture")`. Without locks the server's idempotency keeps it to one
+// - One window sends a job at a time (Web Lock `openblog-capture:<id>`); the others hear "changed",
+//   "sending <id>" and "done <id>" on `BroadcastChannel("openblog-capture")`, so they show Sending
+//   and offer neither Send now nor Throw it away meanwhile. Without locks the server's idempotency keeps it to one
 //   draft (ADR 0297).
 // - A record is removed only after `document` answered with a path; with photos that couldn't go it
 //   stays as `sent` until she says Done.
@@ -16,6 +17,10 @@ import { createCaptureQueue, errorCode, errorText, isRetryable, openIndexedStore
 import { captureBody, captureFields, isPermanentPhotoError, newCaptureId } from "./new-job-rules.js";
 
 const MIN_TIME_MS = 60_000;
+// How long "sending" heard from another window counts without a word since (where there are no
+// locks to tell when that window stopped): each step of a send says it again.
+const ELSEWHERE_MS = 120_000;
+const ID = /^[0-9a-f]{32}$/;
 const BYTES_PER_SECOND = 25 * 1024;
 
 /** How long one request may take: a minute, or longer for a big photo on a slow signal. */
@@ -183,11 +188,44 @@ export function createJobSender({
       }
     }
   };
-  const tell = () => channel?.postMessage?.("changed");
+  // Other windows hear "changed" (read the list again), "sending <id>" and "done <id>".
+  const tell = (message = "changed") => {
+    try {
+      channel?.postMessage?.(message);
+    } catch {
+      // A closed channel: the others catch up on focus.
+    }
+  };
   const liveOf = (id) => {
     if (!live.has(id)) live.set(id, {});
     return live.get(id);
   };
+  const elsewhere = new Map(); // id → when another window last said it's sending it
+  const sendingElsewhere = (id) => elsewhere.has(id) && Date.now() - elsewhere.get(id) < ELSEWHERE_MS;
+  /** This window's knowledge of a job, and whether another window is sending it. */
+  const liveFor = (id) => (sendingElsewhere(id) && !live.get(id)?.sending ? { ...(live.get(id) || {}), sending: true, elsewhere: true } : live.get(id) || {});
+
+  function heard(message) {
+    const [kind, id = ""] = String(message ?? "").split(" ");
+    if (kind === "sending" && ID.test(id)) {
+      const first = !elsewhere.has(id);
+      elsewhere.set(id, Date.now());
+      if (first) untilReleased(id);
+      emit();
+      return;
+    }
+    if (kind === "done" && ID.test(id)) elsewhere.delete(id);
+    reload().then(() => emit());
+  }
+
+  /** With locks, the sending window's lock lets go when it's done or closed: catch up then. */
+  function untilReleased(id) {
+    const locks = win.navigator?.locks;
+    if (!locks?.request) return;
+    Promise.resolve(locks.request(`${DB_NAME}:${id}`, async () => {})).then(() => {
+      if (elsewhere.delete(id)) reload().then(() => emit());
+    }, () => {});
+  }
 
   /** A list another window's update closed is forgotten, so the next call opens it again. */
   function forgetClosed() {
@@ -235,7 +273,7 @@ export function createJobSender({
     win.addEventListener?.("focus", () => reload());
     try {
       channel = typeof win.BroadcastChannel === "function" ? new win.BroadcastChannel(DB_NAME) : null;
-      if (channel) channel.onmessage = () => reload();
+      if (channel) channel.onmessage = (event) => heard(event?.data);
     } catch {
       channel = null;
     }
@@ -284,13 +322,14 @@ export function createJobSender({
       if (!current || current.state !== "ok" || current.record.sent) return "gone";
       state.sending = true;
       state.step = null;
+      tell(`sending ${id}`);
       emit();
       try {
         await ensureSession(manual);
         const result = await sendCapture({
           api, capture: current.record, scaffold: meta.job?.scaffold || "", services: meta.job?.services || [],
           now: new Date(current.record.createdAt), retry: manual,
-          onStep: (step) => { state.step = step; emit({ type: "step", id, step }); },
+          onStep: (step) => { state.step = step; tell(`sending ${id}`); emit({ type: "step", id, step }); },
         });
         state.sending = false;
         state.signin = false;
@@ -326,6 +365,7 @@ export function createJobSender({
         return "refused";
       } finally {
         state.sending = false;
+        tell(`done ${id}`);
         await reload();
         emit();
       }
@@ -349,7 +389,7 @@ export function createJobSender({
       let sent = 0;
       let blocked = "";
       await reload();
-      const todo = queue.entries().filter((entry) => (only ? entry.id === only : sendsByItself(entryState(entry, api.user, live.get(entry.id))) || (manual && entryState(entry, api.user, live.get(entry.id)) === "signin")));
+      const todo = queue.entries().filter((entry) => (only ? entry.id === only : sendsByItself(entryState(entry, api.user, liveFor(entry.id))) || (manual && entryState(entry, api.user, liveFor(entry.id)) === "signin")));
       emit({ type: "flush", total: todo.length });
       for (const entry of todo) {
         const outcome = await sendOne(entry, { manual });
@@ -452,7 +492,7 @@ export function createJobSender({
     },
     /** She threw it away. False when it's being sent (here or in another window): nothing is removed. */
     async discard(id) {
-      if (live.get(id)?.sending) return false;
+      if (live.get(id)?.sending || sendingElsewhere(id)) return false;
       const done = await locked(id, async () => {
         await queue.discard(id);
         return "gone";
@@ -464,8 +504,8 @@ export function createJobSender({
       return true;
     },
     entries: () => (queue ? queue.entries() : []),
-    stateOf: (entry) => entryState(entry, api.user, live.get(entry.id)),
-    live: (id) => live.get(id) || {},
+    stateOf: (entry) => entryState(entry, api.user, liveFor(entry.id)),
+    live: (id) => liveFor(id),
     sentThisVisit: () => [...sentHere],
     subscribe(listener) {
       listeners.add(listener);

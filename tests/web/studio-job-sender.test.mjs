@@ -80,15 +80,21 @@ function fakeWindow(locks = null) {
 }
 
 function fakeLocks() {
-  const held = new Set();
+  const held = new Map();
   return {
+    // Like the browser's: `ifAvailable` answers null at once when held; otherwise it waits its turn.
     async request(name, options, task) {
-      if (held.has(name)) return task(null);
-      held.add(name);
+      while (held.has(name)) {
+        if (options?.ifAvailable) return task(null);
+        await held.get(name).promise;
+      }
+      let release;
+      held.set(name, { promise: new Promise((resolve) => { release = resolve; }) });
       try {
         return await task({ name });
       } finally {
         held.delete(name);
+        release();
       }
     },
   };
@@ -457,4 +463,48 @@ test("a list closed by another window's update is opened again and the job kept;
   assert.deepEqual(refused, { ok: false, code: "closed" });
   assert.equal(await inner.get(idOf(2)), undefined);
   assert.equal(jobs.unusable(), false, "it isn't a window that can't keep jobs");
+});
+
+/** A BroadcastChannel shared by fake windows: like the browser's, a window never hears itself. */
+function fakeBus() {
+  const channels = new Set();
+  return class {
+    constructor(name) { this.name = name; channels.add(this); }
+    postMessage(message) {
+      for (const other of channels) if (other !== this && other.name === this.name) queueMicrotask(() => other.onmessage?.({ data: message }));
+    }
+    close() { channels.delete(this); }
+  };
+}
+
+test("another window hears a job is sending: it shows Sending, won't throw it away, and catches up when it's done", async () => {
+  const blog = fakeBlog();
+  const store = createMemoryStore();
+  await store.put(makeRecord(capture(1), new Date(), "dana"));
+  const Bus = fakeBus();
+  const locks = fakeLocks();
+  const winOne = Object.assign(fakeWindow(locks), { BroadcastChannel: Bus });
+  const winTwo = Object.assign(fakeWindow(locks), { BroadcastChannel: Bus });
+  blog.online = false;
+  const one = sender(blog, store, { win: winOne });
+  const two = sender(blog, store, { win: winTwo });
+  await Promise.all([one.start(), two.start()]);
+  await Promise.all([one.flush(), two.flush()]);
+  blog.online = true;
+  const heard = [];
+  two.subscribe(() => heard.push(two.stateOf(two.entries()[0] || { id: "", state: "gone" })));
+  let open;
+  blog.gate = new Promise((resolve) => { open = resolve; });
+  const sending = one.flush({ manual: true });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(two.stateOf(two.entries()[0]), "sending", "the other window shows Sending");
+  assert.equal(two.live(idOf(1)).elsewhere, true);
+  assert.equal(await two.discard(idOf(1)), false, "and won't throw it away");
+  open();
+  blog.gate = null;
+  await sending;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(two.entries().length, 0, "done: it read the list again");
+  assert.equal(two.live(idOf(1)).elsewhere, undefined);
+  assert.ok(heard.includes("sending"));
 });
