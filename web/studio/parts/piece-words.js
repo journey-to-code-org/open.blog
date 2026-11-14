@@ -274,9 +274,8 @@ export function cardSummary(block) {
     case "demo": out.name = say("thing.demo"); return out;
     case "quote-form": out.name = say("thing.quoteForm"); return out;
     default:
+      // Only its name: what it holds is shown as written in the card's details, for {helper}.
       out.name = say("thing.kept");
-      out.lines.push(...source.split("\n").slice(0, 3));
-      out.mono = true;
       return out;
   }
 }
@@ -337,9 +336,8 @@ function pieceSummary(source, out) {
       out.lines.push(...["email", "phone", "address"].map((name) => value(v, name)).filter(Boolean));
       return out;
     default:
+      // Only its name: what it holds is shown as written in the card's details, for {helper}.
       out.name = say("thing.kept");
-      out.lines.push(...source.split("\n").slice(0, 3));
-      out.mono = true;
       return out;
   }
 }

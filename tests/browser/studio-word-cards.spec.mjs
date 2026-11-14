@@ -155,6 +155,10 @@ test("a post with every kind opens as words and cards, and saving with no change
   const kept = page.getByRole("group", { name: "Something the person who set up your site added" });
   await expect(kept).toContainText("This one can't be changed here.");
   await expect(kept.getByRole("button", { name: /^Change/ })).toHaveCount(0);
+  // Only its name on her layer; the source is behind the details for the person who set it up.
+  await expect(kept.locator(".studio-piece-lines")).toHaveCount(0);
+  await expect(kept.locator("details pre")).toHaveText("<div class=\"note\">Kept as it is.</div>");
+  await expect(kept.locator("details pre")).toBeHidden();
   await axeClean(page, "Write with cards");
 });
 

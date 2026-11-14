@@ -45,6 +45,12 @@ test("each card says what it is and which form changes it; a card the form can't
   assert.deepEqual(cardSummary(cards[4]).more, "+1 more columns");
   assert.equal(cardSummary(cards[1]).lines.at(-1), "This photo is on another website.");
   assert.deepEqual(cards.slice(0, 4).map((b) => blockThing(b)), ["Photo", "Photo", "Watch out", "Checklist"]);
+  // A card kept as it is shows only its name; its source is for {helper}, behind details.
+  for (const kept of [cards[9], splitBlocks("```piece weird\nsecret: <b>raw</b>\n```")[0]]) {
+    assert.equal(cardSummary(kept).name, "Something the person who set up your site added");
+    assert.deepEqual(cardSummary(kept).lines, []);
+    assert.equal(cardSummary(kept).mono, false);
+  }
   // A photo line with an unusual escape the writer wouldn't keep has no form.
   assert.equal(cardForm(splitBlocks("![a\\_b](/images/uploads/a.png)")[0], meta), "");
 });
