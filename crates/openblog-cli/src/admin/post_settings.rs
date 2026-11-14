@@ -86,10 +86,17 @@ pub(crate) fn scheduled_summary(due: &[String]) -> Option<String> {
 const HISTORY_LIMIT: usize = 50;
 
 /// Whether a post may ever have been on the site (G38): it is live now, or a version of it in the
-/// site's history was published (not a draft, its date reached when it was committed). Without
-/// history to ask, or when it can't be read, the answer is yes: an address that might be in
-/// someone's bookmarks is never offered for change.
-pub(crate) fn was_published(root: &Path, config: &SiteConfig, rel: &str, live_now: bool) -> bool {
+/// site's history was published: not a draft, and its date reached by `now`, however early it was
+/// committed (a version committed while scheduled went live on its day). Without history to ask,
+/// or when it can't be read, the answer is yes: an address that might be in someone's bookmarks
+/// is never offered for change.
+pub(crate) fn was_published(
+    root: &Path,
+    config: &SiteConfig,
+    rel: &str,
+    live_now: bool,
+    now: DateTime,
+) -> bool {
     if live_now {
         return true;
     }
@@ -99,20 +106,18 @@ pub(crate) fn was_published(root: &Path, config: &SiteConfig, rel: &str, live_no
     }
     let file = format!("./{}/{rel}", config.paths.content.trim_matches('/'));
     let limit = format!("-n{}", HISTORY_LIMIT + 1);
-    let Ok(log) = git.run(&["log", "--format=%H %ct", &limit, "--", &file]) else {
+    let Ok(log) = git.run(&["log", "--format=%H", &limit, "--", &file]) else {
         return true;
     };
-    let commits: Vec<(&str, i64)> = log
+    let commits: Vec<&str> = log
         .lines()
-        .filter_map(|line| {
-            let (hash, time) = line.split_once(' ')?;
-            Some((hash, time.trim().parse().ok()?))
-        })
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
         .collect();
     if commits.len() > HISTORY_LIMIT {
         return true;
     }
-    commits.iter().any(|(hash, time)| {
+    commits.iter().any(|hash| {
         let Ok(text) = git.run(&["show", &format!("{hash}:{file}")]) else {
             return true;
         };
@@ -131,8 +136,14 @@ pub(crate) fn was_published(root: &Path, config: &SiteConfig, rel: &str, live_no
             .iter()
             .find_map(|key| front.get(key))
             .and_then(DateTime::parse)
-            .is_none_or(|date| date.unix() <= *time)
+            .is_none_or(|date| date.unix() <= now.unix())
     })
+}
+
+/// Whether the site has a history to ask about its posts (it is in Git), so Details can say why
+/// an address is kept when there is none.
+pub(crate) fn has_history(root: &Path) -> bool {
+    crate::git::Git::new(root).is_repo()
 }
 
 /// What a post's file says about it now (G38): its status, address, resolved slug, and the

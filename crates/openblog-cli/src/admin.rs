@@ -12535,7 +12535,8 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             // Studio R5 G38/G43: what the post is now, where it lives, whether it was ever on the
             // site (its address stays put once it may have been), and its automatic excerpt.
             if kind == "posts" {
-                let facts = post_settings::post_facts(rel, &text, &config, clock::now());
+                let now = clock::now();
+                let facts = post_settings::post_facts(rel, &text, &config, now);
                 reply["status"] = json!(facts.status);
                 reply["url"] = json!(facts.url);
                 reply["slug"] = json!(facts.slug);
@@ -12545,7 +12546,9 @@ fn get_document(state: &AppState, req: &Request) -> Response {
                     &config,
                     rel,
                     facts.status == "published",
+                    now,
                 ));
+                reply["hasHistory"] = json!(post_settings::has_history(&state.root));
             }
             // A job made on a phone: the capture it came from, for its voice note (Studio R4 G30).
             if kind == "posts" && doc.front_matter.get("profile") == Some("job") {

@@ -101,8 +101,10 @@ fn a_post_says_what_it_is_where_it_lives_and_its_excerpt() {
             .starts_with("My mother's bread."),
         "{doc}"
     );
-    // Not in Git: nothing can show it was never on the site, so it counts as having been.
+    // Not in Git: nothing can show it was never on the site, so it counts as having been, and
+    // the reply says there is no history to ask (Details says why the address is kept).
     assert_eq!(doc["wasPublished"], true);
+    assert_eq!(doc["hasHistory"], false);
     // A published post says so, and was on the site.
     let rel = "posts/2020-01-01-live.md";
     fs::write(
@@ -140,6 +142,7 @@ fn a_draft_never_committed_was_never_published_and_one_committed_live_was() {
     let doc = open(&f, &s, REL);
     assert_eq!(doc["status"], "draft");
     assert_eq!(doc["wasPublished"], true);
+    assert_eq!(doc["hasHistory"], true);
 }
 
 #[test]
@@ -162,6 +165,71 @@ fn a_draft_scheduled_in_history_but_never_reached_was_not_published() {
     let doc = open(&f, &s, rel);
     assert_eq!(doc["status"], "draft");
     assert_eq!(doc["wasPublished"], false);
+}
+
+/// Commits everything with the commit's own time set to `when` (an ISO date), as if made then.
+fn commit_all_at(git: &crate::git::Git, dir: &Path, message: &str, when: &str) {
+    git.run(&["add", "-A"]).unwrap();
+    let status = std::process::Command::new("git")
+        .current_dir(dir)
+        .env("GIT_COMMITTER_DATE", when)
+        .env("GIT_AUTHOR_DATE", when)
+        .args(["commit", "-q", "-m", message])
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn a_post_committed_while_scheduled_that_has_since_gone_live_was_published() {
+    // QA repro: scheduled for a day that was still ahead when it was committed, that day has
+    // passed since (so readers saw it), and it is a draft again now.
+    let f = fixture("about-went-live-later");
+    let s = login_ok(&f);
+    let git = git_site(&f);
+    let rel = "posts/2021-06-01-later.md";
+    fs::write(
+        f.dir.join("content").join(rel),
+        "---\ntitle: Later\ndate: 2021-06-01T08:00:00Z\n---\n\nSoon.\n",
+    )
+    .unwrap();
+    commit_all_at(&git, &f.dir, "scheduled", "2021-05-01T12:00:00Z");
+    fs::write(
+        f.dir.join("content").join(rel),
+        "---\ntitle: Later\ndate: 2021-06-01T08:00:00Z\ndraft: true\n---\n\nSoon.\n",
+    )
+    .unwrap();
+    commit_all(&git, "draft again");
+    let doc = open(&f, &s, rel);
+    assert_eq!(doc["status"], "draft");
+    assert_eq!(
+        doc["wasPublished"], true,
+        "its day came while it was scheduled"
+    );
+}
+
+#[test]
+fn a_version_that_counts_is_not_a_draft_and_dated_by_now() {
+    // Each version on its own: a draft never counts, a date still ahead never counts, a date
+    // reached by now counts however early it was committed.
+    let f = fixture("about-version-rule");
+    let s = login_ok(&f);
+    let git = git_site(&f);
+    let rel = "posts/2099-01-01-far.md";
+    let write = |front: &str| {
+        fs::write(
+            f.dir.join("content").join(rel),
+            format!("---\ntitle: Far\n{front}---\n\nWords.\n"),
+        )
+        .unwrap();
+    };
+    write("date: 2099-01-01\n");
+    commit_all_at(&git, &f.dir, "far ahead", "2021-01-01T00:00:00Z");
+    write("date: 2020-01-01\ndraft: true\n");
+    commit_all_at(&git, &f.dir, "past but a draft", "2021-01-02T00:00:00Z");
+    write("date: 2099-01-01\ndraft: true\n");
+    commit_all(&git, "draft");
+    assert_eq!(open(&f, &s, rel)["wasPublished"], false);
 }
 
 #[test]
