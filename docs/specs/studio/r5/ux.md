@@ -15,6 +15,13 @@ By `studio-ux`, 2026-11-13. Sources: `studio-ux`, `retirement-plan.md` (§1 B "S
 1. A future day with an empty time fills the time with **8:00 AM** her time (today it goes up at midnight UTC, the evening before in the US).
 2. Pinterest Pin words show on her layer only when the site sends Pins (G39); otherwise only in Details.
 
+**Changed after the Mikey walkthrough (2026-11-13)** — these override the text below where they differ:
+- **Address rule is "never published", not the date.** `slugEditable` is true only for a new post, or a draft the server reports as never published (G38 adds `wasPublished`, true when the file's history or the publish ledger shows it was ever live; unknown counts as true). A published post moved to the future keeps a read-only address.
+- **Next-send honesty.** With `meta.schedule: "next-send"`, her help adds "The person who set up your site can make it go up by itself." Details show how the live site is sent out (`publish.mode`), when the next send is if known, and a link to docs on scheduled builds (`docs/deploy.md` §Scheduled builds).
+- **Changes not on the site yet are visible.** On a published post with changes kept on this device, Write's status reads "Changed · not on your site yet. Press Update to put them up." and `aboutLine` starts with "Changes not on your site yet". This stays until Update or a discard.
+- **Kind change Undo lives on the sheet.** After changing What kind of post, an inline **Undo** sits under the choice until the sheet closes (the toast still shows too).
+- **Rename stays dropped** (owner decision). Old addresses stay read-only; Details explain they are changed in the file.
+
 **Her words:** "your blog", "about this post", "summary", "who wrote it", "the address", "when it's shared", "Google and other search engines" (once, plainly). Never on her layer: slug, front matter, metadata, canonical, noindex, profile, sidecar, credits, contributor, registry, role vocabulary, CRediT, Crossref, ORCID, alias, theme, SEO, OpenGraph, portable, representation, acknowledge, "Studio", "Admin".
 
 | Job | Lands in | Route | Replaces |
