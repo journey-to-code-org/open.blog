@@ -12,6 +12,21 @@ import { SECTION_CATALOG } from "../../web/studio/parts/landing-rules.js";
 const dir = new URL("../../web/admin/", import.meta.url);
 const source = (name) => readFileSync(new URL(name, dir), "utf8");
 const files = readdirSync(dir).filter((name) => name.endsWith(".js") || name.endsWith(".html"));
+
+// Studio's own code, scanned as well: its top level, parts/ and screens/. The vendored Zubra UI under
+// zubra/ is copied in from zubra-ui by scripts/vendor-zubra-ui.mjs and never edited here, so it is
+// not scanned; a bug in it is fixed upstream.
+const studioDir = new URL("../../web/studio/", import.meta.url);
+const studioFiles = (sub = "") => readdirSync(new URL(sub, studioDir), { withFileTypes: true }).flatMap((entry) => {
+  const path = sub + entry.name;
+  if (entry.isDirectory()) return entry.name === "zubra" ? [] : studioFiles(`${path}/`);
+  return entry.name.endsWith(".js") || entry.name.endsWith(".html") ? [path] : [];
+});
+const studioSource = (name) => readFileSync(new URL(name, studioDir), "utf8");
+const scanned = [
+  ...files.map((name) => ({ name, text: source(name) })),
+  ...studioFiles().map((name) => ({ name: `studio/${name}`, text: studioSource(name) })),
+];
 const RISKY = /(?:^|[^a-z])(?:html|css|stylesheet|style|markup|script|javascript|custom[ -]?code|embed[ -]?code|raw[ -]?html)(?:[^a-z]|$)/i;
 
 test("every landing field is a typed control and none is named or labelled for HTML or CSS", () => {
@@ -46,8 +61,8 @@ test("the landing, look, paste and suggestion modules create no text area, no HT
 
 test("only the known, reviewed places write HTML into the document or a frame", () => {
   const sinks = [];
-  for (const name of files.filter((n) => n.endsWith(".js"))) {
-    source(name).split("\n").forEach((line, index) => {
+  for (const { name, text } of scanned.filter((n) => n.name.endsWith(".js"))) {
+    text.split("\n").forEach((line, index) => {
       if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
       if (/\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML|document\.write|createContextualFragment|new DOMParser/.test(line)) sinks.push(`${name}:${index + 1}`);
       if (/\.srcdoc\s*=/.test(line)) sinks.push(`${name}:srcdoc`);
@@ -56,9 +71,12 @@ test("only the known, reviewed places write HTML into the document or a frame", 
   }
   // The preview frame is sandboxed and takes the server's own page; insertHTML takes only elements the
   // editor's block renderer built from validated Markdown.
+  // Studio's copy screen shows an HTML copy of a post in a frame with allow-scripts and no same-origin,
+  // so the copy's script cannot reach Studio or the session. That frame is listed here for review; a
+  // frame that allows anything more needs its own review.
   assert.deepEqual(
     [...new Set(sinks)].sort(),
-    ["admin.js:insertHTML", "admin.js:srcdoc"],
+    ["admin.js:insertHTML", "admin.js:srcdoc", "studio/parts/copy-post.js:srcdoc"],
     "a new HTML sink needs a review and an entry here",
   );
 });
@@ -66,8 +84,8 @@ test("only the known, reviewed places write HTML into the document or a frame", 
 test("no Admin control is named for HTML or CSS, except the reviewed code-runner source", () => {
   const reviewed = [/oba-code-interaction-code/];
   const hits = [];
-  for (const name of files) {
-    source(name).split("\n").forEach((line, index) => {
+  for (const { name, text } of scanned) {
+    text.split("\n").forEach((line, index) => {
       if (!/(?:h|el)\(\s*"(?:textarea|input)"|<(?:textarea|input)\b|field\(/.test(line)) return;
       // Look only at the words a person sees or a machine names a control by.
       const named = [...line.matchAll(/(?:id|name|aria-label|placeholder)\s*[:=]\s*[`"']([^`"']*)[`"']/g)].map((m) => m[1]);
