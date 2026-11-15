@@ -31,6 +31,7 @@ mod paths_exchange;
 mod photo;
 mod pinterest;
 mod portable_export;
+mod private_file;
 mod private_guard;
 mod publish;
 mod quote_relay;

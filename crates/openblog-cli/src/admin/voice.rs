@@ -135,13 +135,28 @@ fn store_error(state: &AppState, error: StoreError) -> Response {
     match error {
         StoreError::Refused(message) => Response::json(
             409,
-            &json!({ "error": scrub(state, &message), "refused": true }),
+            &json!({ "error": scrub(state, &message), "refused": true, "code": refusal_code(&message) }),
         ),
         StoreError::Stale { message, current } => Response::json(
             409,
-            &json!({ "error": message, "conflict": true, "revision": current }),
+            &json!({ "error": message, "conflict": true, "code": "conflict", "revision": current }),
         ),
         StoreError::Failed(message) => Response::error(500, &scrub(state, &message)),
+    }
+}
+
+/// The code a store refusal carries (G63): a post name already taken, a file already where it
+/// was asked to go, else the plain `refused`. Read from the store's own fixed sentences.
+fn refusal_code(message: &str) -> &'static str {
+    if message.starts_with("A post with the slug")
+        || message.contains("already exists. Nothing was written")
+    {
+        "slug-taken"
+    } else if message.contains("is already there") || message.contains("already exists and differs")
+    {
+        "already-there"
+    } else {
+        "refused"
     }
 }
 
@@ -320,7 +335,7 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
     let mut catalog = catalog_of(state);
     if let Some(pack) = &pack {
         if catalog.pack(pack).is_none() {
-            return Response::error(404, "There is no such pack");
+            return coded_error(404, "pack-gone", "There is no such pack");
         }
         catalog.packs.retain(|p| &p.id == pack);
     }
@@ -364,7 +379,7 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
 
 /// `GET voice/status`: whether a session is open and how many sample files exist, for the
 /// invitation card. Read only: it never locks or creates anything.
-pub(super) fn status(state: &AppState) -> Response {
+pub(super) fn status(state: &AppState, user: &str) -> Response {
     let now = clock::now();
     let session = match voice_session::status(&state.root, now) {
         Ok(Status::None) => json!({ "open": false }),
@@ -386,7 +401,59 @@ pub(super) fn status(state: &AppState) -> Response {
         Err(_) => json!({ "open": true, "unreadable": true }),
     };
     let samples = voice_store::list(&state.root).len();
-    Response::json(200, &json!({ "session": session, "samples": samples }))
+    Response::json(
+        200,
+        &json!({
+            "session": session,
+            "samples": samples,
+            "invitationDismissed": invitation_dismissed(&state.root, user),
+        }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// The invitation's dismissal (G64)
+// ---------------------------------------------------------------------------
+
+/// Where each account's answer to the invitation is kept: a folder inside the private voice
+/// folder, which an erase never touches (it removes files there, never folders).
+const INVITATION_DIR: &str = ".openblog/private/voice/invitation";
+
+/// Whether `user` said "No thanks" to the invitation. The answer lives with voice; one given in
+/// the old Admin (its preferences file, `voiceInvitationDismissed`) still counts, so nobody is
+/// asked twice. Anything unreadable is "not dismissed": the card is harmless.
+pub(super) fn invitation_dismissed(root: &std::path::Path, user: &str) -> bool {
+    let own = crate::private_file::user_path(root, INVITATION_DIR, user)
+        .ok()
+        .and_then(|path| crate::private_file::read(&path, 1024).ok().flatten())
+        .and_then(|bytes| serde_json::from_slice::<Json>(&bytes).ok())
+        .and_then(|record| record["dismissed"].as_bool());
+    match own {
+        Some(answer) => answer,
+        None => crate::admin_preferences::load(root, user)
+            .is_ok_and(|kept| kept.preferences.voice_invitation_dismissed),
+    }
+}
+
+/// `POST voice/invitation`: remember `{ "dismissed": true | false }` for this account. The file
+/// holds only that answer.
+pub(super) fn set_invitation(state: &AppState, req: &Request, user: &str) -> Response {
+    let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(dismissed) = body["dismissed"].as_bool() else {
+        return Response::error(400, "Send `dismissed` as true or false");
+    };
+    let path = match crate::private_file::user_path(&state.root, INVITATION_DIR, user) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let bytes = serde_json::to_vec(&json!({ "v": 1, "dismissed": dismissed })).unwrap_or_default();
+    match crate::private_file::write(&path, &bytes) {
+        Ok(()) => Response::json(200, &json!({ "dismissed": dismissed })),
+        Err(error) => Response::error(500, &scrub(state, &error)),
+    }
 }
 
 fn locked_json(state: &AppState, catalog: &Catalog, locked: &voice_session::Locked) -> Json {
@@ -487,6 +554,7 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
                 &json!({
                     "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
                     "alreadyOpen": true,
+                    "code": "already-open",
                     "promptId": prompt_id,
                     "expired": expired,
                     "sessionId": open_id,
@@ -495,7 +563,7 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
         }
         Err(StartError::Refused(message)) => Response::json(
             409,
-            &json!({ "error": scrub(state, &message), "refused": true }),
+            &json!({ "error": scrub(state, &message), "refused": true, "code": "refused" }),
         ),
         Err(StartError::Failed(message)) => Response::error(500, &scrub(state, &message)),
     }
@@ -513,6 +581,7 @@ fn same_session<'a>(state: &AppState, body: &'a Json) -> Result<&'a str, Respons
             &json!({
                 "error": "There is no open writing session. If the time ran out, your rough draft was locked from what was saved last.",
                 "noSession": true,
+                "code": "no-session",
             }),
         )),
         Ok(Status::Active { session, .. } | Status::Expired { session }) => {
@@ -524,6 +593,7 @@ fn same_session<'a>(state: &AppState, body: &'a Json) -> Result<&'a str, Respons
                     &json!({
                         "error": "That draft belongs to an earlier session, so it was not saved.",
                         "otherSession": true,
+                        "code": "other-session",
                     }),
                 ))
             }
@@ -544,7 +614,11 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Send the text as `text`");
     };
     if text.len() > voice_session::MAX_DRAFT_BYTES {
-        return Response::error(413, "That draft is longer than a sample can hold");
+        return coded_error(
+            413,
+            "too-long",
+            "That draft is longer than a sample can hold",
+        );
     }
     let wanted = match same_session(state, &body) {
         Ok(wanted) => wanted,
@@ -557,6 +631,7 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
             &json!({
                 "error": "Time is up. The draft will be locked from what was saved last.",
                 "timeUp": true,
+                "code": "time-up",
             }),
         );
     }
@@ -568,11 +643,15 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
             &json!({ "saved": true, "remainingSeconds": remaining_seconds, "bytes": text.len() }),
         ),
         Ok(_) => Response::error(500, "The session changed while saving"),
-        Err(StoreError::Refused(message)) if message.starts_with("Time is up") => {
-            Response::json(409, &json!({ "error": message, "timeUp": true }))
-        }
+        Err(StoreError::Refused(message)) if message.starts_with("Time is up") => Response::json(
+            409,
+            &json!({ "error": message, "timeUp": true, "code": "time-up" }),
+        ),
         Err(StoreError::Refused(message)) if message == voice_session::OTHER_SESSION => {
-            Response::json(409, &json!({ "error": message, "otherSession": true }))
+            Response::json(
+                409,
+                &json!({ "error": message, "otherSession": true, "code": "other-session" }),
+            )
         }
         Err(error) => store_error(state, error),
     }
@@ -595,7 +674,11 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
         .as_ref()
         .is_some_and(|t| t.len() > voice_session::MAX_DRAFT_BYTES)
     {
-        return Response::error(413, "That draft is longer than a sample can hold");
+        return coded_error(
+            413,
+            "too-long",
+            "That draft is longer than a sample can hold",
+        );
     }
     let visibility = match visibility_of(&body) {
         Ok(visibility) => visibility,
@@ -616,10 +699,16 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
     ) {
         Ok(locked) => Response::json(200, &locked_json(state, &catalog, &locked)),
         Err(StoreError::Refused(message)) if message.starts_with("Nothing was written") => {
-            Response::json(409, &json!({ "error": message, "empty": true }))
+            Response::json(
+                409,
+                &json!({ "error": message, "empty": true, "code": "empty" }),
+            )
         }
         Err(StoreError::Refused(message)) if message == voice_session::OTHER_SESSION => {
-            Response::json(409, &json!({ "error": message, "otherSession": true }))
+            Response::json(
+                409,
+                &json!({ "error": message, "otherSession": true, "code": "other-session" }),
+            )
         }
         Err(error) => store_error(state, error),
     }
@@ -633,8 +722,12 @@ pub(super) fn scrap(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(response) => return response,
     };
-    let other =
-        |message: &str| Response::json(409, &json!({ "error": message, "otherSession": true }));
+    let other = |message: &str| {
+        Response::json(
+            409,
+            &json!({ "error": message, "otherSession": true, "code": "other-session" }),
+        )
+    };
     let wanted = match &body["sessionId"] {
         Json::String(id) => Some(id.as_str()),
         Json::Null => None,
@@ -699,6 +792,7 @@ pub(super) fn erase(state: &AppState, req: &Request) -> Response {
             &json!({
                 "error": format!("Type \"{ERASE_CONFIRMATION}\" to confirm. Nothing was erased."),
                 "refused": true,
+                "code": "confirm-word",
             }),
         );
     }
@@ -738,13 +832,14 @@ fn locate(
         }
     }
     match found.len() {
-        0 => Err(Response::error(404, "There is no such voice sample.")),
+        0 => Err(coded_error(404, "gone", "There is no such voice sample.")),
         1 => Ok(found.remove(0)),
         _ => Err(Response::json(
             409,
             &json!({
                 "error": "This sample is in both the portable and the private folder. Remove one copy, or say which with `visibility`.",
                 "ambiguous": true,
+                "code": "ambiguous",
             }),
         )),
     }
@@ -885,7 +980,10 @@ fn apply_fields(sample: &mut VoiceSample, body: &Json) -> Result<(), Response> {
 }
 
 fn refuse_text(message: String) -> Response {
-    Response::json(422, &json!({ "error": message, "invalid": true }))
+    Response::json(
+        422,
+        &json!({ "error": message, "invalid": true, "code": "invalid" }),
+    )
 }
 
 /// `POST voice/samples`: write the polished draft of a rough draft that exists. The body is
@@ -913,7 +1011,7 @@ pub(super) fn create_polished(state: &AppState, req: &Request) -> Response {
     let Some(rough_sample) = rough.sample else {
         return Response::json(
             409,
-            &json!({ "error": "That rough draft cannot be read, so it cannot be polished.", "refused": true }),
+            &json!({ "error": "That rough draft cannot be read, so it cannot be polished.", "refused": true, "code": "refused" }),
         );
     };
     if rough_sample.voice.stage != VoiceStage::Rough {
@@ -978,6 +1076,7 @@ pub(super) fn save_polished(state: &AppState, req: &Request, id: &str) -> Respon
             &json!({
                 "error": "A rough draft is never changed after its session ends. Polish a copy instead.",
                 "refused": true,
+                "code": "refused",
                 "readOnly": true,
             }),
         );
@@ -995,13 +1094,14 @@ pub(super) fn save_polished(state: &AppState, req: &Request, id: &str) -> Respon
             &json!({
                 "error": "This polished draft cannot be read by this release, so it is left as it is.",
                 "refused": true,
+                "code": "refused",
             }),
         );
     };
     if sample.voice.stage != VoiceStage::Polished {
         return Response::json(
             409,
-            &json!({ "error": "Only a polished draft can be saved this way.", "refused": true }),
+            &json!({ "error": "Only a polished draft can be saved this way.", "refused": true, "code": "not-polished" }),
         );
     }
     if let Err(response) = apply_fields(&mut sample, &body) {
@@ -1045,7 +1145,7 @@ fn write_polished(
             });
             Response::json(
                 409,
-                &json!({ "error": message, "conflict": true, "revision": current, "current": latest }),
+                &json!({ "error": message, "conflict": true, "code": "conflict", "revision": current, "current": latest }),
             )
         }
         Err(error) => store_error(state, error),
@@ -1073,7 +1173,7 @@ pub(super) fn set_visibility(state: &AppState, req: &Request, id: &str) -> Respo
             if locate(state, &file, Some(to)).is_ok() {
                 return Response::json(
                     409,
-                    &json!({ "error": "The sample is already there.", "refused": true }),
+                    &json!({ "error": "The sample is already there.", "refused": true, "code": "already-there" }),
                 );
             }
             return response;
@@ -1121,6 +1221,7 @@ pub(super) fn promote(state: &AppState, req: &Request, id: &str) -> Response {
             &json!({
                 "error": "Only a polished draft can become a post. A rough draft is never edited: polish a copy first, then make the post from that.",
                 "refused": true,
+                "code": "not-polished",
                 "rough": loaded.listed.stage == Some(VoiceStage::Rough),
             }),
         );
