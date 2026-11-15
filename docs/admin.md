@@ -443,6 +443,42 @@ Home's one-time invitation and from Find, and it needs no writing helper: only t
   and **Move** are in the details.
 - **Home** names writing kept only on the phone, and signing out with such writing asks first.
 
+### Getting started
+
+The first time an owner signs in to Studio on a site where it is switched on, **Getting started**
+(`#/start`) opens instead of Home: at most three short steps, each of which can be skipped, with
+**‹ Back**, **Finish later** and **More › Skip the rest** on every one (an installed app has no
+Back button). The navigation and Find are hidden while it is open; her name's menu, with Sign out,
+stays.
+
+- **Turn on your writing helper** is shown only when the site has no usable key. She pastes the
+  key once; it is kept on the server and never shown again. A key that doesn't look like one is
+  questioned before it is sent, one the company refuses is removed at once, and over plain `http`
+  the field isn't offered at all. **Skip** leaves it for whoever set the site up.
+- **Tell a few short stories**: three prompts from the Getting started set, each told by typing
+  (three minutes, as in Your writing voice) or, when something on the server can hear, **out
+  loud**. Before the first recording a sheet says where it goes, by company, or that nothing leaves
+  the site. A finished recording is kept on the phone until it has been turned into words, then
+  removed; the words are shown read-only. Stories are private voice pieces: never published, never
+  in a build. Each can be read back and thrown away. Three is the ask; one is enough.
+- **Let your helper learn how you sound**: her own stories are ticked, the box says what goes to
+  which company, and nothing is sent until she presses and nothing saved until **Save my voice
+  guide**. Without a helper that is on, or without a story, this step is passed over and the last
+  screen says why.
+- **You're ready** lists what was done, each with a word and a mark. Reaching it is what finishes
+  Getting started for that account.
+
+Where she is lives on the server, so a reload, a closed app or another phone lands on the same
+step. After **Finish later** Home shows **Finish getting started** and it doesn't open by itself
+again for 20 hours. **Getting started** in her name's menu runs it at any time. If she left the
+stories untold, Write shows one card on a new post ("Want your helper to sound like you?") at most
+three times, a week apart, never once she has typed, with **Don't ask again**. Home's details list
+every account's line and offer **Show it again at next sign-in**. In Your writing voice, a story
+told out loud is marked **Told out loud**, and A piece gains **More › Throw this piece away…**.
+
+The switch, its four values and a practice run are in
+[Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
+
 ### Erase your voice data
 
 Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
