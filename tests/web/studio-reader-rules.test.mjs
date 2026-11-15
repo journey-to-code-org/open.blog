@@ -5,7 +5,7 @@ import {
   waitingLine, readerProblem, problemWords, reasonWords, needsAcknowledge, publicationState, fixRoute, readerWords,
 } from "../../web/studio/parts/reader-rules.js";
 import {
-  setupState, setupStateWords, settingsRequest, setupProblem, keyStatus, retentionRequest, retentionCount, retentionLines,
+  setupState, setupStateWords, robotLine, settingsRequest, setupProblem, keyStatus, retentionRequest, retentionCount, retentionLines,
 } from "../../web/studio/parts/reader-setup-rules.js";
 
 const DECLINE = [{ id: "spam", label: "Spam" }, { id: "abusive", label: "Abusive" }, { id: "other", label: "Other" }];
@@ -84,9 +84,33 @@ test("publication fixes name the file route that fixes them", () => {
   assert.equal(publicationState({ kind: "future-suggestion" }), null);
 });
 
+test("setup: the state line says working only when the health check says the service answers", () => {
+  const on = { enabled: true, comments: true, endpoint: "https://x.example" };
+  const meta = { engagement: true, engagementSetUp: true };
+  const answers = (ok) => ({ checks: [{ id: "service", ok }] });
+  assert.equal(setupState({ enabled: true, comments: false }, answers(true), meta).id, "readers.setupOff");
+  assert.equal(setupState(on, answers(true), meta).id, "readers.setupWorking");
+  assert.equal(setupState(on, answers(false), meta).id, "readers.setupNotWorking");
+  assert.equal(setupState(on, answers(false), meta).helper, "tell");
+  // Can't tell is never "working": no check yet, a check that failed to load, or one that didn't answer.
+  assert.equal(setupState(on, undefined, meta).id, "readers.setupChecking");
+  assert.equal(setupState(on, null, meta).id, "readers.setupCantTell");
+  assert.equal(setupState(on, answers(null), meta).id, "readers.setupCantTell");
+  assert.equal(setupState(on, { checks: [] }, meta).id, "readers.setupCantTell");
+  assert.equal(setupState(null, null, {}).id, "readers.setupNotSetUp");
+});
+
+test("setup: the robot check is on only when a provider other than off is chosen", () => {
+  assert.equal(robotLine({ captcha: { provider: "off", scope: "session" } }), "");
+  assert.equal(robotLine({ captcha: { provider: "", scope: "session" } }), "");
+  assert.equal(robotLine({}), "");
+  assert.match(robotLine({ captcha: { provider: "turnstile", scope: "session", siteKey: "k" } }), /first comment/);
+  assert.match(robotLine({ captcha: { provider: "turnstile", scope: "every-comment", siteKey: "k" } }), /every comment/);
+  // Saving "no check" sends the server's own word for it, never "".
+  assert.equal(settingsRequest({ etag: "e", captcha: { provider: "off", scope: "session" } }, { captcha: { provider: "", scope: "session" } }).captcha.provider, "off");
+});
+
 test("setup: state line, the saved body never carries a key unless replacing it, and the old-notes run repeats its check", () => {
-  assert.equal(setupState({ enabled: true, comments: false }, { engagement: true }).id, "readers.setupOff");
-  assert.equal(setupState({ enabled: true, endpoint: "https://x.example" }, { engagement: true }).id, "readers.setupWorking");
   assert.match(setupStateWords({ id: "readers.setupNotWorking", helper: "tell" }), /tell/i);
   const settings = { enabled: true, comments: true, analytics: true, endpoint: "https://x.example/", etag: "e1", feedback: true, captcha: { provider: "turnstile", scope: "session", siteKey: "k" } };
   const keep = settingsRequest(settings, {});

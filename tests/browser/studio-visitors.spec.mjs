@@ -123,4 +123,41 @@ test("Visitors passes axe at 320 px without sideways scrolling", async ({ page }
   const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`));
   expect(results).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  // The shell clips its own content (overflow hidden), so the document never scrolls: measure the
+  // shell's content box and every box inside the screen, not only the document.
+  expect(await sidewaysInside(page, ".studio-visitors")).toEqual([]);
 });
+
+test("a year at 320 px fits the shell's content box: the chart, the lines and the table", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockCounter(page);
+  await signIn(page, "#/readers/visitors/365");
+  await expect(page.getByText("214 visits")).toBeVisible();
+  expect(await sidewaysInside(page, ".studio-visitors")).toEqual([]);
+  // With the numbers open (a table that scrolls in its own region) and the 30-day view too.
+  for (const summary of await page.locator(".studio-visitors details > summary").all()) await summary.click();
+  expect(await sidewaysInside(page, ".studio-visitors")).toEqual([]);
+  await page.getByRole("combobox", { name: "Over the last" }).selectOption("30");
+  await expect(page).toHaveURL(/visitors(\/30)?$/);
+  for (const summary of await page.locator(".studio-visitors details:not([open]) > summary").all()) await summary.click();
+  expect(await sidewaysInside(page, ".studio-visitors")).toEqual([]);
+});
+
+/** Boxes inside `selector` (and the shell around it) that are wider than the shell's content box. */
+async function sidewaysInside(page, selector) {
+  return page.evaluate((selector) => {
+    const screen = document.querySelector(selector);
+    const content = screen.closest(".shell-content") || screen.closest("main") || document.body;
+    const box = content.getBoundingClientRect();
+    const style = getComputedStyle(content);
+    const right = box.right - parseFloat(style.paddingRight || "0") - parseFloat(style.borderRightWidth || "0") + 0.5;
+    const out = [];
+    if (content.scrollWidth > content.clientWidth + 1) out.push(`${content.className || content.tagName} scrolls by ${content.scrollWidth - content.clientWidth}px`);
+    for (const node of [screen, ...screen.querySelectorAll("*")]) {
+      if (!node.getClientRects().length || node.closest(".studio-table-scroll")?.contains(node) && node !== node.closest(".studio-table-scroll")) continue;
+      const r = node.getBoundingClientRect();
+      if (r.right > right) out.push(`${node.tagName.toLowerCase()}.${String(node.className || "").split(" ")[0]} ends at ${Math.round(r.right)} > ${Math.round(right)}`);
+    }
+    return out.slice(0, 6);
+  }, selector);
+}

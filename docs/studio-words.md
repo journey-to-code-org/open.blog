@@ -2617,6 +2617,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.selectAll` | her | Select all {m} | `{m}` | 40 |
 | `readers.selectOne` | her | Select {label} | `{label}` | 40 |
 | `readers.selected` | her | {n} selected | `{n}` | 40 |
+| `readers.setupCantTell` | her | Comments are on, but {product} can't tell right now whether they're working. | `{product}` | 152 |
+| `readers.setupChecking` | her | Comments are on. Checking that they work… | none | 82 |
 | `readers.setupCommentsHeading` | her | Comments | none | 40 |
 | `readers.setupConflict` | her | Your comment settings changed somewhere else. Here they are now; switch again if you still want to. | none | 198 |
 | `readers.setupElseHeading` | her | What else readers can send | none | 52 |

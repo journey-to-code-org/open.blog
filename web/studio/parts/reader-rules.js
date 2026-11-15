@@ -322,6 +322,8 @@ export function readerWords(id, vars = {}) {
     case "readers.setupNotWorking": return say("readers.setupNotWorking", vars);
     case "readers.setupOff": return say("readers.setupOff", vars);
     case "readers.setupWorking": return say("readers.setupWorking", vars);
+    case "readers.setupChecking": return say("readers.setupChecking", vars);
+    case "readers.setupCantTell": return say("readers.setupCantTell", vars);
     default: return "";
   }
 }

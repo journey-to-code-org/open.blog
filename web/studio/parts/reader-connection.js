@@ -16,7 +16,7 @@ export function createConnection({ api, onSaved, onConflict, onFail }) {
   const keyLine = h("p", { class: "studio-help", id: "studio-reader-key-state", role: "status", "aria-live": "polite" });
   const key = h("text-field", { label: say("readers.connKeyReplace"), type: "password", name: "readers-key", autocomplete: "new-password", placeholder: say("readers.connKeyPlaceholder") });
   const analytics = h("toggle-switch", { label: say("readers.connCount") });
-  const provider = h("select-field", { label: say("readers.connRobot"), options: [{ value: "", label: say("readers.connRobotOff") }, { value: "turnstile", label: say("readers.connRobotTurnstile") }] });
+  const provider = h("select-field", { label: say("readers.connRobot"), options: [{ value: "off", label: say("readers.connRobotOff") }, { value: "turnstile", label: say("readers.connRobotTurnstile") }] });
   const siteKey = h("text-field", { label: say("readers.connSiteKey"), maxlength: 200, autocomplete: "off" });
   const scope = h("select-field", { label: say("readers.connScope"), options: [{ value: "session", label: say("readers.connScopeSession") }, { value: "every-comment", label: say("readers.connScopeEvery") }] });
   const note = h("p", { class: "studio-help", text: say("readers.connRobotNote") });
@@ -49,15 +49,16 @@ export function createConnection({ api, onSaved, onConflict, onFail }) {
     enabled.checked = next.enabled === true;
     endpoint.value = next.endpoint || "";
     analytics.checked = next.analytics !== false;
-    provider.value = next.captcha?.provider || "";
+    // The server says "off" for no check; a site key and how often only matter with a check on.
+    provider.value = next.captcha?.provider || "off";
     siteKey.value = next.captcha?.siteKey || "";
     scope.value = next.captcha?.scope || "session";
-    siteKey.hidden = scope.hidden = !provider.value;
+    siteKey.hidden = scope.hidden = provider.value === "off";
     keyLine.textContent = keyStatus(next.credential);
     remove.hidden = !next.credential?.privateConfigured;
     clearKey();
   }
-  provider.addEventListener("valuechange", () => { siteKey.hidden = scope.hidden = !provider.value; });
+  provider.addEventListener("valuechange", () => { siteKey.hidden = scope.hidden = !provider.value || provider.value === "off"; });
 
   const showProblem = (found) => {
     problem.textContent = readerWords(found.id);

@@ -8,6 +8,8 @@ export const WORDS = {
   "readers.setupWorking": { text: "Comments are on and working.", layer: "her" },
   "readers.setupOff": { text: "Comments are off.", layer: "her" },
   "readers.setupNotWorking": { text: "Comments are on, but {product} can't reach them.", layer: "her" },
+  "readers.setupChecking": { text: "Comments are on. Checking that they work…", layer: "her" },
+  "readers.setupCantTell": { text: "Comments are on, but {product} can't tell right now whether they're working.", layer: "her" },
   "readers.setupNotSetUp": { text: "Comments aren't set up for {product}.", layer: "her" },
   "readers.setupCommentsHeading": { text: "Comments", layer: "her" },
   "readers.setupSwitch": { text: "Let readers leave comments", layer: "her" },

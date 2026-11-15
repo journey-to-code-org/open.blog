@@ -6,14 +6,20 @@ import { say } from "./words.js";
 import { KINDS, kindFilterWords, readerWords } from "./reader-rules.js";
 
 /**
- * The state line: `{ id }` for one of four sentences. `meta` says whether comments are set up at all;
- * `settings` is the server's answer (or null when it couldn't be read).
+ * The state line: `{ id }` for one of its sentences. `settings` is the server's answer (or null when
+ * it couldn't be read); `health` is `engagement/health` (`undefined` while it's being asked, null when
+ * it couldn't be read); `meta` says whether comments are set up at all. "Working" only when the
+ * health check says the service answered; what it can't tell, it says so.
  */
-export function setupState(settings, meta = {}) {
+export function setupState(settings, health, meta = {}) {
   if (!meta.engagementSetUp && !meta.engagement && !settings?.enabled) return { id: "readers.setupNotSetUp", helper: "canTurnOn" };
   if (settings && settings.comments === false) return { id: "readers.setupOff" };
-  if (meta.engagement !== true) return { id: "readers.setupNotWorking", helper: "tell" };
-  return { id: "readers.setupWorking" };
+  if (settings && (!settings.enabled || !settings.endpoint)) return { id: "readers.setupNotWorking", helper: "tell" };
+  if (health === undefined) return { id: "readers.setupChecking" };
+  const answers = (health?.checks || []).find((c) => c?.id === "service")?.ok;
+  if (answers === true) return { id: "readers.setupWorking" };
+  if (answers === false) return { id: "readers.setupNotWorking", helper: "tell" };
+  return { id: "readers.setupCantTell" };
 }
 
 /** The state line in words, with who to ask when something is wrong. */
@@ -72,7 +78,7 @@ export function settingsRequest(settings, form = {}) {
   };
   if (typeof settings.feedback === "boolean") body.feedback = settings.feedback;
   const captcha = form.captcha ?? settings.captcha;
-  if (captcha) body.captcha = { provider: captcha.provider || "", scope: captcha.scope || "", siteKey: String(captcha.siteKey || "").trim() };
+  if (captcha) body.captcha = { provider: captcha.provider || "off", scope: captcha.scope || "session", siteKey: String(captcha.siteKey || "").trim() };
   if (body.credentialAction === "replace") body.credential = String(form.credential ?? "").trim();
   return body;
 }
@@ -80,7 +86,8 @@ export function settingsRequest(settings, form = {}) {
 /** The robot check as one line for her layer, or "" when it is off. */
 export function robotLine(settings) {
   const captcha = settings?.captcha;
-  if (!captcha?.provider) return "";
+  // The server's word for no check is "off" (its default); "" is read the same.
+  if (!captcha?.provider || captcha.provider === "off") return "";
   return captcha.scope === "every-comment" ? say("readers.setupRobotsEvery") : say("readers.setupRobots");
 }
 

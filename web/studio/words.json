@@ -16198,6 +16198,20 @@
         "n"
       ]
     },
+    "readers.setupCantTell": {
+      "text": "Comments are on, but {product} can't tell right now whether they're working.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.setupChecking": {
+      "text": "Comments are on. Checking that they work…",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
     "readers.setupCommentsHeading": {
       "text": "Comments",
       "layer": "her",

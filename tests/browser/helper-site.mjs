@@ -178,6 +178,9 @@ export async function axeClean(page, label, root) {
   const results = await page.evaluate(async (selector) => (await window.axe.run(document.querySelector(selector), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`), root);
   expect(results, label).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), `${label}: no sideways scroll`).toBe(false);
+  // The shell clips the document (overflow hidden) and scrolls its own content box: measure that too,
+  // or a screen 9 px too wide passes with its words cut off.
+  expect(await page.evaluate(() => [...document.querySelectorAll(".shell-content")].filter((box) => box.getClientRects().length && box.scrollWidth > box.clientWidth + 1).map((box) => `${box.scrollWidth - box.clientWidth}px`)), `${label}: nothing scrolls sideways inside the shell`).toEqual([]);
   // Nothing inside the sheet or screen is wider than it either.
   const wide = await page.evaluate((selector) => {
     const host = document.querySelector(selector);

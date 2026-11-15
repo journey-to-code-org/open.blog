@@ -18,7 +18,8 @@ import {
 export async function createReaderSetup({ api, meta, go }) {
   await use("action-button", "alert-banner", "breadcrumb-trail", "cluster-layout", "select-field", "skeleton-block", "text-field", "toggle-switch", "modal-dialog");
   let settings = null;
-  let health = null;
+  // undefined while it's being asked; null when it couldn't be read.
+  let health;
   let report = null;
   let problem = false;
 
@@ -64,6 +65,7 @@ export async function createReaderSetup({ api, meta, go }) {
   // ---- loading ------------------------------------------------------------------------------------
 
   async function load() {
+    health = undefined;
     try {
       settings = await api.get("engagement/settings");
       problem = false;
@@ -84,7 +86,7 @@ export async function createReaderSetup({ api, meta, go }) {
       if (error.status === 401) throw error;
       health = null;
     }
-    drawChecklist();
+    draw();
   }
 
   function drawChecklist() {
@@ -92,7 +94,7 @@ export async function createReaderSetup({ api, meta, go }) {
   }
 
   function draw() {
-    stateLine.textContent = setupStateWords(setupState(settings, meta));
+    stateLine.textContent = setupStateWords(setupState(settings, health, meta));
     trouble.hidden = !problem;
     switcher.hidden = problem || !settings || !settings.enabled || !settings.endpoint;
     if (settings) switcher.checked = settings.comments !== false;
