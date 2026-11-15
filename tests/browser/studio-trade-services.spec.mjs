@@ -417,6 +417,8 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
   await ice.getByRole("button", { name: /Change/ }).click();
   await ice.getByRole("textbox", { name: "Topic" }).fill("Ice dams and icicles");
   for (let round = 0; round < 2; round += 1) {
+    // Focus must be back in the sheet before Escape is pressed, or the key goes nowhere.
+    await expect.poll(focusInSheet).toBe(true);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
     await page.keyboard.press("Escape");

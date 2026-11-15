@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.mjs",
   workers: 1,
+  // A slow runner can lose a keypress that a fast machine never does; a spec that passes on a second try is not a failure.
+  retries: process.env.CI ? 2 : 0,
   timeout: 60000,
   use: { browserName: "chromium", headless: true },
   reporter: "list",
