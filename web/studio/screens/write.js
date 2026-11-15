@@ -149,7 +149,8 @@ export async function createWrite(context, arg, route = {}) {
   if (hooks) {
     research = await createWriteResearch({ api, meta, doc, body, about, addMenu, sourcesInPost, grid: element.querySelector(".studio-write-grid"),
       request: () => ({ kind: "posts", path: doc.path, fields: fieldsFor(read(), "publish"), body: bodyText() }), kind: () => kind(), title: () => String(title.value || "").trim(),
-      openChecks: (opener) => sheets.open("ready", opener) });
+      openChecks: (opener) => sheets.open("ready", opener),
+      saved: () => ({ etag: doc.etag, dirty, state: doc.state }), saveDraft: () => saveNow("draft", { quiet: true }) });
     hooks.attach(research);
     element.append(...research.elements);
   }

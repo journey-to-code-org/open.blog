@@ -17,6 +17,9 @@ function tabWords(screen) {
   switch (screen.id) {
     case "sources": return say("research.tabSources");
     case "notebook": return say("research.tabNotebook");
+    case "atlas": return say("research.tabAtlas");
+    case "compare": return say("research.tabCompare");
+    case "public": return say("research.tabPublic");
     default: return say("research.tabOverview");
   }
 }

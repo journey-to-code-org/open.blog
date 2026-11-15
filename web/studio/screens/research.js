@@ -28,11 +28,13 @@ export async function createResearchHome(context, route = {}) {
   async function load() {
     frame.paintKept();
     frame.paintBack();
-    const [library, notebook] = await Promise.allSettled([api.get("sources"), api.get("research/notebook")]);
-    for (const result of [library, notebook]) if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
+    const [library, notebook, atlas, alignments] = await Promise.allSettled([api.get("sources"), api.get("research/notebook"), api.get("research/atlas"), api.get("research/alignments")]);
+    for (const result of [library, notebook, atlas, alignments]) if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
+    const atlasData = atlas.status === "fulfilled" ? atlas.value : { failed: true };
+    const alignmentsData = alignments.status === "fulfilled" ? alignments.value : { failed: true };
     const libraryData = library.status === "fulfilled" ? library.value : { failed: true, error: library.reason };
     const notebookData = notebook.status === "fulfilled" ? notebook.value : { failed: true, error: notebook.reason };
-    const plan = workflowSteps({ library: libraryData, notebook: notebookData, post: researchPost() });
+    const plan = workflowSteps({ library: libraryData, notebook: notebookData, atlas: atlasData, alignments: alignmentsData, post: researchPost() });
     heading.textContent = plan.empty ? say("research.titleEmpty") : say("research.title");
     lede.hidden = !plan.empty;
     fill(primary, h("action-button", { href: plan.primary.href, size: "lg", class: "studio-primary" }, plan.primary.label));
@@ -41,8 +43,10 @@ export async function createResearchHome(context, route = {}) {
       h("div", { class: "studio-research-step-head" }, h("span", { class: "studio-research-step-n", "aria-hidden": "true", text: String(index + 1) }),
         h("h3", { text: step.heading }), badge(step.visibility)),
       h("p", { text: step.text }),
-      h("p", { class: "studio-meta", text: step.state }),
-      step.id === plan.primary.step ? null : h("action-button", { variant: "secondary", href: step.open.href }, step.open.label))));
+      step.state ? h("p", { class: "studio-meta", text: step.state }) : null,
+      step.optional ? h("p", { class: "studio-help", text: say("research.optional") }) : null,
+      step.links ? h("div", { class: "studio-row" }, step.links.map((link) => h("action-button", { variant: "secondary", href: link.href }, link.label)))
+        : step.id === plan.primary.step ? null : h("action-button", { variant: "secondary", href: step.open.href }, step.open.label))));
     const problems = [];
     for (const [data, what, file] of [[libraryData, say("research.whatLibrary"), ".openblog/private/research/sources.json"], [notebookData, say("research.whatNotebook"), ".openblog/private/research/notebook.json"]]) {
       if (!data.failed) continue;

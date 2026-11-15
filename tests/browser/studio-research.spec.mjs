@@ -50,7 +50,7 @@ test("a site that doesn't use research sees none of it, and Find's developer ent
   await expect(page).toHaveURL(/#\/research$/);
   await expect(page.getByRole("heading", { name: "Start your research", level: 2 })).toBeVisible();
   // Nothing was asked of the research API until the developer opened it.
-  expect(asked.filter((url) => !/\/admin\/api\/(sources|research\/notebook)$/.test(url))).toEqual([]);
+  expect(asked.filter((url) => !/\/admin\/api\/(sources|research\/(notebook|atlas|alignments))$/.test(url))).toEqual([]);
   expect(asked.length).toBeGreaterThan(0);
 });
 
@@ -59,7 +59,9 @@ test("an empty library: Research home leads to the first source, every step says
   await expect(page.getByRole("heading", { name: "Start your research", level: 2 })).toBeFocused();
   const home = page.locator(".studio-research-home");
   await expect(home.getByRole("link", { name: "Add your first source" }).first()).toHaveAttribute("href", "#/research/sources?new=1");
-  await expect(home.locator(".studio-research-step")).toHaveCount(3);
+  await expect(home.locator(".studio-research-step")).toHaveCount(5);
+  await expect(home.locator('[data-step="relate"]')).toContainText("Optional.");
+  await expect(home.locator('[data-step="public"] status-badge')).toHaveText("Readers see this");
   await expect(home.locator('[data-step="source"]')).toContainText("Not started: your library is empty.");
   await expect(home.locator('[data-step="source"] status-badge')).toHaveText("Private");
   await expect(home.locator('[data-step="cite"] status-badge')).toHaveText("Readers see this");
@@ -77,8 +79,14 @@ test("the old research addresses open the same places in Studio", async ({ page 
   await expect(page.getByRole("heading", { name: "Your sources", level: 2 })).toBeVisible();
   await open(page, site, "#/research/nope");
   await expect(page).toHaveURL(/#\/research$/);
-  await open(page, site, "#/research/atlas");
-  await expect(page).toHaveURL(/#\/not-yet\/research$/);
+  // R12: the atlas, Compare and What readers see are Studio's own.
+  await open(page, site, "#/atlas");
+  await expect(page).toHaveURL(/#\/research\/atlas$/);
+  await expect(page.getByRole("heading", { name: "Your atlas", level: 2 })).toBeVisible();
+  await open(page, site, "#/compare");
+  await expect(page).toHaveURL(/#\/research\/compare$/);
+  await open(page, site, "#/research/public");
+  await expect(page.getByRole("heading", { name: "What readers see from your research", level: 2 })).toBeVisible();
 });
 
 test("add a source with people and identifiers as rows, then edit it and undo", async ({ page }) => {

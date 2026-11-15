@@ -6,6 +6,9 @@
 import { say } from "./words.js";
 import { diagnosticRow, sourceDiagnosticControl } from "./source-rules.js";
 import { notebookDiagnosticControl } from "./notebook-rules.js";
+import { atlasDiagnosticControl } from "./atlas-rules.js";
+import { alignmentDiagnosticControl } from "./compare-rules.js";
+import { claimDiagnosticControl } from "./claims-rules.js";
 
 /** Whether this site uses research (G92). Until a server says, never. */
 export const researchUsed = (meta) => meta?.siteUses?.research === true;
@@ -20,11 +23,14 @@ export const RESEARCH_SCREENS = Object.freeze([
   Object.freeze({ id: "public", path: "public", tab: "research.tabPublic" }),
 ]);
 
-/** Research screens that aren't in Studio yet: they open "Not in Studio yet", never a blank screen. */
-export const RESEARCH_NOT_YET = Object.freeze(new Set(["atlas", "compare", "public"]));
+/** Research screens that aren't in Studio yet (none since R12); one would open "Not in Studio yet". */
+export const RESEARCH_NOT_YET = Object.freeze(new Set());
 
 /** The screens she can reach now. */
 export const builtScreens = () => RESEARCH_SCREENS.filter((screen) => !RESEARCH_NOT_YET.has(screen.id));
+
+/** The address of one link between atlas entries. */
+export const atlasLinkHash = (id) => `#/research/atlas/relationships/${encodeURIComponent(String(id || ""))}`;
 
 /** The address of a research screen, and of one item in it. */
 export function researchHash(screen, id = "") {
@@ -42,8 +48,8 @@ export function researchRoute(name, rest = [], search = "") {
   const tail = search ? `?${search}` : "";
   const item = rest.join("/");
   if (name === "sources") return `#/research/sources${item ? `/${item}` : ""}${tail}`;
-  if (name === "atlas") return RESEARCH_NOT_YET.has("atlas") ? "#/not-yet/research" : `#/research/atlas${item ? `/${item}` : ""}${tail}`;
-  if (name === "compare") return RESEARCH_NOT_YET.has("compare") ? "#/not-yet/research" : `#/research/compare${item ? `/${item}` : ""}${tail}`;
+  if (name === "atlas") return `#/research/atlas${item ? `/${item}` : ""}${tail}`;
+  if (name === "compare") return `#/research/compare${item ? `/${item}` : ""}${tail}`;
   if (name !== "research") return undefined;
   if (!rest.length) return null;
   const [screen] = rest;
@@ -58,13 +64,24 @@ export function researchRoute(name, rest = [], search = "") {
  * Where a research check's finding opens (R7's Before you publish › Research checks, "Open it"):
  * its research screen for a source, a passage or a note; "" for anything else.
  */
-export function openItHash(scope) {
+export function openItHash(scope, { post = "", site = false } = {}) {
   const id = String(scope?.id || "");
-  if (!id) return "";
+  const path = String(scope?.path || post || "");
+  const claims = (claim) => (/\.md$/.test(path) ? `#/write/${encodeURIComponent(path)}?sheet=claims${claim ? `&claim=${encodeURIComponent(claim)}` : ""}` : "");
   switch (scope?.object) {
-    case "source": return researchHash("sources", id);
-    case "passage":
-    case "note": return researchHash("notebook", id);
+    case "source": return id ? researchHash("sources", id) : "";
+    case "source-library": case "interpretation": return researchHash("sources");
+    case "passage": case "note": return id ? researchHash("notebook", id) : "";
+    case "notebook": return researchHash("notebook");
+    case "entry": return id ? researchHash("atlas", id) : "";
+    case "relationship": return id ? atlasLinkHash(id) : "";
+    case "dating": case "atlas": return researchHash("atlas");
+    case "alignment": return researchHash("compare", id);
+    case "alignments-file": return researchHash("compare");
+    case "claim": return claims(id);
+    case "evidence-link": return claims(String((Array.isArray(scope?.related) ? scope.related : []).find((item) => item?.kind === "claim")?.id || ""));
+    case "claims-file": return claims("");
+    case "post": return site && /\.md$/.test(path) ? `#/write/${encodeURIComponent(path)}` : "";
     default: return "";
   }
 }
@@ -75,10 +92,12 @@ export function openItHash(scope) {
  * The steps on Research home and the one primary action: the first step not done. `library` and
  * `notebook` are the loaded stores (or `{ failed: true }`); `post` is the post she came from.
  */
-export function workflowSteps({ library = null, notebook = null, post = null } = {}) {
+export function workflowSteps({ library = null, notebook = null, atlas = null, alignments = null, post = null } = {}) {
   const sources = Array.isArray(library?.sources) ? library.sources.filter((source) => !source.archived) : [];
   const passages = Array.isArray(notebook?.passages) ? notebook.passages.filter((entry) => !entry.archived) : [];
   const notes = Array.isArray(notebook?.notes) ? notebook.notes.filter((entry) => !entry.archived) : [];
+  const entries = Array.isArray(atlas?.entries) ? atlas.entries.length : 0;
+  const aligned = Array.isArray(alignments?.alignments) ? alignments.alignments.length : 0;
   const steps = [
     { id: "source", heading: say("research.stepSource"), text: say("research.stepSourceText"), visibility: "private",
       state: library?.failed ? say("research.unreadable", { what: say("research.whatLibrary") }) : sources.length ? say("research.stepSourceDone", { count: sources.length }) : say("research.stepSourceNone"),
@@ -86,14 +105,20 @@ export function workflowSteps({ library = null, notebook = null, post = null } =
     { id: "passage", heading: say("research.stepPassage"), text: say("research.stepPassageText"), visibility: "private",
       state: notebook?.failed ? say("research.unreadable", { what: say("research.whatNotebook") }) : passages.length || notes.length ? say("research.stepPassageDone", { passages: passages.length, notes: notes.length }) : say("research.stepPassageNone"),
       done: passages.length > 0, open: { label: say("research.openNotebook"), href: researchHash("notebook") } },
+    { id: "relate", heading: say("research.stepRelate"), text: say("research.stepRelateText"), visibility: "private", optional: true,
+      state: atlas?.failed || alignments?.failed ? say("research.unreadable", { what: atlas?.failed ? say("research.whatAtlas") : say("research.whatAlignments") })
+        : entries || aligned ? say("research.stepRelateDone", { entries, alignments: aligned }) : say("research.stepRelateNone"),
+      done: entries > 0 || aligned > 0, links: [{ label: say("research.openAtlas"), href: researchHash("atlas") }, { label: say("research.openCompare"), href: researchHash("compare") }] },
     { id: "cite", heading: say("research.stepCite"), text: say("research.stepCiteText"), visibility: "readers",
       state: post ? say("research.stepCitePost", { title: post.title || post.path }) : say("research.stepCiteNoPost"),
       done: false, open: post ? { label: say("research.backToPost"), href: `#/write/${encodeURIComponent(post.path)}` } : { label: say("research.startPost"), href: "#/write/new/story?kind=research" } },
+    { id: "public", heading: say("research.stepPublic"), text: say("research.stepPublicText"), visibility: "readers",
+      state: "", done: false, open: { label: say("research.openPublic"), href: researchHash("public") } },
   ];
-  const first = steps.find((step) => !step.done && !(step.id === "source" && library?.failed) && !(step.id === "passage" && notebook?.failed));
+  const first = steps.find((step) => !step.done && !step.optional && !(step.id === "source" && library?.failed) && !(step.id === "passage" && notebook?.failed));
   const primary = first?.id === "source" && !sources.length ? { label: say("research.addFirst"), href: `${researchHash("sources")}?new=1`, step: "source" }
     : first?.id === "passage" ? { label: say("notebook.newPassage"), href: `${researchHash("notebook")}?new=passage`, step: "passage" }
-      : { ...steps[2].open, step: "cite" };
+      : { ...steps.find((step) => step.id === "cite").open, step: "cite" };
   return { steps, primary, empty: !sources.length && !passages.length && !notes.length };
 }
 
@@ -129,14 +154,78 @@ export const RESEARCH_CODES = Object.freeze(new Set([
   "source-changed", "still-linked", "unknown-entry",
   // citations (CitationDiagnosticCode)
   "too-many-citations", "malformed-citation", "invalid-key", "unknown-key", "too-many-locators",
+
+  // the atlas, claims and alignments (AtlasDiagnosticCode), and choices for readers (curated Code)
+  "endpoint-kind", "wrong-source-kind", "self-relationship", "duplicate-relationship", "cycle", "missing-evidence", "evidence-conflict", "invalid-visibility", "private-endpoint", "private-reference", "shadowed-field", "unknown-claim", "duplicate-link", "anchor-mismatch", "undisclosed-contradiction", "unknown-link", "stale-anchor", "ambiguous-anchor", "unknown-post", "invalid-date", "aspect-kind", "duplicate-dating", "unpublished-datings", "unknown-interpretation", "duplicate-member", "conflicting-member", "missing-counterpart", "missing-locator", "missing-original", "stale-locator", "stale-approval", "archived-member", "unknown-alignment", "too-many", "bad-id", "bad-target", "bad-revision", "field-not-allowed", "required-field-missing", "text-required", "text-not-allowed", "text-too-long", "unsafe-text", "attribution-required", "bad-provenance", "bad-requires", "bad-posts", "stale-selection", "target-not-published", "unknown-selection",
 ]));
 
-const PLACE_WHAT = { sources: "research.whatLibrary", notebook: "research.whatNotebook", cite: "research.whatLibrary", draft: "research.whatLibrary" };
+const PLACE_WHAT = {
+  sources: "research.whatLibrary", notebook: "research.whatNotebook", cite: "research.whatLibrary", draft: "research.whatLibrary",
+  atlas: "research.whatAtlas", link: "research.whatAtlas", claims: "research.whatClaims", evidence: "research.whatClaims",
+  compare: "research.whatAlignments", curate: "research.whatChoices",
+};
 
 function whatWords(place) {
   switch (PLACE_WHAT[place]) {
     case "research.whatNotebook": return say("research.whatNotebook");
+    case "research.whatAtlas": return say("research.whatAtlas");
+    case "research.whatClaims": return say("research.whatClaims");
+    case "research.whatAlignments": return say("research.whatAlignments");
+    case "research.whatChoices": return say("research.whatChoices");
     default: return say("research.whatLibrary");
+  }
+}
+
+/** The R12 stores (atlas, its links, claims and their evidence, aligned passages, choices for readers). */
+const R12_PLACES = new Set(["atlas", "link", "claims", "evidence", "compare", "curate"]);
+
+function r12Problem(place, first, codes, out) {
+  const field = String(first.field || "");
+  const control = place === "atlas" ? atlasDiagnosticControl(field, "entry") : place === "link" ? atlasDiagnosticControl(field, "relationship")
+    : place === "compare" ? alignmentDiagnosticControl(field) : place === "claims" ? claimDiagnosticControl(field, "claim")
+      : place === "evidence" ? claimDiagnosticControl(field, "link") : "";
+  const on = (id, at = control, vars = {}) => (at ? out(id, { field: at, vars }) : out(id, { banner: true, vars }));
+  const show = place === "atlas" || place === "link" ? "approved" : control;
+  switch (first.code) {
+    case "endpoint-kind": return on("atlas.badEnds", control || "from");
+    case "self-relationship": return on("atlas.self", control || "to");
+    case "duplicate-relationship": return on("atlas.duplicate", control || "to");
+    case "cycle": return on("atlas.cycle", control || "to");
+    case "missing-evidence":
+    case "evidence-conflict": return on("atlas.needEvidence", control || "evidence");
+    case "private-endpoint":
+    case "private-reference":
+    case "invalid-visibility":
+    case "unpublished-datings": return on("atlas.cantShow", show || "approved", { what: first.code === "private-reference" ? say("research.whatPassage") : say("atlas.whatEnd") });
+    case "invalid-date": return on("atlas.badDate");
+    case "aspect-kind": return on("atlas.badAspect");
+    case "duplicate-dating": return on("atlas.sameDating");
+    case "stale-anchor": return out("claims.lost", { banner: true });
+    case "ambiguous-anchor": return out("claims.ambiguous", { banner: true });
+    case "anchor-mismatch":
+    case "unknown-post": return out("claims.saveFirst", { banner: true });
+    case "undisclosed-contradiction": return on("claims.showBoth", "approved");
+    case "missing-field":
+    case "required-field-missing": return on("research.fill");
+    case "duplicate-id": return place === "compare" ? on("compare.keyTaken", "id") : place === "atlas" ? on("atlas.keyTaken", "id") : out("research.failed", { banner: true });
+    case "invalid-id":
+    case "bad-id": return place === "atlas" || place === "compare" ? on("sources.badKey", "id") : out("research.failed", { banner: true });
+    case "unknown-source": return on("notebook.badSource", control || "source");
+    case "unknown-passage": return on("notebook.badPassage", control || "passage");
+    case "unknown-locator-kind":
+    case "invalid-locator":
+    case "ambiguous-locator":
+    case "missing-locator":
+    case "stale-locator": return on("notebook.badPlace", control || "locators", { n: 1 });
+    case "still-linked": return out("atlas.stillLinked", { banner: true });
+    case "target-not-published": return out("public.whyNoPost", { banner: true });
+    case "stale-selection": return out("public.whyStale", { banner: true });
+    case "text-required": return on("curate.needText", "text");
+    case "text-too-long":
+    case "unsafe-text":
+    case "text-not-allowed": return on("research.checkField", "text");
+    case "attribution-required": return on("curate.needBy", "by");
+    default: return control ? on("research.checkField") : out("research.failed", { banner: true });
   }
 }
 
@@ -179,6 +268,7 @@ export function researchProblem(error, place = "sources") {
     if (codes.includes("too-many-citations")) return out("cite.tooMany", { banner: true });
     return out("research.failed", { banner: true });
   }
+  if (R12_PLACES.has(place)) return r12Problem(place, first, codes, out);
   if (place === "import") return out("sources.importBlocked", { banner: true });
   if (place === "bring") return out("notebook.bringBlocked", { banner: true });
   const control = place === "notebook" ? notebookDiagnosticControl(first.field) : sourceDiagnosticControl(first.field);
@@ -224,6 +314,26 @@ export function researchWords(problem) {
     case "research.failed": return `${say("research.failed")} ${say("common.tell")}`;
     case "research.unreadable": return `${say("research.unreadable", vars)} ${say("common.tell")}`;
     case "research.fill": return say("research.fill");
+    case "atlas.badEnds": return say("atlas.badEnds");
+    case "atlas.self": return say("atlas.self");
+    case "atlas.duplicate": return say("atlas.duplicate");
+    case "atlas.cycle": return say("atlas.cycle");
+    case "atlas.needEvidence": return say("atlas.needEvidence");
+    case "atlas.cantShow": return say("atlas.cantShow", vars);
+    case "atlas.badDate": return say("atlas.badDate");
+    case "atlas.badAspect": return say("atlas.badAspect");
+    case "atlas.sameDating": return say("atlas.sameDating");
+    case "atlas.keyTaken": return say("atlas.keyTaken");
+    case "atlas.stillLinked": return say("atlas.stillLinked");
+    case "claims.lost": return say("claims.lost");
+    case "claims.ambiguous": return say("claims.ambiguous");
+    case "claims.saveFirst": return say("claims.saveFirst");
+    case "claims.showBoth": return say("claims.showBoth");
+    case "compare.keyTaken": return say("compare.keyTaken");
+    case "public.whyNoPost": return say("public.whyNoPost");
+    case "public.whyStale": return say("public.whyStale");
+    case "curate.needText": return say("curate.needText");
+    case "curate.needBy": return say("curate.needBy");
     case "research.checkField": return say("research.checkField");
     case "sources.conflict": return say("sources.conflict");
     case "sources.needTitle": return say("sources.needTitle");

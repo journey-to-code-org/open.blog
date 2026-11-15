@@ -179,6 +179,255 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `add.whereStart` | her | It goes at the start of {box}. | `{box}` | 60 |
 | `add.wordsHelp` | her | Leave an empty line between paragraphs. For a list, start each line with a dash (-). Photos, tips and tables show as cards: change them with their buttons. | none | 240 |
 | `add.yourWords` | her | your words | none | 40 |
+| `atlas.about` | her | About (c.) | none | 40 |
+| `atlas.add` | her | Add an entry | none | 40 |
+| `atlas.addAlias` | her | Add another name | none | 40 |
+| `atlas.addDating` | her | Add a dating | none | 40 |
+| `atlas.addDissent` | her | Add someone who disagrees | none | 50 |
+| `atlas.addEvidence` | her | Add evidence | none | 40 |
+| `atlas.addFrom` | her | Add a link from {name} | `{name}` | 44 |
+| `atlas.addIt` | her | Add it | none | 40 |
+| `atlas.addLink` | her | Add a link | none | 40 |
+| `atlas.addTo` | her | Add a link to {name} | `{name}` | 40 |
+| `atlas.added` | her | Added to your atlas. | none | 40 |
+| `atlas.after` | her | after | none | 40 |
+| `atlas.againstItself` | her | A dating can't be dated against itself. | none | 78 |
+| `atlas.aliasRow` | her | Other name {n} | `{n}` | 40 |
+| `atlas.aliases` | her | Also called | none | 40 |
+| `atlas.alsoCalled` | her | also called {names} | `{names}` | 40 |
+| `atlas.and` | her | and | none | 40 |
+| `atlas.anyAspect` | her | Anything | none | 40 |
+| `atlas.anyKind` | her | Any kind | none | 40 |
+| `atlas.approveHelp` | her | You agree to show this on your blog's atlas pages once {product} publishes the atlas. | `{product}` | 170 |
+| `atlas.aspectActive` | her | activity | none | 40 |
+| `atlas.aspectBirth` | her | birth | none | 40 |
+| `atlas.aspectComposition` | her | composition | none | 40 |
+| `atlas.aspectDeath` | her | death | none | 40 |
+| `atlas.aspectEmergence` | her | emergence | none | 40 |
+| `atlas.aspectPublication` | her | publication | none | 40 |
+| `atlas.aspectSpan` | her | span | none | 40 |
+| `atlas.backToList` | her | ‹ Your atlas | none | 40 |
+| `atlas.badAspect` | her | This entry can't be dated that way. | none | 70 |
+| `atlas.badCentury` | her | A century is a number from 1 to {max}, like 4. | `{max}` | 92 |
+| `atlas.badDate` | her | That date can't be right. Check the year and era. | none | 98 |
+| `atlas.badDay` | her | That month has days 1 to {max}. | `{max}` | 62 |
+| `atlas.badDecade` | her | A decade is a year ending in 0, like 380. | none | 82 |
+| `atlas.badEnds` | her | That kind of link can't join these entries. | none | 86 |
+| `atlas.badYear` | her | Type the year from 1 to {max}, and choose BCE or CE. There is no year 0. | `{max}` | 144 |
+| `atlas.bce` | her | BCE | none | 40 |
+| `atlas.before` | her | before | none | 40 |
+| `atlas.between` | her | between | none | 40 |
+| `atlas.byNamed` | her | A named person or group | none | 46 |
+| `atlas.bySource` | her | A source in your library | none | 48 |
+| `atlas.byYou` | her | You | none | 40 |
+| `atlas.cantShow` | her | Readers can't see this while {what} stays private. | `{what}` | 100 |
+| `atlas.ce` | her | CE | none | 40 |
+| `atlas.century` | her | century | none | 40 |
+| `atlas.centuryNumber` | her | Century, like 4: {which} | `{which}` | 48 |
+| `atlas.checkDating` | her | Check dating {n} of {name} | `{n}` `{name}` | 52 |
+| `atlas.checkNote` | her | Prompts, never verdicts: these datings can't all hold as stated. None says which is right. | none | 180 |
+| `atlas.chooseAspect` | her | Choose what this dating dates. | none | 60 |
+| `atlas.chooseAspectOption` | her | Choose one | none | 40 |
+| `atlas.chooseEntryOption` | her | Choose an entry | none | 40 |
+| `atlas.chooseEvidenceSource` | her | Choose the source for evidence {n}. | `{n}` | 70 |
+| `atlas.chooseFrom` | her | Choose the entry the link starts from. | none | 76 |
+| `atlas.chooseHolder` | her | Choose the source that says so. | none | 62 |
+| `atlas.chooseLinkKind` | her | Choose what kind of link this is. | none | 66 |
+| `atlas.chooseLinkKindOption` | her | Choose a kind of link | none | 42 |
+| `atlas.chooseMonth` | her | Choose a month. | none | 40 |
+| `atlas.chooseOther` | her | Choose the entry it's dated against. | none | 72 |
+| `atlas.chooseSourceOption` | her | Choose a source | none | 40 |
+| `atlas.chooseTo` | her | Choose the entry the link goes to. | none | 68 |
+| `atlas.chooseWork` | her | Choose a work from your library, or none. | none | 82 |
+| `atlas.chronology` | her | Chronology | none | 40 |
+| `atlas.chronologyFilters` | her | Show | none | 40 |
+| `atlas.chronologyFind` | her | Entry or link | none | 40 |
+| `atlas.chronologyLede` | her | Every dating in your atlas, as words. Competing datings stand side by side; nothing is preferred, merged or averaged. | none | 234 |
+| `atlas.circa` | her | c. | none | 40 |
+| `atlas.contested` | her | Disputed by {who}. | `{who}` | 40 |
+| `atlas.count` | her | {shown} of {total} entries | `{shown}` `{total}` | 52 |
+| `atlas.cycle` | her | That would make a loop of links. | none | 64 |
+| `atlas.dateLabel` | her | {which} of dating {n} | `{which}` `{n}` | 42 |
+| `atlas.datingApproveHelp` | her | Shown only while what it dates is shown too, with who says so. | none | 124 |
+| `atlas.datingN` | her | Dating {n} | `{n}` | 40 |
+| `atlas.datingNote` | her | Note | none | 40 |
+| `atlas.datingsCount` | her | {count} datings. | `{count}` | 40 |
+| `atlas.datingsOf` | her | Datings of the {aspect} of {name} | `{aspect}` `{name}` | 66 |
+| `atlas.day` | her | Day: {which} | `{which}` | 40 |
+| `atlas.decade` | her | Decade, like 380: {which} | `{which}` | 50 |
+| `atlas.dissentNeedsWhy` | her | Give evidence or a note saying why they disagree ({n}). | `{n}` | 110 |
+| `atlas.dissentNote` | her | Why they disagree ({n}) | `{n}` | 46 |
+| `atlas.dissentWho` | her | Who disagrees ({n}) | `{n}` | 40 |
+| `atlas.dissents` | her | Who disagrees | none | 40 |
+| `atlas.dissentsHelp` | her | Anyone who disputes this link, with their evidence or a note saying why. | none | 144 |
+| `atlas.duplicate` | her | These entries already have that link. | none | 74 |
+| `atlas.during` | her | during | none | 40 |
+| `atlas.duringLasts` | her | During needs a date that lasts: a span, an activity or a composition. | none | 138 |
+| `atlas.edit` | her | Change this entry | none | 40 |
+| `atlas.editEntry` | her | Change the entry | none | 40 |
+| `atlas.editLink` | her | Change | none | 40 |
+| `atlas.editLinkTitle` | her | Change the link | none | 40 |
+| `atlas.emptyText` | her | Add the people, works, ideas, movements and events you study, then note who says what about them. | none | 194 |
+| `atlas.emptyTitle` | her | Your atlas is empty | none | 40 |
+| `atlas.endsHelp` | her | Only entries this kind of link can join are offered. | none | 104 |
+| `atlas.era` | her | BCE or CE: {which} | `{which}` | 40 |
+| `atlas.evidence` | her | Evidence | none | 40 |
+| `atlas.evidenceCount` | her | On {count} pieces of evidence. | `{count}` | 60 |
+| `atlas.evidenceHelp` | her | A source, and where in it. A passage from your notebook is optional and stays private. | none | 172 |
+| `atlas.evidencePassage` | her | Passage for evidence {n} | `{n}` | 48 |
+| `atlas.evidenceSource` | her | Source of evidence {n} | `{n}` | 44 |
+| `atlas.explore` | her | Explore {name} | `{name}` | 40 |
+| `atlas.exploreNote` | her | Only links someone asserted. Nothing is worked out from dates or order. | none | 142 |
+| `atlas.find` | her | Find an entry | none | 40 |
+| `atlas.firm` | her | How firmly they hold it | none | 46 |
+| `atlas.firmHelp` | her | How firmly they hold it, not how widely it's accepted. | none | 108 |
+| `atlas.firmPlausible` | her | Plausible | none | 40 |
+| `atlas.firmStrong` | her | Strong | none | 40 |
+| `atlas.firmTentative` | her | Tentative | none | 40 |
+| `atlas.formAt` | her | On a date | none | 40 |
+| `atlas.formRange` | her | Between two dates | none | 40 |
+| `atlas.formRelative` | her | Before, after or during another entry's date | none | 88 |
+| `atlas.formUnknown` | her | Unknown: they say it isn't known | none | 64 |
+| `atlas.formWindow` | her | Sometime within a window | none | 48 |
+| `atlas.from` | her | from | none | 40 |
+| `atlas.fromYear` | her | from {year} | `{year}` | 40 |
+| `atlas.gone` | her | That isn't in your atlas any more. | none | 68 |
+| `atlas.groupBy` | her | Group by | none | 40 |
+| `atlas.howDated` | her | How it's dated | none | 40 |
+| `atlas.isContested` | her | Disputed. | none | 40 |
+| `atlas.key` | her | Key | none | 40 |
+| `atlas.keyHelp` | her | Lowercase letters, numbers and dashes. It's part of the page's address and can't change later. | none | 188 |
+| `atlas.keyTaken` | her | Something else in your atlas has that key. Choose another. | none | 116 |
+| `atlas.kind` | her | Kind | none | 40 |
+| `atlas.kindConcept` | her | Concept | none | 40 |
+| `atlas.kindEvent` | her | Event | none | 40 |
+| `atlas.kindMovement` | her | Movement | none | 40 |
+| `atlas.kindPerson` | her | Person | none | 40 |
+| `atlas.kindWork` | her | Work | none | 40 |
+| `atlas.label` | her | Name | none | 40 |
+| `atlas.linkApproveHelp` | her | Shown only while both entries are shown too, with who says so and who disagrees. | none | 160 |
+| `atlas.linkKind` | her | What kind of link | none | 40 |
+| `atlas.linkKindReads` | her | Read one way: {reading}. The other way: {inverse}. | `{reading}` `{inverse}` | 100 |
+| `atlas.linkLede` | her | A link records that someone says so. It's never worked out from dates or order. | none | 158 |
+| `atlas.linksFrom` | her | Links from {name} ({count}) | `{name}` `{count}` | 54 |
+| `atlas.linksTo` | her | Links to {name} ({count}) | `{name}` `{count}` | 50 |
+| `atlas.missingConcepts` | her | Concepts your notes use, not in your atlas yet: | none | 94 |
+| `atlas.missingMark` | her | (not in your atlas) | none | 40 |
+| `atlas.month` | her | Month: {which} | `{which}` | 40 |
+| `atlas.nameHolder` | her | Say who says so. | none | 40 |
+| `atlas.needEvidence` | her | Add evidence, or mark it as a draft with no evidence yet. | none | 114 |
+| `atlas.needName` | her | Give it a name. | none | 40 |
+| `atlas.needOneEnd` | her | Give at least one end; the other can stay open. | none | 94 |
+| `atlas.newEntry` | her | New entry | none | 40 |
+| `atlas.noDatings` | her | No datings yet. Add one under When on an entry or link. | none | 110 |
+| `atlas.noDatingsHere` | her | No datings yet. | none | 40 |
+| `atlas.noEvidence` | her | No evidence yet. | none | 40 |
+| `atlas.noPassage` | her | No passage | none | 40 |
+| `atlas.noWork` | her | None | none | 40 |
+| `atlas.noneMatch` | her | No entries match. | none | 40 |
+| `atlas.notAfter` | her | not after | none | 40 |
+| `atlas.notBefore` | her | not before | none | 40 |
+| `atlas.notComplete` | her | not complete yet | none | 40 |
+| `atlas.notCompleteOther` | her | not complete yet: choose the other entry and which of its dates | none | 126 |
+| `atlas.notPublished` | her | Your blog doesn't publish the atlas yet. {helper} can turn it on. | `{helper}` | 130 |
+| `atlas.notesHere` | her | Notes in your notebook on this concept ({count}) | `{count}` | 96 |
+| `atlas.nowPrivate` | her | It's private again. | none | 40 |
+| `atlas.nowShown` | her | Readers can see it once your atlas is published. | none | 96 |
+| `atlas.of` | her | of | none | 40 |
+| `atlas.oneTime` | her | That happens at one time. Use a window instead of two dates. | none | 120 |
+| `atlas.onlyAspect` | her | only {aspect} | `{aspect}` | 40 |
+| `atlas.onlyCompeting` | her | only competing datings | none | 44 |
+| `atlas.onlyCompetingBox` | her | Only competing datings | none | 44 |
+| `atlas.onlyPrompted` | her | only datings to check | none | 42 |
+| `atlas.onlyPromptedBox` | her | Only datings to check | none | 42 |
+| `atlas.open` | her | open | none | 40 |
+| `atlas.openStart` | her | No earliest date stated | none | 46 |
+| `atlas.order` | her | Before, after or during | none | 46 |
+| `atlas.otherAspect` | her | Which of its dates | none | 40 |
+| `atlas.otherEntry` | her | The other entry | none | 40 |
+| `atlas.outsideWindow` | her | (outside these years) | none | 42 |
+| `atlas.passageGone` | her | The passage for evidence {n} isn't in your notebook any more. | `{n}` | 122 |
+| `atlas.passageOtherSource` | her | That passage comes from another source. Choose one from this source. | none | 136 |
+| `atlas.precision` | her | How exact: {which} | `{which}` | 40 |
+| `atlas.precisionCentury` | her | Century | none | 40 |
+| `atlas.precisionDay` | her | Day | none | 40 |
+| `atlas.precisionDecade` | her | Decade | none | 40 |
+| `atlas.precisionMonth` | her | Month | none | 40 |
+| `atlas.precisionOpen` | her | Left open | none | 40 |
+| `atlas.precisionYear` | her | Year | none | 40 |
+| `atlas.readersCan` | her | Readers can see it | none | 40 |
+| `atlas.readersSee` | her | Readers can see it | none | 40 |
+| `atlas.readsAs` | her | Reads as: {date} | `{date}` | 40 |
+| `atlas.rebuildFailed` | her | Saved, but your published atlas didn't update. Tell {helper}. | `{helper}` | 122 |
+| `atlas.rebuilt` | her | Your published atlas was updated. | none | 66 |
+| `atlas.relative` | her | Relative datings ({count}) | `{count}` | 52 |
+| `atlas.removed` | her | Taken out of your atlas. | none | 48 |
+| `atlas.removedNotes` | her | {count} notes now name a concept with no entry: {list}. | `{count}` `{list}` | 110 |
+| `atlas.reversed` | her | The start is later than the end. Check the years and BCE or CE. | none | 126 |
+| `atlas.sameDating` | her | That dating is already here. | none | 56 |
+| `atlas.sameKindEnds` | her | This kind of link joins two entries of the same kind. | none | 106 |
+| `atlas.sameName` | her | Each other name only once. | none | 52 |
+| `atlas.save` | her | Save | none | 40 |
+| `atlas.saved` | her | Saved to your atlas. | none | 40 |
+| `atlas.saySoOn` | her | say so, on {count} pieces of evidence | `{count}` | 74 |
+| `atlas.self` | her | A link needs two different entries. | none | 70 |
+| `atlas.showNeedsEvidence` | her | Readers can't see a draft with no evidence. Add evidence first. | none | 126 |
+| `atlas.showNoPassage` | her | What readers see can't point into your notebook. Take the passage out and keep the source and places. | none | 202 |
+| `atlas.showing` | her | {shown} of {total} datings | `{shown}` `{total}` | 52 |
+| `atlas.slotAt` | her | The date | none | 40 |
+| `atlas.slotFrom` | her | Start | none | 40 |
+| `atlas.slotNotAfter` | her | Not after | none | 40 |
+| `atlas.slotNotBefore` | her | Not before | none | 40 |
+| `atlas.slotTo` | her | End | none | 40 |
+| `atlas.stillLinked` | her | Links still join this entry. Take them out first. | none | 98 |
+| `atlas.strongNeedsEvidence` | her | A draft with no evidence can't be held strongly. Add evidence first. | none | 136 |
+| `atlas.summary` | her | Summary | none | 40 |
+| `atlas.summaryHelp` | her | Your own words. Quoted words belong in a passage. | none | 98 |
+| `atlas.takeOut` | her | Take it out | none | 40 |
+| `atlas.takeOutAlias` | her | Take out other name {n} | `{n}` | 46 |
+| `atlas.takeOutDating` | her | Take out dating {n} | `{n}` | 40 |
+| `atlas.takeOutDissent` | her | Take out disagreement {n} | `{n}` | 50 |
+| `atlas.takeOutEvidence` | her | Take out evidence {n} | `{n}` | 42 |
+| `atlas.takeOutLink` | her | Take out this link | none | 40 |
+| `atlas.the` | her | the | none | 40 |
+| `atlas.timeline` | her | Timeline | none | 40 |
+| `atlas.timelineNote` | her | Order is for reading only. It never relates two datings. | none | 112 |
+| `atlas.title` | her | Your atlas | none | 40 |
+| `atlas.to` | her | to | none | 40 |
+| `atlas.toCheck` | her | To check | none | 40 |
+| `atlas.toCheckCount` | her | Datings to check ({count}) | `{count}` | 52 |
+| `atlas.toYear` | her | to {year} | `{year}` | 40 |
+| `atlas.tooManyDatings` | her | At most {max} datings here. | `{max}` | 54 |
+| `atlas.tooManyDissents` | her | At most {max} people who disagree. | `{max}` | 68 |
+| `atlas.tooManyNames` | her | That's more other names than an entry can have ({max}). | `{max}` | 110 |
+| `atlas.tooManyPlaces` | her | At most {max} places for each source of evidence. | `{max}` | 98 |
+| `atlas.tooMuchEvidence` | her | At most {max} pieces of evidence here. | `{max}` | 76 |
+| `atlas.uncertainty` | her | What's uncertain | none | 40 |
+| `atlas.unknown` | her | unknown | none | 40 |
+| `atlas.unnamed` | her | someone not named | none | 40 |
+| `atlas.unplaced` | her | Not placed in time ({count}) | `{count}` | 56 |
+| `atlas.unsourced` | her | A draft with no evidence yet | none | 56 |
+| `atlas.until` | her | until | none | 40 |
+| `atlas.whatEnd` | her | an entry it joins | none | 40 |
+| `atlas.whatItDates` | her | What it dates | none | 40 |
+| `atlas.when` | her | When | none | 40 |
+| `atlas.whenCount` | her | When ({count}) | `{count}` | 40 |
+| `atlas.whenHelp` | her | Each dating says who dates what, on which evidence, as exactly as they state it. Competing datings stay side by side. | none | 234 |
+| `atlas.whereIn` | her | Where in the source (evidence {n}) | `{n}` | 68 |
+| `atlas.whichSource` | her | Which source | none | 40 |
+| `atlas.who` | her | Who says so | none | 40 |
+| `atlas.whoName` | her | Their name | none | 40 |
+| `atlas.windowBad` | her | Use whole years with BCE or CE, so these years aren't used. | none | 118 |
+| `atlas.windowFrom` | her | From year | none | 40 |
+| `atlas.windowFromEra` | her | From: BCE or CE | none | 40 |
+| `atlas.windowHelp` | her | Leave either end empty to keep it open. | none | 78 |
+| `atlas.windowReversed` | her | The start is after the end, so these years aren't used. | none | 110 |
+| `atlas.windowTo` | her | To year | none | 40 |
+| `atlas.windowToEra` | her | To: BCE or CE | none | 40 |
+| `atlas.work` | her | The work in your library | none | 48 |
+| `atlas.year` | her | Year: {which} | `{which}` | 40 |
+| `atlas.yearHelp` | her | Whole years, with BCE or CE. There is no year 0. | none | 96 |
+| `atlas.you` | her | you | none | 40 |
 | `bluesky.nameError` | her | Type your Bluesky name, like yourname.bsky.social. | none | 100 |
 | `bluesky.namePlaceholder` | her | yourname.bsky.social | none | 60 |
 | `card.answers` | her | {count} answers | `{count}` | 40 |
@@ -304,6 +553,71 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `cite.whereHelp` | her | Like page 514, or canonical place 514a to 520a. | none | 94 |
 | `cite.wordsHelp` | her | A citation shows in your words as [@ and its source's key. Change it with its button under the words. | none | 202 |
 | `cite.writes` | details | What it writes: {markdown} | `{markdown}` | 52 |
+| `claims.ambiguous` | her | The words are in your post twice. Select the one you mean. | none | 116 |
+| `claims.approveHelp` | her | You agree to show this claim and what's doubtful in the post's Claims and evidence part. | none | 176 |
+| `claims.badPlace` | her | Each place needs a kind and a value, like page 514. | none | 102 |
+| `claims.change` | her | Change | none | 40 |
+| `claims.changeLink` | her | Change | none | 40 |
+| `claims.checked` | her | What you've checked | none | 40 |
+| `claims.chooseRelation` | her | Choose how the source bears on the claim. A citation alone says none of these. | none | 156 |
+| `claims.chooseSource` | her | Choose the source. | none | 40 |
+| `claims.column` | her | {what} ({count}) | `{what}` `{count}` | 40 |
+| `claims.context` | her | Gives context | none | 40 |
+| `claims.contradicts` | her | Contradicts | none | 40 |
+| `claims.counts` | her | {supports} supporting, {contradicts} contradicting, {context} giving context | `{supports}` `{contradicts}` `{context}` | 152 |
+| `claims.doubtful` | her | What's doubtful: | none | 40 |
+| `claims.doubtfulField` | her | What's doubtful | none | 40 |
+| `claims.findFirst` | her | Find the words again before adding evidence, so evidence never lands on words you didn't choose. | none | 192 |
+| `claims.follow` | her | Follow them | none | 40 |
+| `claims.followed` | her | The claim now follows its words. | none | 64 |
+| `claims.gaps` | her | Gaps and prompts ({count}) | `{count}` | 52 |
+| `claims.inPlace` | her | In place. | none | 40 |
+| `claims.lede` | her | Private to you. A claim is your statement in this post; evidence records how one source bears on it. Nothing here scores evidence or decides what's true, and a citation alone links nothing. | none | 240 |
+| `claims.link` | her | Link evidence | none | 40 |
+| `claims.linkApproveHelp` | her | You agree to show its source, places, how it bears, your reasoning, how firmly and what's uncertain beside the claim. | none | 234 |
+| `claims.linkFor` | her | Link evidence to: {statement} | `{statement}` | 58 |
+| `claims.linkSaved` | her | Evidence saved privately. | none | 50 |
+| `claims.linkTitle` | her | Evidence for: | none | 40 |
+| `claims.lost` | her | The words aren't in your post any more. Select them again. | none | 116 |
+| `claims.make` | her | Make a claim from the selected words | none | 72 |
+| `claims.moved` | her | The words moved. | none | 40 |
+| `claims.noPassagePublic` | her | Evidence readers see cites the source and places, never a private passage. Take the passage out or keep it private. | none | 230 |
+| `claims.none` | her | No claims in this post yet. | none | 54 |
+| `claims.noneContext` | her | No evidence giving context recorded. | none | 72 |
+| `claims.noneContradicts` | her | No contradicting evidence recorded. | none | 70 |
+| `claims.noneSupports` | her | No supporting evidence recorded. | none | 64 |
+| `claims.onePart` | her | Select words inside one paragraph, heading, list or quote. | none | 116 |
+| `claims.passage` | her | Passage | none | 40 |
+| `claims.passageHelp` | her | Optional. Stays private; it's pointed to, never copied. | none | 110 |
+| `claims.passageOtherSource` | her | That passage comes from another source. | none | 78 |
+| `claims.plainWords` | her | Select plain words: these have hidden characters in them. | none | 114 |
+| `claims.relation` | her | How does this source bear on the claim? | none | 78 |
+| `claims.relationHelp` | her | Your reading of the source. Nothing checks whether it's true. | none | 122 |
+| `claims.removed` | her | Taken out. | none | 40 |
+| `claims.reviewNone` | her | Not compared with the source yet | none | 64 |
+| `claims.reviewPlace` | her | Checked the place in the source | none | 62 |
+| `claims.reviewRead` | her | Read it, and I stand behind this | none | 64 |
+| `claims.reviewSuggested` | her | Check a suggested link yourself before readers see it. | none | 108 |
+| `claims.save` | her | Save | none | 40 |
+| `claims.saveFirst` | her | Press Update first: claims are checked against your saved post. | none | 126 |
+| `claims.saved` | her | Saved privately. | none | 40 |
+| `claims.selectAgain` | her | Select again | none | 40 |
+| `claims.selectFirst` | her | Select the words of the claim in your post first. | none | 98 |
+| `claims.showBoth` | her | Readers can't see this claim's support without its contradicting evidence. Let them see both, or neither. | none | 210 |
+| `claims.source` | her | Source | none | 40 |
+| `claims.statement` | her | The claim, in your words | none | 48 |
+| `claims.summary` | her | {detected} found, {potential} possible, {review} to review. | `{detected}` `{potential}` `{review}` | 118 |
+| `claims.summaryNone` | her | No gaps or prompts for this post's claims from the checks that ran. | none | 134 |
+| `claims.supports` | her | Supports | none | 40 |
+| `claims.takeOut` | her | Take it out | none | 40 |
+| `claims.takeOutLink` | her | Take it out | none | 40 |
+| `claims.title` | her | Claims and evidence | none | 40 |
+| `claims.tooMuch` | her | Select at most {max} letters for one claim. | `{max}` | 86 |
+| `claims.twice` | her | Those words are in your post twice. Select the one you mean. | none | 120 |
+| `claims.where` | her | Where in it | none | 40 |
+| `claims.whole` | her | About the whole post. | none | 42 |
+| `claims.why` | her | Why you read it this way | none | 48 |
+| `claims.words` | her | About the words: “{text}” | `{text}` | 50 |
 | `common.ask` | her | Ask {helper}. | `{helper}` | 40 |
 | `common.canChange` | her | {helper} can change that. | `{helper}` | 50 |
 | `common.canTurnOn` | her | {helper} can turn it on. | `{helper}` | 48 |
@@ -318,7 +632,166 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `common.tryAgain` | her | Try again | none | 40 |
 | `common.whatGoes` | her | What goes to {company} | `{company}` | 44 |
 | `common.wordForWord` | her | Word for word | none | 40 |
+| `compare.aSource` | her | Source | none | 40 |
+| `compare.aVersion` | her | A version in your library | none | 50 |
+| `compare.absent` | her | This version doesn't have this passage. | none | 78 |
+| `compare.absentHere` | her | This version doesn't have it | none | 56 |
+| `compare.add` | her | Add an alignment | none | 40 |
+| `compare.addPlace` | her | Add a place | none | 40 |
+| `compare.added` | her | Alignment added. It's private until you let readers see it. | none | 118 |
+| `compare.allVersions` | her | All versions | none | 40 |
+| `compare.anInterpretation` | her | An interpretation | none | 40 |
+| `compare.anonymous` | her | Made by: nobody named | none | 42 |
+| `compare.approveHelp` | her | You agree to show these aligned passages on your blog, quoting only words whose rights you cleared. | none | 198 |
+| `compare.approvedNotPublished` | her | Approved, but your blog doesn't publish aligned passages yet. {helper} can turn it on. | `{helper}` | 172 |
+| `compare.archived` | her | Archived | none | 40 |
+| `compare.backToList` | her | ‹ Your alignments | none | 40 |
+| `compare.browser` | her | app | none | 40 |
+| `compare.checkPlace` | her | Check this place: it may not match what your library says. | none | 116 |
+| `compare.chooseInterpretation` | her | Choose the interpretation for place {n}. | `{n}` | 80 |
+| `compare.chooseOption` | her | Choose one | none | 40 |
+| `compare.chooseVersion` | her | Choose the version place {n} is in. | `{n}` | 70 |
+| `compare.copied` | her | Copied {count} places. | `{count}` | 44 |
+| `compare.copy` | her | Copy | none | 40 |
+| `compare.copyThem` | her | Copy them | none | 40 |
+| `compare.copyTitle` | her | Copy or download places | none | 46 |
+| `compare.copyYourself` | her | Your {app} didn't allow copying. Select the text below and copy it. | `{app}` | 134 |
+| `compare.corresponding` | her | You read these places as corresponding | none | 76 |
+| `compare.divergent` | her | You read these places as corresponding but differing | none | 104 |
+| `compare.download` | her | Download | none | 40 |
+| `compare.downloaded` | her | Saved alignment-{id}.txt. | `{id}` | 50 |
+| `compare.edit` | her | Change | none | 40 |
+| `compare.editLede` | her | Aligning places records where you read them as corresponding, never that they mean the same thing. | none | 196 |
+| `compare.editTitle` | her | Change {name} | `{name}` | 40 |
+| `compare.emptyText` | her | Add your first alignment: the places in two or more versions you read as corresponding. | none | 174 |
+| `compare.emptyTitle` | her | Nothing to compare yet | none | 44 |
+| `compare.exportFooter` | her | Copied from your private research. Rights statements are your own; nothing here decides what copying is allowed. | none | 224 |
+| `compare.exportName` | her | Alignment: | none | 40 |
+| `compare.exportNoPlace` | her | not recorded | none | 40 |
+| `compare.exportPlace` | her | Where: | none | 40 |
+| `compare.exportWords` | her | The exact words, from {from}: | `{from}` | 58 |
+| `compare.factHeldAt` | her | Held at | none | 40 |
+| `compare.factInterprets` | her | Interprets | none | 40 |
+| `compare.factIssued` | her | Issued | none | 40 |
+| `compare.factLibrary` | her | In your library | none | 40 |
+| `compare.factMadeFrom` | her | Made from | none | 40 |
+| `compare.factOf` | her | A form of | none | 40 |
+| `compare.factRevises` | her | Revises | none | 40 |
+| `compare.factUncertain` | her | Uncertain | none | 40 |
+| `compare.factVolumes` | her | Volumes | none | 40 |
+| `compare.fromInterpretation` | her | the interpretation | none | 40 |
+| `compare.fromPassage` | her | your notebook | none | 40 |
+| `compare.gone` | her | That alignment isn't here any more. | none | 70 |
+| `compare.howCorrespond` | her | How they correspond | none | 40 |
+| `compare.includeNotes` | her | Include my notes on places | none | 52 |
+| `compare.interpretation` | her | Interpretation | none | 40 |
+| `compare.interpretationGone` | her | The interpretation for place {n} isn't in your library any more. | `{n}` | 128 |
+| `compare.keyTaken` | her | Another alignment has that key. Choose another. | none | 94 |
+| `compare.layout` | her | Layout | none | 40 |
+| `compare.locatedOnly` | her | No words kept for this place; only where it is. | none | 94 |
+| `compare.madeBy` | her | Made by: {names} | `{names}` | 40 |
+| `compare.missingPassage` | her | The passage this place names is gone. | none | 74 |
+| `compare.name` | her | Name | none | 40 |
+| `compare.needTwo` | her | An alignment needs places in at least two versions, and at least one that has the passage. | none | 180 |
+| `compare.newAlignment` | her | New alignment | none | 40 |
+| `compare.normalized` | her | Your normalization, not the source's words | none | 84 |
+| `compare.normalizedHidden` | her | You wrote a normalization. Turn on Show your normalizations to read it. | none | 142 |
+| `compare.normalizedNote` | her | What you normalized (place {n}) | `{n}` | 62 |
+| `compare.normalizedWording` | her | Your normalized words for place {n} (optional) | `{n}` | 92 |
+| `compare.notAWork` | her | Choose an edition, translation or manuscript for place {n}: a work has no words of its own. | `{n}` | 182 |
+| `compare.notInLibrary` | her | Not in your library | none | 40 |
+| `compare.notNow` | her | Not now | none | 40 |
+| `compare.notPublishedHelp` | her | Your blog doesn't publish aligned passages yet. {helper} can turn it on. | `{helper}` | 144 |
+| `compare.notesHelp` | her | Your notes are private, so they're left out unless you include them. | none | 136 |
+| `compare.notice` | her | An alignment records where you read these places as corresponding. It doesn't say they mean the same thing, and no version is treated as the right one. | none | 240 |
+| `compare.oneAfter` | her | One after another | none | 40 |
+| `compare.partial` | her | You read these places as corresponding in part | none | 92 |
+| `compare.passage` | her | Passage from your notebook for place {n} | `{n}` | 80 |
+| `compare.placeAbsent` | her | Readers see that this version doesn't have it. | none | 92 |
+| `compare.placeHeldLength` | her | Readers see where it is, not the words: they're longer than {max} letters. | `{max}` | 148 |
+| `compare.placeHeldRights` | her | Readers see where it is, not the words: the version's rights aren't cleared. | none | 152 |
+| `compare.placeNote` | her | Your note: {note} | `{note}` | 40 |
+| `compare.placeNoteField` | her | Your note on place {n} | `{n}` | 44 |
+| `compare.placeShown` | her | Readers see these words, with the version's rights statement. | none | 122 |
+| `compare.placeType` | her | Place {n} is in | `{n}` | 40 |
+| `compare.placeUnquoted` | her | Readers see where it is; no words are kept for it. | none | 100 |
+| `compare.places` | her | Versions and places | none | 40 |
+| `compare.private` | her | Private: not published. | none | 46 |
+| `compare.published` | her | Published at {address}. | `{address}` | 46 |
+| `compare.reading` | her | Reading | none | 40 |
+| `compare.reasoning` | her | Your reasoning | none | 40 |
+| `compare.rebuildFailed` | her | Saved, but your published aligned passages didn't update. Tell {helper}. | `{helper}` | 144 |
+| `compare.rebuilt` | her | Your published aligned passages were updated. | none | 90 |
+| `compare.recordedBy` | her | Who reads them this way | none | 46 |
+| `compare.recordedByWho` | her | recorded by {who} | `{who}` | 40 |
+| `compare.removed` | her | Alignment taken out. | none | 40 |
+| `compare.rendering` | her | Rendering | none | 40 |
+| `compare.rights` | her | Rights: {label} | `{label}` | 40 |
+| `compare.rightsText` | her | These are your own statements about rights; they don't say copying is allowed. Copying them is your decision. | none | 218 |
+| `compare.rightsTitle` | her | Copy words whose rights aren't cleared? | none | 78 |
+| `compare.rightsYours` | her | Rights statements are your own. | none | 62 |
+| `compare.saved` | her | Alignment saved. | none | 40 |
+| `compare.sayWhere` | her | Say where place {n} is, or choose a passage, or mark that this version doesn't have it. | `{n}` | 174 |
+| `compare.selectAll` | her | Select all | none | 40 |
+| `compare.selectFirst` | her | Select at least one place first. | none | 64 |
+| `compare.selectPlace` | her | Select place {n} | `{n}` | 40 |
+| `compare.selected` | her | {count} places selected. | `{count}` | 48 |
+| `compare.showNormalized` | her | Show your normalizations | none | 48 |
+| `compare.sideBySide` | her | Side by side | none | 40 |
+| `compare.takeOut` | her | Take out this alignment | none | 46 |
+| `compare.takeOutPlace` | her | Take out place {n} | `{n}` | 40 |
+| `compare.theText` | her | The places, as text | none | 40 |
+| `compare.title` | her | Compare versions | none | 40 |
+| `compare.tooManyPlaces` | her | At most {max} places in one alignment. | `{max}` | 76 |
+| `compare.uncertain` | her | Uncertain: | none | 40 |
+| `compare.version` | her | Version for place {n} | `{n}` | 42 |
+| `compare.versionFilter` | her | Version | none | 40 |
+| `compare.versionsCount` | her | {count} versions | `{count}` | 40 |
+| `compare.where` | her | Where it is (place {n}) | `{n}` | 46 |
+| `compare.whichInterpretation` | her | Interpretation for place {n} | `{n}` | 56 |
+| `compare.why` | her | Why: | none | 40 |
 | `copy.notReady` | her | Your blog can't make a copy for it right now. Try another, or tell {helper}. | `{helper}` | 152 |
+| `curate.by` | her | By | none | 40 |
+| `curate.changed` | her | Your choices changed somewhere else. Here they are now. | none | 110 |
+| `curate.chooseComment` | her | Add my comment on this source | none | 58 |
+| `curate.chooseComparison` | her | Choose these aligned passages | none | 58 |
+| `curate.chooseDating` | her | Choose the dating “{date}” | `{date}` | 52 |
+| `curate.chooseEntry` | her | Choose this entry | none | 40 |
+| `curate.chooseExplanation` | her | Add my explanation of this entry | none | 64 |
+| `curate.chooseLink` | her | Choose the link “{label}” | `{label}` | 50 |
+| `curate.chooseSource` | her | Choose this source as a reference | none | 66 |
+| `curate.chooseTitle` | her | Choose for readers | none | 40 |
+| `curate.chosen` | her | Chosen for readers. | none | 40 |
+| `curate.chosenTitle` | her | Chosen for readers ({count}) | `{count}` | 56 |
+| `curate.find` | her | For readers | none | 40 |
+| `curate.kindComment` | her | Your comment on a source | none | 48 |
+| `curate.kindComparison` | her | Aligned passages | none | 40 |
+| `curate.kindDating` | her | Dating | none | 40 |
+| `curate.kindEntry` | her | Atlas entry | none | 40 |
+| `curate.kindExplanation` | her | Your explanation of an entry | none | 56 |
+| `curate.kindLink` | her | Link between entries | none | 40 |
+| `curate.kindReference` | her | Reference | none | 40 |
+| `curate.lede` | her | Choose research readers get beside this post. Choosing never makes anything public that isn't already. | none | 204 |
+| `curate.moveDown` | her | Move down | none | 40 |
+| `curate.moveDownLabel` | her | Move down: {name} | `{name}` | 40 |
+| `curate.moveUp` | her | Move up | none | 40 |
+| `curate.moveUpLabel` | her | Move up: {name} | `{name}` | 40 |
+| `curate.moved` | her | Moved. | none | 40 |
+| `curate.needBy` | her | Say who wrote it. | none | 40 |
+| `curate.needText` | her | Write your comment. | none | 40 |
+| `curate.noneChosen` | her | Nothing chosen yet. | none | 40 |
+| `curate.notYet` | her | Not choosable yet: no published post, atlas or aligned passages show it. Choosing never approves it. | none | 200 |
+| `curate.saveFirst` | her | Save your post first, then choose what readers get beside it. | none | 122 |
+| `curate.seeWhat` | her | See what readers get | none | 40 |
+| `curate.showAgain` | her | Show it again | none | 40 |
+| `curate.shown` | her | Shown to readers | none | 40 |
+| `curate.shownAgain` | her | Chosen again, as it is now. | none | 54 |
+| `curate.stop` | her | Stop showing | none | 40 |
+| `curate.stopped` | her | Readers won't get it now. | none | 50 |
+| `curate.takeOut` | her | Take it out | none | 40 |
+| `curate.takenOut` | her | Taken out of what readers get. | none | 60 |
+| `curate.text` | her | Your words | none | 40 |
+| `curate.title` | her | For readers of this post | none | 48 |
 | `decorations.betweenOff` | her | The look {product} wears while the calendar is off. | `{product}` | 102 |
 | `decorations.byItself` | her | {product} changes by itself on the days below. | `{product}` | 92 |
 | `decorations.calendarOff` | her | {product} wears {theme} every day. The calendar is off. | `{product}` `{theme}` | 110 |
@@ -1060,6 +1533,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `notebook.aboutPassages` | her | About these passages | none | 40 |
 | `notebook.aboutSources` | her | About these sources | none | 40 |
 | `notebook.addPlace` | her | Add another place | none | 40 |
+| `notebook.addToAtlas` | her | Add it to the atlas | none | 40 |
 | `notebook.all` | her | Everything | none | 40 |
 | `notebook.alsoConcept` | her | Notes on {concept} ({count}) | `{concept}` `{count}` | 56 |
 | `notebook.alsoNone` | her | Nothing else yet. | none | 40 |
@@ -1092,8 +1566,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `notebook.citeIt` | her | Cite it in your post | none | 40 |
 | `notebook.clear` | her | Clear the filters | none | 40 |
 | `notebook.concept` | her | Concept | none | 40 |
+| `notebook.conceptEntry` | her | In your atlas: {label} | `{label}` | 44 |
+| `notebook.conceptMissing` | her | isn't in your atlas yet. | none | 48 |
 | `notebook.concepts` | her | Concepts | none | 40 |
 | `notebook.conceptsHelp` | her | Lowercase words, like allegory or the-good. | none | 86 |
+| `notebook.conceptsTitle` | her | Its concepts in your atlas | none | 52 |
 | `notebook.conflict` | her | Your notebook changed somewhere else, so nothing was saved. Your changes are still here. | none | 176 |
 | `notebook.copied` | her | Saved {filename}: {passages} passages and {notes} notes. | `{filename}` `{passages}` `{notes}` | 112 |
 | `notebook.copyGo` | her | Save the copy | none | 40 |
@@ -1188,6 +1665,94 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `place.through` | her | to | none | 40 |
 | `place.timestamp` | her | time | none | 40 |
 | `place.toRow` | her | Place {n} ends at | `{n}` | 40 |
+| `public.at` | her | At | none | 40 |
+| `public.cantBuild` | her | What readers see can't be worked out right now: your blog doesn't build as it stands. Tell {helper}. | `{helper}` | 200 |
+| `public.checkAgain` | her | Check again | none | 40 |
+| `public.checked` | her | Checked again. | none | 40 |
+| `public.checksFailed` | her | The research checks didn't run. What readers see is still listed above. | none | 142 |
+| `public.counts` | her | {shown} shown. {held} stay private. | `{shown}` `{held}` | 70 |
+| `public.fieldAddress` | her | Address | none | 40 |
+| `public.fieldAliases` | her | Other names | none | 40 |
+| `public.fieldAspect` | her | Which date | none | 40 |
+| `public.fieldBy` | her | Who wrote it | none | 40 |
+| `public.fieldCorrespondence` | her | How the places correspond | none | 50 |
+| `public.fieldCsl` | her | Full reference details | none | 44 |
+| `public.fieldDate` | her | The date, as they state it | none | 52 |
+| `public.fieldDates` | her | What it dates | none | 40 |
+| `public.fieldDisputed` | her | Who disputes it | none | 40 |
+| `public.fieldDoubt` | her | What's uncertain | none | 40 |
+| `public.fieldEvidence` | her | The evidence | none | 40 |
+| `public.fieldFirm` | her | How firmly | none | 40 |
+| `public.fieldFirstYear` | her | First year | none | 40 |
+| `public.fieldFrom` | her | From | none | 40 |
+| `public.fieldIdentifiers` | her | Identifiers | none | 40 |
+| `public.fieldIssued` | her | Date issued | none | 40 |
+| `public.fieldKey` | her | Key | none | 40 |
+| `public.fieldKind` | her | Kind | none | 40 |
+| `public.fieldLanguage` | her | Language | none | 40 |
+| `public.fieldLastYear` | her | Last year | none | 40 |
+| `public.fieldName` | her | Name | none | 40 |
+| `public.fieldNote` | her | Their note | none | 40 |
+| `public.fieldOtherWay` | her | Read the other way | none | 40 |
+| `public.fieldPeople` | her | People | none | 40 |
+| `public.fieldPlacement` | her | How it's placed in time | none | 46 |
+| `public.fieldReasoning` | her | The reasoning | none | 40 |
+| `public.fieldRecordedBy` | her | Who recorded it | none | 40 |
+| `public.fieldShown` | her | shown | none | 40 |
+| `public.fieldStanding` | her | Whether it's disputed | none | 42 |
+| `public.fieldSummary` | her | Summary | none | 40 |
+| `public.fieldTitle` | her | Title | none | 40 |
+| `public.fieldTo` | her | To | none | 40 |
+| `public.fieldVersions` | her | The versions compared | none | 42 |
+| `public.fieldWhere` | her | Where in the source | none | 40 |
+| `public.fieldWho` | her | Who says so | none | 40 |
+| `public.fieldWording` | her | The compared words (only where each version's rights allow) | none | 118 |
+| `public.fieldWords` | her | The words | none | 40 |
+| `public.fieldWork` | her | The work it stands for | none | 44 |
+| `public.fromPost` | her | What readers will see from this post | none | 72 |
+| `public.fromPostFailed` | her | What readers will see from this post couldn't be worked out just now. Check again in a moment. | none | 188 |
+| `public.held` | her | Stays private ({count}) | `{count}` | 46 |
+| `public.lede` | her | Nothing in your research is public because it exists. Each part shows only what you let readers see; everything else stays private, and says why. | none | 240 |
+| `public.never` | her | Never shown | none | 40 |
+| `public.neverText` | her | Your notebook, your notes and anything you haven't let readers see are never published. | none | 174 |
+| `public.nothingShown` | her | Nothing shown from here. | none | 48 |
+| `public.shownBadge` | her | Readers see this | none | 40 |
+| `public.storeAtlas` | her | Atlas entries | none | 40 |
+| `public.storeBlocked` | her | This part couldn't be checked. Tell {helper}. | `{helper}` | 90 |
+| `public.storeChosen` | her | Chosen for readers | none | 40 |
+| `public.storeClaims` | her | Claims and evidence | none | 40 |
+| `public.storeComparisons` | her | Aligned passages | none | 40 |
+| `public.storeDatings` | her | Datings | none | 40 |
+| `public.storeInterpretations` | her | Readings side by side | none | 42 |
+| `public.storeLinks` | her | Links to research pages | none | 46 |
+| `public.storeOff` | her | Your blog doesn't publish this part. {helper} can turn it on. | `{helper}` | 122 |
+| `public.storePaths` | her | Reading paths | none | 40 |
+| `public.storeSources` | her | Sources your posts cite | none | 46 |
+| `public.tab` | her | What readers see | none | 40 |
+| `public.title` | her | What readers see from your research | none | 70 |
+| `public.whyAddress` | her | Its web address isn't one readers should be given. | none | 100 |
+| `public.whyContradiction` | her | Evidence against it is still private. | none | 74 |
+| `public.whyDisagrees` | her | What would be published doesn't agree with itself, so it's left out. Tell {helper}. | `{helper}` | 166 |
+| `public.whyGone` | her | What it chose isn't there any more. | none | 70 |
+| `public.whyHeld` | her | It stays private. | none | 40 |
+| `public.whyIdentifier` | her | That kind of identifier is never shown. | none | 78 |
+| `public.whyLength` | her | The words are longer than a short quotation. | none | 88 |
+| `public.whyLoop` | her | What it needs leads back to it. | none | 62 |
+| `public.whyNeedsGone` | her | Something it needs isn't there. | none | 62 |
+| `public.whyNeedsHeld` | her | Something it needs is held back. | none | 64 |
+| `public.whyNoPost` | her | No published post, atlas or aligned passages show it yet. | none | 114 |
+| `public.whyNotPublished` | her | It isn't in what your blog publishes. | none | 74 |
+| `public.whyNotShown` | her | You haven't let readers see it. | none | 62 |
+| `public.whyPageNotUp` | her | The page it links to isn't on your blog yet. | none | 88 |
+| `public.whyPassage` | her | It points into your notebook. | none | 58 |
+| `public.whyPostNotUp` | her | Its post isn't on your blog yet. | none | 64 |
+| `public.whyRights` | her | The words are held back under their rights statement. | none | 106 |
+| `public.whySiteOff` | her | Your blog doesn't publish this yet. | none | 70 |
+| `public.whyStale` | her | It changed after you chose it. Choose it again to show it as it is now. | none | 142 |
+| `public.whyTooBig` | her | It's over a size limit, so it's left out. Tell {helper}. | `{helper}` | 112 |
+| `public.whyUnsourced` | her | It's a draft with no evidence yet. | none | 68 |
+| `public.whyWithdrawn` | her | You stopped showing it. | none | 46 |
+| `public.whyWordsMoved` | her | The words it's about have changed. | none | 68 |
 | `quotation.changeHelp` | her | The quoted words stay exactly as you kept them. Change them in your notebook. | none | 154 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
 | `ready.addCover` | her | Add a cover photo | none | 40 |
@@ -1300,10 +1865,12 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `research.fill` | her | Fill this in. | none | 40 |
 | `research.findStart` | details | Start research (for {helper}) | `{helper}` | 58 |
 | `research.home` | her | Home | none | 40 |
+| `research.keepMine` | her | Keep mine, on the newer one | none | 54 |
 | `research.kept` | her | You have an unsaved {what}: “{name}”. | `{what}` `{name}` | 74 |
 | `research.keptGo` | her | Go back to it | none | 40 |
 | `research.keptHere` | her | Kept on this phone until you save it or close {product}. | `{product}` | 112 |
 | `research.keptMany` | her | You have {count} unsaved changes in your research. | `{count}` | 100 |
+| `research.keptMine` | her | Your changes now rest on the newer copy. Save again to keep them. | none | 130 |
 | `research.leaveGo` | her | Leave them out | none | 40 |
 | `research.leaveItOut` | her | Leave it out | none | 40 |
 | `research.leaveStay` | her | Stay in research | none | 40 |
@@ -1315,9 +1882,13 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `research.noSignal` | her | {product} can't reach your research right now. Nothing changed. Try again when you have a signal. | `{product}` | 194 |
 | `research.notChecked` | her | Nothing checked this link. | none | 52 |
 | `research.open` | her | Open | none | 40 |
+| `research.openAtlas` | her | Open the atlas | none | 40 |
+| `research.openCompare` | her | Compare versions | none | 40 |
 | `research.openIt` | her | Open it | none | 40 |
 | `research.openNotebook` | her | Open your notebook | none | 40 |
+| `research.openPublic` | her | See what readers see | none | 40 |
 | `research.openSources` | her | Open Sources | none | 40 |
+| `research.optional` | her | Optional. | none | 40 |
 | `research.private` | her | Private | none | 40 |
 | `research.privateLine` | her | Everything here is private. A post shows a source only when it cites it; atlas entries, links, claims and aligned passages only when you approve them. | none | 240 |
 | `research.readersSee` | her | Readers see this | none | 40 |
@@ -1332,23 +1903,38 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `research.stepPassageDone` | her | {passages} passages and {notes} notes. | `{passages}` `{notes}` | 76 |
 | `research.stepPassageNone` | her | Not started: no passages kept yet. | none | 68 |
 | `research.stepPassageText` | her | Copy the exact words with where they are in the source, and keep your own notes and questions beside them. | none | 212 |
+| `research.stepPublic` | her | Check what readers will see | none | 54 |
+| `research.stepPublicText` | her | See exactly what your published posts, atlas and aligned passages show, and why everything else stays private. | none | 220 |
+| `research.stepRelate` | her | Relate and compare | none | 40 |
+| `research.stepRelateDone` | her | {entries} atlas entries and {alignments} alignments. | `{entries}` `{alignments}` | 104 |
+| `research.stepRelateNone` | her | Nothing related yet. | none | 40 |
+| `research.stepRelateText` | her | Note who says what about the people, works and ideas you study, and read versions of a passage side by side. | none | 216 |
 | `research.stepSource` | her | Add a source | none | 40 |
 | `research.stepSourceDone` | her | {count} sources in your library. | `{count}` | 64 |
 | `research.stepSourceNone` | her | Not started: your library is empty. | none | 70 |
 | `research.stepSourceText` | her | Record the work you read, then the edition, translation or manuscript you quote from. Each gets a key your citations use. | none | 240 |
+| `research.tabAtlas` | her | Atlas | none | 40 |
+| `research.tabCompare` | her | Compare | none | 40 |
 | `research.tabNotebook` | her | Notebook | none | 40 |
 | `research.tabOverview` | her | Overview | none | 40 |
+| `research.tabPublic` | her | What readers see | none | 40 |
 | `research.tabSources` | her | Sources | none | 40 |
 | `research.tabsLabel` | her | Part of your research | none | 42 |
 | `research.title` | her | From a source to a cited post | none | 58 |
 | `research.titleEmpty` | her | Start your research | none | 40 |
 | `research.tooLarge` | her | That's too much for one save. Split it up. | none | 84 |
+| `research.tooLong` | her | That's longer than {max} letters. | `{max}` | 66 |
 | `research.tryAgain` | her | Try again | none | 40 |
 | `research.undo` | her | Undo | none | 40 |
 | `research.undoChanged` | her | It changed again since, so it wasn't undone. | none | 88 |
 | `research.undoTaken` | her | Something else uses that key now, so it wasn't put back. | none | 112 |
 | `research.undone` | her | Undone. | none | 40 |
 | `research.unreadable` | her | Your {what} can't be read, so nothing here changed. | `{what}` | 102 |
+| `research.useNewer` | her | Use the newer copy | none | 40 |
+| `research.whatAlignments` | her | alignments | none | 40 |
+| `research.whatAtlas` | her | atlas | none | 40 |
+| `research.whatChoices` | her | choices for readers | none | 40 |
+| `research.whatClaims` | her | claims | none | 40 |
 | `research.whatLibrary` | her | source library | none | 40 |
 | `research.whatNote` | her | note | none | 40 |
 | `research.whatNotebook` | her | notebook | none | 40 |
@@ -1976,6 +2562,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.writeTitle` | her | Write a piece | none | 40 |
 | `write.collectionHelp` | her | Put it with others, like all your posts on one topic. | none | 106 |
 | `yours.back` | her | ‹ Your research | none | 40 |
+| `yours.cantPublish` | her | The next update can't publish this. Open it to see why. | none | 110 |
 | `yours.checks` | her | Research checks: {count} to look at. | `{count}` | 72 |
 | `yours.checksNone` | her | The research checks found nothing for this post. Checks can't see everything. | none | 154 |
 | `yours.checksNot` | her | Research checks run on research posts and posts that cite. | none | 116 |
@@ -1993,18 +2580,27 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `yours.interpretationNever` | her | An interpretation is never cited or put in a post. Readers see it only inside aligned passages you publish. | none | 214 |
 | `yours.keepNew` | her | Keep a new passage | none | 40 |
 | `yours.lede` | her | Only what you put in goes into this post. Quotations go in with their citation; your notes go in only if you turn one into your own words. | none | 240 |
+| `yours.linkComparison` | her | Put in a link to these aligned passages | none | 78 |
+| `yours.linkDating` | her | Put in “{date}” linked to the entry | `{date}` | 70 |
+| `yours.linkEntry` | her | Put in a link to this entry | none | 54 |
+| `yours.linked` | her | Link put in. | none | 40 |
 | `yours.linkedNotes` | her | {count} of your notes are about it. They never go in with it. | `{count}` | 122 |
 | `yours.loading` | her | Getting your research… | none | 44 |
 | `yours.noCitation` | her | That didn't go in: no citation came back. Your post didn't change. | none | 132 |
 | `yours.noNotes` | her | No notes match. | none | 40 |
 | `yours.noPlace` | her | No place recorded. | none | 40 |
 | `yours.none` | her | Nothing in your research matches. | none | 66 |
+| `yours.notApproved` | her | Not published: you haven't let readers see this. Nothing private is linked. | none | 150 |
+| `yours.notPublished` | her | Not published | none | 40 |
 | `yours.noteLine` | her | Your own unpublished thinking. It never goes in unless you turn it into your own words. | none | 174 |
 | `yours.open` | her | Your research… | none | 40 |
+| `yours.openAtlas` | her | Open it in your atlas | none | 42 |
+| `yours.openCompare` | her | Open it in Compare | none | 40 |
 | `yours.openNotebook` | her | Open in your notebook | none | 42 |
 | `yours.openSources` | her | Open in Sources | none | 40 |
 | `yours.partFailed` | her | Your {what} can't be read, so it isn't offered here. Nothing changed. | `{what}` | 138 |
 | `yours.passageFrom` | her | Passage from {source} | `{source}` | 42 |
+| `yours.published` | her | Published | none | 40 |
 | `yours.quoteHelp` | her | The words go in exactly as kept, as a quotation after the paragraph you're in, with its citation. The rights statement is yours; it doesn't mean you may quote them. | none | 240 |
 | `yours.quoteIt` | her | Put the quotation in | none | 40 |
 | `yours.quoted` | her | Quotation put in after “{words}”. | `{words}` | 66 |
@@ -2023,13 +2619,18 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `yours.search` | her | Search your research | none | 40 |
 | `yours.show` | her | Show | none | 40 |
 | `yours.showAll` | her | Everything | none | 40 |
+| `yours.showContext` | her | Atlas entries and aligned passages | none | 68 |
 | `yours.showInterpretations` | her | Interpretations | none | 40 |
 | `yours.showNotes` | her | My notes | none | 40 |
 | `yours.showPassages` | her | Passages | none | 40 |
 | `yours.showSources` | her | Sources | none | 40 |
+| `yours.siteOff` | her | Your blog doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on. | `{helper}` | 190 |
+| `yours.siteOffCompare` | her | Your blog doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on. | `{helper}` | 204 |
 | `yours.sourceHelp` | her | Only the key and the places you give go into your post. | none | 110 |
 | `yours.sourceKey` | her | {kind}, key {key} | `{kind}` `{key}` | 40 |
 | `yours.title` | her | Your research | none | 40 |
+| `yours.typeAtlas` | her | Atlas entry | none | 40 |
+| `yours.typeComparison` | her | Aligned passages | none | 40 |
 | `yours.typeInterpretation` | her | Interpretation | none | 40 |
 | `yours.typeNote` | her | Note | none | 40 |
 | `yours.typePassage` | her | Passage | none | 40 |

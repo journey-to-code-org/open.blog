@@ -26,6 +26,7 @@ export async function createNotebook(context, route = {}) {
   let hits = null; // search results, or null when not searching
   let open = null; // { form, key, type, record }
   let searchTurn = 0;
+  let atlasEntries = null; // R12: for a note's concepts, read once per visit
   const wanted = route.arg?.replace(/^notebook\/?/, "") || "";
   const said = createDidLine();
   const heading = h("h2", { id: "studio-notebook-h", class: "studio-question", tabindex: "-1", text: say("notebook.title") });
@@ -185,6 +186,21 @@ export async function createNotebook(context, route = {}) {
           items.length ? h("ul", { class: "studio-research-also" }, items.map((item) => h("li", {},
             h("a", { href: researchHash("notebook", item.id) }, h("span", { text: item.entry === "note" ? noteKindWords({ kind: item.kind, status: item.state }) : say("notebook.passageHeading") }), ": ", stranger("span", item.preview || item.id)))))
             : h("p", { class: "studio-help", text: say("notebook.alsoNone") })));
+      } catch (error) {
+        if (error?.status === 401) throw error;
+      }
+    }
+    // R12: a note's concepts, each linked to its atlas entry or offered to the atlas.
+    if (type === "note" && (record.concepts || []).length) {
+      try {
+        atlasEntries ||= ((await api.get("research/atlas")).entries || []);
+        sections.push(h("section", { class: "studio-section" }, h("h4", { text: say("notebook.conceptsTitle") }),
+          h("ul", { class: "studio-research-also" }, record.concepts.map((concept) => {
+            const entry = atlasEntries.find((item) => item.id === concept);
+            return h("li", {}, entry ? h("a", { href: researchHash("atlas", entry.id), text: say("notebook.conceptEntry", { label: String(entry.label) }) })
+              : [h("span", { text: [String(concept), say("notebook.conceptMissing")].join(" ") }), " ",
+                h("a", { class: "studio-more-link", href: `${researchHash("atlas")}?new=1&kind=concept&label=${encodeURIComponent(concept)}`, text: say("notebook.addToAtlas") })]);
+          }))));
       } catch (error) {
         if (error?.status === 401) throw error;
       }
