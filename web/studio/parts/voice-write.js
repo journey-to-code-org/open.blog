@@ -45,6 +45,9 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
   const drafts = createVoiceDraftStore(draftKey(user), storage);
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
   const body = (fields) => ({ ...fields, ...extra });
+  // A practice run (Getting started in rehearse) reads its own library too.
+  const practice = extra.practice === true;
+  const readQuery = practice ? "?practice=1" : "";
 
   let generation = 0;
   let stop = () => {};
@@ -83,7 +86,8 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
       // A copy on this phone may hold more than the server after a lost signal. If the time ran
       // out, the server still decides: it takes that text only within its grace. No time comes back.
       const local = drafts.load();
-      if (local) {
+      // (A practice run has no status of its own to check a copy against: the resume below decides.)
+      if (local && !practice) {
         const standing = await api.get("voice/status");
         if (mine !== generation) return;
         if (!standing.session?.open && copyIsPastGrace(local)) drafts.clear();
@@ -100,7 +104,7 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
           }
         }
       }
-      const answer = await api.get("voice/session");
+      const answer = await api.get(`voice/session${readQuery}`);
       if (mine !== generation) return;
       enter(answer);
     } catch (error) {

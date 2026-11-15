@@ -800,6 +800,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `hnote.whoHelp` | her | Like: people new to this, or friends who already know it. | none | 114 |
 | `home.filesVanish` | her | This server doesn't keep its files when it restarts. Ask {helper} to fix that. | `{helper}` | 156 |
 | `home.notUpdated` | her | Your site couldn't be updated. Your work is saved. Let {helper} know; the details are under Your site. | `{helper}` | 204 |
+| `home.startCardGo` | her | Continue | none | 40 |
+| `home.startCardHeading` | her | Finish getting started | none | 44 |
+| `home.startCardText` | her | Step {n} of {total}: {step}. | `{n}` `{total}` `{step}` | 56 |
+| `home.storyKept` | her | A recorded story is kept on this phone. | none | 78 |
+| `home.storyKeptOpen` | her | Open | none | 40 |
 | `home.voiceInviteDismiss` | her | No thanks | none | 40 |
 | `home.voiceInviteGone` | her | Okay. It's under Writing helper whenever you want it. | none | 106 |
 | `home.voiceInviteHeading` | her | Show your writing helper how you sound | none | 76 |
@@ -1225,6 +1230,171 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `social.orgsTruncated` | her | LinkedIn sent only some of your company pages. If yours isn't here, tell {helper}. | `{helper}` | 164 |
 | `social.pagesTruncated` | her | Facebook sent only some of your Pages. If yours isn't here, tell {helper}. | `{helper}` | 148 |
 | `social.signInAgain` | her | {service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}. | `{service}` `{helper}` | 240 |
+| `start.back` | her | Back | none | 40 |
+| `start.backToPost` | her | Back to your post | none | 40 |
+| `start.chooseLegend` | her | What would you like to tell about? | none | 68 |
+| `start.detailsHeading` | details | Getting started | none | 40 |
+| `start.detailsMode` | details | Getting started is {value}, set by {source}. | `{value}` `{source}` | 88 |
+| `start.doneHeading` | her | You're ready | none | 40 |
+| `start.doneHelperOff` | her | Your writing helper isn't on yet. {helper} will set it up. | `{helper}` | 116 |
+| `start.doneHelperOn` | her | Your writing helper is on. | none | 52 |
+| `start.doneHome` | her | Go to Home | none | 40 |
+| `start.doneSeeStories` | her | See your stories | none | 40 |
+| `start.doneStories` | her | {n} stories kept, private. | `{n}` | 52 |
+| `start.doneStoriesNone` | her | No stories yet. You can tell some any time under Your writing voice. | none | 136 |
+| `start.doneStoriesOne` | her | 1 story kept, private. | none | 44 |
+| `start.doneVoice` | her | Your helper has learned how you sound. | none | 76 |
+| `start.doneVoiceLater` | her | When your writing helper is on, it can learn from your stories under Your writing voice. | none | 176 |
+| `start.doneWrite` | her | Write your first post | none | 42 |
+| `start.doneWriteAgain` | her | Write a post | none | 40 |
+| `start.enough` | her | That's enough for now | none | 42 |
+| `start.filesReset` | details | Getting started can't remember where she got to on this server. | none | 126 |
+| `start.findStories` | her | Tell a few stories | none | 40 |
+| `start.finishLater` | her | Finish later | none | 40 |
+| `start.heard` | her | Here's what you said | none | 40 |
+| `start.heardNote` | her | A computer wrote this from your voice, so a few words may be wrong. It's kept as you said it. You can polish a copy later in Your writing voice. | none | 240 |
+| `start.heardNothing` | her | No words were heard in it. Tell it again, or type it. | none | 106 |
+| `start.heardRegion` | her | Your story, as you said it | none | 52 |
+| `start.howLegend` | her | How would you like to tell it? | none | 60 |
+| `start.keyAccepted` | her | {company} accepted the key. Your writing helper is on. | `{company}` | 108 |
+| `start.keyChanged` | her | These settings were changed somewhere else, so the key wasn't saved. Paste it again. | none | 168 |
+| `start.keyCheckLater` | her | The key is saved, but it couldn't be checked just now. Your helper will try it when you use it. | none | 190 |
+| `start.keyChecking` | her | Checking the key with {company}… | `{company}` | 64 |
+| `start.keyEmpty` | her | Paste the key first. | none | 40 |
+| `start.keyHeading` | her | Turn on your writing helper | none | 54 |
+| `start.keyHelp` | her | It's kept on {product}'s computer and never shown again, not even here. | `{product}` | 142 |
+| `start.keyInsecure` | her | This page isn't sent privately, so a key can't be typed here. {helper} can set it up. | `{helper}` | 170 |
+| `start.keyLabel` | her | Paste the key | none | 40 |
+| `start.keyLeaveAsk` | her | Leave without saving the key? | none | 58 |
+| `start.keyLeaveGo` | her | Leave | none | 40 |
+| `start.keyLeaveStay` | her | Stay | none | 40 |
+| `start.keyLeaveText` | her | It isn't kept anywhere. | none | 46 |
+| `start.keyLede` | her | {product} has a writing helper that can read your posts over and suggest changes, using {company}'s AI. To turn it on, it needs a key from {company}. | `{product}` `{company}` | 240 |
+| `start.keyNeedsHelper` | her | Your writing helper needs {helper} to finish setting it up. | `{helper}` | 118 |
+| `start.keyNext` | her | Next: tell a few stories | none | 48 |
+| `start.keyNoSignal` | her | Saving a key needs a signal. Nothing was saved. | none | 94 |
+| `start.keyNotSaved` | her | The key wasn't saved. Try again in a moment. | none | 88 |
+| `start.keyRejected` | her | {company} didn't accept that key. Check you copied all of it, then paste it again. | `{company}` | 164 |
+| `start.keySave` | her | Save the key | none | 40 |
+| `start.keySaveAnyway` | her | Save it anyway | none | 40 |
+| `start.keySaving` | her | Saving the key… | none | 40 |
+| `start.keyShape` | her | That doesn't look like a {company} key. Check you pasted the key, not a password. | `{company}` | 162 |
+| `start.keySignedOut` | her | You were signed out, so the key wasn't saved. Sign in, then paste it again. | none | 150 |
+| `start.keySkip` | her | Skip — {helper} will set this up | `{helper}` | 64 |
+| `start.keyState` | details | Company: {company}. Model: {model}. Sends to: {destination}. Key: {state} | `{company}` `{model}` `{destination}` `{state}` | 146 |
+| `start.keyStep1` | her | Go to {site} and sign in, or make an account. | `{site}` | 90 |
+| `start.keyStep2` | her | Under Billing, add a way to pay. | none | 64 |
+| `start.keyStep3` | her | Open API keys and choose Create key. | none | 72 |
+| `start.keyStep4` | her | Copy it and paste it here. | none | 52 |
+| `start.keyTooLong` | her | That's too long to be a key. | none | 56 |
+| `start.keyWhat` | her | A key is a long code, like a password, that lets {product} use {company}'s helper. {company} charges the account the key belongs to. | `{product}` `{company}` | 240 |
+| `start.keyWhere` | her | Where do I get a key? | none | 42 |
+| `start.keyWhereOther` | her | {helper} can tell you where to get one. | `{helper}` | 78 |
+| `start.laterToast` | her | It'll be here when you come back. | none | 66 |
+| `start.loadFailed` | her | Getting started didn't load. | none | 56 |
+| `start.markDone` | her | Done: | none | 40 |
+| `start.markNotYet` | her | Not yet: | none | 40 |
+| `start.menu` | her | Getting started | none | 40 |
+| `start.more` | her | More | none | 40 |
+| `start.moreName` | her | More: Getting started | none | 42 |
+| `start.next` | her | Next | none | 40 |
+| `start.noSignal` | her | Getting started needs a signal. Anything you were writing is kept on this phone. | none | 160 |
+| `start.practice` | details | Practice run: stories and voice guides made here aren't kept. A key you save is kept. | none | 170 |
+| `start.practiceNoSave` | details | Practice: not saved | none | 40 |
+| `start.problemMode` | details | {problem} | `{problem}` | 40 |
+| `start.readClose` | her | Close | none | 40 |
+| `start.readIt` | her | Read it | none | 40 |
+| `start.readItName` | her | Read it: {title} | `{title}` | 40 |
+| `start.recAgain` | her | Tell it again | none | 40 |
+| `start.recAgainAsk` | her | Throw away this recording and tell it again? | none | 88 |
+| `start.recAgainYes` | her | Tell it again | none | 40 |
+| `start.recCant` | her | Recording doesn't work here. Type it instead. | none | 90 |
+| `start.recDenied` | her | {product} isn't allowed to use the microphone on this {phone}. To change that: | `{product}` `{phone}` | 156 |
+| `start.recError` | her | The recording stopped by itself. What you said up to then is kept. | none | 132 |
+| `start.recKeep` | her | Keep it | none | 40 |
+| `start.recLeft` | her | Your recording stopped when you left. It's kept on this phone. | none | 124 |
+| `start.recLength` | her | {time} long. | `{time}` | 40 |
+| `start.recListen` | her | Your recording | none | 40 |
+| `start.recOrType` | her | Or type it instead. | none | 40 |
+| `start.recStarting` | her | Your phone may ask to use the microphone. Tap Allow. | none | 104 |
+| `start.recStop` | her | Stop | none | 40 |
+| `start.recStopName` | her | Stop recording | none | 40 |
+| `start.recTime` | her | Stopped at 3 minutes, the longest a story can be. It's kept. | none | 120 |
+| `start.recTooBig` | her | That recording is too big to send. Tell a shorter one. | none | 108 |
+| `start.recTryAgain` | her | Try again | none | 40 |
+| `start.recUnavailable` | her | The microphone didn't start. If another app is using it, close that app and try again. Or type it instead. | none | 212 |
+| `start.recUnreadable` | her | That recording can't be read. Tell it again, or type it. | none | 112 |
+| `start.recUse` | her | Use this recording | none | 40 |
+| `start.recording` | her | Recording {time} of 3:00 | `{time}` | 48 |
+| `start.resetFailed` | details | That didn't work. Try again in a moment. | none | 80 |
+| `start.resetGone` | details | That account isn't on this site any more. | none | 82 |
+| `start.resetKeeps` | details | Their stories stay; erase them under Your writing voice. | none | 112 |
+| `start.resumed` | her | Picked up where you left off. | none | 58 |
+| `start.sayEngine` | details | Heard by: {engine}. {seconds} seconds, {bytes} bytes. | `{engine}` `{seconds}` `{bytes}` | 106 |
+| `start.sayGoesLocal` | her | {product} turns your recording into words on its own computer. Nothing leaves it. | `{product}` | 162 |
+| `start.sayGoesOnly` | her | Only the recording goes, not your posts, photos or other stories. {company}'s own rules cover what it keeps. | `{company}` | 216 |
+| `start.sayGoesProvider` | her | Your recording, when you finish. | none | 64 |
+| `start.sayGone` | her | Out loud isn't available any more. Type it instead. | none | 102 |
+| `start.sayHeading` | her | Before you start | none | 40 |
+| `start.sayIt` | her | Say it out loud | none | 40 |
+| `start.sayItHelp` | her | Out loud: up to three minutes. A computer writes down what you say. | none | 134 |
+| `start.sayLocalHeading` | her | Where your recording goes | none | 50 |
+| `start.sayNoSignal` | her | Turning it into words needs a signal. Your recording is kept on this phone. | none | 150 |
+| `start.sayNotKept` | her | The recording isn't kept after that; the words are. | none | 102 |
+| `start.sayStart` | her | Start recording | none | 40 |
+| `start.sayType` | her | Type it instead | none | 40 |
+| `start.showAgain` | details | Show it again at next sign-in | none | 58 |
+| `start.showAgainName` | details | Show it again at next sign-in: {user} | `{user}` | 74 |
+| `start.shownAgain` | details | Next time, {user} will see Getting started. | `{user}` | 86 |
+| `start.shownAgainUndo` | details | Undo | none | 40 |
+| `start.shownAgainUndone` | details | Undone: {user} is back where they were. | `{user}` | 78 |
+| `start.signOutRecording` | her | Sign out and throw away your unsaved writing, and a recorded story that hasn't been turned into words? | none | 204 |
+| `start.skipRest` | her | Skip the rest | none | 40 |
+| `start.skipRestDone` | her | Okay. Getting started is in the menu if you want it. | none | 104 |
+| `start.skipStories` | her | Skip stories for now | none | 40 |
+| `start.stepAnnounce` | her | Step {n} of {total}: {step}. | `{n}` `{total}` `{step}` | 56 |
+| `start.stepHelper` | her | Turn on your writing helper | none | 54 |
+| `start.stepName` | her | Getting started, step {n} of {total} | `{n}` `{total}` | 72 |
+| `start.stepOf` | her | Step {n} of {total} | `{n}` `{total}` | 40 |
+| `start.stepStories` | her | Tell a few short stories | none | 48 |
+| `start.stepVoice` | her | Let your helper learn how you sound | none | 70 |
+| `start.storiesDone` | her | That's three. Thank you. | none | 48 |
+| `start.storiesHeading` | her | Tell a few short stories | none | 48 |
+| `start.storiesKept` | her | Your stories so far | none | 40 |
+| `start.storiesLede` | her | Your writing helper learns how you sound from your own stories, so its suggestions sound like you. Tell three short ones, the way you'd tell them to a friend. | none | 240 |
+| `start.storiesPrivate` | her | They're kept private on {product}'s computer. They never appear on {product}, and nothing is sent anywhere unless you say so. | `{product}` | 240 |
+| `start.storiesProgress` | her | {n} of 3 told | `{n}` | 40 |
+| `start.storyBusy` | her | That story is still being told somewhere else. | none | 92 |
+| `start.storyGone` | her | That story was already thrown away. | none | 70 |
+| `start.storyRefused` | her | That one couldn't be kept. Choose another to tell. | none | 100 |
+| `start.storyRowSpoken` | her | {title} · told out loud · {words} | `{title}` `{words}` | 66 |
+| `start.storyRowTyped` | her | {title} · typed · {words} | `{title}` `{words}` | 50 |
+| `start.storySaved` | her | Kept. That's {n} of 3. | `{n}` | 44 |
+| `start.storyThrow` | her | Throw this one away | none | 40 |
+| `start.storyThrowAsk` | her | Throw away this story? | none | 44 |
+| `start.storyThrowName` | her | Throw this one away: {title} | `{title}` | 56 |
+| `start.storyThrowNo` | her | Keep it | none | 40 |
+| `start.storyThrowText` | her | It's taken off {product}'s computer. It can't be brought back. | `{product}` | 124 |
+| `start.storyThrowYes` | her | Throw it away | none | 40 |
+| `start.storyThrown` | her | Thrown away. | none | 40 |
+| `start.tellAnother` | her | Tell another | none | 40 |
+| `start.title` | her | Getting started | none | 40 |
+| `start.turnFailed` | her | That couldn't be turned into words, but your recording is still on this phone. Try again, or type it. | none | 202 |
+| `start.turning` | her | Turning it into words… | none | 44 |
+| `start.turningStill` | her | Still working. Long stories take longer. | none | 80 |
+| `start.typeIt` | her | Type it | none | 40 |
+| `start.typeItHelp` | her | Typing: you get three minutes. Spelling isn't fixed, so it reads like you. | none | 148 |
+| `start.voiceFrom` | her | Learn from these stories | none | 48 |
+| `start.voiceHeading` | her | Let your helper learn how you sound | none | 70 |
+| `start.voiceKeyProblem` | her | {company} didn't accept the key for {product}, so your helper can't learn yet. Your stories are kept. | `{company}` `{product}` | 202 |
+| `start.voiceLearn` | her | Let my helper learn | none | 40 |
+| `start.voiceLede` | her | Your helper reads your stories and writes down how you sound, quoting your own words. You see it before anything is saved. | none | 240 |
+| `start.voiceRowSpoken` | her | {title} · told · {words} | `{title}` `{words}` | 48 |
+| `start.voiceRowTyped` | her | {title} · typed · {words} | `{title}` `{words}` | 50 |
+| `start.voiceSaved` | her | Saved. Your helper's suggestions will sound more like you. | none | 116 |
+| `start.voiceSkip` | her | Not now | none | 40 |
+| `start.welcome` | her | Welcome, {owner} (with no name: "Welcome") | `{owner}` | 40 |
+| `start.welcomeLede` | her | A few minutes to get {product} ready for you. You can skip any part. | `{product}` | 136 |
 | `suggest.added` | her | Added. | none | 40 |
 | `suggest.announce` | her | Suggestion: “{words}”. Press Tab to use it, Escape to skip. | `{words}` | 240 |
 | `suggest.billed` | details | Each pause is one billed request. | none | 66 |
@@ -1291,6 +1461,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.backToList` | her | Back to your pieces | none | 40 |
 | `voice.badgePolished` | her | Polished | none | 40 |
 | `voice.badgeRough` | her | Rough | none | 40 |
+| `voice.badgeSpoken` | her | Told out loud | none | 40 |
 | `voice.cantPolish` | her | This rough draft can't be read, so it can't be polished. | none | 112 |
 | `voice.catalogWarning` | details | Your own prompts file: {warning} | `{warning}` | 64 |
 | `voice.checkAgain` | her | Check again | none | 40 |
@@ -1467,6 +1638,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.pieceGone` | her | This piece isn't there any more. It may have been moved or erased. | none | 132 |
 | `voice.pieceNoRough` | her | Its rough draft is missing, so it can't be opened. | none | 100 |
 | `voice.pieceRough` | her | Rough draft only · {date} | `{date}` | 50 |
+| `voice.pieceThrow` | her | Throw this piece away… | none | 44 |
+| `voice.pieceThrowAsk` | her | Throw away “{title}”? | `{title}` | 42 |
+| `voice.pieceThrowBusy` | her | That one is still being written somewhere else. Finish it there first. | none | 140 |
+| `voice.pieceThrowFailed` | her | That didn't work. Nothing was thrown away. | none | 84 |
+| `voice.pieceThrowNo` | her | Keep it | none | 40 |
+| `voice.pieceThrowText` | her | Its rough draft and any polished copy are taken off {product}'s computer. It can't be brought back. Your voice guide keeps what it learned until you update it. | `{product}` | 240 |
+| `voice.pieceThrowYes` | her | Throw it away | none | 40 |
+| `voice.pieceThrown` | her | Thrown away. | none | 40 |
 | `voice.pieceTitle` | her | A piece | none | 40 |
 | `voice.polishBody` | her | Polished copy | none | 40 |
 | `voice.polishClean` | her | All changes saved. | none | 40 |
@@ -1551,6 +1730,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.writeOne` | her | Write a piece | none | 40 |
 | `voice.writeTitle` | her | Write a piece | none | 40 |
 | `write.collectionHelp` | her | Put it with others, like all your posts on one topic. | none | 106 |
+| `write.storyNudgeHeading` | her | Want your helper to sound like you? | none | 70 |
+| `write.storyNudgeLater` | her | Not now | none | 40 |
+| `write.storyNudgeLaterDone` | her | Okay. It's under Getting started whenever you want it. | none | 108 |
+| `write.storyNudgeStop` | her | Don't ask again | none | 40 |
+| `write.storyNudgeStopped` | her | Okay, it won't ask again. Getting started is in the menu if you change your mind. | none | 162 |
+| `write.storyNudgeText` | her | Tell it a few short stories, typed or out loud. It learns how you talk and write, so its suggestions sound like you, not like a computer. It takes about ten minutes, and the stories never appear on {product}. | `{product}` | 240 |
+| `write.storyNudgeUndo` | her | Undo | none | 40 |
+| `write.storyNudgeYes` | her | Tell a few stories now | none | 44 |
 | `youtube.change` | her | Change | none | 40 |
 | `youtube.chapterHelp` | her | Chapters are lines in your words that start with a time, like “0:00 Getting started”. The first starts at 0:00, and YouTube needs at least three, each 10 seconds or longer. | none | 240 |
 | `youtube.chapters` | her | {count} chapters, from the lines in your words that start with a time. | `{count}` | 140 |

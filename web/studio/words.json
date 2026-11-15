@@ -4443,6 +4443,40 @@
         "helper"
       ]
     },
+    "home.startCardGo": {
+      "text": "Continue",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "home.startCardHeading": {
+      "text": "Finish getting started",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "home.startCardText": {
+      "text": "Step {n} of {total}: {step}.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "n",
+        "total",
+        "step"
+      ]
+    },
+    "home.storyKept": {
+      "text": "A recorded story is kept on this phone.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "home.storyKeptOpen": {
+      "text": "Open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "home.voiceInviteDismiss": {
       "text": "No thanks",
       "layer": "her",
@@ -7225,6 +7259,1099 @@
         "helper"
       ]
     },
+    "start.back": {
+      "text": "Back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.backToPost": {
+      "text": "Back to your post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.chooseLegend": {
+      "text": "What would you like to tell about?",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "start.detailsHeading": {
+      "text": "Getting started",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "start.detailsMode": {
+      "text": "Getting started is {value}, set by {source}.",
+      "layer": "details",
+      "max": 88,
+      "vars": [
+        "value",
+        "source"
+      ]
+    },
+    "start.doneHeading": {
+      "text": "You're ready",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.doneHelperOff": {
+      "text": "Your writing helper isn't on yet. {helper} will set it up.",
+      "layer": "her",
+      "max": 116,
+      "vars": [
+        "helper"
+      ]
+    },
+    "start.doneHelperOn": {
+      "text": "Your writing helper is on.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "start.doneHome": {
+      "text": "Go to Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.doneSeeStories": {
+      "text": "See your stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.doneStories": {
+      "text": "{n} stories kept, private.",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "n"
+      ]
+    },
+    "start.doneStoriesNone": {
+      "text": "No stories yet. You can tell some any time under Your writing voice.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "start.doneStoriesOne": {
+      "text": "1 story kept, private.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "start.doneVoice": {
+      "text": "Your helper has learned how you sound.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "start.doneVoiceLater": {
+      "text": "When your writing helper is on, it can learn from your stories under Your writing voice.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "start.doneWrite": {
+      "text": "Write your first post",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "start.doneWriteAgain": {
+      "text": "Write a post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.enough": {
+      "text": "That's enough for now",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "start.filesReset": {
+      "text": "Getting started can't remember where she got to on this server.",
+      "layer": "details",
+      "max": 126,
+      "vars": []
+    },
+    "start.findStories": {
+      "text": "Tell a few stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.finishLater": {
+      "text": "Finish later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.heard": {
+      "text": "Here's what you said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.heardNote": {
+      "text": "A computer wrote this from your voice, so a few words may be wrong. It's kept as you said it. You can polish a copy later in Your writing voice.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "start.heardNothing": {
+      "text": "No words were heard in it. Tell it again, or type it.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "start.heardRegion": {
+      "text": "Your story, as you said it",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "start.howLegend": {
+      "text": "How would you like to tell it?",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "start.keyAccepted": {
+      "text": "{company} accepted the key. Your writing helper is on.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "company"
+      ]
+    },
+    "start.keyChanged": {
+      "text": "These settings were changed somewhere else, so the key wasn't saved. Paste it again.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "start.keyCheckLater": {
+      "text": "The key is saved, but it couldn't be checked just now. Your helper will try it when you use it.",
+      "layer": "her",
+      "max": 190,
+      "vars": []
+    },
+    "start.keyChecking": {
+      "text": "Checking the key with {company}…",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "company"
+      ]
+    },
+    "start.keyEmpty": {
+      "text": "Paste the key first.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keyHeading": {
+      "text": "Turn on your writing helper",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "start.keyHelp": {
+      "text": "It's kept on {product}'s computer and never shown again, not even here.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "start.keyInsecure": {
+      "text": "This page isn't sent privately, so a key can't be typed here. {helper} can set it up.",
+      "layer": "her",
+      "max": 170,
+      "vars": [
+        "helper"
+      ]
+    },
+    "start.keyLabel": {
+      "text": "Paste the key",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keyLeaveAsk": {
+      "text": "Leave without saving the key?",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "start.keyLeaveGo": {
+      "text": "Leave",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keyLeaveStay": {
+      "text": "Stay",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keyLeaveText": {
+      "text": "It isn't kept anywhere.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "start.keyLede": {
+      "text": "{product} has a writing helper that can read your posts over and suggest changes, using {company}'s AI. To turn it on, it needs a key from {company}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "company"
+      ]
+    },
+    "start.keyNeedsHelper": {
+      "text": "Your writing helper needs {helper} to finish setting it up.",
+      "layer": "her",
+      "max": 118,
+      "vars": [
+        "helper"
+      ]
+    },
+    "start.keyNext": {
+      "text": "Next: tell a few stories",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "start.keyNoSignal": {
+      "text": "Saving a key needs a signal. Nothing was saved.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "start.keyNotSaved": {
+      "text": "The key wasn't saved. Try again in a moment.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "start.keyRejected": {
+      "text": "{company} didn't accept that key. Check you copied all of it, then paste it again.",
+      "layer": "her",
+      "max": 164,
+      "vars": [
+        "company"
+      ]
+    },
+    "start.keySave": {
+      "text": "Save the key",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keySaveAnyway": {
+      "text": "Save it anyway",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keySaving": {
+      "text": "Saving the key…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.keyShape": {
+      "text": "That doesn't look like a {company} key. Check you pasted the key, not a password.",
+      "layer": "her",
+      "max": 162,
+      "vars": [
+        "company"
+      ]
+    },
+    "start.keySignedOut": {
+      "text": "You were signed out, so the key wasn't saved. Sign in, then paste it again.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "start.keySkip": {
+      "text": "Skip — {helper} will set this up",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "helper"
+      ]
+    },
+    "start.keyState": {
+      "text": "Company: {company}. Model: {model}. Sends to: {destination}. Key: {state}",
+      "layer": "details",
+      "max": 146,
+      "vars": [
+        "company",
+        "model",
+        "destination",
+        "state"
+      ]
+    },
+    "start.keyStep1": {
+      "text": "Go to {site} and sign in, or make an account.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "site"
+      ]
+    },
+    "start.keyStep2": {
+      "text": "Under Billing, add a way to pay.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "start.keyStep3": {
+      "text": "Open API keys and choose Create key.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "start.keyStep4": {
+      "text": "Copy it and paste it here.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "start.keyTooLong": {
+      "text": "That's too long to be a key.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "start.keyWhat": {
+      "text": "A key is a long code, like a password, that lets {product} use {company}'s helper. {company} charges the account the key belongs to.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "company"
+      ]
+    },
+    "start.keyWhere": {
+      "text": "Where do I get a key?",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "start.keyWhereOther": {
+      "text": "{helper} can tell you where to get one.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "helper"
+      ]
+    },
+    "start.laterToast": {
+      "text": "It'll be here when you come back.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "start.loadFailed": {
+      "text": "Getting started didn't load.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "start.markDone": {
+      "text": "Done:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.markNotYet": {
+      "text": "Not yet:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.menu": {
+      "text": "Getting started",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.moreName": {
+      "text": "More: Getting started",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "start.next": {
+      "text": "Next",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.noSignal": {
+      "text": "Getting started needs a signal. Anything you were writing is kept on this phone.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "start.practice": {
+      "text": "Practice run: stories and voice guides made here aren't kept. A key you save is kept.",
+      "layer": "details",
+      "max": 170,
+      "vars": []
+    },
+    "start.practiceNoSave": {
+      "text": "Practice: not saved",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "start.problemMode": {
+      "text": "{problem}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "problem"
+      ]
+    },
+    "start.readClose": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.readIt": {
+      "text": "Read it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.readItName": {
+      "text": "Read it: {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "start.recAgain": {
+      "text": "Tell it again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recAgainAsk": {
+      "text": "Throw away this recording and tell it again?",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "start.recAgainYes": {
+      "text": "Tell it again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recCant": {
+      "text": "Recording doesn't work here. Type it instead.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "start.recDenied": {
+      "text": "{product} isn't allowed to use the microphone on this {phone}. To change that:",
+      "layer": "her",
+      "max": 156,
+      "vars": [
+        "product",
+        "phone"
+      ]
+    },
+    "start.recError": {
+      "text": "The recording stopped by itself. What you said up to then is kept.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "start.recKeep": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recLeft": {
+      "text": "Your recording stopped when you left. It's kept on this phone.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "start.recLength": {
+      "text": "{time} long.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "time"
+      ]
+    },
+    "start.recListen": {
+      "text": "Your recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recOrType": {
+      "text": "Or type it instead.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recStarting": {
+      "text": "Your phone may ask to use the microphone. Tap Allow.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "start.recStop": {
+      "text": "Stop",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recStopName": {
+      "text": "Stop recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recTime": {
+      "text": "Stopped at 3 minutes, the longest a story can be. It's kept.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "start.recTooBig": {
+      "text": "That recording is too big to send. Tell a shorter one.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "start.recTryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recUnavailable": {
+      "text": "The microphone didn't start. If another app is using it, close that app and try again. Or type it instead.",
+      "layer": "her",
+      "max": 212,
+      "vars": []
+    },
+    "start.recUnreadable": {
+      "text": "That recording can't be read. Tell it again, or type it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "start.recUse": {
+      "text": "Use this recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.recording": {
+      "text": "Recording {time} of 3:00",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "time"
+      ]
+    },
+    "start.resetFailed": {
+      "text": "That didn't work. Try again in a moment.",
+      "layer": "details",
+      "max": 80,
+      "vars": []
+    },
+    "start.resetGone": {
+      "text": "That account isn't on this site any more.",
+      "layer": "details",
+      "max": 82,
+      "vars": []
+    },
+    "start.resetKeeps": {
+      "text": "Their stories stay; erase them under Your writing voice.",
+      "layer": "details",
+      "max": 112,
+      "vars": []
+    },
+    "start.resumed": {
+      "text": "Picked up where you left off.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "start.sayEngine": {
+      "text": "Heard by: {engine}. {seconds} seconds, {bytes} bytes.",
+      "layer": "details",
+      "max": 106,
+      "vars": [
+        "engine",
+        "seconds",
+        "bytes"
+      ]
+    },
+    "start.sayGoesLocal": {
+      "text": "{product} turns your recording into words on its own computer. Nothing leaves it.",
+      "layer": "her",
+      "max": 162,
+      "vars": [
+        "product"
+      ]
+    },
+    "start.sayGoesOnly": {
+      "text": "Only the recording goes, not your posts, photos or other stories. {company}'s own rules cover what it keeps.",
+      "layer": "her",
+      "max": 216,
+      "vars": [
+        "company"
+      ]
+    },
+    "start.sayGoesProvider": {
+      "text": "Your recording, when you finish.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "start.sayGone": {
+      "text": "Out loud isn't available any more. Type it instead.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "start.sayHeading": {
+      "text": "Before you start",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.sayIt": {
+      "text": "Say it out loud",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.sayItHelp": {
+      "text": "Out loud: up to three minutes. A computer writes down what you say.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "start.sayLocalHeading": {
+      "text": "Where your recording goes",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "start.sayNoSignal": {
+      "text": "Turning it into words needs a signal. Your recording is kept on this phone.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "start.sayNotKept": {
+      "text": "The recording isn't kept after that; the words are.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "start.sayStart": {
+      "text": "Start recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.sayType": {
+      "text": "Type it instead",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.showAgain": {
+      "text": "Show it again at next sign-in",
+      "layer": "details",
+      "max": 58,
+      "vars": []
+    },
+    "start.showAgainName": {
+      "text": "Show it again at next sign-in: {user}",
+      "layer": "details",
+      "max": 74,
+      "vars": [
+        "user"
+      ]
+    },
+    "start.shownAgain": {
+      "text": "Next time, {user} will see Getting started.",
+      "layer": "details",
+      "max": 86,
+      "vars": [
+        "user"
+      ]
+    },
+    "start.shownAgainUndo": {
+      "text": "Undo",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "start.shownAgainUndone": {
+      "text": "Undone: {user} is back where they were.",
+      "layer": "details",
+      "max": 78,
+      "vars": [
+        "user"
+      ]
+    },
+    "start.signOutRecording": {
+      "text": "Sign out and throw away your unsaved writing, and a recorded story that hasn't been turned into words?",
+      "layer": "her",
+      "max": 204,
+      "vars": []
+    },
+    "start.skipRest": {
+      "text": "Skip the rest",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.skipRestDone": {
+      "text": "Okay. Getting started is in the menu if you want it.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "start.skipStories": {
+      "text": "Skip stories for now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.stepAnnounce": {
+      "text": "Step {n} of {total}: {step}.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "n",
+        "total",
+        "step"
+      ]
+    },
+    "start.stepHelper": {
+      "text": "Turn on your writing helper",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "start.stepName": {
+      "text": "Getting started, step {n} of {total}",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "n",
+        "total"
+      ]
+    },
+    "start.stepOf": {
+      "text": "Step {n} of {total}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n",
+        "total"
+      ]
+    },
+    "start.stepStories": {
+      "text": "Tell a few short stories",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "start.stepVoice": {
+      "text": "Let your helper learn how you sound",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "start.storiesDone": {
+      "text": "That's three. Thank you.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "start.storiesHeading": {
+      "text": "Tell a few short stories",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "start.storiesKept": {
+      "text": "Your stories so far",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.storiesLede": {
+      "text": "Your writing helper learns how you sound from your own stories, so its suggestions sound like you. Tell three short ones, the way you'd tell them to a friend.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "start.storiesPrivate": {
+      "text": "They're kept private on {product}'s computer. They never appear on {product}, and nothing is sent anywhere unless you say so.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "start.storiesProgress": {
+      "text": "{n} of 3 told",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "start.storyBusy": {
+      "text": "That story is still being told somewhere else.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "start.storyGone": {
+      "text": "That story was already thrown away.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "start.storyRefused": {
+      "text": "That one couldn't be kept. Choose another to tell.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "start.storyRowSpoken": {
+      "text": "{title} · told out loud · {words}",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "title",
+        "words"
+      ]
+    },
+    "start.storyRowTyped": {
+      "text": "{title} · typed · {words}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "title",
+        "words"
+      ]
+    },
+    "start.storySaved": {
+      "text": "Kept. That's {n} of 3.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "n"
+      ]
+    },
+    "start.storyThrow": {
+      "text": "Throw this one away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.storyThrowAsk": {
+      "text": "Throw away this story?",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "start.storyThrowName": {
+      "text": "Throw this one away: {title}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "title"
+      ]
+    },
+    "start.storyThrowNo": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.storyThrowText": {
+      "text": "It's taken off {product}'s computer. It can't be brought back.",
+      "layer": "her",
+      "max": 124,
+      "vars": [
+        "product"
+      ]
+    },
+    "start.storyThrowYes": {
+      "text": "Throw it away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.storyThrown": {
+      "text": "Thrown away.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.tellAnother": {
+      "text": "Tell another",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.title": {
+      "text": "Getting started",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.turnFailed": {
+      "text": "That couldn't be turned into words, but your recording is still on this phone. Try again, or type it.",
+      "layer": "her",
+      "max": 202,
+      "vars": []
+    },
+    "start.turning": {
+      "text": "Turning it into words…",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "start.turningStill": {
+      "text": "Still working. Long stories take longer.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "start.typeIt": {
+      "text": "Type it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.typeItHelp": {
+      "text": "Typing: you get three minutes. Spelling isn't fixed, so it reads like you.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "start.voiceFrom": {
+      "text": "Learn from these stories",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "start.voiceHeading": {
+      "text": "Let your helper learn how you sound",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "start.voiceKeyProblem": {
+      "text": "{company} didn't accept the key for {product}, so your helper can't learn yet. Your stories are kept.",
+      "layer": "her",
+      "max": 202,
+      "vars": [
+        "company",
+        "product"
+      ]
+    },
+    "start.voiceLearn": {
+      "text": "Let my helper learn",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.voiceLede": {
+      "text": "Your helper reads your stories and writes down how you sound, quoting your own words. You see it before anything is saved.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "start.voiceRowSpoken": {
+      "text": "{title} · told · {words}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "title",
+        "words"
+      ]
+    },
+    "start.voiceRowTyped": {
+      "text": "{title} · typed · {words}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "title",
+        "words"
+      ]
+    },
+    "start.voiceSaved": {
+      "text": "Saved. Your helper's suggestions will sound more like you.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "start.voiceSkip": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "start.welcome": {
+      "text": "Welcome, {owner}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "owner"
+      ],
+      "bare": "Welcome"
+    },
+    "start.welcomeLede": {
+      "text": "A few minutes to get {product} ready for you. You can skip any part.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "product"
+      ]
+    },
     "suggest.added": {
       "text": "Added.",
       "layer": "her",
@@ -7639,6 +8766,12 @@
     },
     "voice.badgeRough": {
       "text": "Rough",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.badgeSpoken": {
+      "text": "Told out loud",
       "layer": "her",
       "max": 40,
       "vars": []
@@ -8820,6 +9953,61 @@
         "date"
       ]
     },
+    "voice.pieceThrow": {
+      "text": "Throw this piece away…",
+      "layer": "her",
+      "max": 44,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.pieceThrowAsk": {
+      "text": "Throw away “{title}”?",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.pieceThrowBusy": {
+      "text": "That one is still being written somewhere else. Finish it there first.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "voice.pieceThrowFailed": {
+      "text": "That didn't work. Nothing was thrown away.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "voice.pieceThrowNo": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.pieceThrowText": {
+      "text": "Its rough draft and any polished copy are taken off {product}'s computer. It can't be brought back. Your voice guide keeps what it learned until you update it.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.pieceThrowYes": {
+      "text": "Throw it away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.pieceThrown": {
+      "text": "Thrown away.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "voice.pieceTitle": {
       "text": "A piece",
       "layer": "her",
@@ -9379,6 +10567,56 @@
       "text": "Put it with others, like all your posts on one topic.",
       "layer": "her",
       "max": 106,
+      "vars": []
+    },
+    "write.storyNudgeHeading": {
+      "text": "Want your helper to sound like you?",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "write.storyNudgeLater": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "write.storyNudgeLaterDone": {
+      "text": "Okay. It's under Getting started whenever you want it.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "write.storyNudgeStop": {
+      "text": "Don't ask again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "write.storyNudgeStopped": {
+      "text": "Okay, it won't ask again. Getting started is in the menu if you change your mind.",
+      "layer": "her",
+      "max": 162,
+      "vars": []
+    },
+    "write.storyNudgeText": {
+      "text": "Tell it a few short stories, typed or out loud. It learns how you talk and write, so its suggestions sound like you, not like a computer. It takes about ten minutes, and the stories never appear on {product}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "write.storyNudgeUndo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "write.storyNudgeYes": {
+      "text": "Tell a few stories now",
+      "layer": "her",
+      "max": 44,
       "vars": []
     },
     "youtube.change": {

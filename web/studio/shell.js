@@ -21,9 +21,13 @@ import { tradeSite } from "./parts/record-kinds.js";
 import { say } from "./parts/words.js";
 import { ask } from "./parts/dialogs.js";
 import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
+import { startDecision, stepRoute } from "./parts/onboarding-rules.js";
+import { clearRecordings, hasRecording } from "./parts/story-store.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
+// R9b: screens that hide the navigation and Find (Getting started); the account menu stays.
+const FOCUS = new Set(SCREENS.filter((s) => s.chrome === "focus").map((s) => s.name));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** The account menu: the phone in her hand (Notifications, Add to Home Screen, its jobs) before the rest. */
@@ -36,12 +40,13 @@ function accountMenu(meta, jobs) {
     ...(meta.push ? [{ value: "notifications", label: "Notifications" }] : []),
     ...(install ? [{ value: "home-screen", label: install }] : []),
     { value: "helper", label: say("helper.name") },
+    { value: "start", label: say("start.menu") },
     { value: "tools", label: "More tools" },
     { value: "signout", label: "Sign out" },
   ];
 }
 
-export async function startShell(root, api, meta) {
+export async function startShell(root, api, meta, { fresh = false } = {}) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
   const NAV = navFor(meta);
   const siteName = meta.siteTitle || "Your site";
@@ -108,6 +113,7 @@ export async function startShell(root, api, meta) {
     if (choice === "tools") router.go("#/tools");
     if (choice === "notifications") router.go("#/notifications");
     if (choice === "helper") router.go("#/helper");
+    if (choice === "start") router.go("#/start");
     if (choice === "home-screen") router.go("#/notifications?sheet=home-screen");
     if (choice === "new-job") router.go("#/new-job");
     if (choice === "send-jobs") jobs.sendNow();
@@ -118,12 +124,15 @@ export async function startShell(root, api, meta) {
     if (!(await router.current()?.leave?.() ?? true)) return;
     // R9: writing kept only on this phone (an open rough draft, unsaved polish) goes with the
     // sign-out, so it asks first. The old Admin cleared it without a word.
-    if (voiceCopiesAtRisk(() => globalThis.localStorage, api.user)) {
-      const choice = await ask({ heading: say("voice.signOutAsk"), text: say("voice.signOutText"),
+    // R9b: and a recorded story that hasn't been turned into words yet.
+    const recording = await hasRecording(api.user).catch(() => false);
+    if (recording || voiceCopiesAtRisk(() => globalThis.localStorage, api.user)) {
+      const choice = await ask({ heading: recording ? say("start.signOutRecording") : say("voice.signOutAsk"), text: say("voice.signOutText"),
         choices: [{ label: say("voice.signOutGo"), value: "go", variant: "secondary" }, { label: say("voice.signOutStay"), value: "stay" }], focus: 1 });
       if (choice !== "go") return;
     }
     clearVoiceCopies();
+    await clearRecordings().catch(() => {});
     context.undo?.forget();
     // Signed out is signed out, with or without a signal: Studio doesn't open as her from its copy.
     try { localStorage.removeItem("studio:last-start"); } catch { /* nothing kept */ }
@@ -151,6 +160,9 @@ export async function startShell(root, api, meta) {
     { id: "go-voice-write", label: say("voice.findWrite"), group: "Do", href: "#/voice/write" },
     { id: "go-voice-guide", label: say("voice.findGuide"), group: "Go to", href: "#/voice/guide" },
     { id: "go-design", label: say("design.findDesign"), group: "Do", href: "#/look/design" },
+    // R9b: Getting started, and its stories by name (`again`: a finished run starts a new one).
+    { id: "go-start", label: say("start.menu"), group: "Do", href: "#/start" },
+    { id: "go-start-stories", label: say("start.findStories"), group: "Do", href: "#/start/stories?again=1" },
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },
@@ -217,6 +229,7 @@ export async function startShell(root, api, meta) {
     screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (!s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
+      shell.classList.toggle("studio-focus", FOCUS.has(route.name));
       // Jobs kept on this phone (by the old Admin in another tab, say) show as soon as any screen
       // opens; trying again after "no signal" only while New job or Home is in view.
       if (!jobs.available()) jobs.start().catch(() => {});
@@ -260,7 +273,26 @@ export async function startShell(root, api, meta) {
   context.setActions = (nodes) => actions.replaceChildren(...nodes);
   context.toast = toast;
   context.route = () => parseRoute(location.hash);
+  // R9b: Getting started opens by itself only on a fresh load that came to Home, when the server
+  // says it is due, and not within 20 hours of Finish later (her record says when). Any other
+  // address (a tapped notification, a link, a post) opens as asked, and Home shows the card.
+  await openStartIfDue();
   await router.start();
+
+  async function openStartIfDue() {
+    const first = parseRoute(location.hash);
+    if (startDecision(meta.onboarding, first, Date.now(), { fresh }) !== "open") return;
+    let record = null;
+    if (meta.onboarding.practice !== true) {
+      try {
+        record = (await api.get("onboarding")).record;
+      } catch {
+        return; // Home, with its card.
+      }
+    }
+    if (startDecision(meta.onboarding, first, Date.now(), { fresh, record }) !== "open") return;
+    history.replaceState(null, "", stepRoute(record?.step || meta.onboarding.step));
+  }
 }
 
 function rememberSiteName(name) {

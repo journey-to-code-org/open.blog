@@ -51,7 +51,7 @@ export async function createVoiceHub(context) {
   function row(entry) {
     const title = String(entry.title || "");
     const badges = entry.badges.map((stage) => h("status-badge", { variant: stage === "polished" ? "success" : "neutral" },
-      h("span", { "aria-hidden": "true", text: `${STAGE_BADGES[stage].symbol} ` }), stage === "polished" ? say("voice.badgePolished") : say("voice.badgeRough")));
+      h("span", { "aria-hidden": "true", text: `${STAGE_BADGES[stage].symbol} ` }), stage === "polished" ? say("voice.badgePolished") : stage === "spoken" ? say("voice.badgeSpoken") : say("voice.badgeRough")));
     const openButton = h("action-button", { variant: "secondary", href: pieceHash(entry.id) }, say("voice.openRow"));
     innerAria(openButton, { "aria-label": say("voice.openRowName", { title }) });
     return h("li", { class: "studio-voice-row" },
