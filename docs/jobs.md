@@ -67,7 +67,7 @@ Markdown.
 **Something else**), the town and state, the days it started and finished, the price shown (a range customers
 see, never a quote) and the customer's review (one of those saved under [Reviews](reviews.md)). It asks for the
 trade only when the site has more than one or none set. It writes the `job` mapping above with exactly the keys
-the old Admin's Job form wrote; hours and materials you add by hand are kept. Each photo in a job gets **Before**,
+the old Admin's job form wrote; hours and materials you add by hand are kept. Each photo in a job gets **Before**,
 **After** or **Neither**, written to `job.media.before` and `job.media.after` in the order the photos are in the
 post; mark at least one After photo, since it's the one people see when you share the job.
 
@@ -105,9 +105,9 @@ has, so a job interrupted half way sends only the rest. The phone keeps at most 
 120 MB in all, says so when one doesn't fit, and never deletes a job by itself. A browser that can't keep
 anything (some private windows) sends straight away instead. Opened once, New job opens again with no signal.
 
-Jobs saved by the old Admin's Capture are on the same list (the browser's IndexedDB `openblog-capture`, version
+Jobs saved before Studio, by the old Admin's Capture, are on the same list (the browser's IndexedDB `openblog-capture`, version
 1, store `captures`; its name, version and format are permanent) and are sent by Studio. The iPhone Home Screen
-app and Safari keep separate lists. The old `#/capture` address opens New job.
+app and Safari keep separate lists. Its old address opens New job ([Old addresses](admin.md#old-addresses)).
 
 **Record a voice note** starts only when you tap it (the phone then asks for the microphone), shows the time, and
 stops with **Stop**, at three minutes or at 8 MB, whichever comes first; leaving the screen stops and keeps it.

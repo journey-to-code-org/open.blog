@@ -100,7 +100,7 @@ Checked on 2026-10-29 against the [W3C Webmention Recommendation](https://www.w3
   covered by open.blog's own tests, which never contact a real site.
 
 Not handled yet: telling sites when a post is deleted (3.1.5 asks the site to answer 410 Gone with a
-tombstone page, which open.blog does not serve), and a view of the queue in Admin.
+tombstone page, which open.blog does not serve), and a view of the queue in Studio.
 
 ## Receive Webmentions
 

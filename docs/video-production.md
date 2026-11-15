@@ -76,8 +76,6 @@ least ten seconds long. Anything YouTube won't take is listed above with **Show 
 stops **Copy description**. Until the post is on your site, the sheet says to keep the video
 private on YouTube. OpenBlog never changes the YouTube video itself.
 
-The old editor's **Release kit** (`Alt+4`) still validates the chapters and copies a description
-without the article line until the old Admin goes (R15).
 
 Transcript text remains part of the normal Markdown body, so it participates in site search,
 feeds, accessibility review, and the site's text exports without requiring a proprietary

@@ -193,7 +193,7 @@ authored content from generated production HTML.
 
 `mediaDelivery: hosted-urls-only` means adapters do **not** fetch, inspect, upload, resize, or
 certify image bytes. Image-bearing plans emit `destination-media-unverified` before a write
-and beside Admin's destination preview. Non-HTTP(S) image references produce a blocking
+and beside Studio's copy preview (**Copy it for another blog**). Non-HTTP(S) image references produce a blocking
 `destination-image-url-invalid`; all selected targets are checked before credentials or
 network requests, with no truncation, source rewrite, or earlier-target mutation.
 Other unsupported/malformed URLs continue to fail the shared portable projection.

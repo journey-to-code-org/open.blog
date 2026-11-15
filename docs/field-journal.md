@@ -47,8 +47,8 @@ will be written.
 | **The whole shape** | `approximate` | A drawing of the whole route, ends included (it was "Just the area" in R5; someone who knows the area may recognise where it starts). |
 | **The exact route** | `exact` | Asks once, then the downloadable file: cleaned on the phone to track points with position and height (times, waypoints, names and the app's details removed), cleaned again by the server, and sent with the next save, draft or not. It becomes public only when the post is live (below), so a post with the exact route can be scheduled. |
 
-In the old Admin, open **Field Review** (`Alt+5`), choose the privacy mode, and select a GPX
-file; its modes are these:
+In Studio, open Write's **Before you publish › Your route**, choose the privacy mode, and choose a
+route file; its modes are these:
 
 | Mode | Published route data |
 | --- | --- |

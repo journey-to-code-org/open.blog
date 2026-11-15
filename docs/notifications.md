@@ -49,8 +49,8 @@ notifications. There is no need to add it again: a second icon is a second app t
 on by itself. The one service worker stays at `/admin/sw.js` (scope `/admin/`); it shows notifications and
 opens Studio when one is tapped, and can't be replaced by a site's own file. Since Studio R4 it also keeps a
 copy of Studio's own files (a new copy with each release, fetched from the server first whenever there is a
-signal), so New job opens on a job site with no signal; it never keeps an `/admin/api/` reply, anything of the
-session, or the old Admin's pages. A site can still
+signal), so New job opens on a job site with no signal; it never keeps an `/admin/api/` reply or anything of the
+session. A site can still
 bring its own icons under `<paths.web>/admin/icons/`.
 
 ## Setting it up
@@ -105,7 +105,7 @@ curl -X POST https://<your-netlify-site>/api/push/notify \
 ```
 
 `title` is required (up to 80 characters), `body` is optional (up to 180), and `url` is where tapping goes: a
-page in Studio like `/admin/studio/#/readers`, or any https page. (An older `/admin/#/…` address still
-works: the worker opens the same screen in Studio.) It reaches only devices with
+page in Studio like `/admin/studio/#/readers`, or any https page. (An older address from before Studio still
+works: the worker opens the same screen in Studio; see [Old addresses](admin.md#old-addresses).) It reaches only devices with
 **News from your family's other apps** turned on. The notify key can send and nothing else: it can't see, add or remove devices. Keep it
 on the other app's server.

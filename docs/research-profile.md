@@ -69,7 +69,7 @@ an AI citation, or verification of the work.
 Before a research post goes up, Studio lists its research checks in **Before you publish** (see
 [Acknowledging](research-checks.md#acknowledging) for **Mark as checked**), with **What readers will
 see from this post**; claims and their evidence are in Write's **Claims and evidence**
-(`?sheet=claims`; the old `#/edit/<post>?pane=evidence` opens it), and the whole site's research is
+(`?sheet=claims`; the old editor's Evidence address opens it), and the whole site's research is
 in **Research › What readers see**. The old admin's **Evidence** view (`Alt+9`) stays until it
 retires. It uses the publishing engine's audit
 of the current unsaved document and groups findings as Detected, Potential, or Needs review.
@@ -123,7 +123,7 @@ as it was, and a damaged or newer-version file is reported rather than replaced.
 [ADR 0010](adr/0010-private-source-library-storage.md).
 
 Studio manages the library under **Research › Sources** (`#/research/sources`, also in Find;
-the old admin's `#/sources` opens it): create, edit, archive, restore, search,
+its old address opens it): create, edit, archive, restore, search,
 and filter each source type. A stale edit shows a conflict and keeps your draft without
 overwriting newer data; see
 [ADR 0011](adr/0011-admin-source-library-management.md).

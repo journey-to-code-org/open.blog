@@ -1,5 +1,8 @@
 # Studio parity audit (2026-11-13)
 
+> Superseded by [retirement-plan.md](retirement-plan.md) and retired with the old Admin in R15 (ADR 0415):
+> every row there is covered or dropped. Kept for its history.
+
 By `studio-architect`, against the old Admin (`web/admin/admin.js` and every `/admin/api/*` route in
 `crates/openblog-cli/src/admin.rs` and `admin/*.rs`).
 

@@ -191,7 +191,7 @@ When it changes:
   scheduled post falls due.
 - Loads without a clock (tests, `export`) use `theme` as written.
 
-Admin's **Seasons** screen (`#/seasons`) chooses the site theme, turns the calendar on or off and edits
+Studio's **Decorations** screen (`#/decorations`) chooses the site theme, turns the calendar on or off and edits
 the windows with months by name. It is the only Admin screen that changes `theme`
 ([ADR 0407](adr/0407-seasons-change-the-site-theme-by-the-calendar-and-the-stored-theme-is-the-look-between-them.md)).
 

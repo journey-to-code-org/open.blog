@@ -68,3 +68,19 @@ test("every notice ever sent opens its screen through the worker's address rule"
     assert.ok(!landed.studio.includes(TOKEN) || url.includes("/together/join/"), `${url} keeps its token`);
   }
 });
+
+test("the docs write the old addresses out in one place only: admin.md's Old addresses", async () => {
+  const { readdirSync, statSync } = await import("node:fs");
+  const docs = join(here, "..", "..", "docs");
+  const walk = (dir) => readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return name === "adr" || name === "specs" ? [] : walk(path);
+    return name.endsWith(".md") ? [path] : [];
+  });
+  const found = walk(docs).filter((path) => readFileSync(path, "utf8").includes("/admin/#"));
+  assert.deepEqual(found.map((path) => path.slice(docs.length + 1)), ["admin.md"]);
+  const manual = readFileSync(join(docs, "admin.md"), "utf8");
+  const oldAddresses = manual.indexOf("## Old addresses");
+  assert.ok(oldAddresses > 0);
+  assert.ok(!manual.slice(0, oldAddresses).includes("/admin/#"), "only under Old addresses");
+});

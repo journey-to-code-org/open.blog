@@ -33,7 +33,7 @@ JavaScript runs, and search engines and feed readers see ordinary headings.
 ## Components an owner can place
 
 A theme can also offer components for the owner to put on the landing page herself, with no code:
-Admin's **Landing page** lists them under **Add a section**, and each gets a form built from the settings
+Studio's **Front page** lists them under **Add a section**, and each gets a form built from the settings
 the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-places-with-a-form-and-a-section-holds-only-a-name-and-checked-values.md)).
 
 ```jsonc
@@ -69,11 +69,11 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   `{ "id": "sign", "type": "component", "tag": "holiday-countdown", "props": { "holiday": "christmas" } }`.
   The build checks every value against the declaration and writes the element with escaped attributes,
   followed by its module script (a browser runs a module once, however often it is linked).
-- **`fallback`** is one plain line shown where scripts do not run: Admin's preview, and readers without
+- **`fallback`** is one plain line shown where scripts do not run: Studio's preview, and readers without
   JavaScript, when the component has no content rendered ahead (below).
 - **`source`** (optional) is the component's Zubra `.zb` file in the theme folder. When the `zubra` command is
   installed, the build renders it with the section's values and writes that HTML inside the element, so the
-  component is there before its script runs: readers without JavaScript and Admin's preview see the component
+  component is there before its script runs: readers without JavaScript and Studio's preview see the component
   itself, and the fallback is left out.
 - **Every theme the site can wear must offer it.** With [seasons](themes.md#seasons), that is the site
   theme and every season's, so declare components on the theme the seasons extend. A page that places a
@@ -97,7 +97,7 @@ zubra compile components/my-sign.zb --emit css > components/my-sign.css         
 
 List the CSS file under the theme's `stylesheets` so the rendered content is styled before the script adopts
 its own copy. The build runs `zubra compile <source> --props <values> --partial` once per placed component and
-keeps the result while the source and the values are unchanged, so Admin's live preview does not run it again.
+keeps the result while the source and the values are unchanged, so Studio's preview does not run it again.
 Whatever only the browser can compute (today's date, the window size) is left for the element to fill in when it
 starts: write those parts so the server has something to say without them, such as "Counting down to Christmas"
 before the number of days is known. The plain element replaces the rendered content with its own when it starts.

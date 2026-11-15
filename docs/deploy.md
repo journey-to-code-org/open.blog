@@ -2,14 +2,14 @@
 
 `openblog build` writes a complete static site to `dist/`. Anything that serves files can
 host it. The choice is between a static host (simplest, no server to run) and
-`openblog serve` on a machine you control (adds the admin editor, the view counter, and
+`openblog serve` on a machine you control (adds Studio, the editor, the view counter, and
 automatic publishing of scheduled posts).
 
 | | Static host (Pages, Netlify, S3, ...) | `openblog serve` |
 | --- | --- | --- |
 | Pages, feeds, search, themes | yes | yes |
 | Scheduled posts | on the next build after the date (schedule a build) | automatic, within seconds |
-| Admin editor | no (edit files, push) | yes, with `--admin` |
+| Studio (the editor) | no (edit files, push) | yes, with `--admin` |
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
 | Published Knowledge Atlas | only if you build locally and upload `dist/` | yes |
@@ -113,6 +113,12 @@ in both rules when deploying your own Admin service. These are temporary (`302`)
 not proxy rewrites: the browser moves to Render, where login, cookies, and authenticated
 requests stay on the same origin. Public engagement routes under `/api/` stay on Netlify.
 
+On the Admin service itself, `/admin` and `/admin/` answer a second `302`, to `/admin/studio/`
+(Studio; the old Admin was retired, [ADR 0415](adr/0415-the-old-admin-is-retired-and-admin-redirects-to-studio.md)),
+and so does any old Admin file such as `/admin/admin.js`. `scripts/deployment-smoke.mjs` expects
+exactly that, then `200` for `/admin/studio/`, `/admin/sw.js` and `/admin/manifest.webmanifest`. Files
+under `<paths.web>/admin/` no longer replace the editor's own; only `admin/icons/` is still read.
+
 Keeping Admin requests off Netlify's proxy also avoids its 26-second proxy timeout for
 long-running operations. Do not change these rules to `200` rewrites without verifying
 Admin's Origin/Host checks and request timeouts. On Render, use `OPENBLOG_BEHIND_PROXY=1`
@@ -128,9 +134,9 @@ and lets the existing privacy-respecting view counter retain analytics across de
 Supabase secret API key (`SUPABASE_SECRET_KEY`) remains in Netlify and is never an Admin or
 public-site setting. Existing `SUPABASE_SERVICE_ROLE_KEY` deployments remain supported.
 
-After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
+After deployment, open Studio's **Readers › How readers reach you**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an
-Admin user approves them in the **Moderation inbox**, which also lists passage feedback (ADR 0105).
+owner approves them in Studio's **Readers**, which also lists passage feedback (ADR 0105).
 To offer every moderation decision, with versions and an audit trail for comments, run the
 additive [`supabase/moderation.sql`](../supabase/moderation.sql) (and `feedback.sql` again if you
 use feedback) and set `OPENBLOG_MODERATION_ENABLED=true` (ADR 0106); see the
@@ -236,7 +242,7 @@ sessions, analytics, provider/moderation/API keys, Git configuration/credentials
 Unknown configuration fields are rejected rather than risking storing an inline secret.
 Do not put secrets in authored documents, public settings, or the included context directories.
 Re-provision write-only credentials through environment variables or the host's secret
-setup after restart; saving one in Admin does not make that credential durable.
+setup after restart; saving one in Studio does not make that credential durable.
 
 **Acknowledgement and conflicts.** Every authenticated Admin mutation completes its local
 filesystem transaction and synchronous durable manifest revision before returning success.
@@ -432,13 +438,13 @@ Blueprint from the repository, and Render asks for the settings marked `sync: fa
 
 ### Keep your work safe on Render
 
-With only the admin password filled in, nothing saved in Admin lasts. The service starts
+With only the admin password filled in, nothing saved in Studio lasts. The service starts
 again from its image at every restart and deploy, and Render's free plan has no disk. An
 instance that went idle has to be started again too, and we expect it to lose the files the
 same way, though we have not watched it happen. Saved posts, drafts, photos, settings, and
 view counts go, and Publish cannot push because it has no credential. While that is so,
-Admin shows the owner a notice on Overview, a short line on every other page, and a sentence
-after each save in the editor, the Landing page, and Customize look.
+Studio shows the owner a notice on Home and a sentence
+after each save.
 
 The person setting up the blog creates three things:
 
@@ -468,7 +474,7 @@ Set `OPENBLOG_FILES_RESET=1` there so Admin tells the owner until they are in.
 Then check it yourself, following step 4 of
 [the durable workspace guide](#durable-editorial-workspace-on-ephemeral-hosts). No one has
 run this setup against a live Render service and a real Supabase project from this
-repository; only tests against a stand-in for Supabase have. The notice in Admin goes away
+repository; only tests against a stand-in for Supabase have. The notice in Studio goes away
 once the workspace is on, but it does not prove the check passed. The three things to know
 afterwards:
 
@@ -505,6 +511,8 @@ site from the repository:
   to GitHub with a token scoped to that one repository, and `OPENBLOG_BEHIND_PROXY=1`. Point
   `OPENBLOG_GREETINGS_ENDPOINT`, `OPENBLOG_GIFTS_ENDPOINT` and the engagement endpoint at the
   functions' public `https://` address.
+  A health or smoke check of the editor should expect `/admin/` to answer `302` to `/admin/studio/`
+  and `/admin/studio/` to answer `200`.
 
 Build the functions' image from the repository root with `docker build -f service/Dockerfile .`.
 A site repository can pin both to one engine commit and build them itself, as

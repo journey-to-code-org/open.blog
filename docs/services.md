@@ -47,7 +47,7 @@ Each problem is a sentence naming the field, and every problem in a file is list
 
 ## Writing a service
 
-In Admin open **Services** (`#/services`, under the Content tabs and in the command palette). **Add a service**
+In Studio open **Services** (`#/services`, in the navigation on a trade site and in Find). **Add a service**
 asks for a name (the id is made from it, and you can change it before the first save), a summary, what is
 included, a price band, a typical timeline, the questions customers ask and, if you like, text for the page. The
 questions are a list: **Add a question** puts the cursor in the new one, and each has **Up**, **Down** and

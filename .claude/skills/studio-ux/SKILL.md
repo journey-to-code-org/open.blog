@@ -92,7 +92,7 @@ A screen passes when every line holds:
 - [ ] Keyboard only, screen reader names, 320 px reflow, reduced motion, contrast: all pass.
 - [ ] Built from Zubra UI components themed by Studio tokens, with no one-off styles.
 - [ ] Her layer says "your blog", never "Studio" or "Admin"; platform steps show only the ones for the device in her hand.
-- [ ] Every field the old screen edited is on her layer, in details, or dropped with a written reason.
+- [ ] Every field the file holds is on her layer, in details, or left in the file with a written reason.
 - [ ] Every call to another company names what goes before it is sent; every helper result is undoable and shown as text; no secret can be read back from the page.
 - [ ] Anything kept on this phone is named on Home and asked about before sign-out.
 - [ ] A first-use step hides itself when the answer is already known, and leaving it midway loses nothing.

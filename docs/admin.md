@@ -1,136 +1,274 @@
-# The admin editor: log in, edit, create, schedule
+# Studio: running your blog
 
-`openblog serve --admin` adds a login-protected editor at `/admin` to the same server that
-serves your blog. The editor reads and writes the same Markdown files you would edit by
-hand, so your content stays plain files you own. No database is required by default.
-Ephemeral hosts can opt into [durable Supabase workspace storage](deploy.md#durable-editorial-workspace-on-ephemeral-hosts).
+`openblog serve --admin` adds a sign-in protected editor to the same server that serves your blog.
+It is called **Studio**, at `/admin/studio/`; the address `/admin/` opens it too, so a bookmark, a
+Home Screen icon or a link from before keeps working ([Old addresses](#old-addresses)). Studio reads
+and writes the same Markdown and JSON files you would edit by hand, so your content stays plain files
+you own. No database is required by default; ephemeral hosts can opt into [durable Supabase workspace
+storage](deploy.md#durable-editorial-workspace-on-ephemeral-hosts).
 
 ```sh
-openblog user add you              # create a login (prompts for a password)
-openblog serve --admin             # http://localhost:8080/admin
+openblog user add you              # create a sign-in (prompts for a password)
+openblog serve --admin             # http://localhost:8080/admin/
 ```
 
 Passwords need at least 12 characters. To avoid typing one where it is echoed, use
-`echo "your passphrase" | openblog user add you --password-stdin` or set
-`OPENBLOG_PASSWORD`. Other commands: `user passwd <name>`, `user remove <name>`,
-`user list`. Changing a password or removing a user ends that person's open sessions
-immediately.
+`echo "your passphrase" | openblog user add you --password-stdin` or set `OPENBLOG_PASSWORD`. Other
+commands: `user passwd <name>`, `user remove <name>`, `user list`. Changing a password or removing a
+user ends that person's open sessions immediately. `openblog user add <name> --co-writer` makes a
+sign-in that reaches only [Writing together](#writing-together).
 
-## What you can do
+Studio is built for two people at once. Its first layer of every screen is for the owner who writes:
+plain words, one job per screen, and nothing technical. Everything for the person who set the site up
+sits one step deeper: a **Details** or **For …** panel on each screen, **More**, and **Find**
+(`Ctrl+K`, or `Command+K` on a Mac), which reaches every screen and action by name. The words Studio
+says can be changed per site or per host ([Studio's words](studio-words.md)).
 
-| | |
-| --- | --- |
-| **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
-| **Create** | New posts, pages, and series. The file is named from the date and slug. |
-| **Preview** | A full-page site preview plus portable HTML and Markdown projections for posts, all generated from the current unsaved source. Portable warnings identify transformed or canonical-only behavior; front matter stays in Settings and is never printed into a preview. |
-| **Before you publish** | One checklist in Write (Studio R7): what the build would refuse, the real shared card (the generated OpenGraph title, description, address, picture and X card), suggestions from the engine's accessibility audit, R6's checks, search hints and recipe advice, and, on research posts, the research checks. It opens by itself on a post's first Publish when it has something to show. There is no score. See [Before you publish](#before-you-publish). |
-| **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
-| **Images** | Insert by button, drag and drop, or paste. **Insert image**, a post's cover photo, picture pieces and the landing page builder all open the same picker: add a new photo or choose an earlier upload, shown as pictures. Large photos are reduced as they are uploaded (see [Photo uploads](#photo-uploads)). Saved under `static/images/uploads/<year>/`. |
-| **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
-| **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
-| **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
-| **Words for YouTube** | The title, description, tags and chapters `openblog video` writes for a video post, checked against YouTube's rules, ready to copy. |
-| **Your route** | Read a route file (GPX) on the phone, derive distance, climb and time, and choose how much readers see: nothing but the numbers (the default), the shape without its ends, the whole shape, or the exact route file. |
-| **Assistant** | Inspect the configured author-time provider, manage portable or private author/site context, and preview exactly which context is selected. Provider credentials remain on the server. |
-| **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
-| **Shared reflections** | Start a private shared reflection from a video, article, podcast, book, or other source, with a working title or guiding question. Nothing is published and no post is created. |
-| **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
-| **Schedule** | See below. |
-| **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
-| **Appearance** | Choose whether the public light/dark button is shown, hidden (system preference only), or inherited from each page's theme. Settings are saved in `openblog.json` and rebuilt locally; Publish to update a separately hosted static site. The Admin's own theme is unchanged. Business facts have their own screen. The site look (palette, accent, font style, sizes) is read and saved at `GET`/`PUT /admin/api/look`; a save changes only the `appearance` key, is checked against the revision you loaded, and is bounded to 4 KiB. |
-| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts are not published. See [publishing.md](publishing.md). |
+Every screen keeps what you were doing: drafts save themselves, leaving with unsaved work asks first,
+and anything you take out or delete can be undone. Studio works on a phone at 320 pixels wide, with the
+keyboard alone, and with a screen reader; it opens with no signal once it has been opened once
+([Notifications and the Home Screen](#notifications-and-the-home-screen)).
 
-## Workspace layout
+## Getting started
 
-The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
-the main navigation focused on content and the essential **Write**, **Site preview**, and
-**Settings** views. Its main navigation shows Overview, Posts, Pages, Landing page, and Customize
-look, plus Series, Services, and Business facts once the site uses them, Reviews once it has a job, a trade or a
-review, and Reminders once the business facts name a trade or reminders are on. The other pages are under
-**More pages** in **Advanced tools**, and research capture, knowledge checks and research formatting appear in the
-editor from **Guided** up, on a post that is research or publishes citations, or after you open
-the research workspace. Every other document view sits under **More tools** in the editor bar,
-and the header's **Advanced tools** dialog groups every optional tool by goal: getting
-writing help (the optional AI Assistant, including knowledge checks and runnable-code
-proposals), checking quality and research, sharing and distribution, and collaboration and
-readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar
-and the Research workspace to the main navigation, **Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
-every preset you can reorder optional tools with the up and down buttons, choose comfortable
-or compact spacing, pick a default Visual or Markdown writing mode, and **Restore defaults**.
-Open **Personalize** from the header, from Advanced tools, or by searching for
-"Personalize workspace" with `Ctrl+K`.
+The first time an owner signs in to Studio on a site where it is switched on, **Getting started**
+(`#/start`) opens instead of Home: at most three short steps, each of which can be skipped, with
+**‹ Back**, **Finish later** and **More › Skip the rest** on every one (an installed app has no
+Back button). The navigation and Find are hidden while it is open; her name's menu, with Sign out,
+stays.
 
-Workspace preferences are private presentation choices for one admin login, not site
-configuration: they never change a post, `openblog.json`, the generated site, feeds, or
-exports. They are stored under `.openblog/private/admin-preferences/` (ignored by Git in new
-projects), limited to a small schema-versioned file per login, and protected by the same
-login and CSRF checks as content editing. Each save names the revision it replaces, so a
-change made in another tab or session is reloaded instead of silently overwritten. Write,
-preview, settings, save state, publish status, conflicts, privacy notices, approvals, and
-blockers cannot be hidden or reordered. If private preference storage is unavailable,
-authoring falls back to the Simple workspace with a notice and remains usable. Only saving
-from **Personalize** replaces stored preferences that can no longer be read; switching
-between Visual and Markdown then lasts for the session without touching the stored file.
-The server allows that replacement only when the stored file is malformed or too large,
-never when it could not be read at all.
+- **Turn on your writing helper** is shown only when the site has no usable key. She pastes the
+  key once; it is kept on the server and never shown again. A key that doesn't look like one is
+  questioned before it is sent, one the company refuses is removed at once, and over plain `http`
+  the field isn't offered at all. **Skip** leaves it for whoever set the site up.
+- **Tell a few short stories**: three prompts from the Getting started set, each told by typing
+  (three minutes, as in Your writing voice) or, when something on the server can hear, **out
+  loud**. Before the first recording a sheet says where it goes, by company, or that nothing leaves
+  the site. A finished recording is kept on the phone until it has been turned into words, then
+  removed; the words are shown read-only. Stories are private voice pieces: never published, never
+  in a build. Each can be read back and thrown away. Three is the ask; one is enough.
+- **Let your helper learn how you sound**: her own stories are ticked, the box says what goes to
+  which company, and nothing is sent until she presses and nothing saved until **Save my voice
+  guide**. Without a helper that is on, or without a story, this step is passed over and the last
+  screen says why.
+- **You're ready** lists what was done, each with a word and a mark. Reaching it is what finishes
+  Getting started for that account.
 
-Admins who used the workspace before personalization existed keep the full layout: on their
-first sign-in after upgrading, a browser that remembered a writing mode from an earlier
-release starts in **Advanced** with that writing mode, and the choice is then stored privately
-for the login. The browser then forgets the old writing mode, so the migration happens once
-and another login in the same browser starts in **Simple**. A remembered preview width does
-not count, because this release still remembers it.
+Where she is lives on the server, so a reload, a closed app or another phone lands on the same
+step. After **Finish later** Home shows **Finish getting started** and it doesn't open by itself
+again for 20 hours. **Getting started** in her name's menu runs it at any time. If she left the
+stories untold, Write shows one card on a new post ("Want your helper to sound like you?") at most
+three times, a week apart, never once she has typed, with **Don't ask again**. Home's details list
+every account's line and offer **Show it again at next sign-in**. In Your writing voice, a story
+told out loud is marked **Told out loud**, and A piece gains **More › Throw this piece away…**.
 
-Inside the old editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
-Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
-Switching views never loses edits, and opening Site preview refreshes it from the current draft.
-Studio has no panes: Social, Optimize and Accessibility are its **Before you publish** sheet,
-Release kit is **Words for YouTube** and Field Review is **Your route**, each reached from Write's
-side card, More or Find (`Ctrl+K`); an old `#/edit/<post>?pane=social|optimize|accessibility|release|field`
-address opens the matching sheet.
+The switch, its four values and a practice run are in
+[Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
 
-Portable preview findings are grouped by capability, representation, and destination, with
-**Fully portable**, **Gracefully transformed**, or **Canonical-only interaction** labels
-rather than a score. Findings explain what the copy preserves and which interactions stay
-on the canonical article. **Edit source at line …** opens Markdown, focuses and selects the
-relevant source, and announces the navigation without saving or changing unsaved content.
-Findings without an exact source location remain visible without a navigation button.
-Warning acknowledgements remain revision- and destination-scoped. A failed preview shows
-the validation error and disables copy/download until a current preview succeeds.
+## Home
 
-Destination views also show shared content-policy findings: retained image references
-have not been inspected or uploaded, Ghost's HTML-to-Lexical conversion is lossy, and
-WordPress's external canonical needs separate configuration. Unmapped destination tags
-are disclosed, not silently discarded. These are draft-review requirements, not claims
-that a browser preview certifies provider rendering or media type/size acceptance.
+**Home** (`#/`) asks "What would you like to do?": one big way to start writing, the drafts you are in
+the middle of, and what needs you, said in words. It says how the site is doing ("Everything you've
+saved is on your site.", or how many changes are saved but not on the public site yet, with **Put them
+on my site**), how many jobs are waiting on this phone, notes from readers waiting for a decision, and,
+on a trade site, **Your site in ten minutes**: add a phone number or email, publish a service, publish a
+job, save a review and share a job. Each step is worked out from your files every time by
+`GET /admin/api/trade-checklist`, which only reads, so it ticks only when your site has it; each open
+step opens the screen where it is done ([A site for a trade business](trades.md)). A recipe site gets
+its recipe notes here too.
 
-Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
-commands. The palette opens content lists, creates documents, switches editor panes,
-saves the current document, changes the color scheme, and reaches account actions. Use
-the arrow keys and Enter to choose a result, or Escape to close it.
+Home's details (**For** the person who set up the site) hold the release of Studio's files, the branch
+and remote, **Rebuild the site now**, and **Words**: the site's own changes to Studio's words and any
+that were dropped, each in words.
 
-The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Release kit,
-Field Review, Optimize, Settings, Accessibility, or Evidence, whether or not that view is
-shown in the editor bar. The preview
-toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
-in the browser and does not change the published theme.
+### When saved work can vanish
 
-For posts, press `Alt+0` to open **Assistant**. Its provider card reports the provider type,
-model, configured state, and supported capabilities without returning the credential or
-configured endpoint path, query, or user information to the browser. The provider card and Review
-disclosure show only the safe destination origin so authors know which service receives selected
-material. Review, Interactions, and Context are labelled work areas. Interactions creates editable
-knowledge-check, runnable-example, and coding-challenge proposals, while Context manages author,
-site, and post notes plus selected sources. Provider failures do not disable ordinary non-AI
-authoring.
+On a host that resets its files, such as Render with no durable workspace, what you save can vanish
+when the server restarts. Studio says so on Home and after a save, until [the durable
+workspace](deploy.md#keep-your-work-safe-on-render) is on; nothing shows on your own computer. If
+sending the site out cannot reach its repository, Studio says what that means in plain words, with
+git's own message in the details.
+
+## Write
+
+**Write** (`#/write`, or a post from **Posts**) is where a post is written: a title, the words, and the
+photos. A new post can be a story or a recipe (`#/write/new/recipe` opens one laid out with Ingredients
+and Steps); a trade site's job is written here too. A draft saves itself as you type; **Publish** puts
+it on the site, **Schedule** picks a day ([Scheduling](#scheduling)), and a published post waits for
+**Update**, with "Changed · not on your site yet" until then. **Delete** moves the file to
+`.openblog/trash/`, with Undo; nothing is destroyed. Photos go in with **Put a photo in**, which asks
+you to describe the photo first ([Photo uploads](#photo-uploads)).
+
+### Your words, with cards in place
+
+In Write, your words are plain boxes you type in. Anything in a post that isn't plain
+words shows as a **card** in place: a photo (with the words under it), a tip or a note, a checklist,
+a table, a video, before and after photos, questions and answers, a question for readers, a button,
+links to other pages, a map, opening hours, how to reach you, code, a footnote. A card shows a short
+sketch of what it holds and never its Markdown. Each card has **Change** (the form for that kind,
+filled in) and **Move** (**Move up**, **Move down**, **Take it out**); Alt+↑ and Alt+↓ move a focused
+card, and ↓ on a box's last line (↑ on its first) goes to the card next to it. Every add, change, move
+and take-out says what happened under the box, with **Undo**, which reverses only that action: words
+typed since stay. When what it changed was edited since (or the words around a taken-out card are
+gone), Undo says "This changed since, so it can't be undone here." and changes nothing. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
+step rows never do.
+
+Nothing about a card is rewritten unless you change it: a post opened and saved with no change keeps
+every byte. **Done** with nothing changed writes nothing. A card the form couldn't write back exactly
+(a hand-written piece with a field the form doesn't know, raw HTML, a lesson demo, a quote request
+form, indented code) has no **Change**; it can still be moved and taken out, and its source is in its
+details. A code fence that never ends leaves the rest of that box shown as written, so nothing in it
+moves; the details say on which line it starts.
+
+**Show the words as written** (in Add something's details, or in Find) turns every box into one plain
+box with the Markdown exactly as it's saved, for this post and this visit.
+
+Pasting from a web page, a document or an email keeps headings, bold, italic, links and lists and
+leaves fonts and colours out, in every box; a photo in the paste with no description is left out and
+said so. A pasted or dropped photo file opens **Put a photo in** at the describe step. Ctrl/⌘ B and I
+make the selected words bold or slanted.
+
+**Suggestions** under the words list gentle checks once you stop typing: a photo with no description,
+a link with no words or that says "click here", an http:// address, a heading that skips a level, all
+capitals, a very long paragraph. **Show me** goes to the place (or opens the card); **Fix it**, where it
+is safe, changes only that place, with Undo. Suggestions never stop a save. An HTML tag is noted only in
+the details for the person who set up the site.
+
+### Add something
+
+**Add something** sits beside every **Put a photo in**. It opens a sheet that first says where the thing
+goes ("It goes in Your story, after “My mother made this every…”."), then lists what you can put in,
+in two groups, with a search. Typing `/` alone on an empty line in any box opens it with the search
+ready (a line like "1/2 cup" never does). It also opens from Write's **More** ("Add something…"), from
+Find ("Add a table", "Add a video"...), and from an address ending `?add=1` (the list) or `?add=<kind>`
+(that form, for example `?add=table`).
+
+Each thing has a short form with a live **How it looks**, **See it in your post** (the preview with it
+included; nothing is added yet) and **Add it** (Ctrl/⌘ Enter). A problem is said beside its field and
+focus goes there. Tips, checklists, tables, headings, quotes, links, questions for readers and code are
+written by Studio and work with no signal. Pieces (a video, a button, links to other pages, questions and
+answers, a map, opening hours, how to reach you, a photo with words under it) and before and after photos
+are checked and written by the server (`POST /admin/api/pieces`), so the file holds exactly what the build
+reads (a refusal is a 422 whose `problems` are sentences and whose `issues` are the same problems coded as
+`{field, item, code, message, max}`, which Studio uses to say each one beside its field); with no signal the form keeps what you filled in on this device and **Finish adding the video**
+appears at the top of the sheet the next time. Closing a filled-in form asks once ("Add this table?").
+
+With the caret in a link, a heading or a quote, Add something opens **Change this link** (heading, quote)
+filled in; a link also offers **Take the link off**. On a research post, **Abstract** and **References**
+add their headings (the Abstract at the start, References at the end) unless the post already has them.
+
+The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
+line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
+CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
+you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
+**What it writes**. There is no option to write your own HTML. See
+[Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
+
+### About this post, and who wrote it
+
+In Studio every setting of a post is in Write's **About this post** (the button at the end of
+the side column, More, `?sheet=about`, or Find: "About this post", "Summary for search and
+sharing", "Who wrote it", "More about this recipe", "Details for the person who set up your
+site"). The old Settings pane (`#/edit/<post>?pane=settings`) opens it. It has no Save of its
+own: a draft saves itself, and a published post keeps the changes on that device until
+**Update**, with Write saying "Changed · not on your site yet".
+
+- **What kind of post**: a story, a recipe, a job on a trade site, and the post's own kind
+  (video, trip outdoors, research). Changing it keeps the words; a story turned recipe offers
+  **Add the recipe parts**, and **Undo** sits under the choice until the sheet closes. A
+  legacy `recipe: true` post shows as a recipe and writes `profile` only when changed.
+- **This recipe / This video / This trip outdoors**: only the post's own kind's fields
+  (`course`, `cuisine`, `yield`, `totalTime`, `calories`, `adaptedFrom`; the video and field
+  journal fields). Serves and the two times stay under the title. A job's `job.*` stay in
+  About this job, never in the sheet.
+- **On the page**: the line under the title (`subtitle`; an old `subheading` or `dek` goes
+  when it changes), the part in its collection (`seriesOrder`), and comments for this post.
+- **In search and when shared**: the summary (`description`, or whichever of `summary`,
+  `brief`, `excerpt` the post already uses), a rough card of how a shared link looks, and
+  Pin words when the site sends Pins.
+- **Who wrote it**: the names in order. **Change who wrote it** picks people from People,
+  moves them, removes them, or **Just me** (no credit file). The list is sent only when it
+  changed, always with its `creditEtag`; a save of the title never touches the credit file,
+  and a credit file that can't be read never stops the rest of the post saving.
+- **Details for the person who set up your site**: the address (`slug`), editable only while
+  the post was never on the site (the server's `wasPublished`, from the file's history in
+  Git; without history it counts as published), old addresses, first published elsewhere
+  (`canonical`), the theme, a picture by web address, every kind, the technical video and
+  research fields, each person's roles, "Name no one on this post", repairing a broken credit
+  file, the keys Studio doesn't edit ("Also in this post", kept exactly as written), and the
+  file's facts. There is no rename: a post's file never moves.
+
+Every value is written under the name the post already uses, only when it changed, and a
+summary-only change rewrites one line of the file.
+
+**People** (`#/people`; the old `#/contributors` opens it) lists the blog's own name and
+everyone who can be named on a post. Add someone with a name and a website; their id comes
+from the name and never changes; other pages and an ORCID iD are under its details. A person
+named on posts, in a shared reflection or in research notes can't be removed, and People says
+which posts. A removal can be undone. **Add someone who isn't listed** on a post comes back to
+it with the new person on its list. Saves use the `openblog.json` revision token and change
+only `contributors`. ORCID iDs are checked for their check digit but not verified.
+
+### Copy it for another blog
+
+Write › More › **Copy it for another blog** shows the post as it will go to Medium, Ghost,
+Hashnode, DEV, WordPress, a web page or plain words, made from what's on the screen (saved or
+not), with **Copy** and **Download**. The differences there are listed in plain words with
+**Go to it**; the engine's findings, the destination's policy, the tag plan and **Mark as
+checked** (portability acknowledgements, per version) are under its details. Nothing there
+saves the post.
+
+### Before you publish
+
+Write's **Before you publish** sheet answers "Is there anything I should look at before people
+see this?" It opens by itself only on a post's **first** Publish or Schedule, and only when it has
+something to show (a blocker, a suggestion, the exact route, a check that couldn't run, or a
+research post, which always opens it); **Update** opens it only when something blocks. It opens
+any time from the card under About this post (its line says "2 suggestions so far", "Nothing to
+check" or "Changed since the last check"), More, Find, R6's Suggestions (**Check everything before
+you publish**) and See how it looks (**Show them**). In order:
+
+- **Needs fixing first**: what the build would refuse: a job's check problems (each with **Go to
+  it**), research findings the build refuses, and a post the build can't make. Publish waits,
+  `aria-disabled` and still focusable, and says why; **Save draft** always works.
+- **When it's shared**: the real card from `POST preview` (`only: "checks"`), with notes for no
+  summary, a summary over 160 letters, no picture, or a picture that can't be shown. About this
+  post shows the same card a moment after the title, summary or cover changes, and R5's rough
+  card when there is no signal.
+- **Suggestions**: one list in post order: R6's checks (with their Fix it and Undo), the engine's
+  accessibility findings, search hints (`title-long` over 65 letters, `no-tags`, `no-name`) and the
+  recipe advice See how it looks used to show. None of them stop Publish.
+- **Your video**, **Your trip** and **Research checks** on those posts; **Worth a look**; and the
+  details, which keep the search hints (summary length, opening paragraph, sections, depth,
+  outside source), build notes, recipe codes and every raw server sentence.
+
+The checks run in parallel and wait at most 8 seconds. With no signal, Publish goes the usual
+way and the sheet doesn't open; a check that didn't run says so with **Check again**. Ctrl/⌘ Enter
+in the sheet publishes (or, when something blocks, goes to the first blocker).
+
+**Words for YouTube** (video posts) shows the title, description, tags and chapters as
+`openblog video` writes them (from `POST video/release`, or the page's own copy of the engine's
+rules with no signal): the description ends with "Read the article: <address>", a video with no
+chapters is fine, and anything YouTube won't take is listed above with **Show me**. Copy never
+waits on a problem.
+
+**Your route** (trip posts) reads a route file on the phone with no network and keeps its text
+only in the page's memory. Every file starts as **Don't show it** (the numbers only; the climb
+drawing is off until switched on); **The shape, without where it starts and ends** leaves off
+500 m at each end by default (200 m, 1 km or 2 km, or any number in the details); **The whole
+shape**; and **The exact route**, which asks once. The drawings show exactly the values that will
+be written. An exact route file is cleaned on the phone (positions and heights only) and again on
+the server, staged privately, and sent with the next save, draft or not: the server holds it in
+`.openblog/pending-tracks/held/` until the post is live, so a post with the exact route can be
+scheduled. **Use this route**, a change of choice and **Take the route off** each have Undo. See
+[Field journals](field-journal.md#import-a-gpx-track).
 
 ### The writing helper
 
-Studio's **Writing helper** replaces the old Admin's Assistant pane (Studio R8). It is two places:
+The **Writing helper** is two places:
 a sheet in **Write** for help with the post in front of you, and the **Writing helper** screen
 (`#/helper`, in the account menu and Find) where it is turned on and where it keeps what it knows
-about you. An old link to `#/edit/<post>?pane=assistant` opens the sheet.
+about you.
 
 Three rules hold everywhere the helper is used:
 
@@ -241,66 +379,7 @@ was. The server answers each failure with a code beside its sentence: `key-rejec
 a server), and for a request it cannot take `too-long`, `no-text`, `too-many`, `over-budget`,
 `skill-scope`, `context-unavailable`, `bad-language` and `bad-count`.
 
-The rest of this section describes the same features in the old Admin, which keeps working until it
-is retired.
-
-### Review an unsaved document
-
-Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
-saving first. Under **What to review**, keep **Complete document** or choose **Selected text** (the text
-selected in the draft) or **Current section** (from the heading before the cursor to the next heading; a `#` line inside fenced code is code, not a heading).
-Findings then stay inside that passage, and a skill that cannot review it is shown as unavailable
-([ADR 0290](adr/0290-a-review-can-cover-a-selection-or-a-section-and-voice-match-reviews-only-a-passage.md)).
-Select one or more review skills and any context the provider should receive, then
-inspect the disclosure: it lists the scope, approximate source size, every skill
-and context item, provider model and safe destination origin, and confirms external research is off.
-Nothing is sent until **Run document review** (or **Review selected text**, **Review current section**) is
-pressed.
-
-Validated findings are grouped under their originating skill and visibly labelled **AI-generated
-advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
-suggested replacement, and whether it is unverified advice or based on supplied context. Choose
-**Apply suggestion** to replace its exact reviewed passage in the unsaved draft. The editor refuses
-ambiguous, stale, repeated, or overlapping replacements and offers one-step undo. Applying or undoing
-never saves or publishes. Provider errors, invalid results, and edits made while a review is running
-leave the draft unchanged.
-
-### Use AI autocomplete while writing
-
-In **Write**, turn on **AI autocomplete** for the current editor session. It is off by default and is
-not remembered. The disclosure explains that after an 850 ms typing pause the current unsaved title,
-metadata, Markdown, nearby caret text, and explicitly selected Assistant context are sent to the
-configured provider. Only one request runs at a time. Navigating away aborts pending work.
-
-A returned continuation remains a visible proposal. Press `Tab` or choose **Accept** to insert it,
-or press `Escape` or choose **Dismiss**. Moving the caret or changing the title, metadata, context,
-writing mode, or draft makes the proposal stale and prevents insertion. Accepted text follows the
-normal unsaved-change path in Visual and Markdown modes; it is never saved or published automatically.
-
-### Draft a knowledge check
-
-Open **Assistant → Interactions** and choose **Create knowledge-check proposal**. The same proposal
-dialog available from the Write toolbar uses selected text when present, otherwise the current post.
-Generated questions are reviewed in the dialog and enter the unsaved Markdown only after explicit
-insertion. Non-AI quiz authoring remains available.
-
-### Draft a runnable example or coding challenge
-
-Open **Assistant → Interactions** and choose **Create runnable-code proposal**. Choose a complete
-example when readers should run, change, and observe working code, or a coding challenge when they
-should complete a small bounded task. With a provider configured, **Generate draft** uses selected
-text, then the current section, then the post as context. Without a provider, fill in the same form
-manually.
-
-Choose Rust, Web (HTML/CSS/JavaScript), or a language explicitly enabled by the site's external
-runner. The title, instructions, source, expected result, hint, and explanation remain editable in
-the dialog. A challenge must include a visible TODO comment and expected result. Nothing enters the
-unsaved post until **Insert into draft** is chosen. The inserted content uses portable Markdown prose
-and one native runnable fence, so it works in both Visual and Markdown authoring modes. Web results
-must preserve `---html`, `---css`, and `---js` markers. The provider must return the requested
-language; multi-file projects, hidden tests, automatic grading, and shell commands are not offered.
-
-### What the Assistant knows about open.blog
+#### What the helper knows about open.blog
 
 Every review, interaction-generation, and autocomplete request includes a versioned engine guide generated
 from open.blog's deterministic core. It describes native quiz and Rust/web runnable fences, configured
@@ -310,52 +389,340 @@ These are renderer facts, not instructions found in the draft. Draft and context
 data. The guide prevents an AI from treating supported engine syntax as an error, but it does not let
 the provider save, publish, certify claims, perform external research, or add unsupported syntax.
 
-### Manage Assistant context
+## Pages, collections and reading paths
 
-Open **Assistant → Context** to create or edit Markdown notes about the author or the site's
-audience and goals. **Portable** notes live at `assistant/context/author.md` and
-`assistant/context/site.md`; they can be reviewed and deliberately included in normal Git
-publishing paths. **Private** mirrors live below `.openblog/private/context/`, are visually
-distinguished, and are always excluded from open.blog publish staging.
+**Pages** (`#/pages`) are the site's own pages, like About or Contact: a title, a line under it,
+whether it is in the menu, and its look. **Collections** (`#/collections`) group posts on one topic;
+on disk they are series (`content/series/`), and a post joins one from About this post. Both are lists
+with **Write a new one**, and each opens in its own editor (`#/page/<path>`, `#/collection/<path>`).
 
-Each file is limited to 64 KiB of UTF-8 text. Invalid or oversized files remain visible with
-repair guidance instead of being silently selected. Saves and removals use revision checks, so
-an edit made elsewhere is not overwritten. The Context view warns if Git does not ignore the
-private directory or if a private file is already tracked. `openblog init` adds
-`/.openblog/private/` to `.gitignore` for Git projects while preserving existing rules.
+**Reading paths** (`#/paths`, in the navigation on a site that uses them) are your own ordered routes
+through published posts and public atlas entries, saved as `content/paths/<name>.json`. The editor
+lists the steps in order; **Move** (a menu, or Alt+Shift with the arrow keys, never drag only) changes
+the order, a sheet changes or adds a step with its relationship (from a closed list) and your reason in
+your own words, and **What readers will see** is the same projection a published path would have, with
+why it would not be published as it stands. **Save draft**, **Publish** and **Update** are explicit;
+a reason the server holds a path back is asked about once; deleting it and every change can be undone
+through the server's kept copy. Draft posts and private atlas entries are never offered as steps.
 
-Select context explicitly with the checkbox on each valid file. The **Context disclosure**
-preview lists every selected filename, whether it is Portable or Private, its character count,
-and the total size. Selection alone does not contact a provider; a later explicit Assistant
-request will use this disclosure before anything is sent.
+## Change your home page and your look
 
-Saved posts also offer **Post brief** context in portable and private forms. The brief has separate
-fields for the post's goal, audience, learning outcomes, sources, and free-form constraints; it is
-stored at `assistant/context/posts/<post-filename>.md` or the matching private path. Renaming or
-moving a post to trash moves its brief in the same filesystem transaction, and restores the whole
-bundle if any move fails.
+Four screens change how the site looks without any code. None of them has a box that takes HTML or
+CSS, and nothing changes on the public site until you save.
 
-The **Text references** area accepts only `.md` and `.txt` UTF-8 sources up to 64 KiB. It shows the
-stored text before selection and rejects unsupported filenames, binary text, duplicates, and
-oversized input without a partial file. **Existing post snapshots** shows only Markdown posts from
-the configured content directory. Selecting one uses the exact bounded source currently on disk;
-it does not copy images, sidecars, or other repository files. Invalid or oversized snapshots remain
-unselectable with guidance.
+### Front page
 
-The disclosure preview includes every selected post brief, reference, and existing-post snapshot,
-with its visibility and character count. These selections remain local until a later explicit
-Assistant request.
-To capture a web reference, use **Add URL snapshot** and confirm the retrieval. Admin accepts
-only public HTTP(S) destinations, rechecks every bounded redirect, rejects credentials and
-local or private network addresses, and applies one total deadline plus strict response and
-extracted-text limits. Supported responses are UTF-8 HTML, Markdown, and plain text. Compressed
-responses are rejected, so an encoded body cannot expand past the extraction limit.
+**Front page** (`#/front-page`) arranges your home page as sections, top to bottom, each said in a
+line: a welcome banner, text, latest posts, collections, a featured post, buttons, a picture, a video,
+a map, opening hours, how to reach you, social links, questions and answers, a call-out, and your
+theme's own components ([Components an owner can place](theme-components.md#components-an-owner-can-place)).
+**Change** opens a section's fields in a side sheet, **Move** and **Hide** do what they say, and taking
+one out can be undone. **Add a section** lists them in plain words; an empty page offers ready-made
+layouts (Welcome, Small business, Portfolio, Newsletter, Recipes). The Recipes layout shows your newest
+recipes once you publish the first one; any Latest posts section can show **Only my recipes**. **See
+how it looks** shows the page as the build would make it from your unsaved sections, in a frame that
+runs no scripts. **Save** writes `content/landing.json` ([Landing page sections](content.md#landing-page-sections));
+if someone saved a newer page meanwhile you choose whose to keep. Earlier versions (your last twenty
+saves, kept privately) can be brought back.
 
-Retrieval does not save anything. Inspect the source and final canonical URLs, retrieval time,
-content type, and extracted text, then choose portable or private storage and explicitly save.
-Saved references live under `assistant/context/references/` or the matching
-`.openblog/private/context/references/` directory. They are labelled untrusted reference data;
-selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
+### Look
+
+**Look** (`#/look`) chooses how every page looks all year: a ready-made look, the main colour, the
+lettering, the size of the writing, corners, spacing, page width, headings, and whether readers can
+switch to dark. Each choice can go back to your theme's own. A colour that would be hard to read is
+adjusted on the server just enough, and the screen says so. Only the choices your theme honours are
+shown ([Look controls](themes.md#look-controls)); they are saved under `appearance` in `openblog.json`.
+
+### Describe a new look
+
+**Describe a new look** (`#/look/design`, reached from **Look** while the writing helper is set up,
+and from Find) takes the look you describe in your own words, or one of five
+ideas. Your writing helper drafts a look, and the screen shows its name, a sentence on what it chose and its
+six colours by name, for light and for dark. **See it on your front page** shows your own front page in it,
+in light or dark. **Change it** asks for a change in words ("a little warmer"), with **Back to the one
+before**; **Change** beside a colour lets you pick that one colour yourself. **Save this look** makes it a new
+look with the name you give it, then offers **Put it up now**, **Add it to your calendar** and, for ten
+minutes while it isn't in use, **Undo**.
+
+- **Start from** chooses which of your looks the new one builds on. It keeps that look's layout and
+  seasonal touches and changes the colours and the lettering.
+- **What the helper can choose** is deliberately small: six colours for light and six for dark, a font for the
+  writing and one for headings from a fixed list, a corner style and a text size. It is never CSS, a script, an
+  image or a font file. The server checks every answer and refuses any other field.
+- **Colours are made easy to read, whoever chose them.** The preview and the save both rebuild the look on
+  the server from the draft: writing at 7:1 where it can be and never under 4.5:1 on the page and on boxes,
+  quiet writing, links and the text on a button at 4.5:1. A colour that is moved, or that cannot get there
+  and is replaced (writing by black or white, quiet writing and links by the writing colour, boxes by the
+  page colour), is shown as it will be with a sentence saying what changed. The page may warn early; it
+  never decides what is saved.
+- **Look's own choices still apply on top.** A main colour, lettering or corners chosen on **Look** are worn
+  over whatever look is up, a new one included; the preview applies them as a build does and the screen says
+  which.
+- **Nothing changes until you choose.** Drafting and previewing write nothing. Saving only creates
+  `themes/<new name>/theme.json`; it never replaces a look, refuses a name you already have, and never puts
+  the new one up.
+
+It needs the writing helper set up (see [The writing helper](#the-writing-helper)). Your description is sent
+to the company you configured, as data it is told never to follow as instructions, and nothing else from your
+site is sent but its title and the name of the look you start from; the screen says so before you press
+**Draft a look**. The routes are `GET theme-draft`, `POST theme-draft`, `POST theme-draft/preview` (which
+answers the readable `colors`, the `changes` as data and `lookApplied`), `POST theme-draft/save` (which
+answers an `undoToken`) and `DELETE theme-draft/<name>?undo=<token>`, behind the session and the CSRF check
+([ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
+
+### Decorations
+
+**Decorations** (`#/decorations`) is when the site changes for the seasons, and to what. The top says
+what visitors see today and when that changes. Turn on the calendar and add a season for each holiday:
+what goes up, and the day it starts and ends (a season can run past New Year; the order decides which
+wins where two overlap). **Put a look up now** wears one at once, early, until a day you choose. With
+the calendar off, this is where you choose the look your site wears every day. It saves the `theme` and
+`seasons` members of `openblog.json` through `GET`/`PUT /admin/api/seasons`, checked against the
+revision you loaded ([Seasons](themes.md#seasons)).
+
+## Business, services, reviews and jobs
+
+These screens are in the navigation on a trade site (business facts naming a trade); Business facts
+are on every site from the account menu and Find, so a trade site can be started
+([A site for a trade business](trades.md)).
+
+### Business
+
+**Business** (`#/business`) states your name, trade, phone, email, opening hours, license, insurance,
+accepted payments and the year you started, once; the footer of every page, the front page's Business
+facts section and the `LocalBusiness` search data all read it ([configuration](configuration.md#business-facts)).
+Type a phone number the way you say it; each day of the week has its own choice. A problem is said
+beside its field and a save that finds one changes nothing. It reads and saves `GET`/`PUT
+/admin/api/business`, checked against the revision of the block you loaded, and changes only the
+`business` key of `openblog.json`, edited as text so every other key keeps its place
+([ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md)).
+
+### Services and reviews
+
+**Services** (`#/services`) describes each thing you sell once: what it includes, a price band, a
+typical timeline and the questions customers ask ([Services](services.md)). **Reviews** (`#/reviews`)
+saves a customer's real review with its link ([Reviews](reviews.md)). Each is a list, and one opens in
+its own editor (`#/service/<path>`, `#/review/<path>`, `#/service/new`); both use the same document
+routes as posts, so revision checks and the trash apply.
+
+### New job
+
+**New job** (`#/new-job`, in the navigation, the account menu and the app icon's long-press on a trade
+site) is for a phone on a roof: photos from the camera or the library, made smaller on the phone first,
+a voice note and a few words. The job is kept on this phone until there is a signal, then goes to your
+blog as a draft you finish in Write (**About this job**, its four parts, Before and After on each photo,
+and **Write it up for me**). Studio sends waiting jobs from any screen when the signal comes back, and
+Home says how many wait. Jobs are kept in the browser's `openblog-capture` store, the same one the old
+Admin used, so jobs kept before the switch are sent too; the iPhone app and Safari keep separate lists
+([Jobs](jobs.md#capturing-a-job-from-a-phone)).
+
+### Quote requests and reminders
+
+**Quote requests** (`#/quotes`) lists the requests visitors sent, newest first: mark them handled or
+archived, copy a phone number or email, download a spreadsheet for chosen days, and clean up archived
+requests (it always counts first, with a dry run, and asks once). It appears once
+`OPENBLOG_QUOTE_ENDPOINT` and `OPENBLOG_QUOTE_ADMIN_KEY` are set where the server runs
+([Quote requests](quote-requests.md)). **Reminders** (`#/reminders`) suggests what to write for your
+trade at the right time of year: write it, wait, or skip it; **Change topics and dates** edits them. A
+reminder only opens an unpublished draft; it never publishes anything ([Seasonal reminders](seasonal-reminders.md)).
+
+## Sharing and your accounts
+
+**Sharing** (`#/sharing`, when [social publishing](social-publishing.md) is set up) is where a post is
+shared to your accounts, and what happened to each share. **Share a post** picks the post, the accounts
+and a time, with how it looks on each; every row then has its own sheet: **Change** a waiting share's
+words or time, **Check it** for a share with no clear answer, and its **History**. One banner says when
+shares run late or wait on an account that needs reconnecting.
+
+**Where each post went** (`#/sharing?view=posts`) is Sharing's second view: every post that went
+anywhere, its status at each place, what that rests on, a link to it there, and visits from there in
+the last 30 days, 90 days or a year ([Where your posts went](distribution-reporting.md)). **Share this
+job** (`#/sharing/job/<path>`) posts a finished job to a connected Facebook Page once, or gives you the
+words to copy for Google and Nextdoor and remembers **I posted it**, with Undo ([Job sharing](job-sharing.md)).
+
+**Your accounts** (`#/sharing/accounts`) connects, reconnects and disconnects LinkedIn, Facebook,
+Bluesky and Mastodon, one sheet per service. Signing in happens at the service, which sends you back to
+Studio; a Bluesky app password is emptied before it is sent and never kept on the page.
+
+### Announce a post on social media (optional)
+
+An announcement is a share: a post, a caption and a time for one connected account. While it is
+waiting, **Change** edits its words or time and **Cancel** asks first; once a sender has picked it up it
+cannot be changed, and the row says why. A failed one says why in words with **Try again** (a fresh
+allowance of tries). One where the service did not say whether it went out is **Needs checking**: it is
+never sent again by itself; look at the account, then **Check it** and say whether it is there. Delivery
+health is in Sharing's details. This only schedules; the delivery worker and the service adapters do
+the posting ([social publishing](social-publishing.md#the-delivery-worker), [status and
+history](social-publishing.md#status-and-history)).
+
+## Cards and gifts
+
+**Cards** (`#/cards`, when greeting cards are set up) are cards sent by email on the day: a contact, a
+design, the words, a sign-off and the day; **Send a test** first ([Greeting cards](greeting-cards.md)).
+**Gifts** are kept beside them ([Gifts](gifts.md)).
+
+## Readers and visitors
+
+**Readers** (`#/readers`) is one inbox for everything readers send: comments, notes on a passage,
+author answers, third perspectives, suggestions and reports. Six views (Waiting, Asked, Shown, Not
+shown, Taken down, Taken back) and a kind filter; each card offers only the decisions the server offers
+for it, a no can be undone, several can be decided at once, and what is on the post can be fixed from
+the card. A note readers can see is published on the post when you say so. Keys work while a card has
+focus (`j`/`k` move, `s` shows, `n` says no, `u` undoes).
+
+**Visitors** (`#/readers/visitors`) gives visits (not people) over 7, 30, 90 or 365 days: a chart, top
+pages and where visitors came from ([features](features.md)). **How readers reach you**
+(`#/readers/setup`) holds the comment switches, the captcha, how long notes are kept (with a dry run
+before anything is cleared), and the hosted service's address and write-only key. The routes are
+`engagement/*` and `analytics`; refusals carry a `code` ([webmention](webmention.md),
+[comments and analytics](deploy.md)).
+
+## People
+
+**People** (`#/people`) lists who writes, cooks or takes photos for your blog: the blog's own name and
+everyone you can name under **Who wrote it** on a post, with their roles and an ORCID where they have
+one. A person still named on a post can't be removed; the screen says which posts. Owners also see the
+sign-ins of people writing with them ([Writing together](#writing-together)).
+
+## Research
+
+On a site that uses research (a research store, a research post, `citations`, or a research publish
+switch), **Research** (`#/research`) says how far your research has come and what's next
+([Research posts](research-profile.md)):
+
+- **Sources** (`#/research/sources`) keeps sources with their people and identifiers; imports CSL JSON
+  from Zotero or any reference manager after a preview; exports CSL JSON or BibTeX; and says where each
+  is cited and used before it is archived.
+- **Notebook** (`#/research/notebook`) keeps passages (**Keep a passage**) and notes, searches them and
+  copies a passage's exact words.
+- **Atlas** (`#/research/atlas`) keeps the people, works, concepts, movements and events you study, the
+  links someone asserted between them, and their datings, typed as plain years with BCE or CE and read
+  back at their stated precision; **Chronology** lists every dating side by side, never merged.
+- **Compare** (`#/research/compare`) reads aligned passages side by side, every word exactly as kept.
+- **Readings side by side** (`#/research/readings`) sets several attributed readings of one subject side
+  by side without ruling between them, with relations, explanations by audience, and approval of the
+  exact words as saved; text an AI tool drafted stays a draft until approved
+  ([Interpretation comparisons](interpretation-comparisons.md)).
+- **What readers see** (`#/research/public`) shows, part by part, exactly what your published posts,
+  atlas and comparisons give readers and why everything else stays private, with the whole site's
+  research checks.
+
+In Write, **Add something** gains **A citation** and **A quotation from your notebook**; citations show
+under each part of your words, **Your research** sits beside your words on a computer (a sheet on a
+phone), **Claims and evidence** makes a claim from selected words and links evidence, and **For
+readers** chooses what a post offers readers beside it. Words whose rights aren't cleared ask once
+before they go in; nothing is looked up online. Every change to research can be undone, and a form you
+leave within research is kept until you come back.
+
+## Writing together
+
+**Writing together** (`#/together`) is where you write something
+with other people, each in your own words, about something you all watched, read or heard, and put it
+on your blog when you all agree. It is in the navigation once you take part in one; until then, start one
+from Posts (**Write something with others**) or Find.
+
+1. **Start writing together.** Say what started it (a video, an article, a podcast, a book or something
+   else, up to 20, with a link if it has one), the question you each answer, a name for it, your name on
+   it (from People; **Add my name** puts the blog's name there), and when you read each other's parts:
+   **When everyone's ready** (the default) or **Each person, when they're ready**. Only you can see it
+   until you invite someone.
+2. **Invite someone.** On the reflection, **People and invitations** lists who is in it and what each
+   does (**Writes a part**, **Writes a part and helps run it**, **Only reads**, **In charge**). Choose
+   their name from People, say whether they're new (Studio makes them a sign-in, with a name you can
+   change) or already sign in, and what they do. **Make the invitation link** shows the link once:
+   **Copy the link** (or **Send it…** on a phone) and send it yourself. Nothing is emailed. It works once,
+   for a week unless you choose otherwise under the details. **Withdraw** stops it; **Make a new link**
+   replaces it.
+3. **Join.** Someone new opens the link, chooses a password, and is in. Someone who already signs in
+   signs in as the name the invitation names and presses **Say yes**. **No thanks** stops the link.
+4. **Your part** saves itself on this computer as you type and is sent as a version when you press
+   **Save** (Ctrl/⌘ S), leave, or let the others read it, so typing never spends the 200 versions a part
+   can have. **Ideas to start from** put a question in your words. **Start a new part** splits your part
+   for the layout (readers never see the break). If you saved somewhere else too, both are shown and
+   nothing is lost until you choose **Keep mine**, **Use the other one** (with **Bring mine back**) or
+   **Decide later**.
+5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
+   **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
+   in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
+6. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
+   agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
+   unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
+
+**Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
+after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
+(whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
+whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
+agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
+you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
+together** holds what you say after everyone's parts (an agreement, a difference, a question, something
+to try, or what you're not sure about), each speaking for the people named on it and agreed by each of
+them. **Moments** (from Your part) are places in what started it, with the words said there or what you
+noticed, kept private or put with your part; words said there need their rights and where they came
+from. Each of these is saved on its own, asks everyone to agree again where it changes what they agreed
+to, and can be undone. **Fill in from the link**, on Start, asks the link's own site for a title and who
+made it, and fills only empty boxes. Under People's details, an owner sees **Sign-ins for people writing
+with you** and can remove one: the sign-in goes, and so does every reflection it was in; names stay on
+what they wrote.
+
+People you invite get a **co-writer** sign-in: it opens only Writing together, only the reflections
+they're in, and the server refuses everything else. The design is recorded in
+[ADR 0413](adr/0413-co-writer-accounts-reach-only-the-collaboration-routes.md) and
+[ADR 0414](adr/0414-invite-a-new-person-by-link-and-they-choose-their-own-password.md); the private files
+are under `.openblog/private/collaboration/` (back that folder up with your other private files), as in
+[ADR 0007](adr/0007-private-shared-publication-records.md) and
+[ADR 0013](adr/0013-publication-scoped-invitations.md). Removing your account with `openblog user remove`
+removes you from every reflection, and so does adding a new account under a name used before.
+
+### Putting a shared reflection in a series
+
+Each shared reflection has a **Series** section. Everyone taking part sees which series it will
+join, its position, and the reading order it would have among the parts already published.
+Site owners and coordinators choose an existing series or type a new title, set a position (or
+leave it empty to follow the numbered parts, by date), use **Preview order**, and **Save
+placement**. Choose **Not in a series** and save to remove it. The series and position are shown in
+the combined preview and are part of what every author approves, so saving a change means each
+author approves again. If someone else changed the placement first, your choice stays in the form
+next to the current one and you can save again. Site owners can also **Add a new series** with a
+name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
+part is published, and other details stay in the Series editor. Once the reflection is published,
+its series is changed in the post like any other. The design is recorded in
+[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
+
+## Your writing voice
+
+Studio's **Your writing voice** (`#/voice`) does the same job as `openblog voice`, with the same files and
+the same rules (see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
+to [0277](adr/0277-the-voice-invitation-is-shown-once-on-the-admin-home-and-a-dismissal-is-an-admin-preference.md)).
+On her screens a sample is **a piece**, kept as a **rough draft** and a **polished copy**; where the files
+live is under **For the person who set up your site**. It is reached from the Writing helper screen, from
+Home's one-time invitation and from Find, and it needs no writing helper: only the voice guide does.
+
+The old voice addresses open these screens ([Old addresses](#old-addresses)).
+
+- **The hub** lists her pieces by set, newest first (a prompt answered on several days has a row per
+  answer), with Rough and Polished badges in a word and a shape, a line per set, what isn't written or
+  polished yet, and her voice guide. No piece's text is loaded there.
+- **Write a piece** (`#/voice/write`): choose one of three prompts (**Show me three others** draws again),
+  then **Start writing**. Spell-check, autocorrect and writing suggestions are off in the box on purpose.
+  The server owns the clock: the page shows it, a reload or a lost signal carries on with the original
+  deadline, and text sent after the deadline is refused. The draft goes to the server a moment after typing
+  stops and a bounded copy stays on the phone (a day at most). **I'm done** saves the rough draft at once;
+  leaving while the clock runs asks first. Pieces are always private when written here; three minutes is the
+  only length in Studio (`openblog voice --seconds` keeps the others, and a session started that way shows
+  its own length).
+- **A piece** (`#/voice/piece/<id>`): the rough draft, read only and exactly as written, and a copy to
+  polish. **Start the copy over** and **Use the saved one** apply at once with **Undo**; a copy changed
+  somewhere else asks which to keep; unsaved changes stay on the phone for up to 30 days and are offered
+  back. **Turn it into a post** makes a draft post from the saved polished copy (with **Undo**); a new title
+  gives the post a new name. Moving a piece between private and portable is in the details.
+- **Your voice guide** (`#/voice/guide`): the pieces to learn from are ticked for her (rough drafts first,
+  newest first, never more than 8 pieces or 120,000 letters), and the page says **what goes to which
+  company**, with **Word for word**, before anything is sent. What comes back is shown line by line, each
+  quoting her own words; for each change she chooses **Keep what you had** or **Use the new one**, and
+  nothing is saved until **Save my voice guide** (which writes the guide where it already is, or private).
+  A saved guide can be undone. The diff, the guide's text, **Save as private** / **Save as portable**
+  and **Move** are in the details.
+- **Home** names writing kept only on the phone, and signing out with such writing asks first.
 
 ### Where voice samples are kept
 
@@ -363,7 +730,7 @@ Voice samples are the author's own writing, captured so Assistant tools can lear
 (see [ADR 0266](adr/0266-voice-samples-are-assistant-context-and-a-rough-draft-is-immutable.md)).
 They are Assistant context, not posts: they are never published, built into the site, added to a
 feed, or exported as content. You write them from the terminal
-([`openblog voice`](#write-a-voice-sample-from-the-terminal)) or in Admin
+([`openblog voice`](#write-a-voice-sample-from-the-terminal)) or in Studio
 ([Your writing voice](#your-writing-voice)), and you can take them with you
 ([export and import](#move-your-voice-library-between-projects)).
 
@@ -425,88 +792,10 @@ openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
 
 `<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
 
-### Your writing voice
-
-Studio's **Your writing voice** (`#/voice`) does the same job as `openblog voice`, with the same files and
-the same rules (see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
-to [0277](adr/0277-the-voice-invitation-is-shown-once-on-the-admin-home-and-a-dismissal-is-an-admin-preference.md)).
-On her screens a sample is **a piece**, kept as a **rough draft** and a **polished copy**; where the files
-live is under **For the person who set up your site**. It is reached from the Writing helper screen, from
-Home's one-time invitation and from Find, and it needs no writing helper: only the voice guide does.
-
-| Old Admin address | Studio |
-| --- | --- |
-| `#/voice?pack=<id>` | `#/voice/write?pack=<id>` (Write a piece) |
-| `#/voice` | `#/voice` (the hub; **Write a piece** is its first button) |
-| `#/voice/library` | `#/voice` |
-| `#/voice/library/<id>` | `#/voice/piece/<id>` |
-| Assistant › Context › Voice guide | `#/voice/guide` |
-
-- **The hub** lists her pieces by set, newest first (a prompt answered on several days has a row per
-  answer), with Rough and Polished badges in a word and a shape, a line per set, what isn't written or
-  polished yet, and her voice guide. No piece's text is loaded there.
-- **Write a piece** (`#/voice/write`): choose one of three prompts (**Show me three others** draws again),
-  then **Start writing**. Spell-check, autocorrect and writing suggestions are off in the box on purpose.
-  The server owns the clock: the page shows it, a reload or a lost signal carries on with the original
-  deadline, and text sent after the deadline is refused. The draft goes to the server a moment after typing
-  stops and a bounded copy stays on the phone (a day at most). **I'm done** saves the rough draft at once;
-  leaving while the clock runs asks first. Pieces are always private when written here; three minutes is the
-  only length in Studio (`openblog voice --seconds` keeps the others, and a session started that way shows
-  its own length).
-- **A piece** (`#/voice/piece/<id>`): the rough draft, read only and exactly as written, and a copy to
-  polish. **Start the copy over** and **Use the saved one** apply at once with **Undo**; a copy changed
-  somewhere else asks which to keep; unsaved changes stay on the phone for up to 30 days and are offered
-  back. **Turn it into a post** makes a draft post from the saved polished copy (with **Undo**); a new title
-  gives the post a new name. Moving a piece between private and portable is in the details.
-- **Your voice guide** (`#/voice/guide`): the pieces to learn from are ticked for her (rough drafts first,
-  newest first, never more than 8 pieces or 120,000 letters), and the page says **what goes to which
-  company**, with **Word for word**, before anything is sent. What comes back is shown line by line, each
-  quoting her own words; for each change she chooses **Keep what you had** or **Use the new one**, and
-  nothing is saved until **Save my voice guide** (which writes the guide where it already is, or private).
-  A saved guide can be undone. The diff, the guide's text, **Save as private** / **Save as portable**
-  and **Move** are in the details.
-- **Home** names writing kept only on the phone, and signing out with such writing asks first.
-
-### Getting started
-
-The first time an owner signs in to Studio on a site where it is switched on, **Getting started**
-(`#/start`) opens instead of Home: at most three short steps, each of which can be skipped, with
-**‹ Back**, **Finish later** and **More › Skip the rest** on every one (an installed app has no
-Back button). The navigation and Find are hidden while it is open; her name's menu, with Sign out,
-stays.
-
-- **Turn on your writing helper** is shown only when the site has no usable key. She pastes the
-  key once; it is kept on the server and never shown again. A key that doesn't look like one is
-  questioned before it is sent, one the company refuses is removed at once, and over plain `http`
-  the field isn't offered at all. **Skip** leaves it for whoever set the site up.
-- **Tell a few short stories**: three prompts from the Getting started set, each told by typing
-  (three minutes, as in Your writing voice) or, when something on the server can hear, **out
-  loud**. Before the first recording a sheet says where it goes, by company, or that nothing leaves
-  the site. A finished recording is kept on the phone until it has been turned into words, then
-  removed; the words are shown read-only. Stories are private voice pieces: never published, never
-  in a build. Each can be read back and thrown away. Three is the ask; one is enough.
-- **Let your helper learn how you sound**: her own stories are ticked, the box says what goes to
-  which company, and nothing is sent until she presses and nothing saved until **Save my voice
-  guide**. Without a helper that is on, or without a story, this step is passed over and the last
-  screen says why.
-- **You're ready** lists what was done, each with a word and a mark. Reaching it is what finishes
-  Getting started for that account.
-
-Where she is lives on the server, so a reload, a closed app or another phone lands on the same
-step. After **Finish later** Home shows **Finish getting started** and it doesn't open by itself
-again for 20 hours. **Getting started** in her name's menu runs it at any time. If she left the
-stories untold, Write shows one card on a new post ("Want your helper to sound like you?") at most
-three times, a week apart, never once she has typed, with **Don't ask again**. Home's details list
-every account's line and offer **Show it again at next sign-in**. In Your writing voice, a story
-told out loud is marked **Told out loud**, and A piece gains **More › Throw this piece away…**.
-
-The switch, its four values and a practice run are in
-[Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
-
 ### Erase your voice data
 
 Samples are private unless you choose portable (`--portable`, or "Portable" when you start a session in
-Admin); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
+Studio); "Make private" and "Make portable" on a sample move it, with its partner, and moving it back
 restores the same bytes. The voice guide moves the same way. Use **Make private** or **Make portable** on its
 card in the Assistant Context view, or run `openblog voice guide --move private` (it shows what would move;
 add `--yes` to move it). The file is copied, checked and only then removed, so a failed move never loses the
@@ -597,11 +886,11 @@ openblog voice import voice-library.json --write       # apply, all or nothing
   without `--overwrite`. A differing polished draft or guide is replaced only with `--overwrite`.
 - **The guide follows its provenance.** A guide whose provenance line lists private samples is only accepted
   into the private folder, and is left out of a portable export.
-- A valid file round-trips byte for byte. A library with no samples exports an empty file, and Admin has no
+- A valid file round-trips byte for byte. A library with no samples exports an empty file, and Studio has no
   import screen: the file moves between projects, and the command line is the place for it.
 
 To remove the whole voice library from a project, see [Erase your voice data](#erase-your-voice-data):
-`openblog voice erase [--yes]`, or **Erase all voice data…** in Admin with the typed confirmation. It is all or
+`openblog voice erase [--yes]`, or **Erase all voice data…** in Studio with the typed confirmation. It is all or
 nothing, checks again afterwards, and refuses a linked folder (see
 [ADR 0282](adr/0282-voice-samples-are-private-until-the-author-chooses-portable-and-a-move-between-the-folders-is-reversible.md)
 and [ADR 0283](adr/0283-erasing-voice-data-is-listed-confirmed-staged-in-a-trash-folder-and-checked-again.md)).
@@ -617,762 +906,18 @@ id; a prompt id the bundled catalog already uses is rejected. Write prompts the 
 at least three so a draw has something to choose from. `openblog voice --list` shows your packs and a warning
 for any section that could not be read.
 
-### Your words, with cards in place
-
-In Studio's Write, her words are plain boxes she types in. Anything in a post that isn't plain
-words shows as a **card** in place: a photo (with the words under it), a tip or a note, a checklist,
-a table, a video, before and after photos, questions and answers, a question for readers, a button,
-links to other pages, a map, opening hours, how to reach you, code, a footnote. A card shows a short
-sketch of what it holds and never its Markdown. Each card has **Change** (the form for that kind,
-filled in) and **Move** (**Move up**, **Move down**, **Take it out**); Alt+↑ and Alt+↓ move a focused
-card, and ↓ on a box's last line (↑ on its first) goes to the card next to it. Every add, change, move
-and take-out says what happened under the box, with **Undo**, which reverses only that action: words
-typed since stay. When what it changed was edited since (or the words around a taken-out card are
-gone), Undo says "This changed since, so it can't be undone here." and changes nothing. Words, Your story, a recipe's notes and a job's four parts take cards; ingredient and
-step rows never do.
-
-Nothing about a card is rewritten unless you change it: a post opened and saved with no change keeps
-every byte. **Done** with nothing changed writes nothing. A card the form couldn't write back exactly
-(a hand-written piece with a field the form doesn't know, raw HTML, a lesson demo, a quote request
-form, indented code) has no **Change**; it can still be moved and taken out, and its source is in its
-details. A code fence that never ends leaves the rest of that box shown as written, so nothing in it
-moves; the details say on which line it starts.
-
-**Show the words as written** (in Add something's details, or in Find) turns every box into one plain
-box with the Markdown exactly as it's saved, for this post and this visit. It replaces the old Admin's
-Markdown mode; the old Admin's Visual and Markdown modes stay until it is retired (R15).
-
-Pasting from a web page, a document or an email keeps headings, bold, italic, links and lists and
-leaves fonts and colours out, in every box; a photo in the paste with no description is left out and
-said so. A pasted or dropped photo file opens **Put a photo in** at the describe step. Ctrl/⌘ B and I
-make the selected words bold or slanted.
-
-**Suggestions** under the words list gentle checks once you stop typing: a photo with no description,
-a link with no words or that says "click here", an http:// address, a heading that skips a level, all
-capitals, a very long paragraph. **Show me** goes to the place (or opens the card); **Fix it**, where it
-is safe, changes only that place, with Undo. Suggestions never stop a save. An HTML tag is noted only in
-the details for the person who set up the site.
-
-### Add something
-
-**Add something** sits beside every **Put a photo in**. It opens a sheet that first says where the thing
-goes ("It goes in Your story, after “My mother made this every…”."), then lists what you can put in,
-in two groups, with a search. Typing `/` alone on an empty line in any box opens it with the search
-ready (a line like "1/2 cup" never does). It also opens from Write's **More** ("Add something…"), from
-Find ("Add a table", "Add a video"...), and from an address ending `?add=1` (the list) or `?add=<kind>`
-(that form, for example `?add=table`).
-
-Each thing has a short form with a live **How it looks**, **See it in your post** (the preview with it
-included; nothing is added yet) and **Add it** (Ctrl/⌘ Enter). A problem is said beside its field and
-focus goes there. Tips, checklists, tables, headings, quotes, links, questions for readers and code are
-written by Studio and work with no signal. Pieces (a video, a button, links to other pages, questions and
-answers, a map, opening hours, how to reach you, a photo with words under it) and before and after photos
-are checked and written by the server (`POST /admin/api/pieces`), so the file holds exactly what the build
-reads (a refusal is a 422 whose `problems` are sentences and whose `issues` are the same problems coded as
-`{field, item, code, message, max}`, which Studio uses to say each one beside its field); with no signal the form keeps what you filled in on this device and **Finish adding the video**
-appears at the top of the sheet the next time. Closing a filled-in form asks once ("Add this table?").
-
-With the caret in a link, a heading or a quote, Add something opens **Change this link** (heading, quote)
-filled in; a link also offers **Take the link off**. On a research post, **Abstract** and **References**
-add their headings (the Abstract at the start, References at the end) unless the post already has them.
-
-The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
-line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
-CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
-you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
-**What it writes**. There is no option to write your own HTML. See
-[Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
-
-### Cite a source while writing
-
-In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.
-Search the source library by title, creator, identifier or key, choose a source, and add
-optional locators one per line (`page: 514`, `canonical: 514a to 520a`). **Start from a notebook
-passage** copies a passage's source and locators, never its quotation or notes. Insert asks the
-server to check the citation with the same parser and resolver a build uses, then writes
-`[@key, page 514]` into the Markdown. If the library changed since the dialog opened, nothing is
-inserted and the refreshed sources are shown with your choices kept.
-
-In Visual mode each citation, generated or hand-written, is a chip that keeps its exact Markdown.
-Click a chip, or focus it and press Enter, to edit it; in Markdown mode, place the caret inside a
-citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inserting to restore
-the draft and caret exactly. Escape closes the dialog without changing anything. See
-[Citation format](specs/citations.md).
-
-### Insert research from beside the draft
-
-In a post, choose **Research** in the Write toolbar to open your research beside the draft (below
-it on narrow screens). The draft stays editable. Search passages, sources, Knowledge Atlas entries,
-comparisons and interpretations; choose **Show → My private notes** to see your notes, which are
-never listed otherwise. Choose an item to see what it would insert:
-
-- **Insert quotation with citation** puts the passage's wording, exactly as stored, in a block
-  quote after the paragraph you are in, followed by its citation, checked by the server like the
-  Cite dialog. Notes linked to the passage are never inserted. If you have not stated the
-  version's rights, or state that it is under copyright, confirm that you have read the rights
-  statement first; the statement is yours and is not permission.
-- **Insert citation** on a source writes only its key and the locators you enter.
-- **Insert link to this entry** (or to a comparison, or a published dating's words) appears only
-  once the next build publishes that page: the entry or comparison is approved and the site
-  publishes its atlas (`knowledgeAtlas.publish`) or comparisons (`comparisons.publish`).
-  Otherwise the item says what is missing. Interpretations are never inserted; link the published
-  comparison that shows one, or cite the source it interprets.
-- A private note goes in only through **Convert to draft text…** and a confirmation that it
-  becomes part of the post, as your own words.
-
-Insertions work in Visual and Markdown modes and never land inside code, HTML or a link. Press
-Ctrl+Z, or the **Undo** button named for what you inserted, to restore the draft exactly. If
-something cannot be inserted, the item says why and the draft is unchanged; nothing is written to
-your research files. Escape closes the panel. Each item links to its full panel in the research
-workspace, which keeps your unsaved draft. See
-[ADR 0122](adr/0122-the-draft-side-research-panel-inserts-only-checked-and-published-research.md).
-
-### Choose what readers are given beside a post
-
-The Research panel's **Selected for readers** section is where you choose which already-public
-research context readers are given beside this post, and see exactly what they will get. Choose
-**Select for readers** on a source, an atlas entry, one of its datings or relationships, or a
-comparison; the button is offered only when the build already publishes that item, and otherwise the
-item says it is not selectable (selecting never approves research). Pick the fields you want beyond
-the ones that always travel with it (who asserts a relationship, how firmly, on what evidence, who
-disputes it), say whether it is for this post only or the whole site, and, for a source, where its
-metadata came from. You can also write a comment on a source or an explanation of an entry, attributed
-to a name you give; it is plain text of up to 1,000 characters.
-
-The section lists what readers of the post get, in your order, and what is withheld and why (withdrawn,
-changed since you selected it, no longer there, not published). Move an item up or down, withdraw it
-with an optional private reason, select it again after you have checked what changed, offer it to this
-post only or the whole site, or unselect it; none of this touches your research. **What readers of this
-post get** shows the public data exactly as pages are built from it, with the caveats that travel with
-it (a competing dating you did not select, a detail the source lacks, metadata whose origin is not
-recorded). Every change names the revision it was based on, so a change made elsewhere reloads the
-section and changes nothing. Everything is reachable from the keyboard, each button names the item it
-acts on, and the section reflows at 320 pixels. Readers see none of it until the site publishes
-curated context (`curatedContext.publish`); then it is a data file and a section on the post's page (the
-[curated context format](specs/curated-context.md)), and a change you make here rebuilds the site you are
-previewing. See
-[ADR 0196](adr/0196-selected-for-readers-lives-in-the-draft-side-research-panel-and-previews-the-public-value.md).
-
-### Move between research and your draft
-
-Sources, the research notebook, the Knowledge Atlas, Compare, and claims form one **Research
-workspace** (`#/research/`). Open it from **Research workspace** in the main navigation (shown in
-Guided and Advanced, and in Custom when you choose it), from **Advanced tools** in any layout, or
-by searching with `Ctrl+K`. Its first panel, **Workflow**, lists the steps from a first source to
-a cited draft and says how far each has come: add a source, capture a passage, relate and compare
-if that helps, then cite it from the draft with **Cite a source**. If the library or notebook
-cannot be read, only its own step says so, with the file to repair; nothing is changed.
-
-The workspace's navigation sits under the page title. It lists the research panels under
-**Private research** and the draft under **Publishable**, and screen readers hear the same label
-with each link. Private research is never public because it exists: a post shows a source's
-reference only when it cites it, and atlas relationships, claim evidence, and comparisons only
-when you approve them. **Claims** opens the draft's Evidence Studio, and **Draft** returns to the
-document you were writing (`Ctrl+K` → **Back to draft** works too).
-
-Switching between the draft and research panels never loses unsaved changes. A panel you leave
-with unsaved changes is kept as it was, marked **Unsaved changes kept**, and reopens exactly as you
-left it, with a short announcement. Panels without unsaved changes reload, so they always show the
-latest files. Admin still asks first, naming where the unsaved work is, before you leave the
-workspace for another page, open a different document while a draft is kept, sign out, or close
-or reload the page. Kept work stays only in this page's memory: it is never saved, stored in the
-browser, or sent anywhere, and signing out discards it. If your session expires instead, the
-unsaved panels wait in the page until you sign in again as the same user; signing in as anyone
-else discards them. A panel that is saving is not kept; Admin asks first. A kept panel saves against the revision
-it read, so if the file changed elsewhere meanwhile you get the usual conflict choice instead of
-an overwrite. The earlier addresses `#/sources`, `#/research`, `#/atlas/<id>`, and
-`#/compare/<id>` open the same panels. See
-[ADR 0120](adr/0120-the-research-workspace-is-one-admin-destination-with-one-route-namespace.md)
-and [ADR 0121](adr/0121-workspace-panels-keep-unsaved-changes-while-another-panel-opens.md).
-
-Every Admin page starts with a **Skip to main content** link, and after you move to another page
-keyboard focus starts at its heading.
-
-### See what will be public
-
-**Research workspace → What will be public** (`#/research/public`) shows exactly what the next
-build publishes of your research, from the same projection the build writes: per projection
-(citations, claims and evidence, the Knowledge Atlas, datings, comparisons), whether its switch is
-on, every item it publishes with the fields it copies, and every item it withholds with the reason
-in words (not approved, an unsourced draft, depends on something private, its post is not
-published, approved before what it rests on changed, and so on). A field of a published item that
-stays private is listed under it, such as a web address on a private network. Each withheld item
-links to where you change it, and **Never published** lists what no projection ever copies.
-**Evidence Studio → What this post makes public** shows the same for the post you are editing,
-unsaved changes included: its cited sources, its claims and evidence links, and the atlas and
-comparison pages it links to. Neither changes any file.
-
-Builds check their output against the same boundary before writing. A page for an item no
-projection publishes, a damaged private file, or text from a private research file inside the
-data generated from your approved research (the atlas, comparisons and claim-evidence JSON, a
-post's citation data) refuses the build, with the file, record and field it came from. The same
-words in any other public file (a page, a feed, the search index, a static, theme or front-end
-file, a portable Markdown export) are only a `boundary:` warning, also shown here, that names the
-output, the private file, the record and the field: the text is in a file you placed or wrote, so
-remove it there or keep it. Saving a comparison does not approve it again when a place moved;
-open it in Compare and choose **Checked - approve again** once you have checked the place. See
-[ADR 0125](adr/0125-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
-
-### Compare versions of a passage
-
-**Research workspace → Compare** lists your private passage alignments. Open one to read its places in
-each edition, translation, manuscript, or interpretation, side by side or, with **Layout → Single
-column**, one version after another (narrow screens use the same order). Every place shows its
-version, its editor, translator, scribe or interpreters, and its locator. Original wording is
-shown exactly as quoted, in its own language and direction; **Show the author's normalizations**
-adds your normalized form under it, labelled. A version that lacks the passage says **Absent**.
-
-**New alignment** and **Edit alignment** open a form for the label, how the places correspond
-(always phrased as your reading, never "the same"), and the places: a version with a notebook
-passage or locators, a version marked absent, or an interpretation. Reorder places with **Move
-up** and **Move down**. If the alignment changed elsewhere, nothing is saved until you choose
-**Use the stored copy** or **Keep my draft**.
-
-To copy, tick the places you want and choose **Copy selected places** or **Download selected
-places**. Each copied place carries its version, maker, locator, and rights statement. When a
-selected version's rights are not checked or are reserved, confirm that you have read the rights
-statements first; open.blog never decides what you may copy. See
-[Passage alignments format](specs/passage-alignments.md).
-
-### Test a theme before publishing
-
-The Site preview reports the theme it resolved and renders through the same site model,
-theme compiler, document renderer, and components as a public build. Theme precedence is
-the same in both places:
-
-1. A post or page theme selected in **Settings** is an explicit override.
-2. A post without an override inherits the theme selected by its series.
-3. Content without either override uses the site theme from `openblog.json`.
-
-To test a series design, set the theme on the series document, leave the post's theme
-unset, and open **Site preview** on a post in that series. To compare a one-off design,
-select a theme on the post instead. The preview includes unsaved changes to the document
-you are editing but does not expose unrelated drafts or scheduled posts. Front matter
-remains in **Settings** and is never printed into the preview.
-
-For posts, use the **Preview representation or destination** selector to compare the themed site
-output, portable HTML, Markdown, and plain text, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
-These projections run through the same conversion used by feeds, export, and syndication;
-warnings include the source, transformation, and recommended action.
-**Copy portable output** and **Download portable output** use the exact selected artifact
-without saving or changing the post. Downloaded previews may contain unsaved draft content;
-review them before sharing. Actions are disabled for the native site view, unavailable policies,
-failed previews, and while edits await a fresh preview. Text and Markdown are displayed as literal
-source, never executed in the Admin shell. The authenticated API also returns capability
-portability levels alongside all three representations.
-DEV and Hashnode views also show the selected and omitted tags, slug transformations,
-and blocking tag errors from the same core plan used by the CLI. These are payload metadata
-checks; copying a portable body does not validate or include its destination tags.
-
-Warnings can be acknowledged for a specific source revision, capability, representation, and
-destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and
-remain visible beside the warning; they never bypass unsafe-markup errors, private-state rules, or
-canonical-identity requirements. Editing the post makes older acknowledgements visibly stale.
-The portable views are computed from the authenticated, unsaved preview request and are not saved
-to the document or exposed at a public URL. Acknowledging is allowed only when the preview matches
-the saved source revision.
-
-### Review accessibility while writing
-
-In Studio, the publishing engine's source audit runs against the current unsaved post in
-**Before you publish** (below). Detected and Potential findings are **Suggestions**, in plain
-words with **Show me** (and **Describe it** for a cover photo with no description); Needs review
-findings are **Worth a look**, closed and never counted, because only the author can decide them.
-A finding R6's Suggestions already show at the same place is listed once. Every finding's code,
-outcome, file and line or field, message, repair and WCAG references are under the sheet's
-details, with the rendered-page checklist (contrast, focus, keyboard order, zoom and reflow,
-reduced motion, target size, layouts, things from other sites) and the note that the checks don't
-certify conformance. Site-wide findings, such as a missing default language, are in the details
-only. In the old editor, **Accessibility** shows the same audit. See
-[Accessibility checks and manual review](accessibility.md).
-
-### Before you publish
-
-Write's **Before you publish** sheet answers "Is there anything I should look at before people
-see this?" It opens by itself only on a post's **first** Publish or Schedule, and only when it has
-something to show (a blocker, a suggestion, the exact route, a check that couldn't run, or a
-research post, which always opens it); **Update** opens it only when something blocks. It opens
-any time from the card under About this post (its line says "2 suggestions so far", "Nothing to
-check" or "Changed since the last check"), More, Find, R6's Suggestions (**Check everything before
-you publish**) and See how it looks (**Show them**). In order:
-
-- **Needs fixing first**: what the build would refuse: a job's check problems (each with **Go to
-  it**), research findings the build refuses, and a post the build can't make. Publish waits,
-  `aria-disabled` and still focusable, and says why; **Save draft** always works.
-- **When it's shared**: the real card from `POST preview` (`only: "checks"`), with notes for no
-  summary, a summary over 160 letters, no picture, or a picture that can't be shown. About this
-  post shows the same card a moment after the title, summary or cover changes, and R5's rough
-  card when there is no signal.
-- **Suggestions**: one list in post order: R6's checks (with their Fix it and Undo), the engine's
-  accessibility findings, search hints (`title-long` over 65 letters, `no-tags`, `no-name`) and the
-  recipe advice See how it looks used to show. None of them stop Publish.
-- **Your video**, **Your trip** and **Research checks** on those posts; **Worth a look**; and the
-  details, which keep the search hints (summary length, opening paragraph, sections, depth,
-  outside source), build notes, recipe codes and every raw server sentence.
-
-The checks run in parallel and wait at most 8 seconds. With no signal, Publish goes the usual
-way and the sheet doesn't open; a check that didn't run says so with **Check again**. Ctrl/⌘ Enter
-in the sheet publishes (or, when something blocks, goes to the first blocker).
-
-**Words for YouTube** (video posts) shows the title, description, tags and chapters as
-`openblog video` writes them (from `POST video/release`, or the page's own copy of the engine's
-rules with no signal): the description ends with "Read the article: <address>", a video with no
-chapters is fine, and anything YouTube won't take is listed above with **Show me**. Copy never
-waits on a problem.
-
-**Your route** (trip posts) reads a route file on the phone with no network and keeps its text
-only in the page's memory. Every file starts as **Don't show it** (the numbers only; the climb
-drawing is off until switched on); **The shape, without where it starts and ends** leaves off
-500 m at each end by default (200 m, 1 km or 2 km, or any number in the details); **The whole
-shape**; and **The exact route**, which asks once. The drawings show exactly the values that will
-be written. An exact route file is cleaned on the phone (positions and heights only) and again on
-the server, staged privately, and sent with the next save, draft or not: the server holds it in
-`.openblog/pending-tracks/held/` until the post is live, so a post with the exact route can be
-scheduled. **Use this route**, a change of choice and **Take the route off** each have Undo. See
-[Field journals](field-journal.md#import-a-gpx-track).
-
-### Review research evidence while writing
-
-Choose the Research content profile, then open **Evidence**. The preview API runs the same
-core audit used by `openblog check` and builds, scoped to the current unsaved document. It
-shows the authored DOI (normalized to a resolver URL when valid), valid absolute license
-URL, number of linked references, and findings for missing
-visible Abstract or References/Bibliography sections, malformed work metadata, unresolved
-footnotes, references without resolvable links, and non-preferred DOI links.
-
-The **Abstract** and **References** toolbar actions ask the publishing engine whether the
-section already exists before changing Markdown. This keeps formatted headings, code
-examples, containers, and HTML blocks consistent with the actual build parser. Profile
-metadata drafts survive profile switches and are included when the document is saved.
-
-Evidence Studio does not score truth, source authority, peer review, methodology, or
-whether a citation supports a claim. For a post that publishes citations it also lists, as
-separate findings, citations it cannot read or resolve, cited references missing a detail
-readers need (title, creator, date, container, publisher or web address), identifiers left out
-of the notes, and the cited locations only you can check against the source. These checks run
-offline from your source library. **Download cited references** saves the post's references
-as CSL JSON or BibTeX, holding only what its notes show and stating what the format cannot
-carry. Outside the Research profile, a post without citations reports that the checks are
-inactive. See [Research posts and Evidence Studio](research-profile.md).
-
-The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
-creation flows, shows the size of the content library and recent posts, and surfaces the
-next scheduled post or last build error without requiring a trip through each content list.
-
-Markdown remains the source of truth. Visual mode converts only the ordinary blocks it can
-represent and carries advanced blocks through unchanged. Front matter remains in Settings,
-outside both body editors. Saving, conflict detection, preview sandboxing, and publishing
-use the same file-based workflow and security checks.
-
-**New recipe**, on Overview, on Posts and in the command palette, opens a post on the Recipe
-profile with sample Ingredients and Steps sections, the same ones `openblog new --recipe` writes.
-Choosing Recipe in Settings adds them to an empty post and never changes one with text. **Site
-preview** lists what a recipe still needs in everyday words, under **To finish this recipe**, and
-keeps notes about the rest of the site in their own collapsed list.
-
-A recipe's **Settings** ask for its **Course** (such as Dinner or Dessert) and **Cuisine** (such as
-Italian or Southern), with suggestions that start from what you have used before. Readers
-[browse your recipes](content.md#browsing-recipes) by these, so a comma gives a recipe two. A value
-written as `category` or `recipeCategory` shows under Course and is saved as `course`. A different
-value under the other name was never shown, so a save leaves it in the file, unread, until you clear
-Course. A recipe with
-neither is still fine, but readers can't browse to it, so **Site preview** says so under **To finish
-this recipe**, and publishing it offers an **Add a course** button that goes to the field. With
-`recipes.listing` off there is nothing to browse, so Admin doesn't ask. If a page of yours took the
-list's address, or a value can't have one, **Overview** and **Site preview** say so under **About
-your recipe list**, naming the page.
-
-In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
-Recipe and continue through the existing recipe renderer and structured-data path. Files
-using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original
-field unless you explicitly change the selector. An unknown `profile` value appears as its
-own option with a warning; saving without changing it preserves the value.
-Research posts select Research and expose DOI and license fields. Values entered there are
-preserved when switching profiles and saved without discarding explicit clears.
-Video posts select Video production and expose YouTube URL, duration, thumbnail, and
-AI-assistance disclosure fields; in Studio, **Words for YouTube** gives the release words. The
-Release kit view remains inactive for other profiles.
-Field-journal posts expose activity, area, privacy, distance, elevation, duration, and
-conditions. Field Review (Studio: **Your route**) analyzes GPX in the browser and privately stages
-a cleaned copy of the track only in Exact mode; the server keeps it private while the post is a
-draft or scheduled and makes it public when the post is live. Other modes save privacy-filtered
-derived data, and a hidden route keeps no shape in the file. Downgrading a saved Exact route moves
-its managed GPX to `.openblog/trash/tracks/` so the next build retracts it without destroying the
-source.
-Choosing **Job** shows an **About this job** form in Settings: trade, service, town, region,
-started, finished, price range, and before and after photos (uploaded the same way as any
-image). On an empty body it also writes the four headings `Problem`, `What we found`,
-`What we did` and `Result` as ordinary Markdown, in Visual or Markdown mode; they are never
-locked, never written over words you already have, and switching to another profile leaves the
-Markdown as it is. **Check this job** lists what the build would still ask for. See
-[Jobs](jobs.md).
-
-Every save is checked against the whole site before anything is written (duplicate slugs,
-unknown themes, bad dates), then the site is rebuilt. A save that would break the build is
-refused with the reason. If the file changed on disk since you opened it (for example you
-edited it in your text editor), the save is refused instead of overwriting your changes.
-
-Posts with an adjacent `<stem>.credits.json` file keep that contributor data throughout the
-Admin lifecycle. The server validates the Markdown and credits together, preserves the
-sidecar when an older editor does not send credit fields, checks it independently for
-concurrent edits, and moves it to `.openblog/trash/` with the post. Preview requests can
-include unsaved credits and are rendered through the same contributor rules as a build.
-An explicit empty credits list remains distinct from having no sidecar and inheriting the
-site author. A malformed sidecar does not hide the Markdown document: Admin reports the
-credit error and keeps a separate revision token so a credits-aware client can safely repair
-or remove it. Editing the JSON files by hand remains supported.
-
-### About this post, and who wrote it
-
-In Studio every setting of a post is in Write's **About this post** (the button at the end of
-the side column, More, `?sheet=about`, or Find: "About this post", "Summary for search and
-sharing", "Who wrote it", "More about this recipe", "Details for the person who set up your
-site"). The old Settings pane (`#/edit/<post>?pane=settings`) opens it. It has no Save of its
-own: a draft saves itself, and a published post keeps the changes on that device until
-**Update**, with Write saying "Changed · not on your site yet".
-
-- **What kind of post**: a story, a recipe, a job on a trade site, and the post's own kind
-  (video, trip outdoors, research). Changing it keeps the words; a story turned recipe offers
-  **Add the recipe parts**, and **Undo** sits under the choice until the sheet closes. A
-  legacy `recipe: true` post shows as a recipe and writes `profile` only when changed.
-- **This recipe / This video / This trip outdoors**: only the post's own kind's fields
-  (`course`, `cuisine`, `yield`, `totalTime`, `calories`, `adaptedFrom`; the video and field
-  journal fields). Serves and the two times stay under the title. A job's `job.*` stay in
-  About this job, never in the sheet.
-- **On the page**: the line under the title (`subtitle`; an old `subheading` or `dek` goes
-  when it changes), the part in its collection (`seriesOrder`), and comments for this post.
-- **In search and when shared**: the summary (`description`, or whichever of `summary`,
-  `brief`, `excerpt` the post already uses), a rough card of how a shared link looks, and
-  Pin words when the site sends Pins.
-- **Who wrote it**: the names in order. **Change who wrote it** picks people from People,
-  moves them, removes them, or **Just me** (no credit file). The list is sent only when it
-  changed, always with its `creditEtag`; a save of the title never touches the credit file,
-  and a credit file that can't be read never stops the rest of the post saving.
-- **Details for the person who set up your site**: the address (`slug`), editable only while
-  the post was never on the site (the server's `wasPublished`, from the file's history in
-  Git; without history it counts as published), old addresses, first published elsewhere
-  (`canonical`), the theme, a picture by web address, every kind, the technical video and
-  research fields, each person's roles, "Name no one on this post", repairing a broken credit
-  file, the keys Studio doesn't edit ("Also in this post", kept exactly as written), and the
-  file's facts. There is no rename: a post's file never moves.
-
-Every value is written under the name the post already uses, only when it changed, and a
-summary-only change rewrites one line of the file.
-
-**People** (`#/people`; the old `#/contributors` opens it) lists the blog's own name and
-everyone who can be named on a post. Add someone with a name and a website; their id comes
-from the name and never changes; other pages and an ORCID iD are under its details. A person
-named on posts, in a shared reflection or in research notes can't be removed, and People says
-which posts. A removal can be undone. **Add someone who isn't listed** on a post comes back to
-it with the new person on its list. Saves use the `openblog.json` revision token and change
-only `contributors`. ORCID iDs are checked for their check digit but not verified.
-
-### Copy it for another blog
-
-Write › More › **Copy it for another blog** shows the post as it will go to Medium, Ghost,
-Hashnode, DEV, WordPress, a web page or plain words, made from what's on the screen (saved or
-not), with **Copy** and **Download**. The differences there are listed in plain words with
-**Go to it**; the engine's findings, the destination's policy, the tag plan and **Mark as
-checked** (portability acknowledgements, per version) are under its details. Nothing there
-saves the post.
-
-### Curate a reading path
-
-A reading path is your own ordered route through published posts and public Knowledge Atlas entries.
-Open **Content → Reading paths** and choose **New reading path**. Give it a title and an address name (the
-file name, `content/paths/<name>.json`, which cannot change later), then add steps from the list of
-published posts and public atlas entries. Draft and scheduled posts and private atlas entries are not
-offered. Every step after the first needs a relationship, chosen from a closed list with no default, and a
-reason in your own words; a step after an optional one follows the last required step. Use **Move up** and
-**Move down** to reorder; nothing needs a mouse. A step whose post was later unpublished is marked, in words,
-as one readers will not see, and the preview, which is the same projection a published path would have,
-says when the path would not be published as it stands and why. Saving is refused when the file changed
-elsewhere, offering the newer copy, and **Edit as source** shows the file itself, in its canonical form,
-keeping any field this release does not know.
-
-### Author an interpretation comparison
-
-A comparison sets several attributed readings of one subject side by side, without ruling between them.
-Open **Content → Comparisons** and choose **New comparison**. Give it a title, an address name (the file
-name, `content/comparisons/<name>.json`, which cannot change later) and a neutral description of the
-subject. Add each interpretation with who held it: a named person, school or tradition, a source from your
-library, or **Unknown author** with a description. Write what the reading holds, an optional uncertainty
-note, and link evidence from your evidence links and sources; each reference says in words whether readers
-can see it, whether it is private, or whether it is not in your library. Missing evidence is shown and
-never stops a save. Relations (differs from, agrees with, builds on, responds to) never say which reading
-is right. Explanations are written for a beginner, student or scholarly audience, about the whole
-comparison or one reading, and supplement your prose.
-
-If an AI tool drafted a reading or an explanation, tick **An AI tool drafted this text** and name the
-tool. It stays a draft: readers do not see it until you save the comparison and press **Approve this exact
-text**, which records you and the time against those exact words. Editing the text withdraws the approval
-when you save. **Withdraw approval** on a published comparison asks before returning the whole comparison
-to draft. The preview is what readers would see, and a list for you alone says what they would not. Saving
-is refused when the file changed elsewhere, offering the newer copy, and **Edit as source** shows the file
-itself, keeping any field this release does not know (an approval can be kept there but not added).
-
-### Writing together
-
-**Writing together** (Studio, `#/together`; the old **Shared reflections**) is where you write something
-with other people, each in your own words, about something you all watched, read or heard, and put it
-on your blog when you all agree. It is in the navigation once you take part in one; until then, start one
-from Posts (**Write something with others**) or Find.
-
-1. **Start writing together.** Say what started it (a video, an article, a podcast, a book or something
-   else, up to 20, with a link if it has one), the question you each answer, a name for it, your name on
-   it (from People; **Add my name** puts the blog's name there), and when you read each other's parts:
-   **When everyone's ready** (the default) or **Each person, when they're ready**. Only you can see it
-   until you invite someone.
-2. **Invite someone.** On the reflection, **People and invitations** lists who is in it and what each
-   does (**Writes a part**, **Writes a part and helps run it**, **Only reads**, **In charge**). Choose
-   their name from People, say whether they're new (Studio makes them a sign-in, with a name you can
-   change) or already sign in, and what they do. **Make the invitation link** shows the link once:
-   **Copy the link** (or **Send it…** on a phone) and send it yourself. Nothing is emailed. It works once,
-   for a week unless you choose otherwise under the details. **Withdraw** stops it; **Make a new link**
-   replaces it.
-3. **Join.** Someone new opens the link, chooses a password, and is in. Someone who already signs in
-   signs in as the name the invitation names and presses **Say yes**. **No thanks** stops the link.
-4. **Your part** saves itself on this computer as you type and is sent as a version when you press
-   **Save** (Ctrl/⌘ S), leave, or let the others read it, so typing never spends the 200 versions a part
-   can have. **Ideas to start from** put a question in your words. **Start a new part** splits your part
-   for the layout (readers never see the break). If you saved somewhere else too, both are shown and
-   nothing is lost until you choose **Keep mine**, **Use the other one** (with **Bring mine back**) or
-   **Decide later**.
-5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
-   **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
-   in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
-6. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
-   agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
-   unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
-
-**Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
-after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
-(whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
-whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
-agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
-you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
-together** holds what you say after everyone's parts (an agreement, a difference, a question, something
-to try, or what you're not sure about), each speaking for the people named on it and agreed by each of
-them. **Moments** (from Your part) are places in what started it, with the words said there or what you
-noticed, kept private or put with your part; words said there need their rights and where they came
-from. Each of these is saved on its own, asks everyone to agree again where it changes what they agreed
-to, and can be undone. **Fill in from the link**, on Start, asks the link's own site for a title and who
-made it, and fills only empty boxes. Under People's details, an owner sees **Sign-ins for people writing
-with you** and can remove one: the sign-in goes, and so does every reflection it was in; names stay on
-what they wrote.
-
-People you invite get a **co-writer** sign-in: it opens only Writing together, only the reflections
-they're in, and the server refuses everything else. The design is recorded in
-[ADR 0413](adr/0413-co-writer-accounts-reach-only-the-collaboration-routes.md) and
-[ADR 0414](adr/0414-invite-a-new-person-by-link-and-they-choose-their-own-password.md); the private files
-are under `.openblog/private/collaboration/` (back that folder up with your other private files), as in
-[ADR 0007](adr/0007-private-shared-publication-records.md) and
-[ADR 0013](adr/0013-publication-scoped-invitations.md). Removing your account with `openblog user remove`
-removes you from every reflection, and so does adding a new account under a name used before.
-
-### Putting a shared reflection in a series
-
-Each shared reflection has a **Series** section. Everyone taking part sees which series it will
-join, its position, and the reading order it would have among the parts already published.
-Site owners and coordinators choose an existing series or type a new title, set a position (or
-leave it empty to follow the numbered parts, by date), use **Preview order**, and **Save
-placement**. Choose **Not in a series** and save to remove it. The series and position are shown in
-the combined preview and are part of what every author approves, so saving a change means each
-author approves again. If someone else changed the placement first, your choice stays in the form
-next to the current one and you can save again. Site owners can also **Add a new series** with a
-name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
-part is published, and other details stay in the Series editor. Once the reflection is published,
-its series is changed in the post like any other. The design is recorded in
-[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
-
-## Change your home page and your look
-
-Two screens in Admin change how the site looks without any code. Neither has a box that takes HTML or CSS, and
-nothing changes on the public site until you save and make it live.
-
-### The Landing page
-
-Open **Landing page** (`#/landing`) to arrange the home page. A first visit offers five ready-made layouts
-(Welcome, Small business, Portfolio, Newsletter, Recipes) with clearly marked sample words, or **Start from scratch**;
-**Choose a ready-made layout** and **Reset to default** are always there, and nothing you already have is
-replaced without a yes. A site that has never built a landing page starts from what visitors see today, and
-nothing is written until you save.
-
-When your theme offers components (a countdown sign, a photo gallery), **Add a section** lists them after the
-built-in sections, each with the plain name and description the theme gives it. Its form is made from the settings
-the theme declares: a list to choose from, a line of text, a number, or a switch. The preview runs no scripts, so
-it shows what the build rendered ahead for a component with a Zubra source, or otherwise its one-line fallback
-([Components an owner can place](theme-components.md#components-an-owner-can-place)).
-
-The Recipes layout shows your newest recipes once you publish the first one. To do the same in any other layout,
-set **What to show** to **Only my recipes** on a Latest posts section.
-
-- **Sections** are cards: a welcome banner, text, latest posts, series, a featured post, buttons, a picture, a
-  video, a map, opening hours, contact details, social links, questions and answers, or a call-out. **Add a
-  section** lists them in plain words with a sample. Each card has **Edit**, **Move up**, **Move down**,
-  **Hide** or **Show**, and **Delete**; a deletion can be undone, and Alt with the up or down arrow moves the
-  focused card from the keyboard. Videos, maps and the other pieces are the same ones the post editor's
-  [Add something](#add-something) inserts.
-- **Text** sections are written like a word-processor document with a toolbar of words (Paragraph, Heading,
-  Bold, Italic, Link, Lists, Quote, Picture, Undo, Redo) and saved as Markdown. Pasting from Word, Google Docs
-  or a web page keeps headings, emphasis, links and lists and drops everything else; **Ctrl+Shift+V** pastes
-  plain text. Markup you type stays words.
-- **Suggestions** under a text section explain a problem in a sentence (a picture with no description, a link
-  that says "click here", a skipped heading) and **Fix it** changes only that place. They never stop you saving.
-- **Preview** shows the home page as the build would make it from your unsaved sections, at Phone, Tablet and
-  Desktop sizes, in a frame that runs no scripts. On a phone it opens full screen with a **Back to editing**
-  button.
-- **Save** writes `content/landing.json`. If someone saved a newer page meanwhile, you choose **Keep mine**,
-  **Use the newer version** or **Compare**; nothing is overwritten silently. **Publish** (the bar calls it
-  "make it live") saves first and then publishes, and stops with the reason if the site does not build.
-- **History** under the sections keeps your last twenty saves in private storage (never in the content folder,
-  the build, a feed or an export). On a host that resets its files, they go when the server restarts. Preview an earlier one and **Restore** it; restoring is an ordinary save, so
-  the page it replaces stays in the list.
-- Unsaved changes are kept on your device, offered back after a reload and warned about when you leave. A short
-  three-step tour appears once, can be skipped and never comes back, and **Help** explains the words.
-
-The file format is described in [Landing page sections](content.md#landing-page-sections).
-
-### Customize look
-
-Open **Customize look** (`#/look`, also a button on **Appearance**) to choose how the site feels by tapping
-choices: eight ready-made looks (Calm, Warm, Bold, Night, Garden, Paper, Ocean, Sunset), a main (accent) color
-from swatches or the color picker, a font style (Modern, Classic, Friendly, Techie), text size, corner
-roundness, spacing, page width and heading weight. The preview is the real home page built from your unsaved
-choices, in light or dark. A color that would be hard to read is adjusted just enough, and the screen says so
-in words. **Back to theme default** undoes one control, **Reset everything** clears the look, and **Undo**
-takes back the last change. Only the controls your theme honors are shown, with a kind note about the rest
-([Look controls](themes.md#look-controls)). The choices are saved under `appearance` in `openblog.json`
-([configuration](configuration.md#site)).
-
-### Business facts
-
-Open **Business facts** (`#/business`) to state your name, trade, phone, email, opening hours, license, insurance,
-accepted payments and the year you started, once. The footer of every page, the home page's **Business facts**
-section and the `LocalBusiness` search data all read it ([configuration](configuration.md#business-facts)).
-Type a phone number the way you say it; it is saved with its country code. Each day of the week has its own
-choice (Not shown, Open with an opening and closing time, Open 24 hours, or Closed), and **Copy Monday to
-Tuesday through Friday** saves typing. A problem is said in words beside the field it is about, and a save that
-finds a mistake changes nothing. The screen is one column from 320px with 44px controls.
-
-The screen reads and saves `GET`/`PUT /admin/api/business` (session and CSRF as for every write, bounded to
-8 KiB). A save is checked against the revision of the block you loaded, so an edit made elsewhere in the file
-does not conflict with it, and it changes only the `business` key of `openblog.json`: every other key keeps its
-place and spelling (the file is edited as text, not re-written from a sorted copy). Fields a newer release added
-to the block are kept. See [ADR 0307](adr/0307-the-business-facts-screen-edits-one-member-of-openblog-json-as-text-checked-against-a-revision-of-that-member-and-problems-are-said-beside-the-field.md).
-
-### Where it went
-
-**Where it went** lists every post that was sent anywhere and, for each place, its status (Delivered, Posted by
-hand, Draft or private, Waiting, Unknown, Not delivered), what that rests on (the platform's answer, your word, or
-nothing yet), a link to it there, and the visits the built-in counter saw from there in the last 7, 30 or 90 days.
-It reads `GET /admin/api/distribution` and, when social publishing is on, your announcements; it changes nothing.
-See [Where your posts went](distribution-reporting.md).
-
-### The ten-minute checklist
-
-On a site whose business facts name a trade, Admin's home opens with **Your site in ten minutes**: add a phone
-number or email, publish a service, publish a job, save a review, and share a job. Each step is worked out from your
-files every time by `GET /admin/api/trade-checklist`, which only reads, so it ticks only when your site has it and
-unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
-your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
-
-### Describe a new look
-
-Studio's **Describe a new look** (`#/look/design`, reached from **Look** while the writing helper is set up,
-and from Find; the old `#/design` opens it) takes the look you describe in your own words, or one of five
-ideas. Your writing helper drafts a look, and the screen shows its name, a sentence on what it chose and its
-six colours by name, for light and for dark. **See it on your front page** shows your own front page in it,
-in light or dark. **Change it** asks for a change in words ("a little warmer"), with **Back to the one
-before**; **Change** beside a colour lets you pick that one colour yourself. **Save this look** makes it a new
-look with the name you give it, then offers **Put it up now**, **Add it to your calendar** and, for ten
-minutes while it isn't in use, **Undo**.
-
-- **Start from** chooses which of your looks the new one builds on. It keeps that look's layout and
-  seasonal touches and changes the colours and the lettering.
-- **What the helper can choose** is deliberately small: six colours for light and six for dark, a font for the
-  writing and one for headings from a fixed list, a corner style and a text size. It is never CSS, a script, an
-  image or a font file. The server checks every answer and refuses any other field.
-- **Colours are made easy to read, whoever chose them.** The preview and the save both rebuild the look on
-  the server from the draft: writing at 7:1 where it can be and never under 4.5:1 on the page and on boxes,
-  quiet writing, links and the text on a button at 4.5:1. A colour that is moved, or that cannot get there
-  and is replaced (writing by black or white, quiet writing and links by the writing colour, boxes by the
-  page colour), is shown as it will be with a sentence saying what changed. The page may warn early; it
-  never decides what is saved.
-- **Look's own choices still apply on top.** A main colour, lettering or corners chosen on **Look** are worn
-  over whatever look is up, a new one included; the preview applies them as a build does and the screen says
-  which.
-- **Nothing changes until you choose.** Drafting and previewing write nothing. Saving only creates
-  `themes/<new name>/theme.json`; it never replaces a look, refuses a name you already have, and never puts
-  the new one up.
-
-It needs the writing helper set up (see [The writing helper](#the-writing-helper)). Your description is sent
-to the company you configured, as data it is told never to follow as instructions, and nothing else from your
-site is sent but its title and the name of the look you start from; the screen says so before you press
-**Draft a look**. The routes are `GET theme-draft`, `POST theme-draft`, `POST theme-draft/preview` (which
-answers the readable `colors`, the `changes` as data and `lookApplied`), `POST theme-draft/save` (which
-answers an `undoToken`) and `DELETE theme-draft/<name>?undo=<token>`, behind the session and the CSRF check
-([ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
-
-### Seasons
-
-Open **Seasons** (`#/seasons`) to choose the theme your whole site wears, and, if you like, let the calendar change
-it. The top of the screen says what visitors see today and when that changes ("Today your site is decorated for
-Thanksgiving. On December 1 it changes to Christmas."). Turn on **Change the decorations with the calendar** and
-add a season for each holiday: what goes up, the month and day it starts and the month and day it ends. A season
-can run past New Year, and **Move up** and **Move down** decide which wins where two overlap. **Between seasons,
-your site wears** is your everyday look. With the calendar off, the screen is simply where you choose your site's
-theme.
-
-The screen reads and saves `GET`/`PUT /admin/api/seasons` (session and CSRF as for every write, bounded to 8 KiB).
-A save is checked against the revision you loaded, refused when it names a theme that does not exist, and changes
-only the `theme` and `seasons` members of `openblog.json`, edited as text. See [Seasons](themes.md#seasons).
-
-### Seasonal reminders
-
-Open **Reminders** (`#/reminders`) to turn on prompts that suggest what to write at the right time of year for
-your trade. A reminder only opens an unpublished draft; it never publishes or sends anything. The screen reads and
-saves `GET`/`PUT /admin/api/seasonal` and uses `POST /admin/api/seasonal/snooze` and `/open` (session and CSRF as
-for every write). See [Seasonal reminders](seasonal-reminders.md).
-
-### Quote requests
-
-Open **Quote requests** (`#/quotes`) to read the requests visitors sent, mark them handled or archived, export
-them as a CSV, erase them after a preview, and send again an owner email that did not go out. The page appears once
-`OPENBLOG_QUOTE_ENDPOINT` and `OPENBLOG_QUOTE_ADMIN_KEY` are set where Admin runs; it talks to the hosted function
-through `/admin/api/quote/*` (session and CSRF as for every write). See [Quote requests](quote-requests.md).
-
-### Services
-
-Open **Services** (`#/services`) to describe each thing you sell once, with what it includes, a price band, a
-typical timeline and the questions customers ask. The screen edits the `services/` files through the same
-document routes as posts, pages and series, so sessions, CSRF, the 2 MiB bound, revision checks and the trash all
-apply as they do there. See [Services](services.md).
-
-### Reviews
-
-Open **Reviews** (`#/reviews`) to save a customer's real review with its link, typed in or copied once from the link
-through the Assistant's URL snapshot route (**Copy the page**). The screen edits the `proof/` files through the same
-document routes as services. A job shows its review once you choose it in the job's **Customer review** box. See
-[Reviews](reviews.md).
-
-### A short phone walkthrough
-
-On a 375px phone: open Admin and choose **Landing page**; tap **Edit** on the welcome banner, change the
-heading and tap **Add a button**; tap **Done**, then **Preview** to see the page full screen and **Back to
-editing**; tap **Save**. Open **Customize look**, tap a color and a font style, tap **Preview** to check,
-**Back to choosing**, then **Save**. Tap **Publish** to make it live. The bar stays at the bottom of the
-screen, every control is at least 44px tall, and nothing scrolls sideways down to 320px wide.
-
-## When saved work can vanish
-
-On a host that resets its files, such as Render with no durable workspace, what you save can vanish
-when the server restarts. Admin says so: a notice on Overview, a short line at the top of every other
-page, and a sentence after a save in the editor, the Landing page, and Customize look, where the
-Landing page and Customize look say it in the bar under Save. Nothing shows on your own
-computer or once [the durable workspace](deploy.md#keep-your-work-safe-on-render) is on. If Publish
-cannot reach your site's repository, Admin says what that means in plain words, with git's own
-message folded under "Details for whoever helps you".
+## Notifications and the Home Screen
+
+**Notifications** (`#/notifications`, from your name at the top) tells your phone when someone
+comments, a reader sends a note or someone asks for a quote, once the hosted push function is set up
+([Notifications](notifications.md)). It shows every state of the phone in your hand, with the steps to
+allow notifications again where you said no, switches for what you hear about that save at once, **Send
+a test**, and your other phones and computers. **Add to Home Screen** (or **Install as an app** on a
+computer) gives Studio its own icon: the app is named after your site, starts at `/admin/studio/`, and
+keeps one worker at `/admin/sw.js` (scope `/admin/`) for notifications and for opening with no signal.
+The worker keeps only Studio's own files, network first, and never an `/admin/api/` reply. An app
+installed before the switch still starts at `/admin/`; the server, or with no signal the worker, sends it
+to Studio.
 
 ## Photo uploads
 
@@ -1387,7 +932,7 @@ small host. Over that limit they are refused with a message saying so. Only one 
 two large uploads together cannot run a 512 MB host out of memory.
 
 iPhones take photos in HEIC, which web pages cannot show. An iPhone converts a photo to JPEG when it is chosen
-in Admin. A HEIC file copied to a computer first is refused, with a message asking for a JPEG copy.
+in Studio. A HEIC file copied to a computer first is refused, with a message asking for a JPEG copy.
 
 Files added some other way, such as a commit to `static/`, are not reduced.
 
@@ -1399,7 +944,7 @@ A post's status is one of:
 - **Published**: the date is now or in the past.
 - **Scheduled**: the date is in the future.
 
-In Studio, pick a day under **When it appears** (and a time, in your own time zone; a future
+Pick a day under **When it appears** (and a time, in your own time zone; a future
 day with no time gets 8:00 AM, shown in the time field) and press **Schedule**. The help says
 when it really goes up: "by itself" only when the server keeps that promise (`meta.schedule`
 is `self`: this server is the site, or it sends the built pages out after the scheduled
@@ -1421,42 +966,9 @@ date: 2026-12-25T09:00:00Z      # offsets work too: 2026-12-25T09:00:00-05:00
 `openblog build --drafts` and `serve --drafts` include drafts and scheduled posts, for
 previewing.
 
-## Announce a post on social media (optional)
-
-If your site has [scheduled social publishing](social-publishing.md) set up, Admin shows an **Announcements** tab; without it
-there is no tab and nothing changes. The screen has two parts.
-
-**Announce a post.** Choose a **Destination** (a connected LinkedIn profile, Facebook Page, Bluesky account or
-Mastodon account), a **Post to announce**, write a **Caption** and pick a **Date and time**. Only published posts can
-be chosen; a draft, or a post dated in the future, is listed as not available with the reason. The count under the
-caption shows how many characters are left, and the **Preview** shows the caption, the link to your post and when it
-will go out, before you tap **Schedule announcement**. Times are in your own time zone and stored in UTC; on the day
-the clocks change, a time that does not exist is refused, and a time that happens twice uses the earlier one (the
-preview says so). If something is wrong, the form lists what to fix, each a link to its field, and says it beside the
-field too. Tapping the button twice, or again after a slow connection, schedules it once.
-
-**Announcements.** Every announcement shows its status in words (Scheduled, Sending, Published, Failed, Needs checking,
-Canceled), its time in your zone, its destination and caption. While it is **Scheduled**, **Edit** changes the caption
-or time and **Cancel announcement** asks "Yes, cancel it / Keep it" before it cancels. Once a sender has picked it up it
-cannot be changed, and the row says why. If it was picked up while you were looking at it, the screen refreshes and
-tells you instead of failing. Use **Show** to filter by status.
-
-It works with a keyboard alone (Tab through the fields, Enter on **Schedule announcement**), every field has a visible
-label, and on a phone it is one column with buttons at least 44px tall. This screen only schedules; the delivery worker
-and the provider adapters do the posting (see [social publishing](social-publishing.md#the-delivery-worker)).
-
-**When a post does not go out.** A **Failed** announcement says why in plain words, with the short code beside it.
-**Try again** asks first, then puts it back in the queue with a fresh allowance of attempts. A **Needs checking**
-announcement is one where the provider did not say whether the post went out. It is never sent again by itself: look
-at the LinkedIn, Facebook, Bluesky or Mastodon account, then choose **Check the result** and say it was posted (with the post id the
-provider shows) or was not (it then becomes Failed, and you can try it again). An announcement waiting to try again
-shows **Retrying** and says when; **Sending** means a worker holds it now. **History** under each announcement lists
-its status changes and every try with its result, in your time zone (see
-[status and history](social-publishing.md#status-and-history)).
-
 ## Running it for real
 
-By default the server listens on `127.0.0.1` only. To use the admin from anywhere, run it on
+By default the server listens on `127.0.0.1` only. To use Studio from anywhere, run it on
 a machine you control and put it behind HTTPS (a reverse proxy such as Caddy or nginx), then:
 
 ```jsonc
@@ -1504,21 +1016,21 @@ and publish `dist/` onward (for example with a git push or rsync after each buil
 If the browser refuses `/assets/base.css` or `/themes/.../tokens.css` because the response
 has the `text/html` MIME type, first restart `openblog serve --admin` after upgrading. Sites
 whose configured URL includes a base path, such as `https://example.github.io/project/`,
-still open the private editor at `/admin`; in admin mode the server maps its root-relative
+still open Studio at `/admin/studio/`; in admin mode the server maps its root-relative
 asset requests to the same built styles used by the public site. A stale pre-0.6.1 server
 does not provide that mapping. If restarting does not help, run `openblog build` and confirm
 the corresponding files exist under `dist/assets/` and `dist/themes/`.
 
 An initial `GET /admin/api/session` response of `401 Unauthorized` is expected when no valid
-admin cookie exists: it is how the editor decides to show the sign-in form. A `401` after
+admin cookie exists: it is how Studio decides to show the sign-in form. A `401` after
 you have signed in means the session expired, the user was removed, or the password changed;
 sign in again. It is unrelated to stylesheet MIME errors.
 
 ## Optional question generation
 
 Knowledge checks work without an AI service. To add **Write questions for me**, **Read it over**
-and the rest of [the writing helper](#the-writing-helper), set it up on Studio's **Writing helper**
-screen (or the old Admin's Assistant panel). The company, the address and the model are saved in
+and the rest of [the writing helper](#the-writing-helper), set it up on the **Writing helper**
+screen. The company, the address and the model are saved in
 `openblog.json`; the key never is. It is kept in `.openblog/private/assistant/api-key` (mode 0600,
 protected with DPAPI on Windows), is write-only from the page, and is refused over plain http
 except from the same computer.
@@ -1558,7 +1070,7 @@ Only the recording is sent: no notes, photos, title or voice guide. Two provider
 never sent audio, and **Turn it into words** isn't offered.
 
 To keep audio on your own machine, set `OPENBLOG_TRANSCRIBE_COMMAND` in the server's environment to a JSON array:
-the program and its fixed arguments. Admin appends the voice note's file path and reads the transcript from the
+the program and its fixed arguments. The server appends the voice note's file path and reads the transcript from the
 program's output.
 
 ```sh
@@ -1597,7 +1109,7 @@ openblog serve --admin
 
 The credential can instead be added, replaced, or cleared in the Assistant provider panel. It is
 write-only and stored under `.openblog/private/assistant/`, never in `openblog.json`. An environment
-credential takes precedence when present. Admin reports only whether a credential exists and where
+credential takes precedence when present. Studio reports only whether a credential exists and where
 it comes from; it never returns the saved value. Saved private credentials are bound to the provider
 and destination active when they are entered. If you switch providers or change a Custom HTTPS
 endpoint, enter the appropriate key for the new destination rather than reusing the hidden value.
@@ -1630,7 +1142,8 @@ to add. It never displays the endpoint or credential value.
 
 - Passwords are hashed with Argon2id. Session and CSRF tokens are 256 random bits from the
   operating system.
-- The session cookie is `HttpOnly` and `SameSite=Strict`, scoped to `/admin`. Every API route
+- The session cookie is `HttpOnly` and `SameSite=Strict`, scoped to `/admin` (Studio lives under it,
+  at `/admin/studio/`). Every API route
   except login checks it **before any request body is read**, so anonymous clients cannot make
   the server buffer uploads.
 - Every state-changing request needs the CSRF token header and, when the browser sends one, a
@@ -1643,7 +1156,7 @@ to add. It never displays the endpoint or credential value.
   `pages/`, `.md` only) and resolved inside the content directory, including through symlinks.
 - Uploads are accepted by their bytes, not their names: PNG, JPEG, GIF, WebP, and AVIF only.
   SVG is refused because it can carry scripts.
-- The admin page is served with a strict Content-Security-Policy: `script-src 'self'`,
+- Studio is served with a strict Content-Security-Policy: `script-src 'self'`,
   `style-src 'self'`, `frame-src 'self'`, with no inline scripts, no WebAssembly and no other
   site framed. Runnable code and embeds are shown only inside a preview, which carries its own
   policy.
@@ -1660,4 +1173,52 @@ to add. It never displays the endpoint or credential value.
   header and body size caps, deadlines for slow senders and slow readers, and no chunked
   bodies.
 
-What it does not do: multi-factor login or per-user roles (every user can edit everything).
+- Studio's files are embedded in the server and cannot be replaced by a site: files under
+  `<paths.web>/admin/` are not read (except `admin/icons/`, the app's icons) and never published.
+  `/admin/` and every other old Admin address answer `302` to `/admin/studio/`, with `no-store`, so the
+  redirect is never cached.
+- A co-writer sign-in (`--co-writer`) reaches only Writing together: every other API route answers
+  `403` before any body is read.
+
+What it does not do: multi-factor sign-in, or roles beyond owner and co-writer.
+
+## Old addresses
+
+The old Admin was retired in Studio R15 ([ADR 0415](adr/0415-the-old-admin-is-retired-and-admin-redirects-to-studio.md)).
+Its addresses keep working, forever: bookmarks, notifications queued on other phones and old
+invitation links still carry them. The server answers `/admin` and `/admin/` (and any other old page)
+with a `302` to `/admin/studio/`, dropping the query; the browser keeps the `#…`, and Studio maps it to
+its own screen and puts its own address in the bar. This is the only place in these docs where the old
+addresses are written out.
+
+| Arrives as | Opens |
+| --- | --- |
+| `/admin`, `/admin/`, `/admin/?anything` | Home |
+| `/admin/#/overview` | Home |
+| `/admin/#/posts`, `#/pages`, `#/series` (with `?status=`) | Posts, Pages, Collections |
+| `/admin/#/new/posts`, `#/new/recipe`, `#/new/pages`, `#/new/series` | Write, a new recipe, a new page, a new collection |
+| `/admin/#/edit/<path>` | Write, a page, a collection, a service or a review, by folder |
+| `/admin/#/edit/<path>?pane=settings` | About this post |
+| `/admin/#/edit/<path>?pane=social`, `optimize`, `accessibility` | Before you publish |
+| `/admin/#/edit/<path>?pane=release`, `field`, `assistant`, `evidence` | Words for YouTube, Your route, the Writing helper, Claims and evidence |
+| `/admin/#/analytics[/<days>]` | Readers › Visitors |
+| `/admin/#/moderation[/<state>][?kind=]`, `#/feedback…` | Readers, in that view and kind |
+| `/admin/#/contributors` | People |
+| `/admin/#/voice`, `#/voice/library[/<id>]`, `#/voice?pack=<id>` | Your writing voice, a piece, Write a piece |
+| `/admin/#/social`, `#/announcements`, `#/distribution`, `#/share/<path>` | Your accounts, Sharing, Where each post went, Share this job |
+| `/admin/#/quotes`, `#/greetings`, `#/reminders`, `#/business` | Quote requests, Cards, Reminders, Business |
+| `/admin/#/notifications[?sheet=home-screen]`, `#/capture…` | Notifications (and the Home Screen sheet), New job |
+| `/admin/#/landing`, `#/look`, `#/appearance`, `#/seasons`, `#/design` | Front page, Look, Look, Decorations, Describe a new look |
+| `/admin/#/services[/new\|/edit/<path>]`, `#/reviews[…]` | Services or Reviews, or the editor for one |
+| `/admin/#/paths[/new\|/edit/<name>]`, `#/comparisons[…]` | Reading paths, Readings side by side |
+| `/admin/#/research…`, `#/sources…`, `#/atlas…`, `#/compare…` | Research and its parts |
+| `/admin/#/shared`, `#/shared/new`, `#/shared/accept/<token>` | Writing together, Start, Join (the token never stays in the address) |
+| `/admin/#/tools`, `#/not-yet/<name>` | Home, or the screen that replaced that part |
+| An unknown address | Home |
+
+A tab of the old Admin left open across the update keeps saving through the same API; its next
+screen fails to load and a reload opens Studio. Unsaved Front page and Look changes the old Admin kept
+in the browser are offered back once, the next time you open Front page or Look. What the old Admin
+kept elsewhere in the browser (its colour scheme, editor mode, preview width) is left alone and no
+longer read. The tests keep every old address landing where this table says
+(`tests/web/studio-legacy-routes.test.mjs`).

@@ -14,7 +14,7 @@ the order of things, start at [Rolling it out, step by step](#rolling-it-out-ste
 
 Nothing in a browser talks to Supabase. The flow is:
 
-1. You sign in to Admin as usual. Admin checks its own session and CSRF token on every route and denies by default.
+1. You sign in to Studio as usual. Admin (the server) checks its own session and CSRF token on every route and denies by default.
 2. Admin calls the hosted social function with a server-held key and names the signed-in Admin user in the
    `X-OpenBlog-Actor` header. That name is recorded for audit; it grants nothing.
 3. The hosted function holds the Supabase `service_role` key. It acts for exactly one site, `OPENBLOG_SITE_ID`,
@@ -145,7 +145,7 @@ opens the provider in a new tab and checks again when the owner comes back to it
 
 Bluesky is off until you set `OPENBLOG_SOCIAL_BLUESKY_ENABLED=true` in the function's environment
 ([ADR 0357](adr/0357-a-bluesky-account-is-connected-from-an-app-password-session-and-only-the-session-is-kept.md)).
-There is no app to register and no redirect: Admin asks for your handle (such as `name.bsky.social`) and an **app
+There is no app to register and no redirect: Studio's **Your accounts** asks for your handle (such as `name.bsky.social`) and an **app
 password**, and the function signs in once with them.
 
 | Variable | Purpose |
@@ -238,7 +238,7 @@ the permissions that were granted, never a token.
 ## Your accounts in Studio
 
 Studio has a **Your accounts** screen (`#/sharing/accounts`, reached from **Sharing** by **Manage your accounts**;
-the old Admin's `#/social` opens it too)
+its old address opens it too)
 ([ADR 0301](adr/0301-connected-accounts-are-managed-through-admin-routes-that-rebuild-every-reply-from-known-fields.md)).
 It is where you connect, reconnect or disconnect an account. Tell the machine that runs `openblog serve --admin`
 where the function is and give it the Admin key, as environment variables (never in `openblog.json`):
@@ -303,7 +303,7 @@ idempotent: submitting the same composer twice (a double click, a retry after a 
 Scheduling uses the same settings as connected accounts (`OPENBLOG_SOCIAL_ENDPOINT`, `OPENBLOG_SOCIAL_ADMIN_KEY`, above)
 on the machine that runs Admin, and the same hosted function: `netlify/functions/social.mjs` serves the announcement
 routes beside the account routes, behind the same admin key, and answers 404 to everything unless the hosted settings
-(including `OPENBLOG_SOCIAL_ENABLED=true`) are valid. A rejected key shows in Admin as a setup problem, not as a sign-out.
+(including `OPENBLOG_SOCIAL_ENABLED=true`) are valid. A rejected key shows in Studio as a setup problem, not as a sign-out.
 
 ### Routes
 
@@ -313,12 +313,12 @@ Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, 
 (ADR 0318). Hosted (the same names under the endpoint, admin key only): the same set except
 `posts` and `preview`, which Admin answers itself.
 
-### The Social screen
+### Sharing in Studio
 
-With the settings above in place, Admin shows an **Announcements** tab
+With the settings above in place, Studio shows **Sharing**
 ([ADR 0310](adr/0310-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
-a composer (destination, post, caption, date and time, preview) and the list of announcements with edit and cancel.
-See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
+**Share a post** (the post, the accounts, the words and a time, with how it looks on each) and the list of shares, each
+with Change and Cancel. See [Studio](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
 so connecting one is a separate step. Check it in a browser at 320px wide before you rely on it: it should never scroll
 sideways.
 
@@ -547,7 +547,7 @@ after 5 minutes, 15 minutes, an hour, six hours and a day. If it is there, the a
 its post id. If the provider says conclusively that it is not there, and the attempt is at least 15 minutes old, it
 becomes `failed` (`not-delivered`) and you can use **Try again**. If the lookup cannot tell, or the destination cannot
 be looked up, the announcement stays `unknown` with `needs-review` and waits for you: open the account, see whether
-the post is there, and choose **Check the result** in Admin. To find stuck work in the database:
+the post is there, and choose **Check it** in Studio's Sharing. To find stuck work in the database:
 `select id, status, last_error_code, updated_at from openblog_social_posts where status in ('unknown','failed');`.
 
 **Settings** (optional, bounded; a value out of range is ignored): `OPENBLOG_SOCIAL_MAX_ATTEMPTS` (default 5, 1 to 10)
@@ -557,7 +557,7 @@ sent and nothing relies on it.
 
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
-is safe to show in Admin and to paste in a bug report.
+is safe to show in Studio and to paste in a bug report.
 
 ## Rolling it out, step by step
 
@@ -591,7 +591,7 @@ To turn the whole feature off and remove it, in this order. Each step is safe to
 
 1. **Stop it.** Remove `OPENBLOG_SOCIAL_ENABLED` from the Netlify site and redeploy. Every social route and the worker
    now answer 404 and touch nothing; scheduled announcements simply wait.
-2. **Hide it in Admin.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
+2. **Hide it in Studio.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
    restart Admin.
 3. **Keep what you need.** Export the announcements and their history (the commands are at the top of
    `supabase/social-rollback.sql`).
@@ -712,12 +712,12 @@ when there is an alert, so point your log drain or alerting at `"event":"openblo
 | `backlog-overdue` | Announcements the worker could take now are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. Announcements of an account paused after a rate limit are not counted here (they show as `waiting_on_pause` and wait for the pause to end). | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
 | `expired-leases` | A run stopped mid-delivery. | Nothing: the next run returns it to the queue, or marks it Needs checking if it may have posted. If it repeats, raise the function timeout or lower the batch. |
 | `provider-not-configured` | Announcements wait for a provider whose settings this deployment does not have, so the worker leaves them in the queue. | Add the provider's settings and redeploy, or cancel them in Admin. |
-| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Admin, then **Try again** its failed announcements. |
-| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check the result** in Admin. |
-| `failed-recently` | Something failed in the last day. | Read its History in Admin. |
+| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Studio's **Your accounts**, then **Try again** its failed announcements. |
+| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check it** in Studio's Sharing. |
+| `failed-recently` | Something failed in the last day. | Read its History in Studio's Sharing. |
 | `stale-connections` | An unfinished account connection expired. | Nothing: the sweep cleaned it up. |
 
-Admin's Social screen shows the same health under **Delivery health**, whether or not `OPENBLOG_SOCIAL_OPS` is set,
+Studio's Sharing shows the same health in its details, whether or not `OPENBLOG_SOCIAL_OPS` is set,
 once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);` (add a third argument such as
 `array['facebook']` to count a provider without settings apart, as the worker does).
 
@@ -731,7 +731,7 @@ and LinkedIn's API Terms of Use (section 4) ask you to keep provider data only a
 period you can justify (for example 365) and export first if you want an archive:
 `copy (select * from openblog_social_attempts) to stdout with csv header;`.
 
-A person asking for their data to be deleted is a manual step: disconnect the account in Admin, then in the SQL editor
+A person asking for their data to be deleted is a manual step: disconnect the account in Studio's **Your accounts**, then in the SQL editor
 delete its rows (replace the id):
 `delete from openblog_social_attempts where post_id in (select id from openblog_social_posts where account_id = '<id>');`
 then the same for `openblog_social_post_events` (if installed), `openblog_social_posts`, `openblog_social_credentials`
@@ -748,7 +748,7 @@ says how many were canceled.
 
 - Late queue: `select id, status, scheduled_for, next_attempt_at, last_error_code from openblog_social_posts where status = 'scheduled' and coalesce(next_attempt_at, scheduled_for) < now() - interval '15 minutes';`
 - Expired leases without waiting for a run: `select * from openblog_social_sweep('<your site id>');`
-- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Admin.
+- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Studio's Sharing.
 
 ## How delivery safety is tested
 

@@ -7,9 +7,9 @@ with no such folder builds exactly as before
 
 Only save a review a customer really wrote, and only where you can link to it.
 
-## Adding a review in Admin
+## Adding a review in Studio
 
-Open **Reviews** (`#/reviews`, under the Content tabs and in the command palette) and tap **Add a review**. There are
+Open **Reviews** (`#/reviews`, in the navigation on a trade site and in Find) and tap **Add a review**. There are
 two ways to bring one in:
 
 - **Copy it from its link.** Paste the review's link under **Link to copy from** and tap **Copy the page**. The page is
@@ -125,5 +125,5 @@ show stars, and may not for reviews a business shows on its own site.
 
 Reviews need nothing new where the site runs: they are files, built into ordinary pages. When the Render service
 keeps your unpublished work in its [Supabase workspace](deploy.md#durable-editorial-workspace-on-ephemeral-hosts), a
-review saved in Admin is kept there like a post, so a restart before you publish does not lose it. Copying a page from a
+review saved in Studio is kept there like a post, so a restart before you publish does not lose it. Copying a page from a
 link needs the Admin server to reach the internet, which it can on Render and on your own computer.

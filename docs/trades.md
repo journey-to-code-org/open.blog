@@ -35,13 +35,13 @@ The starter writes only what it can state truthfully
   what you do, your newest jobs, what customers say, and the quote form. Each part stays hidden until it has
   something to show, so a brand-new site never shows an empty heading.
 - **The Workshop look**: black on white with a rust accent, large text and bold headings. Two other looks are made
-  for trades, High-vis and Blueprint; pick one under **Customize look** (see [below](#looks-for-trades)).
+  for trades, High-vis and Blueprint; pick one under Studio's **Look** (see [below](#looks-for-trades)).
 
 A fresh starter passes `openblog check` with no warnings and builds as it is.
 
-## The checklist on Admin's home
+## The checklist on Studio's Home
 
-On a trade site Admin's home opens with **Your site in ten minutes**, five steps that tick themselves once your
+On a trade site Studio's Home opens with **Your site in ten minutes**, five steps that tick themselves once your
 site really has each one ([ADR 0401](adr/0401-the-ten-minute-checklist-is-worked-out-from-the-files-every-time-and-only-its-dismissal-is-stored.md)):
 
 1. **Add your phone number or email** under [Business facts](configuration.md#business-facts). Admin takes the
@@ -79,7 +79,7 @@ anything.
 
 ## Looks for trades
 
-Three of the curated looks under **Customize look** start with "For a trade"
+Three of the curated looks under Studio's **Look** start with "For a trade"
 ([ADR 0400](adr/0400-three-looks-for-trades-meet-aaa-contrast-and-choose-large-text-and-bold-headings.md)):
 
 - **Workshop**: black on white with a deep rust accent.

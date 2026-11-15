@@ -16,7 +16,7 @@ Studio and the site draw cards with `createElementNS` and `textContent`.
 
 - The tree shows wrapped boxes. A box shows who it's from only when the giver chose that **and**
   the owner's **Show who each gift is from on your tree** is on (the default).
-- What a gift says is never public. The hosted function hands it over only to Admin's key, and only
+- What a gift says is never public. The hosted function hands it over only to the server's key, and only
   once it's open. The table itself refuses an opening before its time.
 - Gifts are taken off the tree, never deleted. Whoever runs the database can read gifts; tell the
   family so.

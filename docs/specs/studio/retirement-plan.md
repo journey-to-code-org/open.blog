@@ -254,3 +254,8 @@ site now (Grammi, a trade owner); the editor slices (R5–R8) before research, w
 7. **Limited sign-ins (R14):** invited people get a server-enforced sign-in that reaches only Writing together; invite links let them set their own password; only owner accounts publish or schedule.
 8. **Studio is a product:** every owner-layer string is generic and goes through the words hook (`docs/specs/studio/words/spec.md`); per-site and per-deployment overrides live in config. Grammi is a test persona only.
 9. **Getting started (R9b):** first-run onboarding (helper key unless configured, then a few short stories for her voice), with the nudge in Write, controlled by `OPENBLOG_STUDIO_ONBOARDING` (`docs/specs/studio/onboarding/ux.md`).
+
+## Status (2026-11-15)
+
+Done. R0 to R14 shipped and R15 retired the old Admin: `/admin/` redirects to Studio, `web/admin/` and
+its routes are gone, and every old address opens its Studio screen (ADR 0415, [r15/spec.md](r15/spec.md)).

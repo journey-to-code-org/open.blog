@@ -56,25 +56,25 @@ Then read these in order; each one stands alone otherwise.
 20. [Jobs](jobs.md): finished trade work as posts, with a documented `job` front matter.
 21. [Services](services.md): each service described once, with a price band, a timeline and FAQs.
 22. [Quote requests](quote-requests.md): an opt-in form a visitor uses to ask for a quote, kept in your private
-   Supabase workspace and managed in Admin. Off by default, and it needs the Netlify function: it does not work
+   Supabase workspace and managed in Studio. Off by default, and it needs the Netlify function: it does not work
    on a site run on Render yet.
 
 23. [Reviews](reviews.md): a customer's real review, typed in or copied once from its link, shown beside its job
    and on a Reviews page, with `Review` data only from what the file says.
 24. [Sharing a job](job-sharing.md): one finished job prepared for Google Business Profile, a Facebook Page and
-   Nextdoor, from Admin's Share this job or the command: posted by hand, to your Facebook Page through your
+   Nextdoor, from Studio's Share this job (under Sharing) or the command: posted by hand, to your Facebook Page through your
    connected Page, or sent to Google once Google approved your project and you turned it on.
-25. [A site for a trade business](trades.md): `openblog init --starter trade`, the ten-minute checklist on Admin's
-   home, looks for trades, and how jobs, services, reviews, quote requests and sharing fit together. The
+25. [A site for a trade business](trades.md): `openblog init --starter trade`, the ten-minute checklist on Studio's
+   Home, looks for trades, and how jobs, services, reviews, quote requests and sharing fit together. The
    contributor view is the [trades spec](specs/trades.md).
 26. [Where your posts went](distribution-reporting.md): every place each post was sent, what each status rests on,
-   and the visits your own counter saw from there, from `openblog outcomes` or Admin's **Where it went**.
+   and the visits your own counter saw from there, from `openblog outcomes` or Studio's **Where each post went** (under Sharing).
 27. [Documentation sites](docs-sites.md): a folder of Markdown published as a tree of pages at `/docs/`, with
     a sidebar, previous and next links, and links between the files that work on GitHub and on the site.
-28. [Greeting cards](greeting-cards.md): cards written in Admin that go out by email on their day, once or every
+28. [Greeting cards](greeting-cards.md): cards written in Studio that go out by email on their day, once or every
     year, from an address book kept in your private Supabase workspace. Off by default; it needs the Netlify
     functions and a free Brevo account.
-29. [Notifications](notifications.md): Admin installed on your phone, buzzing when a comment, reader feedback,
+29. [Notifications](notifications.md): Studio installed on your phone, buzzing when a comment, reader feedback,
     a quote request or news from your other apps arrives. Off by default; it needs the Netlify functions.
 
 Architecture decisions and their supporting primary-source research live under
@@ -148,7 +148,7 @@ side ([ADR 0073](adr/0073-claims-are-authored-from-a-selection-in-evidence-studi
 evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
 alike and that never judge whether a claim is true
 ([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), gathered with
-every other research check into one readiness report that Admin, `openblog check`, builds and the
+every other research check into one readiness report that Studio, `openblog check`, builds and the
 preview show with the same codes in the same order
 ([ADR 0150](adr/0150-one-research-readiness-report-across-admin-check-build-and-preview.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
@@ -162,7 +162,7 @@ never calls aligned places equivalent
 privately with a lock after the claims file and guards on the sources, interpretations, and
 passages it uses
 ([ADR 0089](adr/0089-alignments-take-their-lock-after-claims-and-guard-what-they-use.md)),
-and read in Admin's comparison workspace, which shows each version's places side by side or in
+and read in Studio's **Research › Compare**, which shows each version's places side by side or in
 one column with every place identified and its wording exact
 ([ADR 0090](adr/0090-the-comparison-workspace-reads-one-snapshot-and-identifies-every-place.md)),
 and copies only the places the author selects, with their rights statements

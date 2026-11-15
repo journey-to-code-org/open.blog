@@ -8,7 +8,7 @@ on builds and behaves exactly as it did before ([ADR 0354](adr/0354-seasonal-top
 
 ## Turning them on
 
-Open **Reminders** in Admin (`#/reminders`) and tap **Turn on seasonal reminders**. The topics come from your
+Open **Reminders** in Studio (`#/reminders`) and tap **Turn on seasonal reminders**. The topics come from your
 trade in [Business facts](configuration.md#business-facts); with no trade set you get four general ones
 (spring, summer, fall, winter). On the screen you can:
 
@@ -54,7 +54,7 @@ Your changes are stored in `openblog.json` under `seasonalPrompts`. You can edit
 }
 ```
 
-- **`enabled`** turns the whole thing on. Missing or `false` means off. Turning reminders off in Admin keeps your
+- **`enabled`** turns the whole thing on. Missing or `false` means off. Turning reminders off in Studio keeps your
   topic changes, so `seasonalPrompts` stays in the file with `enabled: false` while it holds any; with none, it is
   removed.
 - **An entry with the id of a bundled topic** changes only what it states: `disabled: true` turns it off,

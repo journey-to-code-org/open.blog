@@ -69,7 +69,7 @@ is told nothing was sent. If it does not answer within 25 seconds, or its answer
 the request may have been saved and asked to call before sending it again, since the service may still save it. Without `OPENBLOG_QUOTE_ENABLED`, `/api/quote/...` is a missing page, as before.
 
 For Admin on the same service, set `OPENBLOG_QUOTE_ENDPOINT` to `http://127.0.0.1:8788/api/quote` and
-`OPENBLOG_QUOTE_ADMIN_KEY` (see **Managing requests in Admin**).
+`OPENBLOG_QUOTE_ADMIN_KEY` (see **Managing requests in Studio**).
 
 ## Spam controls (no third-party captcha)
 
@@ -97,12 +97,12 @@ The email names the visitor, town, service and photo count only; the phone numbe
 workspace. It never goes to a visitor. If it fails, the request is kept and the failure is recorded. The email gets at
 most 4 seconds while the visitor waits, so a slow mail provider never makes the visitor wait long or tells them their
 saved request was lost; an email that did not go out in that time is recorded as failed (`timeout`) for a later retry.
-In Admin's **Quote requests** page (below), a request whose email did not go out says so, and **Send those emails
+In Studio's **Quote requests** (below), a request whose email did not go out says so, and **Send those emails
 again** tries them once more. Without Admin, set `OPENBLOG_QUOTE_ADMIN_KEY` (32 or more characters, different from
 every other key) to see failures with `GET /api/quote/notifications` and retry them with
 `POST /api/quote/notifications/retry`, both with `Authorization: Bearer <key>`. A request is tried at most five times.
 
-## Managing requests in Admin
+## Managing requests in Studio
 
 Run `supabase/quote-v2.sql` once after `quote.sql` (it adds the `archived` status; `quote-v2-rollback.sql` undoes it).
 Set `OPENBLOG_QUOTE_ADMIN_KEY` on the hosted function, then where Admin runs set the same key and the function
@@ -113,7 +113,7 @@ address:
 | `OPENBLOG_QUOTE_ENDPOINT` | `https://your-site.example/api/quote`, or `http://127.0.0.1:8788/api/quote` when the quote service runs beside Admin (Render) |
 | `OPENBLOG_QUOTE_ADMIN_KEY` | the same key as on the function (32 or more characters) |
 
-A **Quote requests** page then appears in Admin. Requests are newest first; each shows its status as a word, photo
+**Quote requests** then appears in Studio. Requests are newest first; each shows its status as a word, photo
 thumbnails and one-tap **copy** buttons for the phone and email. **Mark handled**, **Archive** and **Mark as new**
 are the only workflow there is.
 
