@@ -58,7 +58,7 @@ test.afterAll(async () => {
   removeTree(root);
 });
 
-async function signIn(page, hash = "#/visitors") {
+async function signIn(page, hash = "#/readers/visitors") {
   await page.goto(`${origin}/admin/studio/${hash}`);
   const name = page.getByRole("textbox", { name: "Your name", exact: true });
   if (await name.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
@@ -80,7 +80,7 @@ async function mockCounter(page, { status = 200 } = {}) {
     } catch {
       // The page closed while answering; the next answer looks again.
     }
-    const series = Array.from({ length: days }, (_, i) => ({ day: `2026-10-${String((i % 28) + 1).padStart(2, "0")}`, views: i === 3 ? 48 : 5, uniques: 3 }));
+    const series = Array.from({ length: days }, (_, i) => ({ day: `2026-10-${String((i % 28) + 1).padStart(2, "0")}`, views: i === 3 ? 60 : 5, uniques: i === 3 ? 48 : 3 }));
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
       days, from: "2026-10-01", to: "2026-11-13", views: 612, uniques: 214, allTimeViews: 2000, firstDay: "2026-01-01", series,
       topPosts: [{ path: firstPost?.url || "/x/", views: 120, uniques: 88, allTime: 1040 }, { path: "/tags/pies/", views: 40, uniques: 30, allTime: 40 }],
@@ -90,21 +90,21 @@ async function mockCounter(page, { status = 200 } = {}) {
   return asked;
 }
 
-test("Visitors says how many people came and what they read, by title", async ({ page }) => {
+test("Visitors says how many visits there were and what they read, by title", async ({ page }) => {
   const asked = await mockCounter(page);
   await signIn(page);
   await expect(page.getByRole("link", { name: "Visitors" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Who's been reading?" })).toBeVisible();
-  await expect(page.getByText("214 people visited")).toBeVisible();
-  await expect(page.getByText("They looked at 612 pages.")).toBeVisible();
-  await expect(page.getByRole("img", { name: /^Visits per day, busiest .* with 48\.$/ })).toBeVisible();
+  await expect(page.getByText("214 visits")).toBeVisible();
+  await expect(page.getByText("Pages were opened 612 times.")).toBeVisible();
+  await expect(page.getByRole("img", { name: /^Visits per day, most in .* with 48\.$/ })).toBeVisible();
   expect(firstPost).toBeTruthy();
   await expect(page.locator(".studio-visitors").getByRole("link", { name: firstPost.title })).toBeVisible();
-  await expect(page.getByText("Other pages: 40 visits")).toBeVisible();
-  await expect(page.locator(".studio-visitors").getByText("facebook.com")).toBeVisible();
+  await expect(page.getByText("Other pages: 30 visits")).toBeVisible();
+  await expect(page.locator(".studio-visitors").getByText("Facebook", { exact: true })).toBeVisible();
   await expect(page.locator(".studio-visitors").getByText("/tags/pies/")).toHaveCount(0);
   await page.getByRole("combobox", { name: "Over the last" }).selectOption("7");
-  await expect(page).toHaveURL(/#\/visitors\/7$/);
+  await expect(page).toHaveURL(/#\/readers\/visitors\/7$/);
   await expect.poll(() => asked.at(-1)).toBe(7);
 });
 
@@ -118,7 +118,7 @@ test("Visitors passes axe at 320 px without sideways scrolling", async ({ page }
   await page.setViewportSize({ width: 320, height: 800 });
   await mockCounter(page);
   await signIn(page);
-  await expect(page.getByText("214 people visited")).toBeVisible();
+  await expect(page.getByText("214 visits")).toBeVisible();
   await page.evaluate(axeSource);
   const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`));
   expect(results).toEqual([]);

@@ -1,5 +1,6 @@
 // Hash routes → screens. `#/`, `#/posts`, `#/write`, `#/write/<path>`, `#/sign-in`.
 // Before leaving a screen the router asks it (`leave()`), so unsaved work is never lost on the way.
+import { readersRoute } from "./parts/reader-rules.js";
 
 /**
  * "#/write/posts/x.md" → { name: "write", arg: "posts/x.md", query: {} };
@@ -24,8 +25,7 @@ export function parseRoute(hash) {
 // screen each now opens. A route Studio doesn't have yet opens "not-yet" with the old name, never a
 // blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
 const OLD_RENAMED = {
-  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
-  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing/accounts",
+  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations", social: "sharing/accounts",
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
@@ -35,7 +35,7 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence waits for R12 and opens the post.
  */
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
-const NOT_YET = new Set(["comparisons", "paths", "research", "shared"]);
+const NOT_YET = new Set(["research", "shared"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -55,17 +55,28 @@ export function legacyRoute(hash) {
     return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
   if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
-  // The old inbox named the server's states; Studio's Comments names its own views.
-  if ((name === "moderation" || name === "feedback") && rest.length) {
-    const view = { pending: "", approved: "shown", rejected: "not-shown", removed: "taken-down" }[rest[0]] ?? "";
-    return `#/comments${view ? `/${view}` : ""}${tail}`;
-  }
+  // R10: Readers. The old inbox, feedback, analytics and Studio's own Comments and Visitors open it.
+  const readers = readersRoute(name, rest, search);
+  if (readers) return readers;
   // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
   if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
   // R2: the old accounts page, whatever was after it, is Your accounts.
   if (name === "social") return `#/${OLD_RENAMED.social}`;
   // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
   if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
+  // R13: reading paths. #/paths and #/paths/new are Studio's own; the old editor address moves to #/path/<address>.
+  if (name === "paths") {
+    if (rest[0] === "edit" && rest[1]) return `#/path/${rest.slice(1).join("/")}${tail}`;
+    return !rest.length || (rest.length === 1 && rest[0] === "new") ? null : `#/paths${tail}`;
+  }
+  // R13: readings side by side. The old comparisons editor moves under Research; #/research/readings… is Studio's
+  // own, while plain #/research is still not yet.
+  if (name === "comparisons") {
+    if (rest[0] === "new" && rest.length === 1) return `#/research/readings/new${tail}`;
+    if (rest[0] === "edit" && rest[1]) return `#/research/reading/${rest.slice(1).join("/")}${tail}`;
+    return `#/research/readings${tail}`;
+  }
+  if (name === "research" && (rest[0] === "readings" || (rest[0] === "reading" && rest[1]))) return null;
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
   // R5: Contributors is People.
   if (name === "contributors") return `#/people${tail}`;

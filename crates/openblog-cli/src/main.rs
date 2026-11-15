@@ -52,6 +52,7 @@ mod source_store;
 mod studio_files;
 mod syndication;
 mod transaction;
+mod trash;
 mod url_context;
 mod video_release;
 mod voice_assistant;

@@ -1,67 +1,63 @@
-// Visitors in her words: how many people came, which recipes they read (by title, never a raw
-// address), and a spoken summary of the days. DOM-free, tested. Studio slice 9;
-// docs/specs/studio/slice-9/ux.md.
-import { say } from "./words.js";
+// Visitors in her words. Pure data, read with `say()` (docs/studio-words.md). It counts visits, never
+// people: one reader on three pages across three days is nine counts here, so the unit is a
+// "visit" and it is explained once. Studio R10; docs/specs/studio/r10/ux.md, "Visitors".
 
-export const RANGES = [7, 30, 90];
-
-/** The range an address names (default 30). */
-export const rangeOf = (arg) => (RANGES.includes(Number(arg)) ? Number(arg) : 30);
-
-const number = (n) => new Intl.NumberFormat("en-US").format(n || 0);
-const trim = (path) => String(path || "").replace(/\/+$/, "") || "/";
-
-export function headline(summary) {
-  const people = summary.uniques || 0;
-  return people === 1 ? "1 person visited" : `${number(people)} people visited`;
-}
-
-export function pagesLine(summary) {
-  const views = summary.views || 0;
-  return views === 1 ? "They looked at 1 page." : `They looked at ${number(views)} pages.`;
-}
-
-/**
- * The pages they read most, by title: `{ top: [{ title, url, people, allTime }], other }`, where
- * `other` adds up visits to pages that aren't posts. `/` is "Your front page".
- */
-export function topReads(summary, posts, { limit = 10 } = {}) {
-  const byUrl = new Map(posts.filter((p) => p.url).map((p) => [trim(p.url), p]));
-  const top = [];
-  let other = 0;
-  for (const row of summary.topPosts || []) {
-    const path = trim(row.path);
-    const post = byUrl.get(path);
-    if (path === "/") top.push({ title: "Your front page", url: "/", people: row.uniques || 0, allTime: row.allTime || 0 });
-    else if (post) top.push({ title: post.title || "Untitled", url: post.url, people: row.uniques || 0, allTime: row.allTime || 0 });
-    else other += row.views || 0;
-  }
-  return { top: top.slice(0, limit), more: top.slice(limit), other };
-}
-
-/** "88 people" / "1 person". */
-export const peopleWords = (n) => (n === 1 ? "1 person" : `${number(n)} people`);
-
-/** The chart's spoken label, or "" when there are too few days to show one. */
-export function seriesLabel(series, sayDay) {
-  const days = (series || []).filter((d) => typeof d.views === "number");
-  if (days.length < 7) return "";
-  const busiest = days.reduce((a, b) => (b.views > a.views ? b : a));
-  if (!busiest.views) return "";
-  return `Visits per day, busiest ${sayDay(busiest.day)} with ${number(busiest.views)}.`;
-}
-
-/** "Counting since Tuesday, November 3." when counting started inside the range, else "". */
-export function sinceLine(summary, sayDay) {
-  if (!summary.firstDay || !summary.from || summary.firstDay <= summary.from) return "";
-  return `Counting since ${sayDay(summary.firstDay)}.`;
-}
-
-/** A failure in her words. */
-export function visitorTrouble(error) {
-  const status = error?.status ?? 0;
-  if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
-  if (status === 404) return "Visitor counting is switched off.";
-  if (status === 502 || status === 503 || status === 504) return "Your visitor numbers aren't answering right now. Try again in a few minutes.";
-  return `Your visitor numbers didn't load. ${say("common.keepsHappening")}`;
-}
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
+export const WORDS = {
+  "visitors.title": { text: "Who's been reading?", layer: "her" },
+  "visitors.rangeLabel": { text: "Over the last", layer: "her" },
+  "visitors.range7": { text: "7 days", layer: "her" },
+  "visitors.range30": { text: "30 days", layer: "her" },
+  "visitors.range90": { text: "90 days", layer: "her" },
+  "visitors.rangeYear": { text: "a year", layer: "her" },
+  "visitors.visits": { text: "{n} visits", layer: "her" },
+  "visitors.visit1": { text: "1 visit", layer: "her" },
+  "visitors.visitMeans": { text: "A visit is one person reading one page on one day.", layer: "her" },
+  "visitors.opened": { text: "Pages were opened {n} times.", layer: "her" },
+  "visitors.opened1": { text: "A page was opened once.", layer: "her" },
+  "visitors.since": { text: "Counting since {day}.", layer: "her" },
+  "visitors.keptFor": { text: "{product} keeps numbers for {n} days, so the start of this period isn't here.", layer: "her" },
+  "visitors.partWeek": { text: "part of a week", layer: "her" },
+  "visitors.partMonth": { text: "part of the month", layer: "her" },
+  "visitors.notYet": { text: "not counted yet", layer: "her" },
+  "visitors.unitDay": { text: "day", layer: "her" },
+  "visitors.unitWeek": { text: "week", layer: "her" },
+  "visitors.unitMonth": { text: "month", layer: "her" },
+  "visitors.weekOf": { text: "the week of {day}", layer: "her" },
+  "visitors.chartLabel": { text: "Visits per {unit}, most in {period} with {n}.", layer: "her" },
+  "visitors.chartLabelNone": { text: "Visits per {unit}.", layer: "her" },
+  "visitors.seeNumbers": { text: "See the numbers", layer: "her" },
+  "visitors.tableCaption": { text: "Visits and pages opened, by {unit}", layer: "her" },
+  "visitors.colPeriod": { text: "When", layer: "her" },
+  "visitors.colVisits": { text: "Visits", layer: "her" },
+  "visitors.colOpened": { text: "Pages opened", layer: "her" },
+  "visitors.readMost": { text: "What they read most", layer: "her" },
+  "visitors.readNone": { text: "No posts yet; the visits were to other pages.", layer: "her" },
+  "visitors.frontPage": { text: "Your front page", layer: "her" },
+  "visitors.untitled": { text: "Untitled", layer: "her" },
+  "visitors.visitsFor": { text: "{n} visits", layer: "her" },
+  "visitors.otherPages": { text: "Other pages: {visits}", layer: "her" },
+  "visitors.cameFrom": { text: "Where they came from", layer: "her" },
+  "visitors.showMore": { text: "Show more", layer: "her" },
+  "visitors.emptyTitle": { text: "No visits counted yet", layer: "her" },
+  "visitors.emptyText": { text: "When people read {product}, the numbers show up here a day or so later.", layer: "her" },
+  "visitors.off": { text: "Visitor counting is switched off.", layer: "her" },
+  "visitors.serviceDown": { text: "Your visitor numbers aren't answering right now. Try again in a few minutes.", layer: "her" },
+  "visitors.failed": { text: "Your visitor numbers didn't load.", layer: "her" },
+  "visitors.noSignal": { text: "{product} can't reach your site right now, so there are no numbers to show. Try again when you have a signal.", layer: "her" },
+  "visitors.tryAgain": { text: "Try again", layer: "her" },
+  "visitors.howHeading": { text: "How these numbers are counted", layer: "her" },
+  "visitors.how1": { text: "{product} counts without cookies and keeps nothing that could tell who a reader is.", layer: "her" },
+  "visitors.how2": { text: "A person reading the same page twice in a day is one visit. Nothing links one day to the next, so {product} can't tell how many different people came.", layer: "her" },
+  "visitors.how3": { text: "Readers who ask not to be counted aren't counted.", layer: "her" },
+  "visitors.how4": { text: "Search engines and AI tools also read your pages. They're not in these numbers.", layer: "her" },
+  "visitors.how5": { text: "This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing.", layer: "her" },
+  "visitors.detailsSource": { text: "source {source}", layer: "details" },
+  "visitors.detailsRange": { text: "from {from} to {to}, views {views}, visits {visits}, all time {allTime}, first day {first}, kept {kept}, series {series}", layer: "details" },
+  "visitors.detailsPath": { text: "{path}  views {views}  visits {visits}  all time {allTime}", layer: "details" },
+  "visitors.detailsHost": { text: "from {host}  {views}", layer: "details" },
+  "visitors.detailsAgents": { text: "AI tools and bots: {n} requests{list}", layer: "details" },
+  "visitors.detailsError": { text: "error {status}: {message}", layer: "details" },
+  "visitors.findRange": { text: "Visitors in the last {range}", layer: "her" },
+  "visitors.findGroup": { text: "Visitors", layer: "her" },
+};

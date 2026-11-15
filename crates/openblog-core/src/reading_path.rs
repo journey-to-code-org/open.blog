@@ -1120,6 +1120,15 @@ impl PublishedTargets {
             .map(|(id, (label, _, kind))| (id.as_str(), label.as_str(), *kind))
     }
 
+    /// Published, uncontested `influenced` relationships between public entries: (id, from, to). These
+    /// are the only ones a transition may rest on, so a picker lists no others (Studio R13, G100).
+    pub fn influences(&self) -> impl Iterator<Item = (&str, &str, &str)> {
+        self.influences
+            .iter()
+            .filter(|(_, (_, _, contested))| !contested)
+            .map(|(id, (from, to, _))| (id.as_str(), from.as_str(), to.as_str()))
+    }
+
     /// The title of a published post, if `slug` is one.
     pub fn post_title(&self, slug: &str) -> Option<&str> {
         self.posts.get(slug).map(|(title, _)| title.as_str())

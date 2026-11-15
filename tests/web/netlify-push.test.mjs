@@ -235,7 +235,7 @@ test("a new comment buzzes the phones that asked, forgets phones that are gone, 
   assert.match(told.body, /^On “Stuffing”: “Made this for Friendsgiving.+…”$/);
   assert.ok(!told.body.includes("/stuffing/"), "never the raw path");
   assert.ok(told.body.length <= 180);
-  assert.equal(told.url, "/admin/studio/#/comments");
+  assert.equal(told.url, "/admin/studio/#/readers?kind=comment&item=comment:00000000-0000-0000-0000-000000000009");
   assert.deepEqual(w.devices.map((d) => d.label).sort(), ["Phone", "Shop"], "the gone tablet is forgotten");
   assert.ok(w.devices.find((d) => d.label === "Phone").last_sent_at);
 });
@@ -270,7 +270,7 @@ test("a post is named the way she says it, never by its path, and a notice with 
   assert.equal(plain.url, "/admin/studio/");
 });
 
-test("reader notes and author answers say which post in her words and open Comments", async () => {
+test("reader notes and author answers say which post in her words and open Readers", async () => {
   const w = world();
   const handler = createHandler({ env: ENV, fetchImpl: w.fetchImpl });
   const phone = w.phone();
@@ -279,8 +279,8 @@ test("reader notes and author answers say which post in her words and open Comme
   const sent = [];
   const transport = async (_subscription, message) => { sent.push(message); return { ok: true }; };
   for (const fields of [
-    { title: `A reader wrote about ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/comments" },
-    { title: `An author answered on ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/comments" },
+    { title: `A reader wrote about ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/readers?kind=question&item=feedback:00000000-0000-4000-8000-000000000001" },
+    { title: `An author answered on ${pageWords("/posts/pumpkin-pie/")}.`, url: "/admin/studio/#/readers?kind=author-response&item=feedback:00000000-0000-4000-8000-000000000002" },
   ]) await tellOwner({ env: ENV, fetchImpl: w.fetchImpl, kind: "feedback", notice: fields, transport });
   assert.deepEqual(sent.map((n) => n.title), ["A reader wrote about “Pumpkin pie”.", "An author answered on “Pumpkin pie”."]);
   // And the engagement function sends exactly those: no old address, no raw path in any notice.
@@ -288,7 +288,7 @@ test("reader notes and author answers say which post in her words and open Comme
   const notices = [...source.matchAll(/tellOwner\(\{[^\n]+\}\);/g)].map((m) => m[0]);
   assert.equal(notices.length, 5);
   for (const line of notices) {
-    assert.match(line, /url: "\/admin\/studio\/#\/comments"/, line);
+    assert.match(line, /url: readersAddress\(/, line);
     assert.doesNotMatch(line, /On \$\{(path|submission\.work|answer\.work)\}/, line);
   }
 });

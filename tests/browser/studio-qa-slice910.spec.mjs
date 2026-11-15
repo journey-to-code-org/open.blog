@@ -127,10 +127,10 @@ const nav = (page) => page.locator("dashboard-shell, nav").first();
 
 // ---- Grammi's site ---------------------------------------------------------------------------
 
-test("Grammi's nav has Cards and Visitors but never Services, Reviews or Business", async ({ page }) => {
+test("Grammi's nav has Cards and Readers but never Services, Reviews or Business", async ({ page }) => {
   await signIn(page, grammi.origin, "#/");
   await expect(page.getByRole("link", { name: "Cards", exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: "Visitors", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Readers", exact: true }).first()).toBeVisible();
   for (const item of ["Services", "Reviews", "Business"]) await expect(page.getByRole("link", { name: item, exact: true })).toHaveCount(0);
 });
 
@@ -191,17 +191,17 @@ test("Visitors never shows a raw address on the first layer, even for unmatched 
     topPosts: [{ path: "/", views: 5, uniques: 4, allTime: 5 }, { path: "/secret-draft/", views: 3, uniques: 2, allTime: 3 }, { path: "javascript:alert(1)", views: 1, uniques: 1, allTime: 1 }],
     referrers: [{ host: "facebook.com", views: 2 }], agentRequests: 0, agents: [], agentPages: [],
   }) }));
-  await signIn(page, grammi.origin, "#/visitors");
-  await expect(page.getByText("9 people visited")).toBeVisible();
+  await signIn(page, grammi.origin, "#/readers/visitors");
+  await expect(page.getByText("9 visits")).toBeVisible();
   await expect(page.getByText("Your front page")).toBeVisible();
-  await expect(page.getByText("Other pages: 4 visits")).toBeVisible();
+  await expect(page.getByText("Other pages: 3 visits")).toBeVisible();
   const first = await page.locator(".studio-visitors").innerText();
   expect(first).not.toMatch(/secret-draft|javascript:|\/\w/);
 });
 
 test("Visitors says the counter isn't answering on a 502, with Try again", async ({ page }) => {
   await page.route("**/admin/api/analytics?**", (route) => route.fulfill({ status: 502, contentType: "application/json", body: "{}" }));
-  await signIn(page, grammi.origin, "#/visitors/7");
+  await signIn(page, grammi.origin, "#/readers/visitors/7");
   await expect(page.getByText("Your visitor numbers aren't answering right now. Try again in a few minutes.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 });

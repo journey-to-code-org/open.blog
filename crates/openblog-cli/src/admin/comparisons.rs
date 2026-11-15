@@ -43,6 +43,10 @@ struct Context {
     links: Vec<(String, String, String, String)>,
     /// Why the research files could not be read, shown to the author.
     problem: Option<String>,
+    /// Whether the site publishes comparisons (`interpretations.publish`, G99).
+    publish: bool,
+    /// What each claim says and which source each evidence link cites, for the picker's words (G101).
+    claim_words: std::collections::BTreeMap<String, String>,
 }
 
 fn context(state: &AppState) -> Context {
@@ -56,10 +60,13 @@ fn context(state: &AppState) -> Context {
                 source_titles: Vec::new(),
                 links: Vec::new(),
                 problem: Some(error),
+                publish: false,
+                claim_words: Default::default(),
             }
         }
     };
     let content = config.paths.content.clone();
+    let publish = config.interpretations.publish;
     match claims_store::load(&state.root, &config.contributors) {
         Ok(snapshot) => {
             let held = References::of(&snapshot.library, &snapshot.claims);
@@ -98,6 +105,13 @@ fn context(state: &AppState) -> Context {
                     })
                     .collect(),
                 problem: None,
+                publish,
+                claim_words: snapshot
+                    .claims
+                    .claims
+                    .iter()
+                    .map(|c| (c.id.clone(), c.statement.clone()))
+                    .collect(),
             }
         }
         Err(error) => Context {
@@ -105,6 +119,8 @@ fn context(state: &AppState) -> Context {
             held: None,
             public: References::default(),
             source_titles: Vec::new(),
+            publish,
+            claim_words: Default::default(),
             links: Vec::new(),
             problem: Some(format!(
                 "The research library and evidence could not be read, so evidence cannot be checked. {error}"
@@ -117,7 +133,11 @@ fn problems_json(problems: &[ComparisonProblem]) -> Json {
     Json::Array(
         problems
             .iter()
-            .map(|p| json!({ "item": p.item, "message": p.message, "text": p.to_string() }))
+            .map(|p| {
+                let (code, field) = super::path_codes::comparison_problem(&p.message);
+                json!({ "item": p.item, "message": p.message, "text": p.to_string(),
+                    "code": code, "field": field })
+            })
             .collect(),
     )
 }
@@ -232,6 +252,9 @@ fn view(stored: &store::Stored, ctx: &Context) -> Json {
             "states": item_states(comparison, ctx),
             "projection": projection(comparison, ctx),
             "researchProblem": ctx.problem,
+            "publish": ctx.publish,
+            "url": (ctx.publish && comparison.status == Status::Published && shown(comparison, ctx))
+                .then(|| openblog_core::interpretation_publication::page_url(&stored.slug)),
         }),
         Err(problems) => json!({
             "slug": stored.slug,
@@ -244,8 +267,19 @@ fn view(stored: &store::Stored, ctx: &Context) -> Json {
             "states": [],
             "projection": Json::Null,
             "researchProblem": ctx.problem,
+            "publish": ctx.publish,
+            "url": Json::Null,
         }),
     }
+}
+
+/// Whether the comparison, published as it is, would be shown whole (the list's `shown`).
+fn shown(comparison: &Comparison, ctx: &Context) -> bool {
+    let mut candidate = comparison.clone();
+    candidate.status = Status::Published;
+    PublicComparison::project(&candidate, &ctx.public)
+        .0
+        .is_some()
 }
 
 fn store_error(state: &AppState, error: ComparisonError, slug: Option<&str>) -> Response {
@@ -258,21 +292,25 @@ fn store_error(state: &AppState, error: ComparisonError, slug: Option<&str>) -> 
                 409,
                 &json!({
                     "error": error.to_string(),
+                    "code": "changed",
                     "conflict": true,
                     "revision": latest.as_ref().map(|s| s.revision.as_str()),
                     "current": latest.as_ref().map(|s| view(s, &ctx)),
                 }),
             )
         }
-        ComparisonError::Exists => {
-            Response::json(409, &json!({ "error": error.to_string(), "exists": true }))
-        }
-        ComparisonError::Missing => {
-            Response::json(404, &json!({ "error": error.to_string(), "missing": true }))
-        }
+        ComparisonError::Exists => Response::json(
+            409,
+            &json!({ "error": error.to_string(), "code": "exists", "exists": true }),
+        ),
+        ComparisonError::Missing => Response::json(
+            404,
+            &json!({ "error": error.to_string(), "code": "missing", "missing": true }),
+        ),
         ComparisonError::Invalid(problems) => Response::json(
             422,
             &json!({
+                "code": "invalid",
                 "error": problems.first().map_or_else(
                     || "The comparison is not valid".to_string(),
                     ToString::to_string,
@@ -280,7 +318,9 @@ fn store_error(state: &AppState, error: ComparisonError, slug: Option<&str>) -> 
                 "problems": problems_json(&problems),
             }),
         ),
-        ComparisonError::Storage(message) => Response::error(500, &message),
+        ComparisonError::Storage(message) => {
+            Response::json(500, &json!({ "error": message, "code": "storage" }))
+        }
     }
 }
 
@@ -421,6 +461,8 @@ fn listed(stored: &store::Stored, ctx: &Context) -> Json {
                 "explanations": c.explanations.len(),
                 "awaitingApproval": awaiting,
                 "shown": public.is_some(),
+                "url": (ctx.publish && public.is_some() && c.status == Status::Published)
+                    .then(|| openblog_core::interpretation_publication::page_url(&stored.slug)),
                 "problems": 0,
             })
         }
@@ -447,7 +489,8 @@ pub(super) fn list(state: &AppState) -> Response {
     let items: Vec<Json> = stored.iter().map(|s| listed(s, &ctx)).collect();
     Response::json(
         200,
-        &json!({ "items": items, "limit": store::MAX_LISTED, "researchProblem": ctx.problem }),
+        &json!({ "items": items, "limit": store::MAX_LISTED, "researchProblem": ctx.problem,
+            "publish": ctx.publish }),
     )
 }
 
@@ -460,7 +503,12 @@ pub(super) fn references(state: &AppState) -> Response {
         200,
         &json!({
             "sources": ctx.source_titles.iter().map(|(id, title)| json!({"id": id, "title": title})).collect::<Vec<_>>(),
-            "links": ctx.links.iter().map(|(id, claim, relation, source)| json!({"id": id, "claim": claim, "relation": relation, "source": source})).collect::<Vec<_>>(),
+            "links": ctx.links.iter().map(|(id, claim, relation, source)| json!({
+                "id": id, "claim": claim, "relation": relation, "source": source,
+                // G101: words for the picker, never keys: the claim's statement cut at 80 letters and the source's title.
+                "label": cut_label(ctx.claim_words.get(claim).map_or(claim.as_str(), String::as_str)),
+                "sourceTitle": ctx.source_titles.iter().find(|(s, _)| s == source).map_or(source.as_str(), |(_, t)| t.as_str()),
+            })).collect::<Vec<_>>(),
             "problem": ctx.problem,
             "levels": Level::ALL.iter().map(|l| l.value()).collect::<Vec<_>>(),
             "relations": RelationKind::ALL.iter().map(|k| json!({"value": k.value(), "symmetric": k.symmetric()})).collect::<Vec<_>>(),
@@ -546,14 +594,27 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
     }
 }
 
+/// A claim's words cut at 80 letters, with an ellipsis when cut (never in the middle of a letter).
+fn cut_label(text: &str) -> String {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= 80 {
+        return text;
+    }
+    let cut: String = text.chars().take(79).collect();
+    format!("{}…", cut.trim_end())
+}
+
 fn saved_view(slug: &str, saved: store::Saved, ctx: &Context) -> Json {
+    let replaced = saved.replaced.clone();
     let stored = store::Stored {
         slug: slug.to_string(),
         revision: saved.revision,
         text: saved.text,
         parsed: Ok(saved.comparison),
     };
-    view(&stored, ctx)
+    let mut v = view(&stored, ctx);
+    v["replaced"] = json!(replaced);
+    v
 }
 
 /// `POST comparisons` (create) and `PUT comparisons` (replace, naming the
@@ -600,6 +661,7 @@ pub(super) fn save(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(dropped) => dropped,
         Err(problems) => return store_error(state, ComparisonError::Invalid(problems), None),
     };
+    let stamp = clock::now().rfc3339().replace(':', "");
     let result = if create {
         store::create(&state.root, &ctx.content, &comparison)
     } else {
@@ -608,6 +670,7 @@ pub(super) fn save(state: &AppState, req: &Request, create: bool) -> Response {
             &ctx.content,
             revision.as_deref().unwrap_or_default(),
             &comparison,
+            &stamp,
         )
     };
     match result {
@@ -670,8 +733,8 @@ pub(super) fn decide(state: &AppState, req: &Request, user: &str, approve: bool)
             "This comparison has problems; repair it in source mode first",
         );
     };
-    let refuse = |message: &str, extra: Json| {
-        let mut v = json!({ "error": message });
+    let refuse = |message: &str, code: &str, extra: Json| {
+        let mut v = json!({ "error": message, "code": code });
         if let (Some(v), Some(extra)) = (v.as_object_mut(), extra.as_object()) {
             v.extend(extra.clone());
         }
@@ -691,6 +754,7 @@ pub(super) fn decide(state: &AppState, req: &Request, user: &str, approve: bool)
     if !is_ai {
         return refuse(
             "Only text drafted by an AI tool is approved here; text you wrote needs no approval",
+            "not-ai",
             json!({ "notAi": true }),
         );
     }
@@ -698,6 +762,7 @@ pub(super) fn decide(state: &AppState, req: &Request, user: &str, approve: bool)
         if digest.as_deref() != Some(text_digest.as_str()) {
             return refuse(
                 "The text changed since you read it. Nothing was approved; read it again and approve what you see",
+                "stale",
                 json!({ "stale": true, "digest": text_digest }),
             );
         }
@@ -709,20 +774,22 @@ pub(super) fn decide(state: &AppState, req: &Request, user: &str, approve: bool)
         });
     } else {
         if approval.is_none() {
-            return refuse("There is no approval to withdraw", json!({}));
+            return refuse("There is no approval to withdraw", "no-approval", json!({}));
         }
         *approval = None;
         if comparison.status == Status::Published {
             if !unpublish {
                 return refuse(
                     "A published comparison cannot hold AI text nobody has approved. Withdraw the approval and return the whole comparison to draft, or leave it approved",
+                    "needs-unpublish",
                     json!({ "needsUnpublish": true }),
                 );
             }
             comparison.status = Status::Draft;
         }
     }
-    match store::update(&state.root, &ctx.content, revision, &comparison) {
+    let stamp = clock::now().rfc3339().replace(':', "");
+    match store::update(&state.root, &ctx.content, revision, &comparison, &stamp) {
         Ok(saved) => Response::json(200, &saved_view(&slug, saved, &ctx)),
         Err(error) => store_error(state, error, Some(&slug)),
     }
@@ -749,7 +816,42 @@ pub(super) fn remove(state: &AppState, req: &Request) -> Response {
     let ctx = context(state);
     let stamp = clock::now().rfc3339().replace(':', "");
     match store::delete(&state.root, &ctx.content, slug, revision, &stamp) {
-        Ok(name) => Response::json(200, &json!({ "ok": true, "trashedTo": name })),
+        Ok(name) => Response::json(
+            200,
+            &json!({ "ok": true, "trashedTo": name, "replaced": name }),
+        ),
         Err(error) => store_error(state, error, Some(slug)),
+    }
+}
+
+/// `POST comparisons/restore` (G97): put a kept copy back byte for byte, approvals included. The body
+/// names the `slug`, the `name` a write answered as `replaced`, and the `revision` now stored (null when the
+/// file is gone). The copy the restore replaces is kept too.
+pub(super) fn restore(state: &AppState, req: &Request) -> Response {
+    let request = match body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let slug = match slug_of(&request) {
+        Ok(slug) => slug.to_string(),
+        Err(response) => return response,
+    };
+    let Some(name) = request["name"].as_str() else {
+        return Response::error(400, "Name the kept copy by `name`");
+    };
+    if !crate::trash::valid_name("comparisons", &slug, name) {
+        return Response::error(400, "That is not a kept copy of this comparison");
+    }
+    let revision = request["revision"].as_str();
+    let _build = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let ctx = context(state);
+    let stamp = clock::now().rfc3339().replace(':', "");
+    match store::restore(&state.root, &ctx.content, &slug, revision, name, &stamp) {
+        Ok(saved) => Response::json(200, &saved_view(&slug, saved, &ctx)),
+        Err(error) => store_error(state, error, Some(&slug)),
     }
 }

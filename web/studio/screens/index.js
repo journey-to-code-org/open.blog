@@ -12,10 +12,9 @@ import { createPageEdit } from "./page-edit.js";
 import { createTools } from "./tools.js";
 import { createLanding } from "./landing.js";
 import { createLook } from "./look.js";
-import { createComments } from "./comments.js";
+import { createReadersArea } from "./readers-area.js";
 import { createCards } from "./cards.js";
 import { createCardEdit } from "./card-edit.js";
-import { createVisitors } from "./visitors.js";
 import { createBusiness } from "./business.js";
 import { createRecordEdit } from "./record-edit.js";
 import { RECORDS, tradeSite } from "../parts/record-kinds.js";
@@ -38,6 +37,11 @@ import { createVoicePieceScreen } from "./voice-piece.js";
 import { createVoiceGuideScreen } from "./voice-guide.js";
 import { createDesign } from "./design.js";
 import { createStart } from "./start.js";
+import { createPaths } from "./paths.js";
+import { createPathEdit } from "./path-edit.js";
+import { createReadings } from "./readings.js";
+import { createReadingEdit } from "./reading-edit.js";
+import { say } from "../parts/words.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -49,14 +53,27 @@ export const SCREENS = [
   { name: "page", area: "pages", create: (context, route) => createPageEdit(context, KINDS.pages, route.arg) },
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
+  // R13: reading paths. In the navigation once the site has one (meta.siteUses.paths); always routable, so an old
+  // address and Find ("Make a reading path") reach them. #/paths/new and #/path/<address> are the editor.
+  { name: "paths", nav: () => say("paths.nav"), area: "paths", navWhen: (meta) => meta.siteUses?.paths === true, create: (context, route) => (route.arg === "new" ? createPathEdit(context, route) : createPaths(context)) },
+  { name: "path", area: "paths", create: (context, route) => createPathEdit(context, route) },
+  // R13: readings side by side. There is no Research area on this branch, so Readings is its own door under
+  // #/research/readings (list), #/research/readings/new and #/research/reading/<address> (editor); any other
+  // #/research address is still "not yet".
+  { name: "research", nav: () => say("readings.findList"), href: "#/research/readings", area: "research", navWhen: (meta) => meta.siteUses?.readings === true, create: (context, route) => {
+    const [part, ...rest] = String(route.arg || "").split("/");
+    if (part === "readings" && rest[0] === "new") return createReadingEdit(context, { ...route, arg: "new" });
+    if (part === "readings") return createReadings(context);
+    if (part === "reading" && rest.length) return createReadingEdit(context, { ...route, arg: rest.join("/") });
+    return createNotYet(context, { ...route, arg: "research" });
+  } },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
-  // Only when comments are on and the hosted key is in place where Admin runs.
-  { name: "comments", nav: "Comments", area: "comments", when: (meta) => meta.engagement === true || meta.engagementSetUp === true, create: (context, route) => createComments(context, route) },
+  // R10: Readers (what readers sent, Visitors, How readers reach you). In the navigation when comments are
+  // set up or there are visitor numbers; always routable, so an old address and Find reach How readers reach you.
+  { name: "readers", nav: "Readers", area: "readers", navWhen: (meta) => meta.engagementSetUp === true || meta.engagement === true || Boolean(meta.visitors), create: (context, route) => createReadersArea(context, route) },
   // Only when greeting cards are set up where Admin runs (OPENBLOG_GREETINGS_*). #/cards/new and
   // #/cards/<id> are the editor.
   { name: "cards", nav: "Cards", area: "cards", when: (meta) => meta.greetings === true, create: (context, route) => (route.arg ? createCardEdit(context, route) : createCards(context)) },
-  // Only when there are visitor numbers to show (meta.visitors: the hosted or the built-in counter).
-  { name: "visitors", nav: "Visitors", area: "visitors", when: (meta) => Boolean(meta.visitors), create: (context, route) => createVisitors(context, route) },
   // A trade site's own (meta.siteUses.trade): services, reviews and the business facts.
   { name: "services", nav: "Services", area: "services", when: tradeSite, create: (context) => createDocuments(context, RECORDS.services) },
   { name: "service", area: "services", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.services, route.arg) },

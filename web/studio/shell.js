@@ -24,7 +24,7 @@ import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
 import { startDecision, stepRoute } from "./parts/onboarding-rules.js";
 import { clearRecordings, hasRecording } from "./parts/story-store.js";
 
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav() : s.nav, href: s.href || (s.name === "home" ? "#/" : `#/${s.name}`) }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 // R9b: screens that hide the navigation and Find (Getting started); the account menu stays.
 const FOCUS = new Set(SCREENS.filter((s) => s.chrome === "focus").map((s) => s.name));
