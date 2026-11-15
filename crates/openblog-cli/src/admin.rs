@@ -209,6 +209,13 @@ pub struct AppState {
     pub workspace_enabled: bool,
     /// This server starts again from its image when it restarts (ADR 0353).
     pub host_resets_files: bool,
+    /// The server was started to listen on an address other machines can reach (`--host` is not
+    /// this computer's own): set by `serve`. One of the things that say it is deployed (S3).
+    pub listens_beyond_this_computer: bool,
+    /// A host's own variable is set (Render, Railway, Fly, Heroku, Cloud Run): it is deployed.
+    pub hosted_env: bool,
+    /// The host chose the port (`PORT` is set); with a public site address, it is deployed.
+    pub port_env: bool,
     /// The host's file of Studio's words (`OPENBLOG_STUDIO_WORDS_PATH`), read on every `meta`.
     pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
@@ -300,6 +307,11 @@ impl AppState {
             workspace: Mutex::new(None),
             workspace_enabled: false,
             host_resets_files: crate::workspace::host_resets_files(),
+            listens_beyond_this_computer: false,
+            // A test's server is never a hosted one, whatever the machine running the tests sets.
+            hosted_env: !cfg!(test) && hosted_env_given(|name| std::env::var(name).ok()),
+            port_env: !cfg!(test)
+                && std::env::var("PORT").is_ok_and(|port| !port.trim().is_empty()),
             studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
             onboarding_env: crate::onboarding::environment_value(),
@@ -1041,6 +1053,17 @@ fn authenticated_api_routes(
     if let Some(rest) = name.strip_prefix("social/") {
         if announcements::owns(rest) {
             return announcements::handle(state, req, session, rest);
+        }
+        // G62: an account's app password is a secret like any other.
+        if req.method == "POST"
+            && serde_json::from_slice::<Json>(&req.body).is_ok_and(|body| {
+                body.get("appPassword")
+                    .is_some_and(|value| !value.is_null())
+            })
+        {
+            if let Some(refusal) = secret_over_plain_http(state, req) {
+                return refusal;
+            }
         }
         return social::route(req, &session.user, rest);
     }
@@ -4845,10 +4868,66 @@ fn log_key_change(action: &str, user: &str, provider: &str) {
     eprintln!("{line}");
 }
 
-/// Whether this request reached the server privately enough to carry a key (G62): over TLS as a
-/// trusted proxy reports it, or from this same computer with nothing in between. The server
-/// itself never speaks TLS, so a direct connection from anywhere else is plain http.
-fn request_is_private(config: &SiteConfig, req: &Request) -> bool {
+/// Whether a host's own variable says this server runs on its platform.
+fn hosted_env_given(value: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |name: &str| value(name).is_some_and(|value| !value.trim().is_empty());
+    value("RENDER").is_some_and(|value| value.trim().eq_ignore_ascii_case("true"))
+        || [
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_STATIC_URL",
+            "RAILWAY_PUBLIC_DOMAIN",
+            "FLY_APP_NAME",
+            "DYNO",
+            "K_SERVICE",
+        ]
+        .iter()
+        .any(|name| set(name))
+}
+
+/// Whether an address names this same computer.
+fn names_this_computer(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Whether the server knows it is deployed, so that something stands between it and the browser
+/// (S3). It knows from what the owner wrote and from where it runs, never from the request:
+///
+/// - `admin.trustedProxies` lists a proxy, or `admin.secureCookies` says the Admin is on https;
+/// - it was started to listen beyond this computer (`--host 0.0.0.0`, as the container does);
+/// - a host's own variable is set (`RENDER`, `RAILWAY_*`, `FLY_APP_NAME`, `DYNO`, `K_SERVICE`);
+/// - the host chose the port (`PORT`) and the site's `url` is a public address.
+///
+/// The site's `url` alone says nothing: a site with a public address is also edited on its
+/// owner's own computer.
+fn knows_it_is_deployed(state: &AppState, config: &SiteConfig) -> bool {
+    let public_address = url::Url::parse(config.url.trim()).is_ok_and(|url| {
+        url.host_str()
+            .is_some_and(|host| !names_this_computer(host))
+    });
+    !config.admin.trusted_proxies.is_empty()
+        || config.admin.secure_cookies
+        || state.listens_beyond_this_computer
+        || state.hosted_env
+        || (state.port_env && public_address)
+}
+
+/// Whether this request reached the server privately enough to carry a secret (G62): over TLS as
+/// a trusted proxy reports it, or, on a server that nothing says is deployed, from this same
+/// computer with nothing in between. The server itself never speaks TLS, so a direct connection
+/// from anywhere else is plain http.
+///
+/// Once the server knows it is deployed ([`knows_it_is_deployed`]), a request from this computer
+/// is not private by itself (S3): a proxy here that isn't listed, strips the forwarded headers
+/// and rewrites `Host` is indistinguishable from a person at the keyboard. The way in is then a
+/// proxy listed in `admin.trustedProxies` that says `X-Forwarded-Proto: https`, or the server's
+/// environment.
+fn request_is_private(state: &AppState, config: &SiteConfig, req: &Request) -> bool {
     let trusted = config
         .admin
         .trusted_proxies
@@ -4859,13 +4938,11 @@ fn request_is_private(config: &SiteConfig, req: &Request) -> bool {
             .header("x-forwarded-proto")
             .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
     }
+    if knows_it_is_deployed(state, config) {
+        return false;
+    }
     // Loopback counts only when nothing forwarded the request: a proxy on this computer that
     // isn't listed in `admin.trustedProxies` can't vouch for how the request reached it.
-    let loopback = |address: &str| {
-        address
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
-    };
     let forwarded = [
         "x-forwarded-for",
         "x-forwarded-proto",
@@ -4879,10 +4956,25 @@ fn request_is_private(config: &SiteConfig, req: &Request) -> bool {
     let host_name = host
         .rsplit_once(':')
         .filter(|(_, port)| port.bytes().all(|byte| byte.is_ascii_digit()))
-        .map_or(host, |(name, _)| name)
-        .trim_start_matches('[')
-        .trim_end_matches(']');
-    loopback(&req.peer) && !forwarded && (host_name == "localhost" || loopback(host_name))
+        .map_or(host, |(name, _)| name);
+    names_this_computer(&req.peer) && !forwarded && names_this_computer(host_name)
+}
+
+/// The answer to a secret sent over plain http (G62), on every route that accepts one: the
+/// helper's key, the readers' service token, a social account's app password. `None` when the
+/// request may carry it. Checked before anything is read or written; says nothing of the secret.
+fn secret_over_plain_http(state: &AppState, req: &Request) -> Option<Response> {
+    let config = site::load_config(&state.root).unwrap_or_default();
+    if request_is_private(state, &config, req) {
+        return None;
+    }
+    Some(Response::json(
+        422,
+        &json!({
+            "error": "A key can't be sent over plain http. Open the Admin over https (with the proxy listed in admin.trustedProxies and sending X-Forwarded-Proto: https), or set the key in the server's environment.",
+            "code": "insecure",
+        }),
+    ))
 }
 
 fn assistant_provider_kind(config: &SiteConfig) -> &str {
@@ -5370,15 +5462,8 @@ fn save_assistant_settings(state: &AppState, req: &Request, session: &auth::Sess
     // G62: a key is never accepted over plain http, except from this same computer. Checked
     // before anything is read or written, and the answer says nothing about the key.
     if action == "replace" {
-        let config = site::load_config(&state.root).unwrap_or_default();
-        if !request_is_private(&config, req) {
-            return Response::json(
-                422,
-                &json!({
-                    "error": "A key can't be sent over plain http. Open the Admin over https (with the proxy listed in admin.trustedProxies and sending X-Forwarded-Proto: https), or set the key in the server's environment.",
-                    "code": "insecure",
-                }),
-            );
+        if let Some(refusal) = secret_over_plain_http(state, req) {
+            return refusal;
         }
     }
 
@@ -5927,6 +6012,12 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             422,
             "Choose keep, replace, or clear and provide a bounded credential when replacing",
         );
+    }
+    // G62, as for the helper's key: a token is never accepted over plain http.
+    if action == "replace" {
+        if let Some(refusal) = secret_over_plain_http(state, req) {
+            return refusal;
+        }
     }
     let target_origin = engagement_endpoint_origin(endpoint);
     if action == "replace" && target_origin.is_none() {
@@ -28807,7 +28898,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/engagement/settings",
                     json!({
@@ -28930,7 +29021,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req("PUT", "/admin/api/engagement/settings", save),
+                local_json_req("PUT", "/admin/api/engagement/settings", save),
                 &session,
                 true,
             ),

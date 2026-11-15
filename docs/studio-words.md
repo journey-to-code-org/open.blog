@@ -1270,6 +1270,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.connBadAddress` | details | Use an https address with nothing after a ? or #. | none | 98 |
 | `readers.connBadKey` | details | That key is empty or too long. | none | 60 |
 | `readers.connCount` | details | Count visits with the comments service | none | 76 |
+| `readers.connInsecure` | details | The server refused the key because the request didn't reach it over https. It wasn't saved. List the proxy in admin.trustedProxies (it must send X-Forwarded-Proto: https), or set the key in the server's environment. | none | 260 |
 | `readers.connKeyEnv` | details | Set by {name}; the environment key takes precedence. | `{name}` | 104 |
 | `readers.connKeyEnvOrigin` | details | Set {name} to this address's exact origin before the environment key can be used. | `{name}` | 162 |
 | `readers.connKeyNone` | details | No key is saved. | none | 40 |

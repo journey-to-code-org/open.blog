@@ -89,6 +89,7 @@ export const WORDS = {
   "readers.connRobotNote": { text: "Secrets stay in the server's environment; only the public site key is saved here.", layer: "details" },
   "readers.connSave": { text: "Save connection", layer: "details" },
   "readers.connSaved": { text: "Saved.", layer: "details" },
+  "readers.connInsecure": { text: "The server refused the key because the request didn't reach it over https. It wasn't saved. List the proxy in admin.trustedProxies (it must send X-Forwarded-Proto: https), or set the key in the server's environment.", layer: "details", max: 260 },
   "readers.connBadAddress": { text: "Use an https address with nothing after a ? or #.", layer: "details" },
   "readers.connBadKey": { text: "That key is empty or too long.", layer: "details" },
   "readers.connNeedAddress": { text: "Save an address before the key.", layer: "details" },
