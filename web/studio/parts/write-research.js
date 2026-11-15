@@ -9,7 +9,10 @@ import { say } from "./words.js";
 import { createSheet } from "./sheet.js";
 import { pieceChange, undoPieceChange, parseQuotation } from "./word-blocks.js";
 import { citationAt, citationInsertionProblem, citationStyleField, citationsIn, insertCitationText, parseCitationText, removeCitation } from "./cite-rules.js";
-import { convertedNoteMarkdown, insertMarkdownBlock, quotationMarkdown } from "./draft-research-rules.js";
+import { convertedNoteMarkdown, insertMarkdownBlock, insertMarkdownInline, quotationMarkdown } from "./draft-research-rules.js";
+import { curationPostSlug } from "./curation-rules.js";
+import { createClaimsSheet } from "./claims-sheet.js";
+import { createForReaders } from "./for-readers.js";
 import { showCiteForm, refusalWords } from "./cite-form.js";
 import { citedHere } from "./cite-chips.js";
 import { createYourResearch } from "./your-research.js";
@@ -37,7 +40,7 @@ export function researchHooks() {
 }
 
 /**
- * `{ api, meta, doc, body, about, addMenu, request(), kind(), title(), grid, openChecks(opener), sourcesInPost }`.
+ * `{ api, meta, doc, body, about, addMenu, request(), kind(), title(), grid, openChecks(opener), sourcesInPost, saved(), saveDraft() }`.
  * Returns `{ form, under, isSheet, open, commands, run, previewed, leave, start(query), redraw }`.
  */
 export async function createWriteResearch(ctx) {
@@ -49,6 +52,10 @@ export async function createWriteResearch(ctx) {
   let docked = null;
   const yoursSheet = await createSheet({ label: say("yours.title") });
   const keepSheet = await createSheet({ label: say("notebook.newPassage") });
+  const claimsSheet = await createSheet({ label: say("claims.title") });
+  let pendingClaim = ""; // ?sheet=claims&claim=: the claim to show (R10 links here)
+  const claims = createClaimsSheet({ api, path: () => ctx.doc.path, saved: () => ctx.saved(), saveDraft: () => ctx.saveDraft(), boxes: () => body.boxes() });
+  const forReaders = createForReaders({ api, post: () => ctx.doc.slug || curationPostSlug(ctx.title()) });
   body.element.addEventListener("focusin", (event) => {
     const box = body.boxes().find((b) => b.element.contains(event.target));
     if (box) { lastBox = box; lastCaret = null; }
@@ -181,6 +188,15 @@ export async function createWriteResearch(ctx) {
       put(box, before, insertCitationText(before, caret, caret, markdown), first ? say("cite.notesOn") : say("cite.done"), first);
       return "";
     },
+    link: (markdown) => {
+      const box = boxFor();
+      const caret = caretFor(box);
+      const refused = citationInsertionProblem(box.value, caret);
+      if (refused) return refusalWords(refused);
+      const before = box.value;
+      put(box, before, insertMarkdownInline(before, caret, caret, markdown), say("yours.linked"), null);
+      return "";
+    },
     convert: (note) => {
       const box = boxFor();
       const caret = caretFor(box);
@@ -200,14 +216,22 @@ export async function createWriteResearch(ctx) {
     boxFor()?.focus({ at: boxFor().caret() });
   }
 
-  function open(name, opener = null, { filter = null } = {}) {
+  function open(name, opener = null, { filter = null, claim = "" } = {}) {
+    if (name === "claims") {
+      rememberPost({ path: ctx.doc.path, title: ctx.title() });
+      claimsSheet.show({ heading: say("claims.title"), opener, children: [claims.element], focus: () => claims.focus() });
+      claims.load(claim || pendingClaim);
+      pendingClaim = "";
+      return true;
+    }
     if (name !== "research") return false;
+    if (ctx.meta?.research?.curatedContext) forReaders.load();
     rememberPost({ path: ctx.doc.path, title: ctx.title() });
     if (wide()) {
       if (!docked) {
         const close = h("action-button", { variant: "ghost", size: "sm", label: say("yours.close"), onClick: () => closeDocked() }, "×");
         docked = h("aside", { class: "studio-your-research", "aria-labelledby": "studio-yours-h" },
-          h("div", { class: "studio-research-top" }, h("h2", { id: "studio-yours-h", tabindex: "-1", text: say("yours.title") }), close), yours.element);
+          h("div", { class: "studio-research-top" }, h("h2", { id: "studio-yours-h", tabindex: "-1", text: say("yours.title") }), close), yours.element, ...(ctx.meta?.research?.curatedContext ? [forReaders.element] : []));
         docked.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeDocked(); } });
         ctx.grid.append(docked);
         ctx.grid.classList.add("studio-docked");
@@ -216,7 +240,7 @@ export async function createWriteResearch(ctx) {
       requestAnimationFrame(() => docked?.querySelector("h2")?.focus());
       return true;
     }
-    yoursSheet.show({ heading: say("yours.title"), opener, children: [yours.element], focus: () => yours.focus() });
+    yoursSheet.show({ heading: say("yours.title"), opener, children: [yours.element, ...(ctx.meta?.research?.curatedContext ? [forReaders.element] : [])], focus: () => yours.focus() });
     yours.load(filter);
     return true;
   }
@@ -247,6 +271,7 @@ export async function createWriteResearch(ctx) {
   // Chips say a source's name: the library, once per visit.
   async function start(query = {}) {
     if (query.passage) pendingPassage = String(query.passage);
+    if (query.claim) pendingClaim = String(query.claim);
     try {
       remember(await api.get("citations/library"));
       for (const box of body.boxes()) box.redraw();
@@ -260,12 +285,15 @@ export async function createWriteResearch(ctx) {
     { id: "research-keep", label: say("notebook.keepFromPost") },
     { id: "research-sources", label: `${say("cite.sourcesGroup")}…` },
     { id: "research-cite", label: say("cite.citeIt"), more: false },
+    { id: "research-claims", label: say("claims.title") },
+    { id: "research-claim", label: say("claims.make"), more: false },
+    ...(ctx.meta?.research?.curatedContext ? [{ id: "research-readers", label: say("curate.find"), more: false }] : []),
   ];
 
   return {
     form,
     under,
-    isSheet: (name) => name === "research",
+    isSheet: (name) => name === "research" || name === "claims",
     open,
     commands: COMMANDS,
     run(id, opener) {
@@ -273,14 +301,18 @@ export async function createWriteResearch(ctx) {
       if (id === "research-keep") { keepPassage(); return true; }
       if (id === "research-sources") { about.open({ group: "sources", from: opener }); return true; }
       if (id === "research-cite") return addMenu.command("add:cite");
+      if (id === "research-claims") return open("claims", opener);
+      if (id === "research-claim") { open("claims", opener); return true; }
+      if (id === "research-readers") return open("research", opener);
       return false;
     },
     previewed: (reply) => ctx.sourcesInPost?.previewed(reply),
     start,
     async leave() {
       if (!(await yoursSheet.leave())) return false;
+      if (!(await claimsSheet.leave())) return false;
       return keepSheet.leave();
     },
-    elements: [yoursSheet.element, keepSheet.element],
+    elements: [yoursSheet.element, keepSheet.element, claimsSheet.element],
   };
 }

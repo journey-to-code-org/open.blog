@@ -11,6 +11,7 @@ import { trapFocus } from "./focus-trap.js";
 import { innerAria } from "./inner-button.js";
 import { createShareCard } from "./share-card.js";
 import { createResearchReview } from "./research-review.js";
+import { postBoundary } from "./post-boundary.js";
 import { adviceFor } from "./recipe-advice.js";
 import { a11yItems, buildProblems, mergeSuggestions, readyLine, readyProblem, readyState, searchHints } from "./ready-rules.js";
 import { researchReviewApplies } from "./review-rules.js";
@@ -77,15 +78,18 @@ export async function createBeforePublish({ api, meta, write }) {
       server: within(api.post("preview", { ...request, only: "checks" }), LIMIT_MS),
       job: kind === "job" ? write.jobCheck(request.fields) : Promise.resolve(null),
       research: research_ ? within(api.post("research/review", request), LIMIT_MS) : Promise.resolve(null),
+      // R12: what readers will see from this post, from its unsaved fields and words.
+      boundary: research_ ? within(api.post("research/boundary", request), LIMIT_MS) : Promise.resolve(null),
       video: kind === "video" && request.path ? within(api.post("video/release", request), LIMIT_MS) : Promise.resolve(null),
     };
-    const [server, job, review, video] = await Promise.allSettled([asks.server, asks.job, asks.research, asks.video]);
+    const [server, job, review, video, boundary] = await Promise.allSettled([asks.server, asks.job, asks.research, asks.video, asks.boundary]);
     if (mine !== turn) return result;
     for (const answer of [server, review, video]) if (answer.status === "rejected" && answer.reason?.status === 401) throw answer.reason;
     lastServer = server.status === "fulfilled" ? server.value : null;
     view = { ...view, checking: false, server: lastServer, serverError: server.status === "rejected" ? server.reason : null,
       job: job.status === "fulfilled" ? job.value : null, review: review.status === "fulfilled" ? review.value : null,
-      reviewError: review.status === "rejected" ? review.reason : null, video: video.status === "fulfilled" ? video.value : null };
+      reviewError: review.status === "rejected" ? review.reason : null, video: video.status === "fulfilled" ? video.value : null,
+      boundary: boundary.status === "fulfilled" ? boundary.value : null, boundaryFailed: boundary.status === "rejected" };
     checkedAt = write.snapshot();
     paint();
     return result;
@@ -244,7 +248,8 @@ export async function createBeforePublish({ api, meta, write }) {
     if (view.checking && !view.review) research.waiting();
     else if (g.researchFailure) research.failed(g.researchFailure === "unreadable" ? "unreadable" : "failed", () => run({ again: true }));
     else if (view.review) research.show(view.review);
-    return research.element;
+    if (view.checking) return research.element;
+    return h("div", {}, research.element, postBoundary(view.boundary?.manifest || view.boundary, { failed: view.boundaryFailed }));
   }
 
   function worthGroup(g) {

@@ -33,17 +33,23 @@ test("research screens share one address space, and the earlier addresses open t
   assert.equal(legacyRoute("#/research/notebook"), null);
   assert.equal(legacyRoute("#/research/sources/plato"), null);
   assert.equal(legacyRoute("#/research/<img src=x>"), "#/research", "an unknown research screen opens home");
-  for (const hash of ["#/research/atlas", "#/atlas/plato", "#/compare/opening?layout=x", "#/research/public"]) {
-    assert.equal(legacyRoute(hash), RESEARCH_NOT_YET.size ? "#/not-yet/research" : legacyRoute(hash), `${hash} waits for R12`);
-  }
-  assert.equal(legacyRoute("#/edit/posts%2Fa.md?pane=evidence"), "#/write/posts%2Fa.md?sheet=research");
+  assert.equal(RESEARCH_NOT_YET.size, 0, "nothing in research waits since R12");
+  assert.equal(legacyRoute("#/research/atlas"), null);
+  assert.equal(legacyRoute("#/research/public"), null);
+  assert.equal(legacyRoute("#/atlas"), "#/research/atlas");
+  assert.equal(legacyRoute("#/atlas/the%20good"), "#/research/atlas/the%20good", "the item stays encoded as it was");
+  assert.equal(legacyRoute("#/compare/opening?layout=x"), "#/research/compare/opening?layout=x", "a query is kept");
+  assert.equal(researchHash("atlas", "the good/2"), "#/research/atlas/the%20good%2F2");
+  assert.equal(legacyRoute("#/edit/posts%2Fa.md?pane=evidence"), "#/write/posts%2Fa.md?sheet=claims", "Evidence is Claims and evidence (R12)");
   for (const hash of ["#/posts", "#/write", "#/"]) assert.equal(researchRoute(hash.replace(/^#\//, ""), [], ""), undefined, `${hash} is not research's`);
 });
 
 test("an empty library leads to the first source; the next step follows what's done; Back to your post when one is open", () => {
   const empty = workflowSteps({ library: { sources: [] }, notebook: { passages: [], notes: [] } });
   assert.equal(empty.empty, true);
-  assert.deepEqual(empty.steps.map((s) => [s.id, s.done, s.visibility]), [["source", false, "private"], ["passage", false, "private"], ["cite", false, "readers"]]);
+  assert.deepEqual(empty.steps.map((s) => [s.id, s.done, s.visibility]), [["source", false, "private"], ["passage", false, "private"], ["relate", false, "private"], ["cite", false, "readers"], ["public", false, "readers"]]);
+  assert.equal(empty.steps[2].optional, true, "relating and comparing is optional, never the next step");
+  assert.deepEqual(empty.steps[2].links.map((l) => l.href), ["#/research/atlas", "#/research/compare"]);
   assert.deepEqual(empty.primary, { label: "Add your first source", href: "#/research/sources?new=1", step: "source" });
   assert.equal(empty.steps[0].state, "Not started: your library is empty.");
 
@@ -55,7 +61,10 @@ test("an empty library leads to the first source; the next step follows what's d
 
   const done = workflowSteps({ library: sources, notebook: { passages: [{ id: "p1" }, { id: "p2" }], notes: [{ id: "n1" }] }, post: { path: "posts/a.md", title: "<script>x</script>" } });
   assert.equal(done.steps[1].state, "2 passages and 1 notes.");
-  assert.equal(done.steps[2].state, "Your post: “<script>x</script>”", "a title is text");
+  assert.equal(done.steps[3].state, "Your post: “<script>x</script>”", "a title is text");
+  const related = workflowSteps({ library: sources, notebook: { passages: [{ id: "p" }], notes: [] }, atlas: { entries: [{ id: "plato" }] }, alignments: { alignments: [] } });
+  assert.equal(related.steps[2].state, "1 atlas entries and 0 alignments.");
+  assert.equal(workflowSteps({ library: sources, notebook: { passages: [], notes: [] }, atlas: { failed: true } }).steps[2].state, "Your atlas can't be read, so nothing here changed.");
   assert.deepEqual(done.primary, { label: "Back to your post", href: "#/write/posts%2Fa.md", step: "cite" });
   assert.equal(workflowSteps({ library: sources, notebook: { passages: [{ id: "p" }], notes: [] } }).primary.label, "Start a research post");
 });
@@ -113,10 +122,13 @@ function rustCodes(file, name) {
   return [...body.matchAll(/^\s{4}([A-Z][A-Za-z0-9]*)\s*[,({]/gm)].map((m) => m[1].replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase());
 }
 
-const ENUMS = [["source_library.rs", "SourceDiagnosticCode", "sources"], ["research_notes.rs", "NoteDiagnosticCode", "notebook"], ["citations.rs", "CitationDiagnosticCode", "cite"]];
+const ENUMS = [["source_library.rs", "SourceDiagnosticCode", "sources"], ["research_notes.rs", "NoteDiagnosticCode", "notebook"], ["citations.rs", "CitationDiagnosticCode", "cite"],
+  // R12: one enum for the atlas, claims and alignments, and the curated selection codes.
+  ["knowledge_atlas.rs", "AtlasDiagnosticCode", "atlas"], ["knowledge_atlas.rs", "AtlasDiagnosticCode", "claims"], ["knowledge_atlas.rs", "AtlasDiagnosticCode", "compare"],
+  ["curated_selection.rs", "Code", "curate"]];
 
 for (const [file, name, place] of ENUMS) {
-  test(`every ${name} has her words, on a field or in a banner`, () => {
+  test(`every ${name} has her words in ${place}, on a field or in a banner`, () => {
     const codes = rustCodes(file, name);
     assert.ok(codes.length >= 8, `${name}: ${codes.length} codes`);
     for (const code of codes) {

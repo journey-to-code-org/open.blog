@@ -18,5 +18,10 @@ export function researchFind(meta) {
     { id: "research-import", label: say("sources.importTitle"), group: "Do", href: "#/research/sources?import=1" },
     { id: "research-export", label: say("sources.exportTitle"), group: "Do", href: "#/research/sources?export=1" },
     { id: "research-copy", label: say("notebook.copyOpen"), group: "Do", href: "#/research/notebook?copy=1" },
+    { id: "go-research-atlas", label: say("research.tabAtlas"), group: "Go to", href: "#/research/atlas" },
+    { id: "research-add-entry", label: say("atlas.add"), group: "Do", href: "#/research/atlas?new=1" },
+    { id: "go-research-chronology", label: say("atlas.chronology"), group: "Go to", href: "#/research/atlas/chronology" },
+    { id: "go-research-compare", label: say("research.tabCompare"), group: "Go to", href: "#/research/compare" },
+    { id: "go-research-public", label: say("research.tabPublic"), group: "Go to", href: "#/research/public" },
   ];
 }

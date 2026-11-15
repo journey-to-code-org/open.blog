@@ -455,7 +455,8 @@ in `content/webmentions.json`. See [Receive Webmentions](webmention.md#receive-w
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private
-Knowledge Atlas: `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
+Knowledge Atlas (in Studio, **Research › Atlas**: an entry or link is approved with **Readers can see it**, and
+while this switch is off Studio says your blog doesn't publish the atlas yet): `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
 `/atlas.json`. Only entries you approved, and relationships you approved whose entries are both
 approved, are published, each with who asserts it, its evidence, confidence, doubt and any
 dissent; private notes, notebook passages and unapproved items never are. Datings you approved
@@ -476,8 +477,9 @@ See [Deploying](deploy.md).
 
 ## Passage comparisons
 
-`comparisons.publish` (off by default) publishes the passage alignments you approved in Admin's
-Compare tool: `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and the same data as
+`comparisons.publish` (off by default) publishes the passage alignments you approved in Studio's
+**Research › Compare** (Admin's Compare tool until it retires; while this switch is off, Compare says each
+approved alignment isn't published yet): `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and the same data as
 `/comparisons.json`. Every place names its version, editor, translator, scribe or interpreters,
 its locators and the rights statement you recorded for that version. Its wording is quoted
 exactly only when you state the version's rights as permission, open licence, public domain or
@@ -514,8 +516,8 @@ copied as static files.
 
 ## Curated research context
 
-`curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
-**What will be public** (and the build's research summary) then lists what your private
+`curatedContext.publish` (off by default) turns on the curated-selection projection: Studio's
+**For readers** (in Write › Your research) chooses what each post offers, and **Research › What readers see** (and the build's research summary) then lists what your private
 `.openblog/private/research/selections.json` would give readers and why anything is withheld.
 A selection can only pick what the atlas, comparison and source projections already publish (a
 source must already be cited by a published post or published by the atlas or a comparison); it
@@ -535,7 +537,7 @@ writes `curated-context.json`, a versioned public data file (the published selec
 attribution, doubt, evidence, provenance and the revision you selected, the context they need, and each
 post's items in your order with a canonical anchor for each), and each post you offered something gets a
 static **Research context** section after its text, complete without JavaScript. Both are read from the
-one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
+one public value that Studio's **What readers see** lists, so they never disagree and neither can reach
 a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
 its bound is left out whole with a `boundary:` warning and the pages are unaffected. Portable copies, syndicated copies, full-content feeds and `llms-full.txt` carry it too, with a link back to the
 canonical section ([ADR 0202](adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md)).
@@ -570,7 +572,7 @@ browser, and erase it (see [Export, import and privacy controls](specs/reader-an
 ## Claim evidence
 
 `claimEvidence.publish` (off by default) publishes the claims and evidence links you approved in
-Evidence Studio with the posts they are about: each such post gains a "Claims and evidence"
+Studio's **Claims and evidence** (in Write; the old Evidence Studio until it retires) with the posts they are about: each such post gains a "Claims and evidence"
 section listing, for every approved claim, its supporting and contradicting evidence side by side
 with the references, locations, your rationale, confidence and uncertainty, and the site gains
 `/claim-evidence.json` with the same data. Support is never published while a contradicting link

@@ -873,3 +873,26 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
   .studio-write-grid.studio-docked > .studio-write-side { grid-column: 1; }
   .studio-write-grid.studio-docked > .studio-your-research { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: var(--space-4); max-block-size: calc(100dvh - 8rem); overflow: auto; }
 }
+
+/* R12 research */
+.studio-atlas-who, .studio-atlas-relative, .studio-curate-choose { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-atlas-year { flex-wrap: wrap; align-items: end; }
+.studio-atlas-dating, .studio-atlas-point { min-width: 0; }
+.studio-atlas-reading { font-style: italic; }
+.studio-atlas-missing .studio-row { flex-wrap: wrap; }
+.studio-atlas-chrono-row ul { margin-block: var(--space-1); }
+.studio-compare-columns { display: grid; gap: var(--space-5); min-width: 0; }
+@media (min-width: 70rem) { .studio-compare-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr)); align-items: start; } }
+.studio-compare-column { min-width: 0; }
+.studio-compare-places { padding-inline-start: var(--space-5); }
+.studio-compare-places > li { margin-block-end: var(--space-4); }
+.studio-compare-words { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; margin: var(--space-2) 0; padding-inline-start: var(--space-3); border-inline-start: 3px solid var(--studio-line, currentColor); }
+.studio-claims-columns { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); min-width: 0; }
+.studio-claims-column ul { padding-inline-start: var(--space-4); }
+.studio-claims-card, .studio-claims-form { overflow-wrap: anywhere; }
+.studio-public-fields { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: var(--space-1) var(--space-3); overflow-wrap: anywhere; }
+.studio-public-fields dd { margin: 0; }
+.studio-public-store details > summary { cursor: pointer; }
+.studio-for-readers { margin-block-start: var(--space-5); }
+.studio-claims .action-button, .studio-for-readers .action-button, .studio-research-atlas .action-button, .studio-research-compare .action-button, .studio-research-public .action-button { white-space: normal; height: auto; min-height: 2.75rem; padding-block: 0.5rem; text-align: center; }
+.studio-claims > action-button, .studio-claims .studio-row, .studio-for-readers .studio-row { max-width: 100%; flex-wrap: wrap; }

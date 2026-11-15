@@ -72,6 +72,18 @@ export function convertedNoteMarkdown(text) {
 /** Root-relative addresses of published atlas entries and aligned passages; nothing else is linked. */
 export const CONTEXT_URL = /^\/(?:atlas|comparisons)\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/;
 
+/**
+ * Why an atlas entry or a comparison can't be linked yet, as a word id, or "" when the next
+ * update publishes it (R12; the old Admin's `contextLinkWarning`). `area` is "atlas" or
+ * "comparisons"; `publish` whether the blog publishes that area.
+ */
+export function contextLinkWarning(item, { area = "atlas", publish = false } = {}) {
+  if (item?.url) return "";
+  if (!item?.approved) return "yours.notApproved";
+  if (!publish) return area === "atlas" ? "yours.siteOff" : "yours.siteOffCompare";
+  return "yours.cantPublish";
+}
+
 /** A link to a published research page, or "" for any other address. */
 export function contextLinkMarkdown(label, url) {
   const text = literalMarkdownLine(String(label ?? "").replace(/\s+/g, " ").trim());
@@ -122,7 +134,7 @@ export function insertMarkdownInline(value, start, end, markdown) {
 const fold = (value) => String(value ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /** What Show offers, in order: everything (never her notes), then each kind. */
-export const DRAFT_RESEARCH_FILTERS = Object.freeze(["all", "passages", "sources", "interpretations", "notes"]);
+export const DRAFT_RESEARCH_FILTERS = Object.freeze(["all", "passages", "sources", "context", "interpretations", "notes"]);
 
 /**
  * What Your research lists for a search: passages, sources, interpretations and, only when asked
