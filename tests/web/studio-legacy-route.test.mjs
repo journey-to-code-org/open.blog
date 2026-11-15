@@ -38,7 +38,18 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "comparisons", "paths", "shared"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["research", "comparisons", "paths"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+});
+
+test("R14a: shared reflections are Writing together, and an invitation opens Join with no token in it", () => {
+  assert.equal(legacyRoute("#/shared"), "#/together");
+  assert.equal(legacyRoute("#/shared/new"), "#/together/new");
+  assert.equal(legacyRoute("#/shared/shared-0a1b2c3d4e5f"), "#/together");
+  assert.equal(legacyRoute("#/shared?x=1"), "#/together?x=1");
+  // studio.js takes a well-formed token out first; anything that still reaches the router opens
+  // Join, which says the link doesn't work, and the address keeps no token.
+  assert.equal(legacyRoute(`#/shared/accept/shared-0a1b2c3d4e5f.${"a".repeat(64)}`), "#/together/join");
+  assert.equal(legacyRoute("#/together"), null);
 });
 
 test("R9: the sample library is Your writing voice, a sample is A piece, and Design a theme is Describe a new look", () => {

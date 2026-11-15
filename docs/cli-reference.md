@@ -34,6 +34,8 @@ serve                      Build, serve at http://localhost:8080, rebuild on cha
 serve --admin              Also serve the login-protected editor at /admin
 user add|passwd|remove|list <name>
                            Manage who can sign in to the admin editor
+user add --co-writer <name>
+                           A sign-in that opens only Writing together
 check                      Validate content and themes without writing anything
 export <slug>              Preview or write a portable Markdown article, the post's
                            cited references as CSL JSON or BibTeX, a recipe as

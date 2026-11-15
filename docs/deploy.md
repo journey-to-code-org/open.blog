@@ -358,6 +358,10 @@ openblog user add you
 openblog serve --admin --port 8080
 ```
 
+Accounts made with `openblog user add` are owner accounts. `openblog user add --co-writer <name>` makes a
+sign-in that reaches only Writing together (Studio R14); people you invite from Studio get one of those,
+and choose their own password from the link.
+
 Then put a reverse proxy with HTTPS in front (Caddy, nginx, Traefik, ...) and set, in
 `openblog.json`:
 

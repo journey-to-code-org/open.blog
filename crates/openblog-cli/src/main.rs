@@ -92,6 +92,8 @@ COMMANDS
     serve --admin              Also serve the login-protected editor at /admin
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
+    user add --co-writer <name>
+                               A sign-in that opens only Writing together
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, the post's
                                cited references as CSL JSON or BibTeX, a recipe as
@@ -366,6 +368,7 @@ const SWITCHES: &[&str] = &[
     "forget-attempt",
     "upload",
     "lookup",
+    "co-writer",
 ];
 
 /// Switches that only one command takes, because another command takes the same name with a
@@ -1180,7 +1183,13 @@ fn user_command_with(
                 println!("No users. Add one with `openblog user add <name>`.");
             }
             for u in &users.users {
-                println!("{}", u.name);
+                // Co-writer sign-ins reach only Writing together (Studio R14); one still
+                // waiting for its invited person to choose a password says so.
+                match (u.is_co_writer(), u.is_reserved()) {
+                    (true, true) => println!("{}  (co-writer, invited, not joined yet)", u.name),
+                    (true, false) => println!("{}  (co-writer)", u.name),
+                    _ => println!("{}", u.name),
+                }
             }
             Ok(())
         }
@@ -1202,7 +1211,11 @@ fn user_command_with(
                 // A new account under a reused name must not inherit an old binding.
                 revoke_shared_publication_bindings(root, name)?;
             }
-            users.set(name, &password)?;
+            if action == "add" && args.switches.contains("co-writer") {
+                users.add_co_writer(name, Some(&password))?;
+            } else {
+                users.set(name, &password)?;
+            }
             users.save(&path)?;
             println!(
                 "{} `{name}`. The admin users file is {}; keep it out of version control.",
@@ -1222,7 +1235,7 @@ fn user_command_with(
             println!("Removed `{name}`. Their open sessions end immediately.");
             revoke_shared_publication_bindings(root, name)
         }
-        _ => Err("usage: openblog user add|passwd|remove|list <name>".into()),
+        _ => Err("usage: openblog user add [--co-writer]|passwd|remove|list <name>".into()),
     }
 }
 
@@ -2438,6 +2451,38 @@ Mine.
             .unwrap()
             .find("ada")
             .is_some());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_co_writer_sign_in_is_made_from_the_command_line_and_keeps_its_kind() {
+        let root = std::env::temp_dir().join(format!("ob-user-cowriter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        scaffold::init(&root, Some("Co"), false).unwrap();
+        let users_path = root.join(".openblog/users.json");
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["add", "lee", "--co-writer"])).unwrap(),
+            || Ok("correct horse battery".into()),
+        )
+        .unwrap();
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["add", "mikey"])).unwrap(),
+            || Ok("correct horse battery".into()),
+        )
+        .unwrap();
+        // Changing the password keeps what the account may reach.
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["passwd", "lee"])).unwrap(),
+            || Ok("another correct horse".into()),
+        )
+        .unwrap();
+        let users = auth::Users::load(&users_path).unwrap();
+        assert!(users.find("lee").unwrap().is_co_writer());
+        assert!(!users.find("lee").unwrap().is_reserved());
+        assert!(!users.find("mikey").unwrap().is_co_writer());
         let _ = std::fs::remove_dir_all(&root);
     }
 

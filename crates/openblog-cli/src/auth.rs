@@ -20,6 +20,31 @@ pub const MAX_PASSWORD_LEN: usize = 256;
 pub struct UserRecord {
     pub name: String,
     pub hash: String,
+    /// What the account may reach (Studio R14 G110). Absent is an owner account, as every
+    /// account made before co-writers existed is; `co-writer` reaches only Writing together.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AccountKind>,
+}
+
+/// The kinds of account besides an owner's (absent `kind`).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AccountKind {
+    /// Someone invited to write together: the server lets them reach only the collaboration
+    /// routes their reflections authorize (`admin::together`).
+    CoWriter,
+}
+
+impl UserRecord {
+    pub fn is_co_writer(&self) -> bool {
+        self.kind == Some(AccountKind::CoWriter)
+    }
+
+    /// A co-writer account made for an invitation and not yet joined: it has no password, so it
+    /// can never sign in, and it is released when its invitation ends (G112).
+    pub fn is_reserved(&self) -> bool {
+        self.is_co_writer() && self.hash.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -65,8 +90,27 @@ impl Users {
             None => self.users.push(UserRecord {
                 name: name.to_string(),
                 hash,
+                kind: None,
             }),
         }
+        Ok(())
+    }
+
+    /// Add a co-writer account (G110). With no password it is reserved for an invitation and
+    /// cannot sign in until the invited person chooses one on the join page (G112).
+    pub fn add_co_writer(&mut self, name: &str, password: Option<&str>) -> Result<(), String> {
+        if self.find(name).is_some() {
+            return Err(format!("`{name}` already exists"));
+        }
+        let hash = match password {
+            Some(password) => hash_password(password)?,
+            None => String::new(),
+        };
+        self.users.push(UserRecord {
+            name: name.to_string(),
+            hash,
+            kind: Some(AccountKind::CoWriter),
+        });
         Ok(())
     }
 
@@ -156,6 +200,9 @@ pub struct Session {
     pub credential: String,
     pub csrf: String,
     pub expires: Instant,
+    /// A co-writer account (G110): set from the users file on every request, so a change of kind
+    /// counts at once. Such a session reaches only Writing together.
+    pub co_writer: bool,
 }
 
 #[derive(Default)]
@@ -190,6 +237,7 @@ impl Sessions {
             credential: credential.to_string(),
             csrf: random_token()?,
             expires: Instant::now() + ttl,
+            co_writer: false,
         };
         self.map.insert(token.clone(), session.clone());
         Ok((token, session))
@@ -404,5 +452,32 @@ mod tests {
         assert!(users.remove("mikey"));
         assert!(!users.remove("mikey"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn owner_accounts_stay_as_they_were_and_co_writers_say_so() {
+        // An account from before co-writers (no kind) reads, and writes back, unchanged.
+        let old: Users =
+            serde_json::from_str(r#"{"users":[{"name":"mikey","hash":"h"}]}"#).unwrap();
+        assert!(!old.users[0].is_co_writer());
+        assert_eq!(
+            serde_json::to_string(&old).unwrap(),
+            r#"{"users":[{"name":"mikey","hash":"h"}]}"#
+        );
+        let mut users = old.clone();
+        users.add_co_writer("lee", None).unwrap();
+        assert!(users.find("lee").unwrap().is_reserved());
+        assert!(users.add_co_writer("lee", None).is_err());
+        assert!(users.add_co_writer("mikey", None).is_err());
+        users
+            .add_co_writer("sam", Some("correct horse battery"))
+            .unwrap();
+        let sam = users.find("sam").unwrap();
+        assert!(sam.is_co_writer() && !sam.is_reserved());
+        assert!(serde_json::to_string(&users)
+            .unwrap()
+            .contains(r#""kind":"co-writer""#));
+        // A reserved account cannot sign in: no hash verifies.
+        assert!(!verify_password("", "anything at all here"));
     }
 }

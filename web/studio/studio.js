@@ -7,6 +7,18 @@ import { showSignIn } from "./screens/signin.js";
 import { listenForInstall } from "./parts/install-state.js";
 import { configureWords } from "./parts/words.js";
 import { clearVoiceCopies } from "./parts/voice-copies.js";
+import { joinProblem, joinToken } from "./parts/join-rules.js";
+import { hasJoinToken, holdJoinToken, readInvitation, showJoinPage, showJoinRefused, signInFirstWords } from "./screens/together-join.js";
+import { say } from "./parts/words.js";
+import { toast } from "./parts/dom.js";
+
+// An invitation link (Studio R14a): the token is taken out of the address, and out of history,
+// before anything else runs or any request is made. It is kept only in memory.
+const invitation = joinToken(location.hash);
+if (invitation) {
+  holdJoinToken(invitation.token);
+  history.replaceState(null, "", invitation.hash);
+}
 
 // The browser's "Install" question can come at any moment from the start: keep it for Add to Home
 // Screen (Studio R3).
@@ -44,6 +56,34 @@ function remember(user, meta) {
   }
 }
 
+let joinIntro = "";
+let justJoined = false;
+/**
+ * Signed out with an invitation in hand: someone new chooses a password and is in (true); someone
+ * who already signs in is asked to sign in as that name first (false, with the words to say).
+ */
+async function joinFirst() {
+  if (!hasJoinToken()) return false;
+  let view;
+  try {
+    view = await readInvitation(api);
+  } catch (error) {
+    await new Promise((resolve) => showJoinRefused(root, joinProblem(error), resolve));
+    return false;
+  }
+  if (!view.newAccount) {
+    joinIntro = signInFirstWords(view.signInName);
+    return false;
+  }
+  const joined = await showJoinPage(root, api, view);
+  if (!joined) {
+    await new Promise(() => {}); // they said no thanks: the page says so, and nothing more opens
+  }
+  history.replaceState(null, "", `#/together/${encodeURIComponent(joined)}`);
+  justJoined = true;
+  return true;
+}
+
 async function start() {
   await use("toast-region", "loading-spinner");
   // The site's words (docs/studio-words.md) before anything is drawn: the last ones kept on this
@@ -63,7 +103,7 @@ async function start() {
       root.replaceChildren(document.createTextNode(error.message));
       return;
     }
-    await showSignIn(root, api, { heading: "Sign in" });
+    if (!(await joinFirst())) await showSignIn(root, api, { heading: "Sign in", intro: joinIntro });
     // R9: someone signed in here. Voice writing another person left on this phone goes; her own
     // (a sign-in that ran out mid-piece) is kept and offered back. As the old Admin did.
     clearVoiceCopies(() => globalThis.localStorage, { keepUser: api.user });
@@ -72,6 +112,7 @@ async function start() {
   remember(api.user, meta);
   configureWords(meta.studioWords);
   await startShell(root, api, meta);
+  if (justJoined) toast(say("join.joined"));
 }
 
 start();
