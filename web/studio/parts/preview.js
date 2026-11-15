@@ -34,7 +34,7 @@ export async function showPreview(api, {
     options: [{ value: "computer", label: "Computer" }, { value: "phone", label: "Phone" }],
     onValuechange: (e) => stage.setAttribute("data-device", e.detail) });
   let mode = modes?.value;
-  const scheme = modes ? h("segmented-control", { label: modes.label, value: mode, class: "studio-preview-device", options: modes.options,
+  const scheme = modes ? h("segmented-control", { label: modes.label, value: mode, class: "studio-preview-scheme", options: modes.options,
     onValuechange: (e) => { mode = e.detail; build(); } }) : null;
   sheet.append(
     h("span", { slot: "heading", text: heading }),
