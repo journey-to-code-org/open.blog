@@ -47,6 +47,13 @@ These terms describe private collaboration before publication. They do not repla
 attribution terms under [Evidence and identity](#evidence-and-identity), and they do not make
 collaboration state part of a document or post.
 
+**Co-writer account**:
+An Admin user whose `kind` is `co-writer`: someone invited to write together, whose sign-in the server
+lets reach only the collaboration routes their reflections authorize (ADR 0413). Every other account,
+including every account made before co-writers existed, is an owner account. "Shared reflection" stays
+the domain term; "Writing together" is Studio's name for it.
+_Avoid_: Guest Admin, limited Admin user, reader account
+
 **Shared publication**:
 A collaboration effort, identified by a stable opaque publication ID, that brings one or more
 ordered source references and one or more ordered participants toward a possible published work.
