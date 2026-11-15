@@ -118,6 +118,7 @@ test("a comparison of readings is made, saved as a draft and the old address ope
 test("words an AI tool drafted stay a draft until approved as saved; editing withdraws; Withdraw asks when published", async ({ page }) => {
   writeComparison("shadows", { title: "Shadows", status: "draft", subject: "Shadows", interpretations: [named("a", "First holder", "First words."), named("b", "Second holder", "Second words.")], explanations: [{ id: "easy", level: "beginner", text: AI_TEXT, origin: { kind: "ai-draft", tool: "a writing assistant" } }] });
   await signIn(page, "#/research/reading/shadows");
+  await expect(page.getByRole("heading", { name: "Shadows", level: 2 })).toBeVisible();
   const easy = card(page, "For Beginners");
   await expect(easy).toContainText("Drafted with AI: not approved, readers don't see it");
   // With unsaved changes it asks to save first; Not now approves nothing.
@@ -153,6 +154,7 @@ test("what readers will see says what was left out and why, and evidence is word
     named("c", "Holder C", "C words.", { origin: { kind: "ai-draft", tool: "an assistant" } }),
   ] });
   await signIn(page, "#/research/reading/sources");
+  await expect(page.getByRole("heading", { name: "Sources", level: 2 })).toBeVisible();
   await expect(card(page, "Holder A")).toContainText("2 evidence");
   await page.getByRole("button", { name: "See what readers will see" }).click();
   await expect(sheetOf(page)).toContainText("Only you see this");
@@ -180,6 +182,7 @@ test("a stranger's words are only ever text", async ({ page }) => {
 test("Undo puts a save back, and a deleted comparison comes back with Undo", async ({ page }) => {
   writeComparison("undoable", { title: "Undoable", status: "draft", subject: "One", interpretations: [named("a", "A", "A."), named("b", "B", "B.")] });
   await signIn(page, "#/research/reading/undoable");
+  await expect(page.getByRole("heading", { name: "Undoable", level: 2 })).toBeVisible();
   await field(page, "What the readings are about").fill("Two");
   await page.getByRole("button", { name: "Save draft" }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).first().click();
@@ -215,6 +218,7 @@ test("the list and the editor pass axe at 320 px with no sideways scroll", async
 test("Withdraw approval on a published comparison asks, and the whole comparison goes back to a draft", async ({ page }) => {
   writeComparison("live", { title: "Live", status: "draft", subject: "Live", interpretations: [named("a", "A", "A."), named("b", "B", "B.")], explanations: [{ id: "easy", level: "beginner", text: AI_TEXT, origin: { kind: "ai-draft", tool: "a tool" } }] });
   await signIn(page, "#/research/reading/live");
+  await expect(page.getByRole("heading", { name: "Live", level: 2 })).toBeVisible();
   const easy = card(page, "For Beginners");
   await easy.getByRole("button", { name: /Read and approve/ }).click();
   await page.getByRole("button", { name: "Approve these words" }).click();

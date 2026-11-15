@@ -200,6 +200,7 @@ test("Publish, Update and make it a draft again say what readers can see, and Un
   writePath("live", three("Live"));
   const draft = stored("live");
   await signIn(page, "#/path/live");
+  await expect(page.getByRole("heading", { name: "Live", level: 2 })).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByText(/Saved as published, but your site isn't showing reading paths yet\./).first()).toBeVisible();
   expect(JSON.parse(stored("live")).status).toBe("published");
@@ -240,6 +241,7 @@ test("deleting asks only when it's live, and Undo on the list brings it back", a
 test("a change made somewhere else is asked about, and what readers will see comes from the server's words", async ({ page }) => {
   writePath("shared", three("Shared"));
   await signIn(page, "#/path/shared");
+  await expect(page.getByRole("heading", { name: "Shared", level: 2 })).toBeVisible();
   await field(page, "Title").fill("Shared, my way");
   writePath("shared", { ...three("Shared elsewhere") });
   await page.getByRole("button", { name: "Save draft" }).click();
