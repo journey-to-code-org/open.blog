@@ -14418,6 +14418,62 @@
       "max": 40,
       "vars": []
     },
+    "readers.aboutAnswer": {
+      "text": "About this answer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.aboutChanged": {
+      "text": "That part has changed since they read it.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readers.aboutGone": {
+      "text": "No part by that author is on the post now.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readers.aboutIdea": {
+      "text": "About this idea",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.aboutOnePart": {
+      "text": "About one part.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.aboutOpening": {
+      "text": "About the opening.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.aboutReflection": {
+      "text": "About this reflection",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.aboutSection": {
+      "text": "About {author}'s part.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "author"
+      ]
+    },
+    "readers.aboutWhole": {
+      "text": "About the whole post.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
     "readers.ackNo": {
       "text": "Not now",
       "layer": "her",
@@ -14448,16 +14504,86 @@
       "max": 40,
       "vars": []
     },
+    "readers.alreadyLinked": {
+      "text": "They're already linked.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
     "readers.anonymous": {
       "text": "They didn't give a name.",
       "layer": "her",
       "max": 48,
       "vars": []
     },
+    "readers.answerAbout": {
+      "text": "{author} wrote this as the author of the part the reflection is about.",
+      "layer": "her",
+      "max": 140,
+      "vars": [
+        "author"
+      ]
+    },
+    "readers.answerAsEmpty": {
+      "text": "Write your answer first.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.answerAsGone": {
+      "text": "The reflection changed or was taken down, so your answer wasn't sent. Your words are still here.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "readers.answerAsHelp": {
+      "text": "It goes on the post under the reflection, as your answer, once a coordinator says yes. You can't say yes to your own.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.answerAsHelpChanged": {
+      "text": "Your part has changed since the reader read it, and your answer says so. It goes on the post under the reflection once a coordinator says yes. You can't say yes to your own.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.answerAsLabel": {
+      "text": "Answer as {author}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "author"
+      ]
+    },
+    "readers.answerAsSend": {
+      "text": "Send it for a yes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.answerBack": {
+      "text": "Your answer is back as it was.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
     "readers.answerByAuthor": {
       "text": "Written by the author of that part of the post.",
       "layer": "her",
       "max": 94,
+      "vars": []
+    },
+    "readers.answerChanged": {
+      "text": "Your answer was changed somewhere else. Here it is now.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "readers.answerEmpty": {
+      "text": "Write your answer first, or use Remove your answer.",
+      "layer": "her",
+      "max": 102,
       "vars": []
     },
     "readers.answerHeading": {
@@ -14468,11 +14594,146 @@
         "author"
       ]
     },
+    "readers.answerHelp": {
+      "text": "Shown under their note on the post. Nothing is sent to them.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readers.answerLabel": {
+      "text": "Your answer under it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.answerLong": {
+      "text": "That's longer than {max} letters.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "max"
+      ]
+    },
+    "readers.answerMine": {
+      "text": "This is your own answer.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.answerRemove": {
+      "text": "Remove your answer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.answerRemoved": {
+      "text": "Your answer is off the post.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readers.answerSave": {
+      "text": "Save your answer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.answerSaved": {
+      "text": "Your answer is saved.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.answerSectionChanged": {
+      "text": "That part has changed or come off the post since the reader read it.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "readers.answerSectionMoved": {
+      "text": "That part is still on the post, in another place.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.answerSectionStands": {
+      "text": "That part is still on the post as the reader read it.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "readers.answerSent": {
+      "text": "Sent. It waits for a coordinator. Nothing is shown or sent by email.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
     "readers.askedText": {
       "text": "You asked them to explain this. It can't be shown; only their answer can.",
       "layer": "her",
       "max": 146,
       "vars": []
+    },
+    "readers.auditAnswers": {
+      "text": "{n} author's answers must come off their posts.",
+      "layer": "her",
+      "max": 94,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.auditDone": {
+      "text": "Done. The post is updated.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.auditEntry": {
+      "text": "“{title}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readers.auditFailed": {
+      "text": "{product} couldn't check what's on your posts just now.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.auditMustGo": {
+      "text": "{n} reflections must come off their posts: the reader took them back, or no longer agrees.",
+      "layer": "her",
+      "max": 180,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.auditName": {
+      "text": "{n} reflections still show a name the reader has since hidden.",
+      "layer": "her",
+      "max": 124,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.auditTruncated": {
+      "text": "Only the first ones were checked.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.auditUnknown": {
+      "text": "{product} can't check {n} reflections right now. Read each, and take off any that shouldn't be up.",
+      "layer": "her",
+      "max": 196,
+      "vars": [
+        "product",
+        "n"
+      ]
     },
     "readers.btnAsk": {
       "text": "Ask them to explain",
@@ -14719,6 +14980,74 @@
       "text": "That didn't go through: your comments service isn't answering. Nothing changed. Try again in a few minutes.",
       "layer": "her",
       "max": 214,
+      "vars": []
+    },
+    "readers.changeAdd": {
+      "text": "Add the note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.changeAdded": {
+      "text": "Added to your post's list of changes.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readers.changeBadClaim": {
+      "text": "A claim id uses only lowercase letters, numbers and hyphens.",
+      "layer": "details",
+      "max": 120,
+      "vars": []
+    },
+    "readers.changeButton": {
+      "text": "Note what changed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.changeClaim": {
+      "text": "Claim id (optional)",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.changeDay": {
+      "text": "Day",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.changeEmpty": {
+      "text": "Say what changed first.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.changeHelp": {
+      "text": "This adds a public note to your post's list of changes. It doesn't change your post; change the post itself in Write. Don't name or quote the reader.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.changeLong": {
+      "text": "Keep it under {max} letters.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "max"
+      ]
+    },
+    "readers.changeTitle": {
+      "text": "Note what changed in your post",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readers.changeWhat": {
+      "text": "What changed",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "readers.changedHere": {
@@ -14976,10 +15305,234 @@
       "max": 48,
       "vars": []
     },
+    "readers.consentName": {
+      "text": "They agree to it being shown with their name.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.consentNoName": {
+      "text": "They agree to it being shown without their name.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "readers.consentWithdrawn": {
+      "text": "They no longer agree to it being shown.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readers.copiedIt": {
+      "text": "Copied.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.copyContactLabel": {
+      "text": "Copy how to reach them",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.copyIt": {
+      "text": "Copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.copyLinkLabel": {
+      "text": "Copy their link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "readers.crumb": {
       "text": "Readers",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "readers.decideAddressed": {
+      "text": "Or the note that already dealt with it",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readers.decideButton": {
+      "text": "Record what you decided",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.decideChanged": {
+      "text": "Someone recorded a decision on this just now. Read it, then record yours.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "readers.decideChooseWhy": {
+      "text": "Choose why",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideConfirm": {
+      "text": "I've read that part of my post as it is now",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "readers.decideDay": {
+      "text": "Day",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideEvidence": {
+      "text": "The evidence you recorded",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readers.decideExtent": {
+      "text": "How much of it?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideGo": {
+      "text": "Record it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideHelp": {
+      "text": "This records what you concluded about your post. It doesn't change your post or show or hide their note.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.decideNeedAddressed": {
+      "text": "Choose the note that dealt with it, or name the one that did.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "readers.decideNeedConfirm": {
+      "text": "Read that part of your post as it is now, then tick the box.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readers.decideNeedEvidence": {
+      "text": "Choose the evidence you recorded.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.decideNeedExtent": {
+      "text": "Say whether you used all of it or part of it.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.decideNeedNote": {
+      "text": "Choose the note that says what changed. Add it first if it isn't listed.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "readers.decideNeedOutcome": {
+      "text": "Choose what you decided.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.decideNeedWhy": {
+      "text": "Choose why not.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideNeedWords": {
+      "text": "Say why, in your own words.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.decideNeedWordsPart": {
+      "text": "Say which part you used, and why not the rest.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "readers.decideNoEvidence": {
+      "text": "None is recorded for this post yet.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readers.decideNoNote": {
+      "text": "No note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideNoUndo": {
+      "text": "To change it later, record a new decision.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readers.decideNote": {
+      "text": "The note about what changed",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.decideSummary": {
+      "text": "You're recording: {outcome}.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "outcome"
+      ]
+    },
+    "readers.decideTitle": {
+      "text": "Record what you decided",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.decideWhat": {
+      "text": "What did you decide?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideWhyNot": {
+      "text": "Why not?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideWords": {
+      "text": "In your own words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decideWordsHelp": {
+      "text": "Shown with your decision once their note is on the post. Don't name or quote the reader.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "readers.decided": {
+      "text": "Recorded. Your post and their note didn't change.",
+      "layer": "her",
+      "max": 98,
       "vars": []
     },
     "readers.decidedBefore": {
@@ -15020,6 +15573,12 @@
         "why",
         "day"
       ]
+    },
+    "readers.decidedOnPost": {
+      "text": "It shows on their note on the post.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
     },
     "readers.decidedReportKept": {
       "text": "You kept the comment.{day}",
@@ -15311,6 +15870,213 @@
       "max": 164,
       "vars": []
     },
+    "readers.evidenceCitation": {
+      "text": "A source you cite that they question: {label}",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.evidenceClaim": {
+      "text": "The claim: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.evidenceCompare": {
+      "text": "What your post shows for {label}",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.evidenceGone": {
+      "text": "Something they named isn't on this post any more.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.evidenceHeading": {
+      "text": "What they point to",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.evidenceLink": {
+      "text": "What they question about it: {label}",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.evidenceNote": {
+      "text": "Their own statement. Nothing checked it.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readers.evidenceSource": {
+      "text": "A source they offer: {label}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.featureAgreed": {
+      "text": "The reader agreed to have this text featured.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.featureAlsoShows": {
+      "text": "This also puts it with the post's reflections.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "readers.featureAuditHidden": {
+      "text": "{n} featured reflections are hidden, because their post isn't published now.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.featureAuditMustGo": {
+      "text": "{n} featured reflections must come off their posts.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.featureAuditUnknown": {
+      "text": "{product} can't check {n} featured reflections right now. Read each, and take off any that shouldn't be up.",
+      "layer": "her",
+      "max": 214,
+      "vars": [
+        "product",
+        "n"
+      ]
+    },
+    "readers.featureButton": {
+      "text": "Feature it on the post",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.featureEarlier": {
+      "text": "They agreed for an earlier text, not this one. Only they can agree again.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "readers.featureGo": {
+      "text": "Feature it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureNo": {
+      "text": "They haven't agreed, so it can't be featured.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.featureNote": {
+      "text": "Your note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureNoteHelp": {
+      "text": "Say why it's worth reading, in your own words. It can't say how many people liked or agreed with it.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.featureNoteSaved": {
+      "text": "Your note is saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureOff": {
+      "text": "Take the feature off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureSaveNote": {
+      "text": "Save your note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureSee": {
+      "text": "See how it shows",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.featureStandHidden": {
+      "text": "It's hidden for now, because the post it's on isn't published.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "readers.featureStandMustGo": {
+      "text": "It must come off the post now.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readers.featureStandUnknown": {
+      "text": "{product} can't tell whether it may stay. Read it, and take it off if it shouldn't be up.",
+      "layer": "her",
+      "max": 178,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.featureStands": {
+      "text": "It's featured, and the reader still agrees.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "readers.featureTakenOff": {
+      "text": "The feature is off the post. The reflection stays.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "readers.featureTitle": {
+      "text": "Feature this reflection",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.featured": {
+      "text": "Featured on “{title}”.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "title"
+      ]
+    },
+    "readers.featuredAgain": {
+      "text": "Featured again.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "readers.findEveryKind": {
       "text": "Show every kind",
       "layer": "her",
@@ -15409,6 +16175,12 @@
       "max": 40,
       "vars": []
     },
+    "readers.fixUndone": {
+      "text": "The post is back as it was.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
     "readers.fixUnknown": {
       "text": "{product} can't tell whether this may stay up. Read it, and take it off if it shouldn't be there.",
       "layer": "her",
@@ -15441,11 +16213,199 @@
       "max": 60,
       "vars": []
     },
+    "readers.hintArticle": {
+      "text": "About the article",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.hintCreators": {
+      "text": "Who made it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.hintNumber": {
+      "text": "{scheme} (not checked)",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "scheme"
+      ]
+    },
+    "readers.hintPublisher": {
+      "text": "Publisher",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.hintSeries": {
+      "text": "About the series",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.hintTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.hintYear": {
+      "text": "Year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "readers.home": {
       "text": "Home",
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "readers.ideaContact": {
+      "text": "They said you can reach them at: {contact}",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "contact"
+      ]
+    },
+    "readers.ideaContactHelp": {
+      "text": "Only you see it. It's cleared after a while. {product} never emails it.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.ideaCopied": {
+      "text": "Copied to your research notes. Nothing was shown, fetched or sent.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "readers.ideaHint": {
+      "text": "{label} (their words): {value}",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "label",
+        "value"
+      ]
+    },
+    "readers.ideaKind": {
+      "text": "{type}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "type"
+      ]
+    },
+    "readers.ideaLinkButton": {
+      "text": "Link to what you made",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.ideaLinkChoose": {
+      "text": "Choose what you made",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ideaLinkFull": {
+      "text": "It's linked as many times as it can be.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readers.ideaLinkGo": {
+      "text": "Record the link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ideaLinkNeedWhat": {
+      "text": "Choose what you made.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.ideaLinkNeedWhich": {
+      "text": "Choose which one you made.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.ideaLinkTitle": {
+      "text": "Link to what you made",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.ideaLinkWhat": {
+      "text": "What you made",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ideaLinkWhich": {
+      "text": "Which one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ideaLinkWhichHelp": {
+      "text": "The last part of its address, like apple-pie, or the name of a source in your library.",
+      "layer": "her",
+      "max": 172,
+      "vars": []
+    },
+    "readers.ideaLinked": {
+      "text": "Recorded. Nothing was made, shown or sent.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readers.ideaLinkedTo": {
+      "text": "Linked to {what} on {day}.",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "what",
+        "day"
+      ]
+    },
+    "readers.ideaMissing": {
+      "text": "Still to find: {list}.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "list"
+      ]
+    },
+    "readers.ideaOutcome": {
+      "text": "You marked it: {label}.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.ideaSourceDetails": {
+      "text": "Their details about the source (not checked)",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readers.ideaStands": {
+      "text": "It stands as: {label}.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "label"
+      ]
     },
     "readers.invalid": {
       "text": "Some of what readers sent couldn't be shown here.",
@@ -15461,6 +16421,12 @@
         "view"
       ]
     },
+    "readers.itemGone": {
+      "text": "The one you tapped isn't there any more. It may have been erased.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
     "readers.itemHere": {
       "text": "The one you tapped:",
       "layer": "her",
@@ -15471,6 +16437,12 @@
       "text": "Keys on What readers sent",
       "layer": "details",
       "max": 50,
+      "vars": []
+    },
+    "readers.keysHelp": {
+      "text": "Keys on a focused card: J and K move, S shows it, N doesn't show it, T takes it down, X selects it (with Select on), U undoes.",
+      "layer": "details",
+      "max": 240,
       "vars": []
     },
     "readers.keysText": {
@@ -15599,10 +16571,34 @@
       "max": 40,
       "vars": []
     },
+    "readers.leaveAnswerText": {
+      "text": "What you wrote under a note isn't saved yet.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readers.leaveAsk": {
+      "text": "Leave without saving your answer?",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.leaveGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "readers.leaveHeading": {
       "text": "Leave without saving what you typed?",
       "layer": "her",
       "max": 72,
+      "vars": []
+    },
+    "readers.leaveStay": {
+      "text": "Stay",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "readers.leaveText": {
@@ -15653,10 +16649,177 @@
       "max": 126,
       "vars": []
     },
+    "readers.linkButton": {
+      "text": "Link to a later post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkChoose": {
+      "text": "Choose a post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkExisting": {
+      "text": "Already linked to: {list}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "list"
+      ]
+    },
+    "readers.linkFromHidden": {
+      "text": "The earlier post isn't published now, so the link is hidden until it is.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "readers.linkGo": {
+      "text": "Link them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkHelp": {
+      "text": "A plain link on both pages. It doesn't say the reader caused it or that anyone agrees, and shows none of their words.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.linkLine": {
+      "text": "“{from}” to “{to}”, {relation}, {day}.",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "from",
+        "to",
+        "relation",
+        "day"
+      ]
+    },
+    "readers.linkNeedPost": {
+      "text": "Choose the later post first.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readers.linkNotApproved": {
+      "text": "Its note isn't shown here any more, so the link is hidden. Check for taken-back notes, or remove it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "readers.linkNotPublished": {
+      "text": "That post isn't published yet.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readers.linkNote": {
+      "text": "Your note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkNoteHelp": {
+      "text": "Up to {max} letters, in your own words.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "max"
+      ]
+    },
+    "readers.linkRelation": {
+      "text": "How it relates",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkRemove": {
+      "text": "Remove the link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkSee": {
+      "text": "See how it shows",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkShown": {
+      "text": "It's shown on both pages.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readers.linkTitle": {
+      "text": "Link to a later post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkTo": {
+      "text": "Later post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linkToHidden": {
+      "text": "The later post isn't published now, so the link is hidden until it is.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "readers.linkUnknown": {
+      "text": "{product} couldn't tell whether its note still stands. The link is shown.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.linked": {
+      "text": "Linked.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linksButton": {
+      "text": "Links to later posts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.linksFailed": {
+      "text": "The links to later posts didn't load. Nothing changed.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "readers.linksNone": {
+      "text": "No links yet. Link a shown reflection, question or idea from its card.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
     "readers.linksNotUpdated": {
       "text": "Its links to later posts couldn't be taken off. Check Links to later posts.",
       "layer": "her",
       "max": 150,
+      "vars": []
+    },
+    "readers.linksSweep": {
+      "text": "Check for taken-back notes",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.linksTitle": {
+      "text": "Links to later posts",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "readers.listFailed": {
@@ -15679,6 +16842,30 @@
         "product"
       ]
     },
+    "readers.madeDraft": {
+      "text": "a draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.madeSeries": {
+      "text": "a collection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.madeSource": {
+      "text": "a source in your library",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.madeWork": {
+      "text": "a post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "readers.menuCopied": {
       "text": "Link copied.",
       "layer": "her",
@@ -15689,6 +16876,12 @@
       "text": "Copy its link",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "readers.menuCopyNotes": {
+      "text": "Copy to your research notes",
+      "layer": "her",
+      "max": 54,
       "vars": []
     },
     "readers.menuMore": {
@@ -15719,6 +16912,12 @@
         "name"
       ]
     },
+    "readers.nameMatches": {
+      "text": "Their name matches an author of this post. It's never shown with a reflection.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
     "readers.nameOnlyOwner": {
       "text": "They gave a name only the site's owner can see.",
       "layer": "her",
@@ -15743,6 +16942,12 @@
       "max": 40,
       "vars": []
     },
+    "readers.noPrompt": {
+      "text": "They didn't choose a question to answer.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
     "readers.noSignal": {
       "text": "{product} can't reach your site right now. Nothing changed. Try again when you have a signal.",
       "layer": "her",
@@ -15750,6 +16955,12 @@
       "vars": [
         "product"
       ]
+    },
+    "readers.notChecked": {
+      "text": "Nothing checked this link.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
     },
     "readers.notOffered": {
       "text": "That can't be done to this one any more.",
@@ -15787,6 +16998,12 @@
       "text": "Only the site's owner can decide this one.",
       "layer": "her",
       "max": 84,
+      "vars": []
+    },
+    "readers.noteRefused": {
+      "text": "A note can't say how many people liked or agreed with something. Say why it's worth reading.",
+      "layer": "her",
+      "max": 184,
       "vars": []
     },
     "readers.offText": {
@@ -15961,6 +17178,18 @@
       "max": 46,
       "vars": []
     },
+    "readers.openIt": {
+      "text": "Open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.openLinkLabel": {
+      "text": "Open their link, in a new tab",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
     "readers.openPost": {
       "text": "“{title}” on your site, opens in a new tab",
       "layer": "her",
@@ -16022,6 +17251,14 @@
       "vars": [
         "quote",
         "name"
+      ]
+    },
+    "readers.prompt": {
+      "text": "They answered: “{question}”",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "question"
       ]
     },
     "readers.readAll": {
@@ -16097,6 +17334,24 @@
       "vars": [
         "heading"
       ]
+    },
+    "readers.relRevisits": {
+      "text": "The later post comes back to it",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readers.relTakesUp": {
+      "text": "The later post takes it up",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.relUsesSource": {
+      "text": "The later post uses the source they suggested",
+      "layer": "her",
+      "max": 90,
+      "vars": []
     },
     "readers.reportAnonymous": {
       "text": "Reports don't say who sent them.",
@@ -16207,9 +17462,9 @@
       ]
     },
     "readers.setupChecking": {
-      "text": "Comments are on. Checking that they work…",
+      "text": "Checking that comments are working…",
       "layer": "her",
-      "max": 82,
+      "max": 70,
       "vars": []
     },
     "readers.setupCommentsHeading": {
@@ -16431,6 +17686,20 @@
       "max": 40,
       "vars": []
     },
+    "readers.sweepDropped": {
+      "text": "{n} links to notes readers took back were removed.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.sweepNone": {
+      "text": "Every link's note still stands.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
     "readers.tabSent": {
       "text": "What readers sent",
       "layer": "her",
@@ -16451,6 +17720,18 @@
     },
     "readers.tabsLabel": {
       "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.theirLink": {
+      "text": "Their link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.theirWording": {
+      "text": "Their wording",
       "layer": "her",
       "max": 40,
       "vars": []
@@ -16510,6 +17791,12 @@
       "vars": [
         "label"
       ]
+    },
+    "readers.unlinked": {
+      "text": "The link is off both pages.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
     },
     "readers.viewAsked": {
       "text": "Asked to explain",
@@ -16601,6 +17888,42 @@
       "text": "Why?",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "readers.withdrawButton": {
+      "text": "Take my answer back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.withdrawGo": {
+      "text": "Take it back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.withdrawKeep": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.withdrawText": {
+      "text": "It comes off the post for good, and its words are deleted soon after.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "readers.withdrawTitle": {
+      "text": "Take your answer back?",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.withdrawn": {
+      "text": "Taken back. It isn't shown anywhere.",
+      "layer": "her",
+      "max": 72,
       "vars": []
     },
     "readings.about": {

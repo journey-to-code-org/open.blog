@@ -2344,15 +2344,55 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `read.seeAsReaders` | her | See it as readers will | none | 44 |
 | `read.title` | her | Everyone's parts | none | 40 |
 | `read.yourPart` | her | Your part | none | 40 |
+| `readers.aboutAnswer` | her | About this answer | none | 40 |
+| `readers.aboutChanged` | her | That part has changed since they read it. | none | 82 |
+| `readers.aboutGone` | her | No part by that author is on the post now. | none | 84 |
+| `readers.aboutIdea` | her | About this idea | none | 40 |
+| `readers.aboutOnePart` | her | About one part. | none | 40 |
+| `readers.aboutOpening` | her | About the opening. | none | 40 |
+| `readers.aboutReflection` | her | About this reflection | none | 42 |
+| `readers.aboutSection` | her | About {author}'s part. | `{author}` | 44 |
+| `readers.aboutWhole` | her | About the whole post. | none | 42 |
 | `readers.ackNo` | her | Not now | none | 40 |
 | `readers.ackOpen` | her | Open the post | none | 40 |
 | `readers.ackText` | her | They wrote about words that have changed since. Read your post as it is now before you show this. | none | 194 |
 | `readers.ackTitle` | her | Your post has changed there | none | 54 |
 | `readers.ackYes` | her | Show it anyway | none | 40 |
+| `readers.alreadyLinked` | her | They're already linked. | none | 46 |
 | `readers.anonymous` | her | They didn't give a name. | none | 48 |
+| `readers.answerAbout` | her | {author} wrote this as the author of the part the reflection is about. | `{author}` | 140 |
+| `readers.answerAsEmpty` | her | Write your answer first. | none | 48 |
+| `readers.answerAsGone` | her | The reflection changed or was taken down, so your answer wasn't sent. Your words are still here. | none | 192 |
+| `readers.answerAsHelp` | her | It goes on the post under the reflection, as your answer, once a coordinator says yes. You can't say yes to your own. | none | 240 |
+| `readers.answerAsHelpChanged` | her | Your part has changed since the reader read it, and your answer says so. It goes on the post under the reflection once a coordinator says yes. You can't say yes to your own. | none | 240 |
+| `readers.answerAsLabel` | her | Answer as {author} | `{author}` | 40 |
+| `readers.answerAsSend` | her | Send it for a yes | none | 40 |
+| `readers.answerBack` | her | Your answer is back as it was. | none | 60 |
 | `readers.answerByAuthor` | her | Written by the author of that part of the post. | none | 94 |
+| `readers.answerChanged` | her | Your answer was changed somewhere else. Here it is now. | none | 110 |
+| `readers.answerEmpty` | her | Write your answer first, or use Remove your answer. | none | 102 |
 | `readers.answerHeading` | her | An answer to a reflection, from {author} | `{author}` | 80 |
+| `readers.answerHelp` | her | Shown under their note on the post. Nothing is sent to them. | none | 120 |
+| `readers.answerLabel` | her | Your answer under it | none | 40 |
+| `readers.answerLong` | her | That's longer than {max} letters. | `{max}` | 66 |
+| `readers.answerMine` | her | This is your own answer. | none | 48 |
+| `readers.answerRemove` | her | Remove your answer | none | 40 |
+| `readers.answerRemoved` | her | Your answer is off the post. | none | 56 |
+| `readers.answerSave` | her | Save your answer | none | 40 |
+| `readers.answerSaved` | her | Your answer is saved. | none | 42 |
+| `readers.answerSectionChanged` | her | That part has changed or come off the post since the reader read it. | none | 136 |
+| `readers.answerSectionMoved` | her | That part is still on the post, in another place. | none | 98 |
+| `readers.answerSectionStands` | her | That part is still on the post as the reader read it. | none | 106 |
+| `readers.answerSent` | her | Sent. It waits for a coordinator. Nothing is shown or sent by email. | none | 136 |
 | `readers.askedText` | her | You asked them to explain this. It can't be shown; only their answer can. | none | 146 |
+| `readers.auditAnswers` | her | {n} author's answers must come off their posts. | `{n}` | 94 |
+| `readers.auditDone` | her | Done. The post is updated. | none | 52 |
+| `readers.auditEntry` | her | “{title}” | `{title}` | 40 |
+| `readers.auditFailed` | her | {product} couldn't check what's on your posts just now. | `{product}` | 110 |
+| `readers.auditMustGo` | her | {n} reflections must come off their posts: the reader took them back, or no longer agrees. | `{n}` | 180 |
+| `readers.auditName` | her | {n} reflections still show a name the reader has since hidden. | `{n}` | 124 |
+| `readers.auditTruncated` | her | Only the first ones were checked. | none | 66 |
+| `readers.auditUnknown` | her | {product} can't check {n} reflections right now. Read each, and take off any that shouldn't be up. | `{product}` `{n}` | 196 |
 | `readers.btnAsk` | her | Ask them to explain | none | 40 |
 | `readers.btnClose` | her | Close it | none | 40 |
 | `readers.btnDecideAgain` | her | Decide again | none | 40 |
@@ -2389,6 +2429,17 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.cardOn` | her |  on {title} | `{title}` | 40 |
 | `readers.cardReport` | her | Report from {name}{on} | `{name}` `{on}` | 44 |
 | `readers.cardServiceDown` | her | That didn't go through: your comments service isn't answering. Nothing changed. Try again in a few minutes. | none | 214 |
+| `readers.changeAdd` | her | Add the note | none | 40 |
+| `readers.changeAdded` | her | Added to your post's list of changes. | none | 74 |
+| `readers.changeBadClaim` | details | A claim id uses only lowercase letters, numbers and hyphens. | none | 120 |
+| `readers.changeButton` | her | Note what changed | none | 40 |
+| `readers.changeClaim` | details | Claim id (optional) | none | 40 |
+| `readers.changeDay` | her | Day | none | 40 |
+| `readers.changeEmpty` | her | Say what changed first. | none | 46 |
+| `readers.changeHelp` | her | This adds a public note to your post's list of changes. It doesn't change your post; change the post itself in Write. Don't name or quote the reader. | none | 240 |
+| `readers.changeLong` | her | Keep it under {max} letters. | `{max}` | 56 |
+| `readers.changeTitle` | her | Note what changed in your post | none | 60 |
+| `readers.changeWhat` | her | What changed | none | 40 |
 | `readers.changedHere` | her | This changed somewhere else just now. Here it is as it is now. Choose again. | none | 152 |
 | `readers.checkAddress` | details | The comments service address is set and uses https | none | 100 |
 | `readers.checkAnswers` | details | The comments service answers | none | 56 |
@@ -2430,12 +2481,50 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.connScopeSession` | details | Once per visit | none | 40 |
 | `readers.connSiteKey` | details | Public site key | none | 40 |
 | `readers.connUse` | details | Use the comments service | none | 48 |
+| `readers.consentName` | her | They agree to it being shown with their name. | none | 90 |
+| `readers.consentNoName` | her | They agree to it being shown without their name. | none | 96 |
+| `readers.consentWithdrawn` | her | They no longer agree to it being shown. | none | 78 |
+| `readers.copiedIt` | her | Copied. | none | 40 |
+| `readers.copyContactLabel` | her | Copy how to reach them | none | 44 |
+| `readers.copyIt` | her | Copy | none | 40 |
+| `readers.copyLinkLabel` | her | Copy their link | none | 40 |
 | `readers.crumb` | her | Readers | none | 40 |
+| `readers.decideAddressed` | her | Or the note that already dealt with it | none | 76 |
+| `readers.decideButton` | her | Record what you decided | none | 46 |
+| `readers.decideChanged` | her | Someone recorded a decision on this just now. Read it, then record yours. | none | 146 |
+| `readers.decideChooseWhy` | her | Choose why | none | 40 |
+| `readers.decideConfirm` | her | I've read that part of my post as it is now | none | 86 |
+| `readers.decideDay` | her | Day | none | 40 |
+| `readers.decideEvidence` | her | The evidence you recorded | none | 50 |
+| `readers.decideExtent` | her | How much of it? | none | 40 |
+| `readers.decideGo` | her | Record it | none | 40 |
+| `readers.decideHelp` | her | This records what you concluded about your post. It doesn't change your post or show or hide their note. | none | 240 |
+| `readers.decideNeedAddressed` | her | Choose the note that dealt with it, or name the one that did. | none | 122 |
+| `readers.decideNeedConfirm` | her | Read that part of your post as it is now, then tick the box. | none | 120 |
+| `readers.decideNeedEvidence` | her | Choose the evidence you recorded. | none | 66 |
+| `readers.decideNeedExtent` | her | Say whether you used all of it or part of it. | none | 90 |
+| `readers.decideNeedNote` | her | Choose the note that says what changed. Add it first if it isn't listed. | none | 144 |
+| `readers.decideNeedOutcome` | her | Choose what you decided. | none | 48 |
+| `readers.decideNeedWhy` | her | Choose why not. | none | 40 |
+| `readers.decideNeedWords` | her | Say why, in your own words. | none | 54 |
+| `readers.decideNeedWordsPart` | her | Say which part you used, and why not the rest. | none | 92 |
+| `readers.decideNoEvidence` | her | None is recorded for this post yet. | none | 70 |
+| `readers.decideNoNote` | her | No note | none | 40 |
+| `readers.decideNoUndo` | her | To change it later, record a new decision. | none | 84 |
+| `readers.decideNote` | her | The note about what changed | none | 54 |
+| `readers.decideSummary` | her | You're recording: {outcome}. | `{outcome}` | 56 |
+| `readers.decideTitle` | her | Record what you decided | none | 46 |
+| `readers.decideWhat` | her | What did you decide? | none | 40 |
+| `readers.decideWhyNot` | her | Why not? | none | 40 |
+| `readers.decideWords` | her | In your own words | none | 40 |
+| `readers.decideWordsHelp` | her | Shown with your decision once their note is on the post. Don't name or quote the reader. | none | 176 |
+| `readers.decided` | her | Recorded. Your post and their note didn't change. | none | 98 |
 | `readers.decidedBefore` | her | What you decided before ({n}) | `{n}` | 58 |
 | `readers.decidedDay` | her |  You decided {day}. | `{day}` | 40 |
 | `readers.decidedElsewhere` | her | This was already decided somewhere else. | none | 80 |
 | `readers.decidedKept` | her | Kept for later.{day} | `{day}` | 40 |
 | `readers.decidedNotShown` | her | Not shown{why}.{day} | `{why}` `{day}` | 40 |
+| `readers.decidedOnPost` | her | It shows on their note on the post. | none | 70 |
 | `readers.decidedReportKept` | her | You kept the comment.{day} | `{day}` | 52 |
 | `readers.decidedReportUpheld` | her | You agreed and took it down.{day} | `{day}` | 66 |
 | `readers.decidedShown` | her | Shown.{day} | `{day}` | 40 |
@@ -2480,6 +2569,37 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.eraseTitle` | her | Erase {name}'s {kind} for good? | `{name}` `{kind}` | 62 |
 | `readers.eraseYes` | her | Erase it | none | 40 |
 | `readers.erased` | her | Its words and any name were erased. Only your private record of decisions is kept. | none | 164 |
+| `readers.evidenceCitation` | her | A source you cite that they question: {label} | `{label}` | 90 |
+| `readers.evidenceClaim` | her | The claim: {label} | `{label}` | 40 |
+| `readers.evidenceCompare` | her | What your post shows for {label} | `{label}` | 64 |
+| `readers.evidenceGone` | her | Something they named isn't on this post any more. | none | 98 |
+| `readers.evidenceHeading` | her | What they point to | none | 40 |
+| `readers.evidenceLink` | her | What they question about it: {label} | `{label}` | 72 |
+| `readers.evidenceNote` | her | Their own statement. Nothing checked it. | none | 80 |
+| `readers.evidenceSource` | her | A source they offer: {label} | `{label}` | 56 |
+| `readers.featureAgreed` | her | The reader agreed to have this text featured. | none | 90 |
+| `readers.featureAlsoShows` | her | This also puts it with the post's reflections. | none | 92 |
+| `readers.featureAuditHidden` | her | {n} featured reflections are hidden, because their post isn't published now. | `{n}` | 152 |
+| `readers.featureAuditMustGo` | her | {n} featured reflections must come off their posts. | `{n}` | 102 |
+| `readers.featureAuditUnknown` | her | {product} can't check {n} featured reflections right now. Read each, and take off any that shouldn't be up. | `{product}` `{n}` | 214 |
+| `readers.featureButton` | her | Feature it on the post | none | 44 |
+| `readers.featureEarlier` | her | They agreed for an earlier text, not this one. Only they can agree again. | none | 146 |
+| `readers.featureGo` | her | Feature it | none | 40 |
+| `readers.featureNo` | her | They haven't agreed, so it can't be featured. | none | 90 |
+| `readers.featureNote` | her | Your note | none | 40 |
+| `readers.featureNoteHelp` | her | Say why it's worth reading, in your own words. It can't say how many people liked or agreed with it. | none | 240 |
+| `readers.featureNoteSaved` | her | Your note is saved. | none | 40 |
+| `readers.featureOff` | her | Take the feature off | none | 40 |
+| `readers.featureSaveNote` | her | Save your note | none | 40 |
+| `readers.featureSee` | her | See how it shows | none | 40 |
+| `readers.featureStandHidden` | her | It's hidden for now, because the post it's on isn't published. | none | 124 |
+| `readers.featureStandMustGo` | her | It must come off the post now. | none | 60 |
+| `readers.featureStandUnknown` | her | {product} can't tell whether it may stay. Read it, and take it off if it shouldn't be up. | `{product}` | 178 |
+| `readers.featureStands` | her | It's featured, and the reader still agrees. | none | 86 |
+| `readers.featureTakenOff` | her | The feature is off the post. The reflection stays. | none | 100 |
+| `readers.featureTitle` | her | Feature this reflection | none | 46 |
+| `readers.featured` | her | Featured on “{title}”. | `{title}` | 44 |
+| `readers.featuredAgain` | her | Featured again. | none | 40 |
 | `readers.findEveryKind` | her | Show every kind | none | 40 |
 | `readers.findGroup` | her | Readers | none | 40 |
 | `readers.findKind` | her | Show only {kind} | `{kind}` | 40 |
@@ -2496,16 +2616,47 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.fixNameButton` | her | Put it back without the name | none | 56 |
 | `readers.fixPublish` | her | Shown here, but not on the post yet. | none | 72 |
 | `readers.fixPublishButton` | her | Put it on the post | none | 40 |
+| `readers.fixUndone` | her | The post is back as it was. | none | 54 |
 | `readers.fixUnknown` | her | {product} can't tell whether this may stay up. Read it, and take it off if it shouldn't be there. | `{product}` | 194 |
 | `readers.fixUnpublish` | her | Not shown here, but still on the post. | none | 76 |
 | `readers.fixUnpublishButton` | her | Take it off the post | none | 40 |
 | `readers.fixWithdrawn` | her | The reader took this back, but it's still on the post. Take it off now. | none | 142 |
 | `readers.gone` | her | This one isn't there any more. | none | 60 |
+| `readers.hintArticle` | her | About the article | none | 40 |
+| `readers.hintCreators` | her | Who made it | none | 40 |
+| `readers.hintNumber` | her | {scheme} (not checked) | `{scheme}` | 44 |
+| `readers.hintPublisher` | her | Publisher | none | 40 |
+| `readers.hintSeries` | her | About the series | none | 40 |
+| `readers.hintTitle` | her | Title | none | 40 |
+| `readers.hintYear` | her | Year | none | 40 |
 | `readers.home` | her | Home | none | 40 |
+| `readers.ideaContact` | her | They said you can reach them at: {contact} | `{contact}` | 84 |
+| `readers.ideaContactHelp` | her | Only you see it. It's cleared after a while. {product} never emails it. | `{product}` | 142 |
+| `readers.ideaCopied` | her | Copied to your research notes. Nothing was shown, fetched or sent. | none | 132 |
+| `readers.ideaHint` | her | {label} (their words): {value} | `{label}` `{value}` | 60 |
+| `readers.ideaKind` | her | {type} | `{type}` | 40 |
+| `readers.ideaLinkButton` | her | Link to what you made | none | 42 |
+| `readers.ideaLinkChoose` | her | Choose what you made | none | 40 |
+| `readers.ideaLinkFull` | her | It's linked as many times as it can be. | none | 78 |
+| `readers.ideaLinkGo` | her | Record the link | none | 40 |
+| `readers.ideaLinkNeedWhat` | her | Choose what you made. | none | 42 |
+| `readers.ideaLinkNeedWhich` | her | Choose which one you made. | none | 52 |
+| `readers.ideaLinkTitle` | her | Link to what you made | none | 42 |
+| `readers.ideaLinkWhat` | her | What you made | none | 40 |
+| `readers.ideaLinkWhich` | her | Which one | none | 40 |
+| `readers.ideaLinkWhichHelp` | her | The last part of its address, like apple-pie, or the name of a source in your library. | none | 172 |
+| `readers.ideaLinked` | her | Recorded. Nothing was made, shown or sent. | none | 84 |
+| `readers.ideaLinkedTo` | her | Linked to {what} on {day}. | `{what}` `{day}` | 52 |
+| `readers.ideaMissing` | her | Still to find: {list}. | `{list}` | 44 |
+| `readers.ideaOutcome` | her | You marked it: {label}. | `{label}` | 46 |
+| `readers.ideaSourceDetails` | her | Their details about the source (not checked) | none | 88 |
+| `readers.ideaStands` | her | It stands as: {label}. | `{label}` | 44 |
 | `readers.invalid` | her | Some of what readers sent couldn't be shown here. | none | 98 |
 | `readers.itemDecided` | her | That one was already decided. It's under {view}. | `{view}` | 96 |
+| `readers.itemGone` | her | The one you tapped isn't there any more. It may have been erased. | none | 130 |
 | `readers.itemHere` | her | The one you tapped: | none | 40 |
 | `readers.keysHeading` | details | Keys on What readers sent | none | 50 |
+| `readers.keysHelp` | details | Keys on a focused card: J and K move, S shows it, N doesn't show it, T takes it down, X selects it (with Select on), U undoes. | none | 240 |
 | `readers.keysText` | details | With a card focused: J next, K previous, S show it, N don't show, T take it down, U undo. | none | 178 |
 | `readers.kind.abuseReport` | her | Report | none | 40 |
 | `readers.kind.alternativeInterpretation` | her | Another reading | none | 40 |
@@ -2527,7 +2678,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.kinds.sourceSuggestion` | her | Suggested sources | none | 40 |
 | `readers.kinds.thirdPerspective` | her | Reflections | none | 40 |
 | `readers.leave` | her | Leave | none | 40 |
+| `readers.leaveAnswerText` | her | What you wrote under a note isn't saved yet. | none | 88 |
+| `readers.leaveAsk` | her | Leave without saving your answer? | none | 66 |
+| `readers.leaveGo` | her | Leave without saving | none | 40 |
 | `readers.leaveHeading` | her | Leave without saving what you typed? | none | 72 |
+| `readers.leaveStay` | her | Stay | none | 40 |
 | `readers.leaveText` | her | It isn't kept anywhere. | none | 46 |
 | `readers.ledeAsked` | her | You asked these readers to say more. Their answer comes back here. What they first wrote can't be shown. | none | 208 |
 | `readers.ledeNotShown` | her | You chose not to show these. Only you can see them. | none | 102 |
@@ -2536,27 +2691,62 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.ledeTakenBack` | her | Readers took these back, and their words were deleted. Nothing here can be changed. | none | 166 |
 | `readers.ledeTakenDown` | her | These were shown, then you took them down. Only you can see them. | none | 130 |
 | `readers.ledeWaiting` | her | New ones wait here until you choose. Nobody else sees them yet. | none | 126 |
+| `readers.linkButton` | her | Link to a later post | none | 40 |
+| `readers.linkChoose` | her | Choose a post | none | 40 |
+| `readers.linkExisting` | her | Already linked to: {list} | `{list}` | 50 |
+| `readers.linkFromHidden` | her | The earlier post isn't published now, so the link is hidden until it is. | none | 144 |
+| `readers.linkGo` | her | Link them | none | 40 |
+| `readers.linkHelp` | her | A plain link on both pages. It doesn't say the reader caused it or that anyone agrees, and shows none of their words. | none | 240 |
+| `readers.linkLine` | her | “{from}” to “{to}”, {relation}, {day}. | `{from}` `{to}` `{relation}` `{day}` | 76 |
+| `readers.linkNeedPost` | her | Choose the later post first. | none | 56 |
+| `readers.linkNotApproved` | her | Its note isn't shown here any more, so the link is hidden. Check for taken-back notes, or remove it. | none | 200 |
+| `readers.linkNotPublished` | her | That post isn't published yet. | none | 60 |
+| `readers.linkNote` | her | Your note | none | 40 |
+| `readers.linkNoteHelp` | her | Up to {max} letters, in your own words. | `{max}` | 78 |
+| `readers.linkRelation` | her | How it relates | none | 40 |
+| `readers.linkRemove` | her | Remove the link | none | 40 |
+| `readers.linkSee` | her | See how it shows | none | 40 |
+| `readers.linkShown` | her | It's shown on both pages. | none | 50 |
+| `readers.linkTitle` | her | Link to a later post | none | 40 |
+| `readers.linkTo` | her | Later post | none | 40 |
+| `readers.linkToHidden` | her | The later post isn't published now, so the link is hidden until it is. | none | 140 |
+| `readers.linkUnknown` | her | {product} couldn't tell whether its note still stands. The link is shown. | `{product}` | 146 |
+| `readers.linked` | her | Linked. | none | 40 |
+| `readers.linksButton` | her | Links to later posts | none | 40 |
+| `readers.linksFailed` | her | The links to later posts didn't load. Nothing changed. | none | 108 |
+| `readers.linksNone` | her | No links yet. Link a shown reflection, question or idea from its card. | none | 140 |
 | `readers.linksNotUpdated` | her | Its links to later posts couldn't be taken off. Check Links to later posts. | none | 150 |
+| `readers.linksSweep` | her | Check for taken-back notes | none | 52 |
+| `readers.linksTitle` | her | Links to later posts | none | 40 |
 | `readers.listFailed` | her | What readers sent didn't load. | none | 60 |
 | `readers.listReset` | her | That list couldn't be shown, so here's Waiting. | none | 94 |
 | `readers.listServiceDown` | her | Your comments service isn't answering right now, so {product} can't show what readers sent. Try again in a few minutes. | `{product}` | 238 |
+| `readers.madeDraft` | her | a draft | none | 40 |
+| `readers.madeSeries` | her | a collection | none | 40 |
+| `readers.madeSource` | her | a source in your library | none | 48 |
+| `readers.madeWork` | her | a post | none | 40 |
 | `readers.menuCopied` | her | Link copied. | none | 40 |
 | `readers.menuCopyLink` | her | Copy its link | none | 40 |
+| `readers.menuCopyNotes` | her | Copy to your research notes | none | 54 |
 | `readers.menuMore` | her | More | none | 40 |
 | `readers.menuMoreFor` | her |  for {label} | `{label}` | 40 |
 | `readers.menuSee` | her | See it on your site | none | 40 |
 | `readers.nameIfShown` | her | They agree to show the name {name} if you show it. | `{name}` | 100 |
+| `readers.nameMatches` | her | Their name matches an author of this post. It's never shown with a reflection. | none | 156 |
 | `readers.nameOnlyOwner` | her | They gave a name only the site's owner can see. | none | 94 |
 | `readers.namePrivate` | her | Their name stays private. | none | 50 |
 | `readers.nameShown` | her | Shown with their name. | none | 44 |
 | `readers.nav` | her | Readers | none | 40 |
+| `readers.noPrompt` | her | They didn't choose a question to answer. | none | 80 |
 | `readers.noSignal` | her | {product} can't reach your site right now. Nothing changed. Try again when you have a signal. | `{product}` | 186 |
+| `readers.notChecked` | her | Nothing checked this link. | none | 52 |
 | `readers.notOffered` | her | That can't be done to this one any more. | none | 80 |
 | `readers.notReadyText` | her | {product} is set up for comments but can't reach them. | `{product}` | 108 |
 | `readers.notReadyTitle` | her | Comments aren't ready yet | none | 50 |
 | `readers.notSetUpText` | her | When readers can leave comments, what they send waits here for you. | none | 134 |
 | `readers.notSetUpTitle` | her | Comments aren't set up | none | 44 |
 | `readers.notYours` | her | Only the site's owner can decide this one. | none | 84 |
+| `readers.noteRefused` | her | A note can't say how many people liked or agreed with something. Say why it's worth reading. | none | 184 |
 | `readers.offText` | her | Your posts don't show any, and nobody can leave new ones. | none | 114 |
 | `readers.offTitle` | her | Comments are switched off | none | 50 |
 | `readers.oldAskText` | her | Their words and names are deleted for good. Your private record of what you decided is kept longer. | none | 198 |
@@ -2582,6 +2772,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.onPostReflection` | her | On the post, as a reader's reflection. | none | 76 |
 | `readers.onSite` | her | on your site | none | 40 |
 | `readers.onlyYou` | her | Only you see this name. | none | 46 |
+| `readers.openIt` | her | Open | none | 40 |
+| `readers.openLinkLabel` | her | Open their link, in a new tab | none | 58 |
 | `readers.openPost` | her | “{title}” on your site, opens in a new tab | `{title}` | 84 |
 | `readers.passageChanged` | her | Your post has changed there since they wrote. | none | 90 |
 | `readers.passageLabel` | her | The words they wrote about: | none | 54 |
@@ -2591,6 +2783,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.previewNoQuote` | her | On the post it shows without a quote, because that part changed. | none | 128 |
 | `readers.previewPlain` | her | On the post it shows without a quote, from {name}. | `{name}` | 100 |
 | `readers.previewQuote` | her | On the post it shows quoting “{quote}”, from {name}. | `{quote}` `{name}` | 104 |
+| `readers.prompt` | her | They answered: “{question}” | `{question}` | 54 |
 | `readers.readAll` | her | Read all | none | 40 |
 | `readers.reason.abusive` | her | It's unkind | none | 40 |
 | `readers.reason.duplicate` | her | They said it twice | none | 40 |
@@ -2603,6 +2796,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.reason.rights` | her | It copies someone else's work | none | 58 |
 | `readers.reason.spam` | her | It's spam | none | 40 |
 | `readers.reflectionPreview` | her | If you show it, it's titled “{heading}”. | `{heading}` | 80 |
+| `readers.relRevisits` | her | The later post comes back to it | none | 62 |
+| `readers.relTakesUp` | her | The later post takes it up | none | 52 |
+| `readers.relUsesSource` | her | The later post uses the source they suggested | none | 90 |
 | `readers.reportAnonymous` | her | Reports don't say who sent them. | none | 64 |
 | `readers.reportGone` | her | What they reported is gone, so this only closes the report. | none | 118 |
 | `readers.reportHeading` | her | A report about {what}, from {name} | `{what}` `{name}` | 68 |
@@ -2618,7 +2814,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.selectOne` | her | Select {label} | `{label}` | 40 |
 | `readers.selected` | her | {n} selected | `{n}` | 40 |
 | `readers.setupCantTell` | her | Comments are on, but {product} can't tell right now whether they're working. | `{product}` | 152 |
-| `readers.setupChecking` | her | Comments are on. Checking that they work… | none | 82 |
+| `readers.setupChecking` | her | Checking that comments are working… | none | 70 |
 | `readers.setupCommentsHeading` | her | Comments | none | 40 |
 | `readers.setupConflict` | her | Your comment settings changed somewhere else. Here they are now; switch again if you still want to. | none | 198 |
 | `readers.setupElseHeading` | her | What else readers can send | none | 52 |
@@ -2653,10 +2849,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.similarLink` | her | {kind}, {when} | `{kind}` `{when}` | 40 |
 | `readers.someone` | her | Someone | none | 40 |
 | `readers.stay` | her | Stay | none | 40 |
+| `readers.sweepDropped` | her | {n} links to notes readers took back were removed. | `{n}` | 100 |
+| `readers.sweepNone` | her | Every link's note still stands. | none | 62 |
 | `readers.tabSent` | her | What readers sent | none | 40 |
 | `readers.tabSetup` | her | How readers reach you | none | 42 |
 | `readers.tabVisitors` | her | Visitors | none | 40 |
 | `readers.tabsLabel` | her | Readers | none | 40 |
+| `readers.theirLink` | her | Their link | none | 40 |
+| `readers.theirWording` | her | Their wording | none | 40 |
 | `readers.title` | her | What have readers sent you? | none | 54 |
 | `readers.tryAgain` | her | Try again | none | 40 |
 | `readers.turnOn` | her | Turn comments on | none | 40 |
@@ -2665,6 +2865,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.undoKept` | her | Kept: {label}. | `{label}` | 40 |
 | `readers.undoNotShown` | her | Not shown: {label}. | `{label}` | 40 |
 | `readers.undoTakenDown` | her | Taken down: {label}. | `{label}` | 40 |
+| `readers.unlinked` | her | The link is off both pages. | none | 54 |
 | `readers.viewAsked` | her | Asked to explain | none | 40 |
 | `readers.viewNotShown` | her | Not shown | none | 40 |
 | `readers.viewShown` | her | Shown | none | 40 |
@@ -2680,6 +2881,12 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.whyFor` | her |  (choose why) for {label} | `{label}` | 50 |
 | `readers.whyText` | her | Choose the reason that fits best. | none | 66 |
 | `readers.whyTitle` | her | Why? | none | 40 |
+| `readers.withdrawButton` | her | Take my answer back | none | 40 |
+| `readers.withdrawGo` | her | Take it back | none | 40 |
+| `readers.withdrawKeep` | her | Keep it | none | 40 |
+| `readers.withdrawText` | her | It comes off the post for good, and its words are deleted soon after. | none | 138 |
+| `readers.withdrawTitle` | her | Take your answer back? | none | 44 |
+| `readers.withdrawn` | her | Taken back. It isn't shown anywhere. | none | 72 |
 | `readings.about` | her | About | none | 40 |
 | `readings.aboutWhole` | her | the whole comparison | none | 40 |
 | `readings.addExplanation` | her | Add an explanation | none | 40 |

@@ -13,6 +13,11 @@ import { say, sayParts } from "../parts/words.js";
 import { readerHeader } from "../parts/reader-tabs.js";
 import { createReaderCard } from "../parts/reader-card.js";
 import { cardDetails, screenDetails } from "../parts/reader-details.js";
+import { createReaderExtras } from "../parts/reader-extras.js";
+import { createReaderSheets } from "../parts/reader-sheets.js";
+import { drawBanners } from "../parts/reader-banners.js";
+import { auditBanners, fixOpposite, noteWords, extrasProblem } from "../parts/reader-notes-rules.js";
+import { guardedLeave } from "../parts/sheet.js";
 import {
   shownViews, viewOf, viewLabel, viewLede, emptyWords, otherViewWords, kindsOffered, kindFilterWords, kindKnown, hasBeyondComments,
   readersHash, parseItemRef, reasonWords, quietReason, reportReason, decisionRequest, needsAcknowledge, didWords, undoWords,
@@ -20,7 +25,7 @@ import {
 } from "../parts/reader-rules.js";
 
 export async function createReaders(context, route) {
-  await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
+  await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge", "text-field");
   const { api, meta, go } = context;
   const view = viewOf(route.arg);
   const kind = kindKnown(route.query.kind) ? route.query.kind : "";
@@ -31,6 +36,16 @@ export async function createReaders(context, route) {
   let settings = null;
   let undo = null; // { item, words }: the last decision that can go back to Waiting
   const busy = new Set();
+  // What the cards' extras read: the notes on the posts (with the file's etag), features, links.
+  const extra = { published: new Map(), etag: "absent", features: new Map(), continuations: { links: [], works: [] }, linksOffered: false };
+  const auditHost = h("div", { class: "studio-banner studio-reader-audits" });
+  const tell = (words, { undo: run } = {}) => {
+    status.textContent = words;
+    if (run) offerUndo(null, words, run);
+  };
+  const reloadAll = async (ref) => { await loadExtras(); await reloadKeeping(ref, null); };
+  const sheets = await createReaderSheets({ api, meta, state: () => extra, tell, reload: reloadAll });
+  const extras = createReaderExtras({ api, meta, state: () => extra, tell, reload: reloadAll, sheets });
 
   const { trail, tabs } = readerHeader({ tab: "sent", visitors: Boolean(meta.visitors) });
   const heading = h("h2", { id: "studio-readers-h", class: "studio-question", tabindex: "-1", text: say("readers.title") });
@@ -44,6 +59,7 @@ export async function createReaders(context, route) {
   const moreButton = h("action-button", { variant: "secondary", hidden: true, onClick: () => showMore() }, say("readers.showMore"));
   const after = h("div", { class: "studio-comment-after" });
   const details = h("details", { class: "studio-help" });
+  const linksButton = h("action-button", { variant: "secondary", hidden: true, onClick: (e) => sheets.links(e.currentTarget) }, say("readers.linksButton"));
   const notifyLink = h("p", { class: "studio-quiet-link" });
   // Deciding many at once (Waiting only): Select turns on a checkbox on each card that can be decided in bulk.
   let selecting = false;
@@ -55,8 +71,8 @@ export async function createReaders(context, route) {
 
   const element = h("section", { class: "studio-page studio-readers", "aria-labelledby": "studio-readers-h" },
     trail, tabs, h("div", { class: "studio-today" }, heading, lede, notifyLink, viewPicker, kindPicker, selectLabel),
-    undoSlot, bulkBar, banner, status,
-    h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, list, moreButton, after), h("div", { class: "studio-comment-side" }, details)));
+    undoSlot, bulkBar, banner, auditHost, status,
+    h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, list, moreButton, after), h("div", { class: "studio-comment-side" }, linksButton, details)));
 
   // ---- loading ----------------------------------------------------------------------------------
 
@@ -96,6 +112,44 @@ export async function createReaders(context, route) {
     if (!items.length && list.getAttribute("aria-busy") !== "true") draw();
   }
 
+  // The notes on the posts, the two checks of what's on them, and the links to later posts: in
+  // parallel, never blocking the list. A 403 (not the site's owner) says nothing; anything else is said.
+  async function loadExtras() {
+    if (!hasBeyondComments(kindsOffered(settings, page, kind))) return;
+    const get = (path) => api.get(path).then((value) => ({ value }), (error) => { if (error.status === 401) throw error; return { error }; });
+    const [published, perspectives, features, continuations] = await Promise.all([
+      get("engagement/feedback/published"), get("engagement/third-perspectives/published"), get("engagement/community/features"), get("engagement/continuations"),
+    ]);
+    extra.published = new Map((published.value?.items || []).map((entry) => [entry.id, entry]));
+    extra.etag = published.value?.etag || extra.etag;
+    extra.features = new Map((features.value?.features || []).map((entry) => [entry.id, entry]));
+    extra.continuations = { links: continuations.value?.links || [], works: continuations.value?.works || [] };
+    extra.linksOffered = Boolean(continuations.value);
+    // The links failing to load is said (a 403 just means it isn't hers to change).
+    if (continuations.error && continuations.error.status !== 403 && continuations.error.status !== 404) status.textContent = say("readers.linksFailed");
+    linksButton.hidden = !extra.linksOffered;
+    drawBanners(auditHost, auditBanners(perspectives.error ? { failed: perspectives.error } : perspectives.value, features.error ? { failed: features.error } : features.value), {
+      onFix: (entry, button) => fixFromBanner(entry, button),
+      onRetry: () => loadExtras().then(() => draw()),
+    });
+  }
+
+  async function fixFromBanner(entry, button) {
+    button.loading = true;
+    try {
+      await api.post(`engagement/${entry.route}/${entry.operation}`, { id: entry.id });
+      const out = await sendOut(api, "A reader's note on a post");
+      tell(`${say("readers.auditDone")} ${wentOutWords(out, { meta, action: "saved" }).words.replace(/^Saved\.\s*/, "")}`.trim());
+      await loadExtras();
+      draw();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      status.textContent = noteWords(extrasProblem(error, "fix"));
+    } finally {
+      button.loading = false;
+    }
+  }
+
   async function load() {
     quietNotifyLink(notifyLink, { meta, what: hasBeyondComments(kindsOffered(settings, page, kind)) ? say("notify.readersLink") : say("notify.commentsLink") });
     if (!meta.engagementSetUp && meta.engagement !== true) {
@@ -118,6 +172,7 @@ export async function createReaders(context, route) {
       next = page.next || null;
       banner.querySelector(".studio-load-trouble")?.remove();
       drawChrome();
+      await loadExtras().catch((error) => { if (error.status === 401) throw error; });
       draw();
       if (wanted) await showWanted();
     } catch (error) {
@@ -168,8 +223,10 @@ export async function createReaders(context, route) {
       draw();
       status.textContent = say("readers.itemHere");
       focusCard(ref);
-    } catch {
-      status.textContent = say("readers.decidedElsewhere");
+    } catch (error) {
+      if (error.status === 401) throw error;
+      // Said by what happened: gone, no signal, or the service not answering; never a guess.
+      status.textContent = error.status === 404 ? say("readers.itemGone") : !error.status ? say("readers.noSignal") : problemWords(readerProblem(error, "card"));
     }
   }
 
@@ -182,6 +239,9 @@ export async function createReaders(context, route) {
     more: (item, value, line) => moreMenu(item, value, line),
     focusRef: (ref) => focusCard(ref),
     cardDetails: (item, row) => row.append(cardDetails(item)),
+    details: (item, row) => extras.details(item, row),
+    extras: (item, row, line) => extras.extras(item, row, line),
+    moreItems: (item) => (item.suggestion?.export ? [{ value: "copy-notes", label: say("readers.menuCopyNotes") }] : []),
     select: (item, label) => (selecting ? selectCheckbox(item, label) : null),
   };
 
@@ -191,7 +251,7 @@ export async function createReaders(context, route) {
     moreButton.hidden = !next;
     after.replaceChildren();
     if (page?.invalid > 0) after.append(h("p", { class: "studio-help", text: say("readers.invalid") }));
-    details.replaceChildren(...screenDetails({ view, kind, page, next, settings }));
+    details.replaceChildren(...screenDetails({ view, kind, page, next, settings }), h("p", { class: "studio-help", text: say("readers.keysHelp") }));
     if (!items.length) {
       const off = view.state === "pending" && settings && settings.comments === false;
       const [title, text] = emptyWords(view, { commentsOnly: commentsOnly() });
@@ -397,8 +457,8 @@ export async function createReaders(context, route) {
       if (items.some((i) => `${i.source}:${i.id}` === ref)) {
         focusCard(ref);
         const line = list.querySelector(`[data-ref="${ref}"] .studio-comment-trouble`);
-        if (line) { line.textContent = readerWords(id); line.hidden = false; }
-      } else {
+        if (line && id) { line.textContent = readerWords(id); line.hidden = false; }
+      } else if (id) {
         status.textContent = say("readers.decidedElsewhere");
         heading.focus();
       }
@@ -408,16 +468,19 @@ export async function createReaders(context, route) {
   }
 
   // What is on the post: one button, the opposite call for Undo.
-  async function fix(item, state, line, control) {
+  async function fix(item, state, line, control, { undoing = false } = {}) {
     if (control) control.loading = true;
     try {
       const body = { id: item.id, version: item.version };
       await api.post(fixRoute(item, state.action), body);
       const out = await sendOut(api, "A note from a reader");
-      const said = `${say("readers.fixDone")} ${wentOutWords(out, { meta, action: "saved" }).words.replace(/^Saved\.\s*/, "")}`.trim();
+      const went = wentOutWords(out, { meta, action: "saved" }).words.replace(/^Saved\.\s*/, "");
+      const said = `${undoing ? say("readers.fixUndone") : say("readers.fixDone")} ${went}`.trim();
+      const back = fixOpposite(state.action);
       status.textContent = said;
       toast(said);
-      await reloadKeeping(`${item.source}:${item.id}`, "readers.changedHere");
+      if (!undoing && back) offerUndo(null, said, () => fix(item, { ...state, action: back }, line, null, { undoing: true }));
+      await reloadKeeping(`${item.source}:${item.id}`, null);
     } catch (error) {
       if (error.status === 401) throw error;
       line.textContent = say("readers.fixFailed");
@@ -429,6 +492,17 @@ export async function createReaders(context, route) {
   }
 
   async function moreMenu(item, value, line) {
+    if (value === "copy-notes") {
+      try {
+        await api.post("engagement/suggestions/export", { id: item.id, version: item.version });
+        status.textContent = say("readers.ideaCopied");
+      } catch (error) {
+        if (error.status === 401) throw error;
+        if (error.status === 409) await reloadKeeping(`${item.source}:${item.id}`, "readers.changedHere");
+        else { line.textContent = noteWords(extrasProblem(error, "export")); line.hidden = false; }
+      }
+      return;
+    }
     if (value !== "copy-link") return;
     const link = `${location.origin}${location.pathname}${readersHash(viewOf(VIEWS.find((v) => v.state === item.status)?.id || "").id, "", `${item.source}:${item.id}`)}`;
     try {
@@ -442,8 +516,9 @@ export async function createReaders(context, route) {
 
   // ---- undo: the last no goes back to Waiting ---------------------------------------------------
 
-  function offerUndo(item, words) {
-    undo = { item, words };
+  /** The banner's one Undo: `item` goes back to Waiting, or `run` undoes something else (a fix, an answer). */
+  function offerUndo(item, words, run = null) {
+    undo = { item, words, run };
     const button = h("action-button", { size: "sm", onClick: () => runUndo() }, say("readers.undo"));
     const alert = h("alert-banner", { variant: "info", dismissible: true, heading: words }, button);
     alert.addEventListener("close", () => clearUndo());
@@ -459,10 +534,15 @@ export async function createReaders(context, route) {
   async function runUndo() {
     if (!undo || undoing) return;
     undoing = true;
-    const { item, bulk } = undo;
+    const { item, bulk, run } = undo;
     const button = undoSlot.querySelector("action-button");
     if (button) button.loading = true;
     try {
+      if (run) {
+        clearUndo();
+        await run();
+        return;
+      }
       if (bulk) {
         const reply = await api.patch("engagement/moderation/batch", bulkRequest(bulk.map((i) => ({ ...i, status: "rejected" })), "reopen"));
         const back = bulkOutcome(bulk, reply).done.length;
@@ -506,6 +586,11 @@ export async function createReaders(context, route) {
       (menu?.querySelector("button") || menu)?.click();
     } else if (key === "u") {
       runUndo();
+    } else if (key === "x") {
+      // Select (with Select on): the card's own checkbox.
+      const box = card.querySelector("input[type=checkbox].studio-reader-select, input[type=checkbox]");
+      if (!selecting || !box || box.disabled) return;
+      box.click();
     } else return;
     if (key !== "j" && key !== "k") event.preventDefault();
   });
@@ -524,13 +609,24 @@ export async function createReaders(context, route) {
         { id: "kind:", label: say("readers.findEveryKind"), group },
         ...(settings ? [{ id: "switch", label: settings.comments === false ? say("readers.findSwitchOn") : say("readers.findSwitchOff"), group }] : []),
         ...(undo ? [{ id: "undo", label: say("readers.findUndo"), group }] : []),
+        ...(extra.linksOffered ? [{ id: "links", label: say("readers.linksTitle"), group }] : []),
       ];
+    },
+    isDirty: () => extras.isDirty() || sheets.sheet.isDirty(),
+    leave: async () => {
+      if (!(await guardedLeave(sheets.sheet))) return false;
+      if (!extras.isDirty()) return true;
+      const choice = await ask({ heading: say("readers.leaveAsk"), text: say("readers.leaveAnswerText"),
+        choices: [{ label: say("readers.leaveStay"), value: "stay" }, { label: say("readers.leaveGo"), value: "go", variant: "secondary" }] });
+      if (choice === "go") extras.forget();
+      return choice === "go";
     },
     command(id) {
       if (id.startsWith("view:")) go(readersHash(id.slice(5), kind));
       else if (id.startsWith("kind:")) go(readersHash(view.id, id.slice(5)));
       else if (id === "switch") go("#/readers/setup");
       else if (id === "undo") runUndo();
+      else if (id === "links") sheets.links(heading);
     },
   };
 }

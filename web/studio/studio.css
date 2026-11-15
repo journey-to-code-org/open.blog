@@ -424,6 +424,13 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 /* Visitors (slice 9) */
 /* One column that never grows past the screen: a grid item's minimum is its content's width, so a
    table that scrolls in its own region would otherwise widen every row (320 px). */
+/* A reader's note's extras (R10): their link, about, what they point to, answers. */
+.studio-reader-block { display: grid; gap: var(--space-2); margin-block: var(--space-2); min-width: 0; }
+.studio-reader-lines { margin: 0; padding-inline-start: 1.25rem; display: grid; gap: var(--space-1, 0.25rem); overflow-wrap: anywhere; }
+.studio-reader-extras { flex-wrap: wrap; }
+.studio-reader-where { min-width: 0; overflow-wrap: anywhere; }
+.studio-reader-audits:empty { display: none; }
+
 .studio-visitors { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 .studio-visitors > * { min-width: 0; }
 .studio-visitor-number { margin: 0; font-family: var(--font-serif, "Literata", Georgia, serif); font-size: var(--text-2xl, 1.75rem); font-weight: 600; }

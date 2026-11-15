@@ -42,13 +42,14 @@ export function createReaderCard({ item, meta, view, on }) {
   const menuItems = [
     ...(item.post?.url ? [{ value: "see", label: say("readers.menuSee") }] : []),
     ...more.map((b) => ({ value: `do:${b.action}`, label: b.label })),
+    ...(on.moreItems?.(item) || []),
     { value: "copy-link", label: say("readers.menuCopyLink") },
   ];
   const menu = h("dropdown-menu", {
     class: "studio-row-menu", items: menuItems,
     onItemselect: (e) => {
       if (e.detail === "see") window.open(siteLink(meta, item.post.url), "_blank", "noopener");
-      else if (e.detail === "copy-link") on.more(item, "copy-link", line);
+      else if (e.detail === "copy-link" || !String(e.detail).startsWith("do:")) on.more(item, e.detail, line);
       else {
         const chosen = more.find((b) => `do:${b.action}` === e.detail);
         if (chosen) on.start(item, chosen, line, null);
@@ -102,7 +103,7 @@ export function createReaderCard({ item, meta, view, on }) {
       row.append(h("p", { class: "studio-help" }, ...sayIsolated("readers.reportNow", { state: target.statusLabel.toLowerCase() })));
     }
   }
-  on.details?.(item, row);
+  on.details?.(item, row, line);
 
   const who = readerLine(item.reader, item.source, item.kind, isolating);
   if (who.length) row.append(h("p", { class: "studio-help" }, ...partsNodes(who)));
