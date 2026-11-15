@@ -64,6 +64,7 @@ export const SCREENS = [
     create: (context, route) => (/^readings\/new$/.test(route.arg) ? createReadingEdit(context, { ...route, arg: "new" })
       : /^readings$/.test(route.arg) ? createReadings(context)
       : /^reading\/./.test(route.arg) ? createReadingEdit(context, { ...route, arg: route.arg.slice("reading/".length) })
+      : !route.arg && !researchUsed(context.meta) && context.meta?.siteUses?.readings === true ? createReadings(context)
       : /^atlas(\/|$)/.test(route.arg) ? createAtlas(context, route)
       : /^compare(\/|$)/.test(route.arg) ? createCompare(context, route)
       : /^public(\/|$)/.test(route.arg) ? createResearchPublic(context, route)

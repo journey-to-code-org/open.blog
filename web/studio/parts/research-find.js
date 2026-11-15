@@ -6,8 +6,11 @@ import { researchUsed } from "./research-rules.js";
 
 export function researchFind(meta) {
   const start = { id: "research-start", label: say("research.findStart"), group: "Go to", href: "#/research" };
-  if (!researchUsed(meta)) return [start];
+  // R13: Readings side by side, on any site that has one.
+  const readings = meta?.siteUses?.readings === true ? [{ id: "go-research-readings", label: say("readings.findList"), group: "Go to", href: "#/research/readings" }] : [];
+  if (!researchUsed(meta)) return [start, ...readings];
   return [
+    ...readings,
     start,
     { id: "go-research-sources", label: say("research.tabSources"), group: "Go to", href: "#/research/sources" },
     { id: "research-add-source", label: say("sources.add"), group: "Do", href: "#/research/sources?new=1" },
