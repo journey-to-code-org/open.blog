@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import {
   catalog, configureWords, DEFAULT_VARS, wordsInEffect, ID_PATTERN, maxFor, overrideProblem, say, varProblem, varsIn, wordVars,
 } from "../../web/studio/parts/words.js";
-import { HER_BANNED, HER_BANNED_WORDS, bannedIn } from "../../web/studio/parts/plain-words.js";
+import { HER_BANNED, HER_BANNED_WORDS, bannedExcept, bannedIn } from "../../web/studio/parts/plain-words.js";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const studio = join(repository, "web", "studio");
@@ -180,9 +180,20 @@ test("ids are unique, well formed, and each has a layer; {owner} ids have bare w
 test("her-layer defaults never use a banned word", () => {
   for (const [id, entry] of Object.entries(catalog())) {
     if (entry.layer !== "her") continue;
-    assert.doesNotMatch(entry.text, HER_BANNED, id);
-    assert.doesNotMatch(say(id), HER_BANNED, `${id} filled in`);
+    assert.equal(bannedExcept(entry.text, entry.allows), "", id);
+    assert.equal(bannedExcept(say(id), entry.allows), "", `${id} filled in`);
   }
+  // The one exception (R9, decided): "a piece" of her own writing, on Your writing voice and
+  // Getting started only. No other id may allow anything.
+  for (const [id, entry] of Object.entries(catalog())) {
+    if (!entry.allows) continue;
+    assert.deepEqual(entry.allows, ["piece"], id);
+    assert.match(id, /^(voice|home|helper|start)\./, `${id} may not allow a banned word`);
+    assert.match(entry.text, /\bpiece\b/i, `${id} allows a word it doesn't use`);
+  }
+  assert.equal(bannedExcept("Write a piece", ["piece"]), "");
+  assert.equal(bannedExcept("Sync a piece", ["piece"]), "sync");
+  assert.equal(bannedExcept("Write a piece"), "piece");
   for (const [name, value] of Object.entries(DEFAULT_VARS)) assert.equal(bannedIn(value), "", name);
   assert.equal(bannedIn("Your phone will sync"), "sync");
   assert.equal(bannedIn("Front  matter"), "front matter");

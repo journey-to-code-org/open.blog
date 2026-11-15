@@ -251,6 +251,23 @@ mod tests {
 
     const WHITE: Rgb = Rgb(255, 255, 255);
 
+    /// Studio warns early with its own copy of this arithmetic (`contrastRatio` in
+    /// `web/studio/parts/design-rules.js`); the two are held to the same pairs.
+    #[test]
+    fn contrast_agrees_with_the_pairs_shared_with_studio() {
+        let text = include_str!("../../../tests/fixtures/contrast-pairs.json");
+        let fixture: serde_json::Value = serde_json::from_str(text).unwrap();
+        let pairs = fixture["pairs"].as_array().unwrap();
+        assert!(pairs.len() >= 40);
+        for pair in pairs {
+            let a = Rgb::parse(pair["a"].as_str().unwrap()).unwrap();
+            let b = Rgb::parse(pair["b"].as_str().unwrap()).unwrap();
+            let expected = pair["ratio"].as_f64().unwrap();
+            assert!((contrast(a, b) - expected).abs() < 0.0006, "{pair}");
+            assert!((contrast(b, a) - expected).abs() < 0.0006, "{pair}");
+        }
+    }
+
     fn rgb(hex: &str) -> Rgb {
         Rgb::parse(hex).unwrap()
     }

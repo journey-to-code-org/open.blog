@@ -14,4 +14,9 @@ export const WORDS = {
   "common.canChange": { text: "{helper} can change that.", layer: "her" },
   "common.catchesUp": { text: "Your public site catches up when {helper} sends it out.", layer: "her" },
   "common.keepsHappening": { text: "Try again, and if it keeps happening, tell {helper}.", layer: "her" },
+  // R9: the box above anything sent to another company, and waiting on a helper.
+  "common.whatGoes": { text: "What goes to {company}", layer: "her" },
+  "common.wordForWord": { text: "Word for word", layer: "her" },
+  "common.stopWaiting": { text: "Stop waiting", layer: "her" },
+  "common.tryAgain": { text: "Try again", layer: "her" },
 };

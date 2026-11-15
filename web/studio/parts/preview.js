@@ -14,6 +14,9 @@ export async function showPreview(api, {
   request = () => api.post("preview", { kind, path, fields, body }),
   heading = "How it looks", backLabel = "Back to writing", note = "Only you can see this. Nothing is published.",
   frameTitle = `How ${title || "this post"} will look`,
+  // R9: a second choice beside Computer / Phone (Describe a new look: Light / Dark). `{ label,
+  // value, options }`; `request(value)` is asked again whenever it changes.
+  modes = null,
 }) {
   await use("side-sheet", "loading-spinner", "alert-banner", "segmented-control", "action-button");
   const sheet = h("side-sheet", { label: heading, side: "right", class: "studio-preview-sheet" });
@@ -30,10 +33,13 @@ export async function showPreview(api, {
   const device = h("segmented-control", { label: "Show it on", value: "computer", class: "studio-preview-device",
     options: [{ value: "computer", label: "Computer" }, { value: "phone", label: "Phone" }],
     onValuechange: (e) => stage.setAttribute("data-device", e.detail) });
+  let mode = modes?.value;
+  const scheme = modes ? h("segmented-control", { label: modes.label, value: mode, class: "studio-preview-scheme", options: modes.options,
+    onValuechange: (e) => { mode = e.detail; build(); } }) : null;
   sheet.append(
     h("span", { slot: "heading", text: heading }),
     h("p", { class: "studio-help", text: note }),
-    h("div", { class: "studio-row studio-preview-tools" }, device, back),
+    h("div", { class: "studio-row studio-preview-tools" }, device, scheme, back),
     notes, stage);
   document.body.append(sheet);
   sheet.open = true;
@@ -44,7 +50,7 @@ export async function showPreview(api, {
       h("loading-spinner", { label: "Getting it ready", inline: true }), " Still working. Your whole site is being put together."), 8000);
     stage.replaceChildren(h("p", { class: "studio-preview-wait studio-row" }, h("loading-spinner", { label: "Getting it ready", inline: true }), " Getting it ready…"));
     try {
-      const reply = await request();
+      const reply = await request(mode);
       // R7: the screen's own line (Write: what the last check found, with Show them).
       notes.replaceChildren(problemsView?.(close) || "");
       const frame = h("iframe", { class: "studio-preview-frame", title: frameTitle });

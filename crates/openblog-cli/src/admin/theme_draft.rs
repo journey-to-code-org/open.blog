@@ -45,8 +45,9 @@ fn base_of(
     match &body["base"] {
         Json::Null => Ok(config.theme.clone()),
         Json::String(name) if themes.contains(name) && name != PREVIEW_THEME => Ok(name.clone()),
-        _ => Err(Response::error(
+        _ => Err(coded_error(
             422,
+            "base-gone",
             "Choose a theme of yours to start from",
         )),
     }
@@ -64,8 +65,22 @@ fn drafted(
     body: &Json,
     base: &str,
 ) -> Result<(ThemeDraft, openblog_core::theme_draft::DraftedTheme), Response> {
-    let draft = ThemeDraft::from_json(&body["draft"])
-        .map_err(|reason| Response::error(422, &format!("This theme cannot be used: {reason}")))?;
+    let draft = ThemeDraft::from_json(&body["draft"]).map_err(|reason| {
+        // The field the reason names (`light.text`), so Studio can point at it.
+        let field = reason
+            .split('`')
+            .nth(1)
+            .filter(|name| name.len() <= 40)
+            .unwrap_or("");
+        Response::json(
+            422,
+            &json!({
+                "error": format!("This theme cannot be used: {reason}"),
+                "code": "bad-draft",
+                "field": field,
+            }),
+        )
+    })?;
     let made = draft.to_theme(base);
     Ok((draft, made))
 }
@@ -103,21 +118,40 @@ pub(super) fn draft(state: &AppState, req: &Request) -> Response {
         Some(text) if text.chars().count() <= MAX_DESCRIPTION_CHARS && !text.contains('\0') => {
             text.trim().to_string()
         }
-        _ => {
-            return Response::error(
+        Some(text) if !text.contains('\0') => {
+            return Response::json(
                 400,
-                &format!("Describe the look in at most {MAX_DESCRIPTION_CHARS} characters"),
+                &json!({
+                    "error": format!("Describe the look in at most {MAX_DESCRIPTION_CHARS} characters"),
+                    "code": "too-long",
+                    "field": "description",
+                    "max": MAX_DESCRIPTION_CHARS,
+                    "unit": "characters",
+                }),
+            )
+        }
+        _ => {
+            return coded_error(
+                400,
+                "no-description",
+                "Describe the look you want in a few words",
             )
         }
     };
     if description.is_empty() {
-        return Response::error(400, "Describe the look you want in a few words");
+        return coded_error(
+            400,
+            "no-description",
+            "Describe the look you want in a few words",
+        );
     }
     let previous = match &body["previous"] {
         Json::Null => None,
         value => match ThemeDraft::from_json(value) {
             Ok(draft) => Some(draft.to_json()),
-            Err(_) => return Response::error(400, "The draft to change is not a theme draft"),
+            Err(_) => {
+                return coded_error(400, "bad-draft", "The draft to change is not a theme draft")
+            }
         },
     };
     let site_config = match site::load_config(&state.root) {
@@ -165,7 +199,11 @@ pub(super) fn draft(state: &AppState, req: &Request) -> Response {
     match provider.generate(&request) {
         Ok(AssistantResult::ThemeDraft(value)) => {
             let Ok(draft) = ThemeDraft::from_json(&value) else {
-                return Response::error(502, "Assistant provider returned an invalid theme");
+                return coded_error(
+                    502,
+                    "invalid-result",
+                    "Assistant provider returned an invalid theme",
+                );
             };
             let made = draft.to_theme(&base);
             Response::json(
@@ -174,12 +212,17 @@ pub(super) fn draft(state: &AppState, req: &Request) -> Response {
                     "draft": draft.to_json(),
                     "theme": made.theme,
                     "notes": made.notes,
+                    "changes": made.changes,
                     "extends": base,
                     "proposal": true,
                 }),
             )
         }
-        Ok(_) => Response::error(502, "Assistant provider returned the wrong result type"),
+        Ok(_) => coded_error(
+            502,
+            "invalid-result",
+            "Assistant provider returned the wrong result type",
+        ),
         Err(error) => review_error(error),
     }
 }
@@ -238,9 +281,21 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
     };
     drop(guard);
     themes.insert(PREVIEW_THEME, file);
+    // The site's Look choices sit on top of whatever look is up, a new one included: the preview
+    // wears them exactly as a build does (G66), and says which ones it applied.
+    let appearance = preview_site.config.appearance.clone();
     let theme = match themes.resolve(PREVIEW_THEME) {
-        Ok(theme) => theme,
+        Ok(theme) if appearance.is_neutral() => theme,
+        Ok(theme) => theme.with_look(&appearance),
         Err(error) => return Response::error(422, &error),
+    };
+    let look_applied: Vec<&str> = match appearance.to_value() {
+        Json::Object(stored) => openblog_core::look::CONTROLS
+            .iter()
+            .copied()
+            .filter(|control| stored.contains_key(*control) && theme.honors(control))
+            .collect(),
+        _ => Vec::new(),
     };
     preview_site.config.theme = PREVIEW_THEME.to_string();
     let document = match openblog_core::generate_home(&preview_site, &themes) {
@@ -262,12 +317,19 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
     store_preview(state, &token, html, csp);
     Response::json(
         200,
-        &json!({ "previewUrl": format!("/admin/api/preview/{token}"), "notes": made.notes }),
+        &json!({
+            "previewUrl": format!("/admin/api/preview/{token}"),
+            "notes": made.notes,
+            "changes": made.changes,
+            // The colours as they will be, after the server made them readable: what a swatch shows.
+            "colors": made.theme["colors"],
+            "lookApplied": look_applied,
+        }),
     )
 }
 
 /// `POST theme-draft/save`: write the draft as a new theme folder. Nothing else changes.
-pub(super) fn save(state: &AppState, req: &Request) -> Response {
+pub(super) fn save(state: &AppState, req: &Request, session_csrf: &str) -> Response {
     let body = match body_json(req) {
         Ok(body) => body,
         Err(response) => return response,
@@ -303,6 +365,16 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         );
     }
     taken.push(PREVIEW_THEME.to_string());
+    // A name she already has in her list would be two looks she can't tell apart (G69).
+    let wanted = draft.label.trim().to_lowercase();
+    let same_label = themes.names().into_iter().any(|name| {
+        themes
+            .resolve(&name)
+            .is_ok_and(|theme| theme.label.trim().to_lowercase() == wanted)
+    });
+    if same_label {
+        return coded_error(409, "name-taken", "You already have a look with that name");
+    }
     let name = theme_slug(&draft.label, &taken);
     // The new theme must resolve, with the site's own theme as its parent, before it is written.
     let text = match serde_json::to_string_pretty(&made.theme) {
@@ -318,7 +390,11 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
     }
     let folder = themes_dir.join(&name);
     if folder.exists() {
-        return Response::error(409, "A theme with that name already exists; try again");
+        return coded_error(
+            409,
+            "exists",
+            "A theme with that name already exists; try again",
+        );
     }
     if let Err(error) = fs::create_dir_all(&folder) {
         return Response::error(500, &format!("cannot create themes/{name}: {error}"));
@@ -330,8 +406,123 @@ pub(super) fn save(state: &AppState, req: &Request) -> Response {
         Ok(_) => Json::Null,
         Err(error) => Json::String(error),
     };
+    // Undo for ten minutes, from this session, while the look isn't in use (G68).
+    let undo_token = auth::random_token().ok();
+    if let Some(token) = &undo_token {
+        let mut kept = lock(&state.theme_undos);
+        let now = std::time::Instant::now();
+        kept.retain(|undo| undo.expires > now);
+        if kept.len() >= MAX_UNDOS {
+            kept.remove(0);
+        }
+        kept.push(ThemeUndo {
+            token: token.clone(),
+            session: session_csrf.to_string(),
+            name: name.clone(),
+            revision: etag_bytes(text.as_bytes()),
+            expires: now + UNDO_FOR,
+        });
+    }
     Response::json(
         201,
-        &json!({ "name": name, "label": draft.label, "path": format!("themes/{name}/theme.json"), "buildError": build_error }),
+        &json!({
+            "name": name,
+            "label": draft.label,
+            "path": format!("themes/{name}/theme.json"),
+            "buildError": build_error,
+            "undoToken": undo_token,
+            "undoSeconds": UNDO_FOR.as_secs(),
+        }),
     )
+}
+
+/// How long a saved look can be undone.
+const UNDO_FOR: Duration = Duration::from_secs(600);
+/// The most undo tokens kept at once; the oldest goes first.
+const MAX_UNDOS: usize = 32;
+
+/// One saved look that can still be undone: by whom, for how long, and what was written.
+pub(crate) struct ThemeUndo {
+    token: String,
+    session: String,
+    name: String,
+    revision: String,
+    expires: std::time::Instant,
+}
+
+/// The folder name in `theme-draft/<name>`: only what `theme_slug` can make.
+pub(super) fn undo_route(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("theme-draft/")?;
+    let valid = !rest.is_empty()
+        && rest.len() <= 48
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !matches!(rest, "preview" | "save");
+    valid.then_some(rest)
+}
+
+/// `DELETE theme-draft/<name>?undo=<token>`: take back a look saved a moment ago. Only the folder
+/// that save wrote, only from the session that saved it, only within ten minutes, and only while
+/// it is not the site's look, not on the calendar, not up now and unchanged since. Then rebuild.
+pub(super) fn undo(state: &AppState, req: &Request, name: &str, session_csrf: &str) -> Response {
+    let token = req.query.get("undo").map(String::as_str).unwrap_or("");
+    let expired = || coded_error(409, "expired", "That look can't be undone any more");
+    let in_use = || coded_error(409, "in-use", "That look is in use, so it wasn't removed");
+    let mut build = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let revision = {
+        let mut kept = lock(&state.theme_undos);
+        let now = std::time::Instant::now();
+        kept.retain(|undo| undo.expires > now);
+        match kept.iter().find(|undo| {
+            undo.name == name
+                && undo.session == session_csrf
+                && !token.is_empty()
+                && auth::constant_time_eq(&undo.token, token)
+        }) {
+            Some(undo) => undo.revision.clone(),
+            None => return expired(),
+        }
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let on_calendar = config.seasons.windows.iter().any(|w| w.theme == name);
+    let up_now = config
+        .seasons
+        .up_now
+        .as_ref()
+        .is_some_and(|up| up.theme == name);
+    if config.theme == name || on_calendar || up_now {
+        return in_use();
+    }
+    let folder = state.root.join(&config.paths.themes).join(name);
+    // Exactly what the save wrote: one file, the same bytes. Anything else is somebody's work.
+    let only_file = fs::read_dir(&folder).is_ok_and(|entries| {
+        let names: Vec<_> = entries.flatten().map(|e| e.file_name()).collect();
+        names.len() == 1 && names[0] == "theme.json"
+    });
+    let unchanged = only_file
+        && fs::symlink_metadata(&folder).is_ok_and(|m| m.is_dir())
+        && fs::read(folder.join("theme.json")).is_ok_and(|bytes| etag_bytes(&bytes) == revision);
+    if !unchanged {
+        return in_use();
+    }
+    if let Err(error) =
+        fs::remove_file(folder.join("theme.json")).and_then(|()| fs::remove_dir(&folder))
+    {
+        return Response::error(500, &format!("cannot remove themes/{name}: {error}"));
+    }
+    lock(&state.theme_undos).retain(|undo| undo.name != name);
+    eprintln!("admin: a saved look was undone (themes/{name})");
+    let build_error = match state.rebuild_locked(&mut build) {
+        Ok(_) => Json::Null,
+        Err(error) => Json::String(error),
+    };
+    Response::json(200, &json!({ "removed": name, "buildError": build_error }))
 }

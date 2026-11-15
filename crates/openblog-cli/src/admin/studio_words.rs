@@ -27,6 +27,8 @@ struct Entry {
     vars: Vec<String>,
     /// Its words with no name for her: `Some("")` allows an empty change.
     bare: Option<String>,
+    /// Banned words this one id may use, in the owner's own sense ("a piece" of her writing).
+    allows: Vec<String>,
 }
 
 struct Catalog {
@@ -72,6 +74,10 @@ fn parse_catalog(bytes: &[u8]) -> Catalog {
                             .map(|v| v.iter().map(text).collect())
                             .unwrap_or_default(),
                         bare: e.get("bare").and_then(Json::as_str).map(str::to_string),
+                        allows: e["allows"]
+                            .as_array()
+                            .map(|v| v.iter().map(text).collect())
+                            .unwrap_or_default(),
                     };
                     (id.clone(), entry)
                 })
@@ -358,7 +364,13 @@ fn check_text(id: &str, value: &Json, catalog: &Catalog) -> Result<String, Strin
         ));
     }
     if entry.her {
-        if let Some(word) = banned_in(value, &catalog.banned) {
+        let banned: Vec<String> = catalog
+            .banned
+            .iter()
+            .filter(|word| !entry.allows.contains(word))
+            .cloned()
+            .collect();
+        if let Some(word) = banned_in(value, &banned) {
             return Err(format!(
                 "{id} uses “{word}”, a word she never sees on her screens."
             ));
@@ -598,6 +610,16 @@ mod tests {
         );
         assert!(check_text("x.y", &json!("From Git."), &catalog).is_ok());
         assert!(check_text("x.z", &json!("From Git."), &catalog).is_err());
+    }
+
+    #[test]
+    fn an_id_may_allow_one_listed_word_and_no_other_id_gains_it() {
+        let catalog = parse_catalog(
+            br#"{"vars":{"helper":"h","product":"p"},"banned":["piece","sync"],"words":{"v.a":{"text":"Write a piece","layer":"her","max":40,"vars":[],"allows":["piece"]},"v.b":{"text":"a","layer":"her","max":40,"vars":[]}}}"#,
+        );
+        assert!(check_text("v.a", &json!("Write one piece."), &catalog).is_ok());
+        assert!(check_text("v.a", &json!("Sync a piece."), &catalog).is_err());
+        assert!(check_text("v.b", &json!("Write one piece."), &catalog).is_err());
     }
 
     #[test]

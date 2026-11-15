@@ -340,7 +340,7 @@ Voice samples are the author's own writing, captured so Assistant tools can lear
 They are Assistant context, not posts: they are never published, built into the site, added to a
 feed, or exported as content. You write them from the terminal
 ([`openblog voice`](#write-a-voice-sample-from-the-terminal)) or in Admin
-([Voice](#write-a-voice-sample-in-admin)), and you can take them with you
+([Your writing voice](#your-writing-voice)), and you can take them with you
 ([export and import](#move-your-voice-library-between-projects)).
 
 | What | Portable | Private |
@@ -401,36 +401,47 @@ openblog voice erase [--yes]       # list, then erase ALL voice data (see below)
 
 `<sample>` is a file name from `voice --list` or a prompt id. Output is plain text.
 
-### Write a voice sample in Admin
+### Your writing voice
 
-The **Voice** view (`#/voice`) does the same job as `openblog voice`, with the same files and the same rules
-(see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
+Studio's **Your writing voice** (`#/voice`) does the same job as `openblog voice`, with the same files and
+the same rules (see [ADR 0271](adr/0271-admin-voice-routes-are-thin-calls-to-the-session-and-the-store-and-the-server-owns-the-deadline.md)
 to [0277](adr/0277-the-voice-invitation-is-shown-once-on-the-admin-home-and-a-dismissal-is-an-admin-preference.md)).
-The Admin home offers it once, in a **Gather your voice** card, while you have no samples; **Dismiss** keeps
-it away for good.
+On her screens a sample is **a piece**, kept as a **rough draft** and a **polished copy**; where the files
+live is under **For the person who set up your site**. It is reached from the Writing helper screen, from
+Home's one-time invitation and from Find, and it needs no writing helper: only the voice guide does.
 
-1. **Choose what to write about.** **Draw from every pack** shows three prompts; choose one, or
-   **Draw three more**, or **Draw from this pack** in the library.
-2. **Write.** **Start the 3:00 timer**, then write. Spell-check, autocorrect and writing suggestions are off
-   in this box on purpose. The server owns the clock: it is a display, a reload or a lost connection carries on
-   with the original deadline, and text sent after the deadline is refused. Your draft is saved to the server a
-   moment after you stop typing, and a bounded copy stays on the device (cleared after a day, and when you sign
-   out; if your sign-in ends without signing out, signing in again as the same author gets it back). **Finish
-   early** locks it at once. If the time runs out while another window or the terminal is still handing over
-   its last words, this view waits a few seconds instead of locking older text.
-3. **Polish (optional).** The locked rough draft is shown read-only, exactly as written. Below it is a copy
-   to edit: **Reset to rough** starts the copy over and **Save polished draft** saves it, checking that nobody
-   changed it meanwhile. Leaving with unsaved polished edits asks first, and unsaved edits are kept on this
-   device for up to 30 days (cleared on sign-out and by an erase) and offered back after a reload with
-   **Restore** or **Discard**. **Make portable** or **Make private**
-   moves the pair together (the default is private), and **Make a post draft** creates a draft post from the
-   polished draft.
+| Old Admin address | Studio |
+| --- | --- |
+| `#/voice?pack=<id>` | `#/voice/write?pack=<id>` (Write a piece) |
+| `#/voice` | `#/voice` (the hub; **Write a piece** is its first button) |
+| `#/voice/library` | `#/voice` |
+| `#/voice/library/<id>` | `#/voice/piece/<id>` |
+| Assistant › Context › Voice guide | `#/voice/guide` |
 
-The **Sample library** (`#/voice/library`) groups your samples by prompt pack, newest first (a prompt you
-answered on several days has a row per answer), with Rough and
-Polished badges, length, visibility and date, a coverage line per pack, and a note for any file that cannot
-be read and what to do about it. A rough sample opens read-only. The view works on a phone and from the
-keyboard; the timer is not announced every second, only at its marks and when it locks.
+- **The hub** lists her pieces by set, newest first (a prompt answered on several days has a row per
+  answer), with Rough and Polished badges in a word and a shape, a line per set, what isn't written or
+  polished yet, and her voice guide. No piece's text is loaded there.
+- **Write a piece** (`#/voice/write`): choose one of three prompts (**Show me three others** draws again),
+  then **Start writing**. Spell-check, autocorrect and writing suggestions are off in the box on purpose.
+  The server owns the clock: the page shows it, a reload or a lost signal carries on with the original
+  deadline, and text sent after the deadline is refused. The draft goes to the server a moment after typing
+  stops and a bounded copy stays on the phone (a day at most). **I'm done** saves the rough draft at once;
+  leaving while the clock runs asks first. Pieces are always private when written here; three minutes is the
+  only length in Studio (`openblog voice --seconds` keeps the others, and a session started that way shows
+  its own length).
+- **A piece** (`#/voice/piece/<id>`): the rough draft, read only and exactly as written, and a copy to
+  polish. **Start the copy over** and **Use the saved one** apply at once with **Undo**; a copy changed
+  somewhere else asks which to keep; unsaved changes stay on the phone for up to 30 days and are offered
+  back. **Turn it into a post** makes a draft post from the saved polished copy (with **Undo**); a new title
+  gives the post a new name. Moving a piece between private and portable is in the details.
+- **Your voice guide** (`#/voice/guide`): the pieces to learn from are ticked for her (rough drafts first,
+  newest first, never more than 8 pieces or 120,000 letters), and the page says **what goes to which
+  company**, with **Word for word**, before anything is sent. What comes back is shown line by line, each
+  quoting her own words; for each change she chooses **Keep what you had** or **Use the new one**, and
+  nothing is saved until **Save my voice guide** (which writes the guide where it already is, or private).
+  A saved guide can be undone. The diff, the guide's text, **Save as private** / **Save as portable**
+  and **Move** are in the details.
+- **Home** names writing kept only on the phone, and signing out with such writing asks first.
 
 ### Erase your voice data
 
@@ -444,12 +455,14 @@ guide. A guide that quotes private samples, or cannot be read, stays private
 export carries them only with `--include-private`; see below).
 
 `openblog voice erase` lists everything the voice feature stored: samples in both folders, the session
-record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Admin, **Your
-voice samples** has **Erase all voice data…**: it shows the same list and enables **Erase everything**
-only after you type `erase`. The erase is all or nothing (if one file cannot be removed, everything is put
-back) and ends with a second look that says "nothing is left" or names what is. Admin also clears the
-copies of drafts kept on that device. Copies in Git history or backups are not touched, and neither are voice
-export files you wrote yourself (for example `.openblog/private/voice-library.json`): delete those by hand.
+record, the voice guide and leftover editor files. It stops there; add `--yes` to erase. In Studio, **Your
+writing voice › More › Erase all your voice writing…** asks once, in a dialog that says what goes (the
+files are listed in its details); nothing is typed. The erase is all or nothing (if one file cannot be
+removed, everything is put back) and ends with a second look that says "nothing is left" or names what is.
+Studio also clears the copies kept on that phone. Copies in Git history or backups are not touched, and
+neither are voice export files you wrote yourself (for example `.openblog/private/voice-library.json`):
+delete those by hand. Whether an account said **No thanks** to Home's invitation is kept (it isn't her
+writing).
 
 ### Use voice samples and a voice guide with the Assistant
 
@@ -463,7 +476,8 @@ Nothing is sent unless you select it and run a request, and nothing here changes
   total against the limit of 8 samples and 120,000 characters per request; a selection over it is refused
   before anything is sent. The server reads the chosen files again for every request, so the browser only ever
   names a sample. Sample text is sent as data to compare against, never as instructions.
-- **Propose a guide.** Select samples and choose **Propose a voice guide from selected samples**. The provider
+- **Propose a guide.** In Studio this is **Your voice guide** (see [Your writing voice](#your-writing-voice)).
+  The provider
   returns a guide in which every line quotes your own words word for word and names its sample (a result with
   a quote that is not in the sample is rejected, and nothing is shown). A line that rests on one sample is
   marked `(one sample)`, and the guide always ends with *What is not yet known*. The proposal is folded into
@@ -1213,29 +1227,41 @@ files every time by `GET /admin/api/trade-checklist`, which only reads, so it ti
 unticks if that goes away. Each open step links to where it is done. **Hide** stores `tradeChecklistDismissed` in
 your workspace preferences; nothing else is stored. See [A site for a trade business](trades.md#the-checklist-on-admins-home).
 
-### Design a theme
+### Describe a new look
 
-Open **Design a theme** (`#/design`) to describe the look you want in your own words ("warm like my kitchen at
-Christmas, deep red and pine green, big easy-to-read writing"), or start from one of the ideas. The Assistant
-drafts a theme, and the screen shows its name, a sentence on what it chose, its colours as swatches, and your
-own home page in it at Phone, Tablet and Desktop sizes, in light or dark. **Change it** asks for a change in
-words ("a little warmer"); **Save this theme** makes it a new theme with the name you give it.
+Studio's **Describe a new look** (`#/look/design`, reached from **Look** while the writing helper is set up,
+and from Find; the old `#/design` opens it) takes the look you describe in your own words, or one of five
+ideas. Your writing helper drafts a look, and the screen shows its name, a sentence on what it chose and its
+six colours by name, for light and for dark. **See it on your front page** shows your own front page in it,
+in light or dark. **Change it** asks for a change in words ("a little warmer"), with **Back to the one
+before**; **Change** beside a colour lets you pick that one colour yourself. **Save this look** makes it a new
+look with the name you give it, then offers **Put it up now**, **Add it to your calendar** and, for ten
+minutes while it isn't in use, **Undo**.
 
-- **Start from** chooses which of your themes the new one builds on. It keeps that theme's layout and decorations
-  (its garland, its snow, its components) and changes the colours and the writing.
-- **What the Assistant can choose** is deliberately small: six colours for light and six for dark, a font for the
+- **Start from** chooses which of your looks the new one builds on. It keeps that look's layout and
+  seasonal touches and changes the colours and the lettering.
+- **What the helper can choose** is deliberately small: six colours for light and six for dark, a font for the
   writing and one for headings from a fixed list, a corner style and a text size. It is never CSS, a script, an
-  image or a font file. The server checks every answer, refuses any other field, and makes every colour that
-  carries writing easy to read (body text at 7:1, the rest at 4.5:1), saying in a sentence what it changed.
+  image or a font file. The server checks every answer and refuses any other field.
+- **Colours are made easy to read, whoever chose them.** The preview and the save both rebuild the look on
+  the server from the draft: writing at 7:1 where it can be and never under 4.5:1 on the page and on boxes,
+  quiet writing, links and the text on a button at 4.5:1. A colour that is moved, or that cannot get there
+  and is replaced (writing by black or white, quiet writing and links by the writing colour, boxes by the
+  page colour), is shown as it will be with a sentence saying what changed. The page may warn early; it
+  never decides what is saved.
+- **Look's own choices still apply on top.** A main colour, lettering or corners chosen on **Look** are worn
+  over whatever look is up, a new one included; the preview applies them as a build does and the screen says
+  which.
 - **Nothing changes until you choose.** Drafting and previewing write nothing. Saving only creates
-  `themes/<new name>/theme.json`; it never replaces a theme and never puts the new one on. Choose it on
-  **Seasons**, for the whole site or as a season of its own.
+  `themes/<new name>/theme.json`; it never replaces a look, refuses a name you already have, and never puts
+  the new one up.
 
-It needs the Assistant set up (see [Optional question generation](#optional-question-generation)). Your
-description is sent to the provider you configured, as data it is told never to follow as instructions, and
-nothing else from your site is sent but its title and the name of the theme you start from. The routes are
-`GET theme-draft` (the themes to start from), `POST theme-draft`, `POST theme-draft/preview` and
-`POST theme-draft/save`, behind the session and the CSRF check
+It needs the writing helper set up (see [The writing helper](#the-writing-helper)). Your description is sent
+to the company you configured, as data it is told never to follow as instructions, and nothing else from your
+site is sent but its title and the name of the look you start from; the screen says so before you press
+**Draft a look**. The routes are `GET theme-draft`, `POST theme-draft`, `POST theme-draft/preview` (which
+answers the readable `colors`, the `changes` as data and `lookApplied`), `POST theme-draft/save` (which
+answers an `undoToken`) and `DELETE theme-draft/<name>?undo=<token>`, behind the session and the CSRF check
 ([ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
 
 ### Seasons

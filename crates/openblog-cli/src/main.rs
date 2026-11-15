@@ -26,11 +26,13 @@ mod landing_history;
 mod landing_store;
 mod mentions;
 mod notebook_store;
+mod onboarding;
 mod outcomes;
 mod paths_exchange;
 mod photo;
 mod pinterest;
 mod portable_export;
+mod private_file;
 mod private_guard;
 mod publish;
 mod quote_relay;
@@ -92,6 +94,9 @@ COMMANDS
     serve --admin              Also serve the login-protected editor at /admin
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
+    onboarding status | reset <user> | reset --all
+                               Where each account stands with Getting started,
+                               and showing it to an account again (docs/deploy.md)
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, the post's
                                cited references as CSL JSON or BibTeX, a recipe as
@@ -845,6 +850,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             )
         }
         "user" => user_command(&root, &args),
+        "onboarding" => onboarding_command(&root, &args),
         "publish" => {
             let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
             let config = site::load_config(&root)?;
@@ -1378,6 +1384,7 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
     let readiness = readiness::report_of_all(root, &site);
     let checked = check_site(root, &mut site, &themes, readiness.applies, json);
     let words = check_studio_words(&site.config, json);
+    let onboarding = check_onboarding(&site.config, json);
     let refused = (readiness.blocking() > 0).then(|| {
         format!(
             "research readiness: {} finding(s) refuse the next build{}",
@@ -1390,6 +1397,7 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
             .as_ref()
             .err()
             .or(words.as_ref().err())
+            .or(onboarding.as_ref().err())
             .or(refused.as_ref());
         print!("{}", check_envelope(Some(&readiness), error));
     } else {
@@ -1399,7 +1407,99 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
     }
     checked?;
     words?;
+    onboarding?;
     refused.map_or(Ok(()), Err)
+}
+
+/// Getting started (docs/deploy.md): the mode in effect and where it came from, and anything
+/// wrong with the switch. A problem in the site's own file fails the check; one in the server's
+/// environment is a warning (it belongs to that server, not to the site).
+fn check_onboarding(config: &openblog_core::config::SiteConfig, quiet: bool) -> Result<(), String> {
+    let environment = onboarding::environment_value();
+    let mode = onboarding::mode_for(environment.as_deref(), config);
+    if !quiet && (mode.source != onboarding::Source::Nothing || !mode.problems.is_empty()) {
+        eprintln!(
+            "getting started: {}, set by {}",
+            onboarding_words(&mode),
+            onboarding::source_words(&mode)
+        );
+    }
+    // The site's own value is checked even when the server's switch wins over it.
+    let site = onboarding::mode_from(None, config.studio.onboarding.as_ref());
+    if !quiet && mode.source == onboarding::Source::Environment {
+        for problem in &mode.problems {
+            eprintln!("warning: {problem}");
+        }
+    }
+    match site.problems.first() {
+        None => Ok(()),
+        Some(problem) => {
+            if !quiet {
+                eprintln!("error: {problem}");
+            }
+            Err(
+                "studio.onboarding in openblog.json isn't off or on; Getting started is off."
+                    .into(),
+            )
+        }
+    }
+}
+
+/// `off`, `on`, `on (round 2)` or `rehearse`.
+fn onboarding_words(mode: &onboarding::Mode) -> String {
+    match &mode.kind {
+        onboarding::Kind::On { round } if round != onboarding::DEFAULT_ROUND => {
+            format!("on (round {round})")
+        }
+        _ => mode.name().to_string(),
+    }
+}
+
+/// `openblog onboarding status | reset <user> | reset --all`: where each account stands with
+/// Getting started, and showing it to an account again. A reset removes that account's record
+/// and nothing else: its stories stay.
+fn onboarding_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
+    let config = site::load_config(root)?;
+    let users = auth::Users::load(&root.join(&config.admin.users_file))?;
+    let names: Vec<String> = users.users.iter().map(|user| user.name.clone()).collect();
+    let environment = onboarding::environment_value();
+    let mode = onboarding::mode_for(environment.as_deref(), &config);
+    match args.positional.first().map(String::as_str).unwrap_or("") {
+        "status" => {
+            println!(
+                "Getting started is {}, set by {}.",
+                onboarding_words(&mode),
+                onboarding::source_words(&mode)
+            );
+            for problem in &mode.problems {
+                println!("problem: {problem}");
+            }
+            if names.is_empty() {
+                println!("No users. Add one with `openblog user add <name>`.");
+            }
+            for account in onboarding::accounts(root, &names) {
+                println!("{}", onboarding::account_line(&account));
+            }
+            Ok(())
+        }
+        "reset" => {
+            let all = args.switches.contains("all");
+            let chosen: Vec<String> = match (all, args.positional.get(1)) {
+                (true, None) => names,
+                (false, Some(name)) if names.iter().any(|n| n == name) => vec![name.clone()],
+                (false, Some(name)) => return Err(format!("no user named `{name}`")),
+                _ => return Err("usage: openblog onboarding reset <user> | --all".into()),
+            };
+            for name in &chosen {
+                onboarding::remove(root, name, false)?;
+                println!(
+                    "{name} will see Getting started at the next sign-in. Their stories stay."
+                );
+            }
+            Ok(())
+        }
+        _ => Err("usage: openblog onboarding status | reset <user> | reset --all".into()),
+    }
 }
 
 /// Studio's words (docs/studio-words.md): each change in `studio.words` and in the host's file

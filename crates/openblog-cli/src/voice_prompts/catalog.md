@@ -252,3 +252,30 @@ Before you touch anything, what do you look at? Tell it in the order you do it, 
 ### the-day-i-knew-i-was-good-at-this: The day I knew I was good at this
 words: 80-200
 Think of the moment you realized you had it figured out. Where were you, what had just happened, and what did it feel like?
+
+## getting-started: Getting started
+Short stories, the way you'd tell them to a friend.
+
+### a-meal-you-love: A meal you love
+words: 40-150
+Who makes it, when you have it, and what it tastes like.
+
+### a-place-from-when-you-were-young: A place from when you were young
+words: 40-150
+Somewhere you spent time growing up: what it looked like, and what you did there.
+
+### someone-who-taught-you: Someone who taught you something
+words: 40-150
+Who they were, what they showed you, and how you still use it.
+
+### a-day-you-still-remember: A day you still remember
+words: 40-150
+One day that stayed with you: where you were, who was there, and what happened.
+
+### something-you-make-or-do-well: Something you make or do well
+words: 40-150
+What it is, how you learned it, and what you'd tell someone trying it for the first time.
+
+### something-that-made-you-laugh: Something that made you laugh
+words: 40-150
+A moment that still makes you smile: what happened, and who was there to see it.

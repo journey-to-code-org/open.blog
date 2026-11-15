@@ -168,11 +168,11 @@ export async function createDecorations({ api, meta }) {
     requestAnimationFrame(() => rows.children[Math.min(index, windows().length - 1)]?.querySelector(".studio-season-open")?.focus());
   }
 
-  function addSeason() {
+  function addSeason(look = "") {
     const list = windows();
     const last = list[list.length - 1];
     const start = last ? dayAfter(`2028-${last.end}`).slice(5) : "12-01";
-    list.push({ theme: draft.theme, start, end: start, fresh: true });
+    list.push({ theme: look || draft.theme, start, end: start, fresh: true });
     draft.seasons.windows = list;
     changed();
     say(`Season ${list.length} of ${list.length} added. Not saved yet.`);
@@ -357,9 +357,16 @@ export async function createDecorations({ api, meta }) {
       adopt(await api.get("seasons"));
       pieces.load({ wearing: saved.wearing });
       // From Find anywhere: "Put a look up now" lands here and asks straight away.
-      if (new URLSearchParams(location.hash.split("?")[1] || "").get("do") === "putup") {
+      // And from Describe a new look (R9): ?do=putup&look=<name> asks about that look, and
+      // ?add=<name> starts a season with it. A name that isn't one of her looks does nothing.
+      const query = new URLSearchParams(location.hash.split("?")[1] || "");
+      const named = (name) => (looks.some((look) => look.value === name) ? name : "");
+      if (query.get("do") === "putup") {
         history.replaceState(null, "", "#/decorations");
-        putUp(saved.next?.theme || saved.wearing);
+        putUp(named(query.get("look")) || saved.next?.theme || saved.wearing);
+      } else if (named(query.get("add"))) {
+        history.replaceState(null, "", "#/decorations");
+        addSeason(named(query.get("add")));
       }
     } catch (error) {
       card.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations didn't load" }, error.message,

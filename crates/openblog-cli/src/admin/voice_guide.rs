@@ -80,18 +80,25 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Err(response) => return response,
     };
     if sample_ids.is_empty() {
-        return Response::error(400, "Select at least one voice sample");
+        return coded_error(400, "no-pieces", "Select at least one voice sample");
     }
     if sample_ids.iter().any(|id| !id.starts_with("voice:")) {
         return Response::error(400, "A voice guide is proposed from voice samples only");
     }
+    // A practice run (Getting started in `rehearse`, G74) learns from the practice stories only:
+    // the real pieces and the real guide are neither read nor sent.
+    let practice = body["practice"] == true;
+    let root = match voice::store_root(state, practice) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let (skill, samples, portable, private) = {
         let _assistant_lock = lock(&state.build);
         let skill = match resolve_guide_skill(&state.root) {
             Ok(skill) => skill,
             Err(response) => return response,
         };
-        let samples = match resolve_review_contexts(&state.root, &sample_ids) {
+        let samples = match resolve_review_contexts(&root, &sample_ids) {
             Ok(samples) => samples,
             Err(response) => return response,
         };
@@ -105,7 +112,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         };
         (skill, samples, portable, private)
     };
-    let usable = |doc: &Json| doc["exists"] == true && doc["valid"] == true;
+    let usable = |doc: &Json| !practice && doc["exists"] == true && doc["valid"] == true;
     let current = match body["guide"].as_str() {
         None => [&portable, &private].into_iter().find(|doc| usable(doc)),
         Some("portable") => Some(&portable).filter(|doc| usable(doc)),
@@ -134,7 +141,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         current_text.clone(),
         samples.clone(),
         crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
-            &state.root,
+            &root,
             current_text.as_deref(),
         )),
     );
@@ -156,7 +163,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
     // the free text around them are kept, and a changed trait waits for the author's choice.
     let saved = SavedGuide::parse(current_text.as_deref().unwrap_or(""));
     let merged = merge(&saved, &guide);
-    let carried = crate::voice_store::carried_samples(&state.root, &saved);
+    let carried = crate::voice_store::carried_samples(&root, &saved);
     // The merged guide carries the saved guide's text, and a statement is free text that no quote
     // check covers. So a private guide, one that quotes private samples, or one whose traits cite a
     // sample that is private now makes the result private-derived whatever samples were selected.

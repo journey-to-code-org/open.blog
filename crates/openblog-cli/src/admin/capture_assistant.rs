@@ -18,7 +18,42 @@ enum Engine {
         kind: AssistantProviderKind,
         model: String,
     },
+    /// The helper's company can't take audio, and the server's environment holds a key for one
+    /// that can (Studio R9b, G76). It is used for turning recordings into words and nothing else.
+    Hearing {
+        kind: AssistantProviderKind,
+        model: String,
+        credential: String,
+    },
     Unavailable(&'static str),
+}
+
+/// A model for a hearing key whose company has no fixed one (Gemini).
+const HEARING_MODEL_ENVIRONMENT: &str = "OPENBLOG_TRANSCRIBE_MODEL";
+
+/// A key in the server's environment that can hear, for a helper whose company can't: OpenAI's
+/// first, then Gemini's (which also needs a model named, as it has no fixed one for audio). Read
+/// from the environment only: a key saved for the helper is never borrowed for this.
+fn hearing_key() -> Option<Engine> {
+    let key = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    if let Some(credential) = key("OPENAI_API_KEY") {
+        return Some(Engine::Hearing {
+            kind: AssistantProviderKind::OpenAi,
+            model: String::new(),
+            credential,
+        });
+    }
+    let model = key(HEARING_MODEL_ENVIRONMENT)?;
+    key("GEMINI_API_KEY").map(|credential| Engine::Hearing {
+        kind: AssistantProviderKind::Gemini,
+        model,
+        credential,
+    })
 }
 
 fn engine_for(config: &SiteConfig) -> Engine {
@@ -27,6 +62,9 @@ fn engine_for(config: &SiteConfig) -> Engine {
     }
     let provider = config.knowledge_checks.provider;
     if !provider_transcribes(provider) {
+        if let Some(hearing) = hearing_key() {
+            return hearing;
+        }
         return Engine::Unavailable(
             "The configured Assistant provider does not take audio. Type your notes instead.",
         );
@@ -65,6 +103,48 @@ fn stored_note(state: &AppState, id: &str) -> Result<(PathBuf, Vec<u8>, &'static
     Ok((path, bytes, extension))
 }
 
+fn company_of(kind: AssistantProviderKind) -> &'static str {
+    match kind {
+        AssistantProviderKind::OpenAi => "OpenAI",
+        AssistantProviderKind::Gemini => "Google",
+        _ => "",
+    }
+}
+
+/// The site's transcriber, ready to use, or the refusal to answer with: the local engine, the
+/// helper's own company when it takes audio, or a hearing key from the environment. Shared by a
+/// job's voice note and a story told out loud.
+pub(super) fn transcriber(
+    state: &AppState,
+) -> Result<(Box<dyn AssistantTranscriber>, &'static str), Response> {
+    let (config, credential) = assistant_provider_snapshot(state)?;
+    let timeout = assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test));
+    match engine_for(&config) {
+        Engine::Local(command) => Ok((
+            Box::new(LocalCommandTranscriber::new(command, timeout)),
+            "local",
+        )),
+        Engine::Provider { kind, model } => {
+            match ProviderTranscriber::new(kind, credential, &model, timeout) {
+                Ok(provider) => Ok((Box::new(provider), "provider")),
+                Err(error) => Err(review_error(error)),
+            }
+        }
+        Engine::Hearing {
+            kind,
+            model,
+            credential,
+        } => match ProviderTranscriber::new(kind, Some(credential), &model, timeout) {
+            Ok(provider) => Ok((Box::new(provider), "provider")),
+            Err(error) => Err(review_error(error)),
+        },
+        Engine::Unavailable(reason) => Err(Response::json(
+            404,
+            &json!({ "error": reason, "code": "not-configured" }),
+        )),
+    }
+}
+
 fn kb(bytes: usize) -> usize {
     bytes.div_ceil(1024)
 }
@@ -83,15 +163,18 @@ fn disclosure(engine: &Engine, audio: Option<(usize, &str)>) -> Json {
         Engine::Local(_) => json!({
             "available": true,
             "engine": "local",
+            "company": null,
             "destination": "this server",
             "model": null,
             "leavesServer": false,
             "sends": sends,
             "keeps": "The transcript is kept privately on your server, beside the note, and shown to you as notes to edit.",
         }),
-        Engine::Provider { kind, model } => json!({
+        Engine::Provider { kind, model } | Engine::Hearing { kind, model, .. } => json!({
             "available": true,
             "engine": "provider",
+            // The company by name, so a page can say "What goes to OpenAI" (G76).
+            "company": company_of(*kind),
             "provider": kind.as_str(),
             "destination": assistant_provider_destination(*kind),
             "model": if *kind == AssistantProviderKind::OpenAi { OPENAI_TRANSCRIPTION_MODEL } else { model.as_str() },
@@ -157,22 +240,9 @@ pub(super) fn transcribe(state: &AppState, req: &Request) -> Response {
         Ok(note) => note,
         Err(response) => return response,
     };
-    let (config, credential) = match assistant_provider_snapshot(state) {
-        Ok(snapshot) => snapshot,
+    let (transcriber, _) = match transcriber(state) {
+        Ok(found) => found,
         Err(response) => return response,
-    };
-    let timeout = assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test));
-    let transcriber: Box<dyn AssistantTranscriber> = match engine_for(&config) {
-        Engine::Local(command) => Box::new(LocalCommandTranscriber::new(command, timeout)),
-        Engine::Provider { kind, model } => {
-            match ProviderTranscriber::new(kind, credential, &model, timeout) {
-                Ok(provider) => Box::new(provider),
-                Err(error) => return review_error(error),
-            }
-        }
-        Engine::Unavailable(reason) => {
-            return Response::json(404, &json!({ "error": reason, "code": "not-configured" }))
-        }
     };
     let _permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,

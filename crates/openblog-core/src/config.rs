@@ -189,11 +189,18 @@ pub struct SiteConfig {
     pub studio: StudioConfig,
 }
 
-/// The `studio` object of `openblog.json`. Only `words` for now.
+/// The `studio` object of `openblog.json`: Studio's `words`, and whether a new owner is walked
+/// through Getting started (`onboarding`: `"off"` or `"on"`).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct StudioConfig {
+    #[serde(skip_serializing_if = "StudioWords::is_empty")]
     pub words: StudioWords,
+    /// `"off"` or `"on"`. Kept as JSON, like the words, so a wrong value is a problem the server
+    /// reports (and reads as off), never a site that fails to load. The server's
+    /// `OPENBLOG_STUDIO_ONBOARDING` wins over it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onboarding: Option<serde_json::Value>,
 }
 
 impl StudioConfig {
@@ -212,6 +219,12 @@ pub struct StudioWords {
     pub vars: BTreeMap<String, serde_json::Value>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub text: BTreeMap<String, serde_json::Value>,
+}
+
+impl StudioWords {
+    fn is_empty(&self) -> bool {
+        self.vars.is_empty() && self.text.is_empty()
+    }
 }
 
 /// Whether posts offer readers local highlights and private notes. Off by
@@ -1888,6 +1901,25 @@ mod captcha_tests {
         // Absent, it is not written back.
         let plain = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
         assert!(!serde_json::to_string(&plain).unwrap().contains("studio"));
+        // Getting started: any JSON value loads (a wrong one is the server's problem to report),
+        // and an unknown key beside it is still refused.
+        let on = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"onboarding":"on"}}"#,
+        )
+        .unwrap();
+        assert_eq!(on.studio.onboarding, Some(serde_json::json!("on")));
+        assert!(serde_json::to_string(&on)
+            .unwrap()
+            .contains(r#""studio":{"onboarding":"on"}"#));
+        let odd = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"onboarding":"rehearse"}}"#,
+        )
+        .unwrap();
+        assert_eq!(odd.studio.onboarding, Some(serde_json::json!("rehearse")));
+        assert!(SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","studio":{"onbording":"on"}}"#
+        )
+        .is_err());
     }
 
     /// Every top-level `openblog.json` key has to be mentioned in `docs/configuration.md`, which

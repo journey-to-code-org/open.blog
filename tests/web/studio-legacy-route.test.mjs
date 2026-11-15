@@ -38,7 +38,23 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "voice", "design"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["research", "shared"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+});
+
+test("R9: the sample library is Your writing voice, a sample is A piece, and Design a theme is Describe a new look", () => {
+  assert.equal(legacyRoute("#/voice/library"), "#/voice");
+  assert.equal(legacyRoute("#/voice/library/2026-10-20-a-mistake-rough"), "#/voice/piece/2026-10-20-a-mistake-rough");
+  assert.equal(legacyRoute("#/voice/library/2026-10-20-a-rough?visibility=private"), "#/voice/piece/2026-10-20-a-rough?visibility=private");
+  assert.equal(legacyRoute("#/design"), "#/look/design");
+  assert.equal(legacyRoute("#/design?x=1"), "#/look/design?x=1");
+  // The old session was #/voice, which is now the hub's own address: a link that names a set is
+  // the old session's and opens Write a piece with it; a bare one opens the hub.
+  assert.equal(legacyRoute("#/voice?pack=stories"), "#/voice/write?pack=stories");
+  for (const own of ["#/voice", "#/voice/write", "#/voice/write?pack=stories", "#/voice/piece/2026-10-20-a-rough", "#/voice/guide", "#/look/design", "#/look"]) {
+    assert.equal(legacyRoute(own), null, `${own} is Studio's own`);
+  }
+  // Nothing voice- or design-related opens "not yet" any more.
+  for (const old of ["#/voice", "#/voice/library", "#/design"]) assert.doesNotMatch(String(legacyRoute(old)), /not-yet/);
 });
 
 test("R5: Contributors is People, and a post's Settings pane is About this post", () => {

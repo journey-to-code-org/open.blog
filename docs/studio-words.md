@@ -244,7 +244,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `common.forHelper` | her | For {helper} | `{helper}` | 40 |
 | `common.keepsHappening` | her | Try again, and if it keeps happening, tell {helper}. | `{helper}` | 104 |
 | `common.letKnow` | her | Let {helper} know. | `{helper}` | 40 |
+| `common.stopWaiting` | her | Stop waiting | none | 40 |
 | `common.tell` | her | Tell {helper}. | `{helper}` | 40 |
+| `common.tryAgain` | her | Try again | none | 40 |
+| `common.whatGoes` | her | What goes to {company} | `{company}` | 44 |
+| `common.wordForWord` | her | Word for word | none | 40 |
 | `copy.notReady` | her | Your blog can't make a copy for it right now. Try another, or tell {helper}. | `{helper}` | 152 |
 | `decorations.betweenOff` | her | The look {product} wears while the calendar is off. | `{product}` | 102 |
 | `decorations.byItself` | her | {product} changes by itself on the days below. | `{product}` | 92 |
@@ -255,6 +259,125 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `decorations.noSeasons` | her | Add one, like Christmas from December 1 to January 6, and {product} changes by itself. | `{product}` | 172 |
 | `decorations.putUpEarly` | her | {product} is decorated for {theme}, put up early. It stays up through {until}. | `{product}` `{theme}` `{until}` | 156 |
 | `decorations.whenYouSave` | her | When you save, {product} wears {theme} every day. Your seasons are kept for when you turn this back on. | `{product}` `{theme}` | 206 |
+| `design.addSeason` | her | Add it to your calendar | none | 46 |
+| `design.another` | her | Describe another look | none | 42 |
+| `design.back` | her | Back to the one before | none | 44 |
+| `design.backDone` | her | Back to the one before. | none | 46 |
+| `design.badIdea` | her | Your helper's idea couldn't be used, so nothing changed. Try again, or say it another way. | none | 180 |
+| `design.baseGone` | her | That look isn't on your site any more. Choose another to start from. | none | 136 |
+| `design.baseHelp` | her | Your new look keeps this look's layout and seasonal touches, and changes the colors and lettering. | none | 196 |
+| `design.baseLabel` | her | Start from | none | 40 |
+| `design.baseOwn` | her | The look your site has now | none | 52 |
+| `design.cantSave` | her | This look couldn't be saved. Try drafting it again. | none | 102 |
+| `design.change` | her | Change it | none | 40 |
+| `design.changeColor` | her | Change {role} | `{role}` | 40 |
+| `design.changeLabel` | her | Want something different? Say what to change | none | 88 |
+| `design.changePlaceholder` | her | For example: a little warmer, and less green. | none | 90 |
+| `design.changeShort` | her | Change | none | 40 |
+| `design.changing` | her | Changing it… | none | 40 |
+| `design.colorAdjusted` | her | {role} changed, and made a little {way} so it's easy to read. | `{role}` `{way}` | 122 |
+| `design.colorLabel` | her | {role} color | `{role}` | 40 |
+| `design.colorPicked` | her | {role} changed. | `{role}` | 40 |
+| `design.colorReplaced` | her | {role} couldn't be made easy to read, so it uses {replacement} instead. | `{role}` `{replacement}` | 142 |
+| `design.colorUndo` | her | Undo | none | 40 |
+| `design.colorUndone` | her | {role} is back as it was. | `{role}` | 50 |
+| `design.colorWillAdjust` | her | That's hard to read on this page color, so {product} will adjust it until it's easy to read. | `{product}` | 184 |
+| `design.darker` | her | darker | none | 40 |
+| `design.describeEmpty` | her | Describe the look you want in a few words first. | none | 96 |
+| `design.describeLabel` | her | Describe the look you want | none | 52 |
+| `design.describeLong` | her | That's {n} letters; the most is 1,000. Say it a little shorter. | `{n}` | 126 |
+| `design.describePlaceholder` | her | For example: warm and cozy, deep red and pine green, big easy-to-read writing. | none | 156 |
+| `design.detailsBase` | details | Extends the theme “{base}”. | `{base}` | 54 |
+| `design.detailsColor` | details | {role}: {given} given, {made} saved | `{role}` `{given}` `{made}` | 70 |
+| `design.detailsColors` | details | Colors as they will be saved ({scheme}) | `{scheme}` | 78 |
+| `design.detailsDraft` | details | The draft as it is sent | none | 46 |
+| `design.detailsLimits` | details | The helper may only propose six colours per scheme, a font, corners and a size; the server refuses anything else. | none | 200 |
+| `design.detailsLook` | details | Look choices applied in the preview: {list} | `{list}` | 86 |
+| `design.detailsPath` | details | Saved in {path}. | `{path}` | 40 |
+| `design.detailsRatio` | details | {role} on {ground}: {ratio} to 1 | `{role}` `{ground}` `{ratio}` | 64 |
+| `design.draft` | her | Draft a look | none | 40 |
+| `design.drafting` | her | Drafting a look… This can take a minute. | none | 80 |
+| `design.easyToRead` | her | Easy to read | none | 40 |
+| `design.findDesign` | her | Describe a new look | none | 40 |
+| `design.fromBase` | her | as in {base} | `{base}` | 40 |
+| `design.goes` | her | What goes to {company}: your description, your site's name and the name of the look you start from. Nothing else. | `{company}` | 226 |
+| `design.helperOff` | her | Your writing helper isn't turned on, so it can't draft a look. | none | 124 |
+| `design.home` | her | Home | none | 40 |
+| `design.idea1` | her | Warm and cozy: deep red, pine green and a little gold, with big easy-to-read writing. | none | 170 |
+| `design.idea1Name` | her | Warm and cozy | none | 40 |
+| `design.idea2` | her | Spring garden: soft greens and lilac on a light page, gentle and airy. | none | 140 |
+| `design.idea2Name` | her | Spring garden | none | 40 |
+| `design.idea3` | her | Bold and clear: navy, white and one strong red, square corners, easy to read from across a room. | none | 192 |
+| `design.idea3Name` | her | Bold and clear | none | 40 |
+| `design.idea4` | her | Fall harvest: burnt orange, wheat and deep brown, warm like a farm table. | none | 146 |
+| `design.idea4Name` | her | Fall harvest | none | 40 |
+| `design.idea5` | her | Calm night: a dark blue page with warm gold links, quiet and easy on the eyes. | none | 156 |
+| `design.idea5Name` | her | Calm night | none | 40 |
+| `design.ideasLabel` | her | Or start from an idea | none | 42 |
+| `design.inDark` | her | dark mode | none | 40 |
+| `design.inLight` | her | light mode | none | 40 |
+| `design.leaveAsk` | her | Leave without saving this look? | none | 62 |
+| `design.leaveGo` | her | Leave | none | 40 |
+| `design.leaveStay` | her | Stay | none | 40 |
+| `design.leaveText` | her | The look your helper drafted isn't kept anywhere. | none | 98 |
+| `design.lede` | her | Say what you'd like: the colors, the feeling, how big the writing is. Your writing helper drafts a look and shows it on your own front page. Nothing changes until you save it and put it up. | none | 240 |
+| `design.letteringLine` | her | Lettering: {body} for writing, {heading} for headings. Corners: {corners}. Writing size: {size}. | `{body}` `{heading}` `{corners}` `{size}` | 192 |
+| `design.lighter` | her | lighter | none | 40 |
+| `design.loadFailed` | her | This didn't load. | none | 40 |
+| `design.look` | her | Look | none | 40 |
+| `design.lookAccentNote` | her | While a main color is chosen on How your site looks, links and buttons use that instead. | none | 176 |
+| `design.lookLink` | her | How your site looks | none | 40 |
+| `design.lookOverrides` | her | Your choices on How your site looks still apply on top: {choices}. | `{choices}` | 132 |
+| `design.madeReadable` | her | Changed a little so it's easy to read | none | 74 |
+| `design.nameEmpty` | her | Give your new look a name. | none | 52 |
+| `design.nameHelp` | her | How it's listed in Decorations. | none | 62 |
+| `design.nameLabel` | her | Name | none | 40 |
+| `design.nameLine` | her | Keep the name on one line. | none | 52 |
+| `design.nameLong` | her | Keep the name to 40 letters or fewer. | none | 74 |
+| `design.nameTaken` | her | You already have a look called “{name}”. Choose another name. | `{name}` | 122 |
+| `design.noSignal` | her | Drafting a look needs a signal. What you typed is kept here. | none | 120 |
+| `design.notSaved` | her | That wasn't saved. Try again in a moment. | none | 82 |
+| `design.noteDarker` | her | In {scheme}, the {role} is a little darker so it's easy to read. | `{scheme}` `{role}` | 128 |
+| `design.noteLighter` | her | In {scheme}, the {role} is a little lighter so it's easy to read. | `{scheme}` `{role}` | 130 |
+| `design.noteReplaced` | her | In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 176 |
+| `design.previewBack` | her | Back to your new look | none | 42 |
+| `design.previewFailed` | her | Your front page couldn't be shown just now. Your new look is still here. | none | 144 |
+| `design.previewFrame` | her | Your front page in the new look | none | 62 |
+| `design.previewHeading` | her | Your front page in the new look | none | 62 |
+| `design.previewNote` | her | Only you can see this. Nothing is saved yet. | none | 88 |
+| `design.putUp` | her | Put it up now | none | 40 |
+| `design.resultNote` | her | Here's an idea. See it on your front page, change it if you like, then save it. | none | 158 |
+| `design.roleAccent` | her | Links and buttons | none | 40 |
+| `design.roleBorder` | her | Edges | none | 40 |
+| `design.roleMuted` | her | Quiet writing (dates and notes) | none | 62 |
+| `design.rolePage` | her | Page | none | 40 |
+| `design.roleSurface` | her | Boxes | none | 40 |
+| `design.roleText` | her | Writing | none | 40 |
+| `design.save` | her | Save this look | none | 40 |
+| `design.saved` | her | Saved as “{name}”. It isn't on your site yet. | `{name}` | 90 |
+| `design.savedNotBuilt` | her | Saved as “{name}”. Your site couldn't be updated just now; it will be with your next change. | `{name}` | 184 |
+| `design.savedToast` | her | Saved as “{name}”. | `{name}` | 40 |
+| `design.schemeDark` | her | Dark | none | 40 |
+| `design.schemeLabel` | her | Colors for | none | 40 |
+| `design.schemeLight` | her | Light | none | 40 |
+| `design.see` | her | See it on your front page | none | 50 |
+| `design.setUp` | details | Set it up | none | 40 |
+| `design.still` | her | Still drafting. | none | 40 |
+| `design.stopped` | her | Stopped waiting. Nothing changed. | none | 66 |
+| `design.title` | her | Describe a new look | none | 40 |
+| `design.undo` | her | Undo | none | 40 |
+| `design.undoTooLate` | her | “{name}” is in use or was changed, so it stays. | `{name}` | 94 |
+| `design.unsaved` | her | “{name}” is gone. | `{name}` | 40 |
+| `design.useSuggested` | her | Use the suggested {role} | `{role}` | 48 |
+| `design.wfwBase` | her | The look you start from: {base} | `{base}` | 62 |
+| `design.wfwChange` | her | What to change: {description} | `{description}` | 58 |
+| `design.wfwDescription` | her | Your description: {description} | `{description}` | 62 |
+| `design.wfwPrevious` | her | The look as drafted so far: {draft} | `{draft}` | 70 |
+| `design.wfwSite` | her | Your site's name: {site} | `{site}` | 48 |
+| `design.withBlack` | her | black | none | 40 |
+| `design.withPage` | her | the page color | none | 40 |
+| `design.withText` | her | the writing color | none | 40 |
+| `design.withWhite` | her | white | none | 40 |
 | `did.added` | her | {thing} added. | `{thing}` | 40 |
 | `did.cantMoveDown` | her | This is already at the end. | none | 54 |
 | `did.cantMoveUp` | her | This is already at the top. | none | 54 |
@@ -610,6 +733,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `helper.tookTooLongDetail` | details | Provider timeout. | none | 40 |
 | `helper.turnedOff` | her | Your writing helper was turned off. Tell {helper}. | `{helper}` | 100 |
 | `helper.useNotes` | her | Use what your helper knows about you | none | 72 |
+| `helper.voiceHas` | her | Your helper can make suggestions sound like you, from your voice guide. | none | 142 |
+| `helper.voiceLink` | her | Your writing voice | none | 40 |
+| `helper.voiceNone` | her | Write a few short pieces so your helper learns how you sound. | none | 122 |
 | `helper.wfwCant` | her | (This one couldn't be shown just now. It still goes.) | none | 106 |
 | `helper.wfwDetails` | her | This post's details: | none | 40 |
 | `helper.wfwLoading` | her | Getting the words… | none | 40 |
@@ -680,6 +806,15 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `home.readerWaiting` | her | 1 note from a reader is waiting for you | none | 78 |
 | `home.readersWaiting` | her | {n} notes from readers are waiting for you | `{n}` | 84 |
 | `home.readersWaitingMore` | her | More than {n} notes from readers are waiting for you | `{n}` | 104 |
+| `home.voiceInviteDismiss` | her | No thanks | none | 40 |
+| `home.voiceInviteGone` | her | Okay. It's under Writing helper whenever you want it. | none | 106 |
+| `home.voiceInviteHeading` | her | Show your writing helper how you sound | none | 76 |
+| `home.voiceInviteNotSaved` | her | That couldn't be remembered just now. Try again later. | none | 108 |
+| `home.voiceInviteStart` | her | Try it | none | 40 |
+| `home.voiceInviteText` | her | Write for three minutes on a prompt you choose. It's just for your helper and never appears on {product}. | `{product}` | 210 |
+| `home.voiceInviteUndo` | her | Undo | none | 40 |
+| `home.voiceKept` | her | Your writing voice: changes kept on this phone. | none | 94 |
+| `home.voiceKeptOpen` | her | Open | none | 40 |
 | `hsetup.accepted` | details | {company} accepted the key. Checked just now. | `{company}` | 90 |
 | `hsetup.add` | details | Add | none | 40 |
 | `hsetup.added` | details | Added. | none | 40 |
@@ -854,6 +989,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `kinds.collectionsAbout` | her | A collection gathers posts on one page, like all your posts on one topic. Put a post in one from the post itself. | none | 226 |
 | `kinds.collectionsEmpty` | her | A collection gathers posts on one page, like all your posts on one topic. | none | 146 |
 | `kinds.pagesAbout` | her | Pages stay put, like About or Contact. Posts come and go by date. | none | 130 |
+| `look.designHeading` | her | Make a new look from your words | none | 62 |
+| `look.designOpen` | her | Describe a new look | none | 40 |
+| `look.designText` | her | Describe the colors and feeling you want. Your writing helper drafts a look you can see before you save it. | none | 214 |
 | `look.notAccepted` | her | Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell {helper}. | `{helper}` | 234 |
 | `notify.appSwitch` | her | News from your other apps | none | 50 |
 | `notify.canTurnOn` | her | {helper} can turn them on. Your blog works the same without them. | `{helper}` | 130 |
@@ -1981,6 +2119,274 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `visitors.visits` | her | {n} visits | `{n}` | 40 |
 | `visitors.visitsFor` | her | {n} visits | `{n}` | 40 |
 | `visitors.weekOf` | her | the week of {day} | `{day}` | 40 |
+| `voice.announceDone` | her | Your rough draft is saved as you wrote it. | none | 84 |
+| `voice.announceLeft` | her | {time} left. | `{time}` | 40 |
+| `voice.announceResumed` | her | Back where you were. {time} left. | `{time}` | 66 |
+| `voice.announceTimeUp` | her | Time's up. Your rough draft is saved as you wrote it. | none | 106 |
+| `voice.another` | her | Write another | none | 40 |
+| `voice.back` | her | Your writing voice | none | 40 |
+| `voice.backToList` | her | Back to your pieces | none | 40 |
+| `voice.badgePolished` | her | Polished | none | 40 |
+| `voice.badgeRough` | her | Rough | none | 40 |
+| `voice.cantPolish` | her | This rough draft can't be read, so it can't be polished. | none | 112 |
+| `voice.catalogWarning` | details | Your own prompts file: {warning} | `{warning}` | 64 |
+| `voice.checkAgain` | her | Check again | none | 40 |
+| `voice.checkGone` | her | The piece this quotes is gone, so it couldn't be checked. It's kept. | none | 136 |
+| `voice.checkMoved` | her | These words aren't in that piece any more. It's kept; check it. | none | 126 |
+| `voice.choiceKeep` | her | Keep what you had | none | 40 |
+| `voice.choiceLegend` | her | Changed: {statement} | `{statement}` | 40 |
+| `voice.choiceTake` | her | Use the new one | none | 40 |
+| `voice.chooseFirst` | her | Choose a prompt first. | none | 44 |
+| `voice.chooseHeading` | her | What would you like to write about? | none | 70 |
+| `voice.chooseHelp` | her | You get three minutes. Nothing gets corrected, and it never appears on {product}. | `{product}` | 162 |
+| `voice.chooseHelpTime` | her | You get {minutes} minutes. Nothing gets corrected, and it never appears on {product}. | `{minutes}` `{product}` | 170 |
+| `voice.chooseLegend` | her | Choose one | none | 40 |
+| `voice.cli` | details | In a terminal: openblog voice --list shows the same; openblog voice export copies the portable ones. | none | 200 |
+| `voice.conflictGone` | her | It was thrown away or replaced somewhere else. Yours is still here. | none | 134 |
+| `voice.conflictHeading` | her | This copy was changed somewhere else | none | 72 |
+| `voice.conflictKeep` | her | Keep changing mine | none | 40 |
+| `voice.conflictMine` | her | Save mine over it | none | 40 |
+| `voice.conflictText` | her | Yours has {mine} words; the saved one has {theirs}. Nothing is lost: yours is still here. | `{mine}` `{theirs}` | 178 |
+| `voice.conflictTheirs` | her | Use the saved one | none | 40 |
+| `voice.conflictUsedSaved` | her | Showing the saved one. | none | 44 |
+| `voice.continue` | her | Keep writing | none | 40 |
+| `voice.detailsFiles` | details | Each file: where it is kept, its size and its revision | none | 108 |
+| `voice.discarded` | her | Your last piece ran out of time with nothing written, so nothing was kept. | none | 148 |
+| `voice.drawMore` | her | Show me three others | none | 40 |
+| `voice.drewMore` | her | Here are three others. | none | 44 |
+| `voice.emptyHeading` | her | No pieces yet | none | 40 |
+| `voice.emptyText` | her | A piece is a few minutes of your own writing, on a prompt you choose. It shows your writing helper how you sound, and it never appears on {product}. | `{product}` | 240 |
+| `voice.eraseAll` | her | Erase all your voice writing… | none | 58 |
+| `voice.eraseChecking` | her | Checking what's there… | none | 44 |
+| `voice.eraseCopies` | her | Copies kept on this phone go too. Copies in backups aren't touched; {helper} can remove those. | `{helper}` | 188 |
+| `voice.eraseFailed` | her | Nothing was erased. | none | 40 |
+| `voice.eraseFile` | details | {path} ({kind}) | `{path}` `{kind}` | 40 |
+| `voice.eraseFiles` | details | The {n} files | `{n}` | 40 |
+| `voice.eraseHeading` | her | Erase all your voice writing? | none | 58 |
+| `voice.eraseNo` | her | Keep it | none | 40 |
+| `voice.eraseNothing` | her | There's nothing to erase. | none | 50 |
+| `voice.erasePartial` | her | Most of it is erased, but some files are still there. | none | 106 |
+| `voice.eraseText` | her | This erases {what} from {product}'s computer. It can't be undone. | `{what}` `{product}` | 130 |
+| `voice.eraseYes` | her | Erase it all | none | 40 |
+| `voice.erased` | her | Erased. Checked again: nothing is left. | none | 78 |
+| `voice.erasing` | her | Erasing… | none | 40 |
+| `voice.fileLine` | details | {where} · {bytes} bytes · revision {revision} | `{where}` `{bytes}` `{revision}` | 90 |
+| `voice.findGuide` | her | Your voice guide | none | 40 |
+| `voice.findHub` | her | Your writing voice | none | 40 |
+| `voice.findWrite` | her | Write a piece | none | 40 |
+| `voice.finish` | her | I'm done | none | 40 |
+| `voice.finishingHeading` | her | Time's up | none | 40 |
+| `voice.finishingText` | her | Another window is still saving its last words. This checks again in a moment. | none | 154 |
+| `voice.fromEveryPack` | her | Show prompts from every set | none | 54 |
+| `voice.fromPack` | her | Showing prompts from {pack}. | `{pack}` | 56 |
+| `voice.guideBack` | her | Choose pieces again | none | 40 |
+| `voice.guideBroken` | her | Your voice guide can't be read. | none | 62 |
+| `voice.guideCantNow` | her | Your helper can't make a voice guide right now. | none | 94 |
+| `voice.guideCardHeading` | her | Your voice guide | none | 40 |
+| `voice.guideChanged` | her | Your voice guide was changed somewhere else. Make it again to compare with the new one. | none | 174 |
+| `voice.guideCrumb` | her | Voice guide | none | 40 |
+| `voice.guideDecided` | her | Every change is chosen. | none | 46 |
+| `voice.guideDiff` | details | What changes in the file | none | 48 |
+| `voice.guideDiscard` | her | Don't save these | none | 40 |
+| `voice.guideDiscarded` | her | Nothing was saved. | none | 40 |
+| `voice.guideEditLabel` | details | The guide's text (your edits win) | none | 66 |
+| `voice.guideEditWait` | details | Read-only until every change is chosen. | none | 78 |
+| `voice.guideFreeKept` | her | Your own words outside these lines stay where they are. | none | 110 |
+| `voice.guideFrom` | her | Learn from these pieces | none | 46 |
+| `voice.guideFromHelp` | her | Up to 8 pieces at a time. Rough drafts show best how you really write. | none | 140 |
+| `voice.guideGoesGuide` | her | Your voice guide as it is now | none | 58 |
+| `voice.guideGoesNot` | her | Not your posts, photos, or anything about your readers. {company}'s own rules cover what it keeps. | `{company}` | 196 |
+| `voice.guideGoesPieces` | her | The pieces you ticked, about {count} words | `{count}` | 84 |
+| `voice.guideHas` | her | Made from your pieces. Your writing helper uses it when you turn on Sound like me. | none | 164 |
+| `voice.guideHeading` | her | Your voice guide | none | 40 |
+| `voice.guideHelperOff` | her | Your writing helper isn't turned on, so it can't make a voice guide yet. | none | 144 |
+| `voice.guideLeaveAsk` | her | Leave without saving your voice guide? | none | 76 |
+| `voice.guideLeaveGo` | her | Leave | none | 40 |
+| `voice.guideLeaveStay` | her | Stay | none | 40 |
+| `voice.guideLeaveText` | her | What your helper noticed isn't kept anywhere. | none | 90 |
+| `voice.guideLede` | her | Your helper reads the pieces you tick and writes down how you sound, quoting your own words. Nothing is saved until you say so. | none | 240 |
+| `voice.guideMade` | details | Made by {skill} with {model}. | `{skill}` `{model}` | 58 |
+| `voice.guideMake` | her | Make my voice guide | none | 40 |
+| `voice.guideMove` | details | Move it to {where} | `{where}` | 40 |
+| `voice.guideMoveAsk` | details | Move the voice guide? | none | 42 |
+| `voice.guideMoveNo` | details | Leave it | none | 40 |
+| `voice.guideMovePlan` | details | From {from} to {to}, {bytes} bytes, copied unchanged. | `{from}` `{to}` `{bytes}` | 106 |
+| `voice.guideMoveYes` | details | Move it | none | 40 |
+| `voice.guideMoved` | details | Moved to {where}. | `{where}` | 40 |
+| `voice.guideNeedsPieces` | her | Write a piece or two first. Then your helper can make a voice guide from them. | none | 156 |
+| `voice.guideNone` | her | Your writing helper can read your pieces and write down how you sound, quoting your own words. | none | 188 |
+| `voice.guideNoneTicked` | her | Tick at least one piece. | none | 48 |
+| `voice.guideNotSaved` | her | Your voice guide wasn't saved. Try again in a moment. | none | 106 |
+| `voice.guideNothingNew` | her | Your helper found nothing new to add. | none | 74 |
+| `voice.guideNow` | her | Your guide as it is now | none | 46 |
+| `voice.guideNowFailed` | her | Your guide couldn't be shown just now. | none | 76 |
+| `voice.guideNowLoading` | her | Getting your guide… | none | 40 |
+| `voice.guideOneSample` | details | Lines that rest on one piece: {list} | `{list}` | 72 |
+| `voice.guideOver` | her | That's more than your helper reads at once. Untick a few. | none | 114 |
+| `voice.guideOwnSections` | her | Your own sections stay: {sections}. | `{sections}` | 70 |
+| `voice.guidePending` | her | Choose for each change before saving ({n} left). | `{n}` | 96 |
+| `voice.guidePortableBlocked` | details | It quotes private pieces, so it can only be kept private. | none | 114 |
+| `voice.guidePropose` | her | Update my voice guide | none | 42 |
+| `voice.guideProposeNew` | her | Make my voice guide | none | 40 |
+| `voice.guideProvenance` | details | Keep the openblog:voice-provenance line if you edit it; the portable rule relies on it. | none | 174 |
+| `voice.guideRead` | her | Read it | none | 40 |
+| `voice.guideResultHeading` | her | What your helper noticed | none | 48 |
+| `voice.guideResultNote` | her | Each line quotes your own words. Nothing is saved until you press Save. Your helper can be wrong. | none | 194 |
+| `voice.guideRow` | her | {title} · {stage} · {words} | `{title}` `{stage}` `{words}` | 54 |
+| `voice.guideSave` | her | Save my voice guide | none | 40 |
+| `voice.guideSaved` | her | Voice guide saved. | none | 40 |
+| `voice.guideStagePolished` | her | polished | none | 40 |
+| `voice.guideStageRough` | her | rough | none | 40 |
+| `voice.guideStill` | her | Still reading. | none | 40 |
+| `voice.guideStopped` | her | Stopped waiting. Nothing was saved. | none | 70 |
+| `voice.guideUndone` | her | Your voice guide is back as it was. | none | 70 |
+| `voice.guideUnknown` | her | What it doesn't know yet | none | 48 |
+| `voice.guideUpdate` | her | Update it from my pieces | none | 48 |
+| `voice.guideWhere` | details | The guide is kept in {path}. | `{path}` | 56 |
+| `voice.guideWhereNone` | details | No guide is saved yet; a new one is kept private. | none | 98 |
+| `voice.guideWorking` | her | Reading your pieces… This can take a minute. | none | 88 |
+| `voice.home` | her | Home | none | 40 |
+| `voice.inProgress` | her | You have a piece in progress: “{title}”, {time} left. | `{title}` `{time}` | 106 |
+| `voice.inProgressDone` | her | Time ran out on “{title}”. Your rough draft is waiting. | `{title}` | 110 |
+| `voice.keepWriting` | her | Keep writing | none | 40 |
+| `voice.keptPhone` | her | Waiting for a signal. Your writing is kept on this phone. | none | 114 |
+| `voice.leaveAsk` | her | Stop writing for now? | none | 42 |
+| `voice.leaveGo` | her | Leave | none | 40 |
+| `voice.leavePolishAsk` | her | Save your polished copy? | none | 48 |
+| `voice.leavePolishGo` | her | Leave without saving | none | 40 |
+| `voice.leavePolishSave` | her | Save | none | 40 |
+| `voice.leavePolishText` | her | You changed it and didn't save. A copy stays on this phone. | none | 118 |
+| `voice.leaveStay` | her | Keep writing | none | 40 |
+| `voice.leaveText` | her | The clock keeps going. Come back within {time} to keep writing; after that, your rough draft is saved as it is. | `{time}` | 222 |
+| `voice.lede` | her | Write for three minutes about a prompt, the way you'd say it out loud. Your writing helper learns how you sound from these pieces. They never appear on {product}. | `{product}` | 240 |
+| `voice.loadFailed` | her | Your pieces didn't load. | none | 48 |
+| `voice.loading` | her | Loading… | none | 40 |
+| `voice.lockFailedMemory` | her | Your rough draft couldn't be saved just now, and this phone won't keep a copy. Keep this page open until you have a signal. | none | 240 |
+| `voice.lockFailedPhone` | her | Your rough draft couldn't be saved just now. Your latest words are kept on this phone; open this page again when you have a signal. | none | 240 |
+| `voice.lockFailedSent` | her | Your rough draft couldn't be saved just now, but your words reached {product}. Open this page again when you have a signal. | `{product}` | 240 |
+| `voice.lockRetry` | her | Saving your rough draft… trying again. | none | 76 |
+| `voice.lockedHeading` | her | Your rough draft is saved | none | 50 |
+| `voice.lockedNote` | her | A rough draft stays exactly as you wrote it, typos and all, so it keeps showing how you really write. To fix or reshape it, polish a copy. | none | 240 |
+| `voice.lockedTimeUp` | her | Time ran out, so it was saved as it was. | none | 80 |
+| `voice.locking` | her | Saving your rough draft… | none | 48 |
+| `voice.madePost` | her | Made a draft post. It isn't published. | none | 76 |
+| `voice.madePostUndone` | her | The draft post is gone. Your piece didn't change. | none | 98 |
+| `voice.makePortable` | details | Make portable | none | 40 |
+| `voice.makePost` | her | Turn it into a post | none | 40 |
+| `voice.makePostHelp` | her | Makes a draft post from your saved polished copy. It isn't published until you publish it. | none | 180 |
+| `voice.makePostSaveFirst` | her | Save your polished copy first. The post is made from the saved copy. | none | 136 |
+| `voice.makePrivate` | details | Make private | none | 40 |
+| `voice.makingPost` | her | Making the post… | none | 40 |
+| `voice.more` | her | More | none | 40 |
+| `voice.morePack` | her | Write one from {pack} | `{pack}` | 42 |
+| `voice.moveFailed` | details | That wasn't moved: {reason} | `{reason}` | 54 |
+| `voice.moveUndo` | details | Undo | none | 40 |
+| `voice.moved` | details | Moved to {where}. Copied byte for byte. | `{where}` | 78 |
+| `voice.noSignal` | her | That needs a signal. Your writing is kept on this phone. | none | 112 |
+| `voice.noSignalList` | her | Your pieces need a signal to show. Anything you were writing is kept on this phone. | none | 166 |
+| `voice.notPrivate` | her | Your voice writing may not stay private. | none | 80 |
+| `voice.notYet` | her | Sets you haven't written from: {packs}. | `{packs}` | 78 |
+| `voice.notYetHeading` | her | Not written yet | none | 40 |
+| `voice.nothingYet` | her | Nothing's written yet, so there's nothing to save. Write something, or start over. | none | 164 |
+| `voice.openActive` | her | You started “{title}” somewhere else and the clock is still running. | `{title}` | 136 |
+| `voice.openContinue` | her | Keep writing it | none | 40 |
+| `voice.openExpired` | her | You started “{title}” somewhere else and its time ran out. | `{title}` | 116 |
+| `voice.openHeading` | her | You have a piece in progress | none | 56 |
+| `voice.openLock` | her | Save what was written | none | 42 |
+| `voice.openPost` | her | Open it | none | 40 |
+| `voice.openRow` | her | Open | none | 40 |
+| `voice.openRowName` | her | Open: {title} | `{title}` | 40 |
+| `voice.openScrap` | her | Throw it away | none | 40 |
+| `voice.otherSet` | her | Other prompts | none | 40 |
+| `voice.otherSetHelp` | her | Prompts {product} doesn't offer any more. Your pieces stay readable. | `{product}` | 136 |
+| `voice.phoneRefused` | her | This phone won't keep a copy, so keep this page open until it says Saved. | none | 146 |
+| `voice.pieceBoth` | her | Rough draft and polished copy · {date} | `{date}` | 76 |
+| `voice.pieceGone` | her | This piece isn't there any more. It may have been moved or erased. | none | 132 |
+| `voice.pieceNoRough` | her | Its rough draft is missing, so it can't be opened. | none | 100 |
+| `voice.pieceRough` | her | Rough draft only · {date} | `{date}` | 50 |
+| `voice.pieceTitle` | her | A piece | none | 40 |
+| `voice.polishBody` | her | Polished copy | none | 40 |
+| `voice.polishClean` | her | All changes saved. | none | 40 |
+| `voice.polishDirty` | her | Changes not saved. A copy is kept on this phone. | none | 96 |
+| `voice.polishDirtyMemory` | her | Changes not saved. Keep this page open until you save. | none | 108 |
+| `voice.polishEditHeading` | her | Your polished copy | none | 40 |
+| `voice.polishEmpty` | her | There's nothing to save yet. | none | 56 |
+| `voice.polishHeading` | her | Polish a copy | none | 40 |
+| `voice.polishHelp` | her | This one is yours to change: fix typos, cut, reshape and give it a title. Your rough draft stays as it is. | none | 212 |
+| `voice.polishInvalid` | her | That couldn't be saved. Check the title has no line breaks. | none | 118 |
+| `voice.polishNew` | her | Not saved yet. It starts as a copy of your rough draft. | none | 110 |
+| `voice.polishReset` | her | Start the copy over | none | 40 |
+| `voice.polishResetDone` | her | Your rough draft is back in the copy. Not saved yet. | none | 104 |
+| `voice.polishSave` | her | Save polished copy | none | 40 |
+| `voice.polishSaved` | her | Saved. | none | 40 |
+| `voice.polishSavedTyping` | her | Saved. What you typed while it saved isn't saved yet. | none | 106 |
+| `voice.polishTitle` | her | Title | none | 40 |
+| `voice.polishTooLong` | her | That's longer than a piece can hold. Shorten it a little before saving. | none | 142 |
+| `voice.postTaken` | her | A post with this name already exists. Change the title of your polished copy, save, and try again. | none | 196 |
+| `voice.restoreHeading` | her | Bring back your unsaved changes? | none | 64 |
+| `voice.restoreNo` | her | Throw them away | none | 40 |
+| `voice.restoreText` | her | Changes you didn't save are kept on this phone. | none | 94 |
+| `voice.restoreTextChanged` | her | Changes you didn't save are kept on this phone. The copy was changed somewhere else since, so saving will ask which to keep. | none | 240 |
+| `voice.restoreThrown` | her | Thrown away. | none | 40 |
+| `voice.restoreYes` | her | Bring them back | none | 40 |
+| `voice.restoredCopy` | her | Your latest words were on this phone. They're back. | none | 102 |
+| `voice.roughHeading` | her | Rough draft | none | 40 |
+| `voice.roughHelp` | her | Spelling and autocorrect are off here on purpose, so it shows how you really write. | none | 166 |
+| `voice.roughLabel` | her | Your rough draft | none | 40 |
+| `voice.roughOnly` | her | Not polished yet: {prompts}. | `{prompts}` | 56 |
+| `voice.roughRegion` | her | Your rough draft, as you wrote it | none | 66 |
+| `voice.roughTooLong` | her | That's more than a piece can hold. What's here is saved. | none | 112 |
+| `voice.saveFirst` | her | Save your polished copy first. | none | 60 |
+| `voice.savePortable` | details | Save as portable | none | 40 |
+| `voice.savePrivate` | details | Save as private | none | 40 |
+| `voice.saved` | her | Saved. | none | 40 |
+| `voice.scrapAsk` | her | Throw away “{title}”? | `{title}` | 42 |
+| `voice.scrapNo` | her | Keep it | none | 40 |
+| `voice.scrapText` | her | Nothing from it is kept. | none | 48 |
+| `voice.scrapYes` | her | Throw it away | none | 40 |
+| `voice.scrapped` | her | Thrown away. Nothing was kept. | none | 60 |
+| `voice.seeIt` | her | See it | none | 40 |
+| `voice.serverTrouble` | her | {product} couldn't do that just now. Your writing is kept on this phone. | `{product}` | 144 |
+| `voice.sessionFile` | details | The piece in progress is kept in {path} until it is saved. | `{path}` | 116 |
+| `voice.sessionMoved` | her | This piece was finished somewhere else. | none | 78 |
+| `voice.sessionStuck` | her | A piece in progress can't be read. | none | 68 |
+| `voice.setUpHelper` | details | Set it up | none | 40 |
+| `voice.showAll` | her | Show all | none | 40 |
+| `voice.signIn` | her | Sign in again to keep going. Your writing is kept on this phone. | none | 128 |
+| `voice.signOutAsk` | her | Sign out and throw away your unsaved writing? | none | 90 |
+| `voice.signOutGo` | her | Sign out | none | 40 |
+| `voice.signOutStay` | her | Stay signed in | none | 40 |
+| `voice.signOutText` | her | Changes to your writing voice are kept only on this phone. | none | 116 |
+| `voice.start` | her | Start writing | none | 40 |
+| `voice.startOver` | her | Start over | none | 40 |
+| `voice.startOverAsk` | her | Start over and keep nothing? | none | 56 |
+| `voice.startOverText` | her | What you've written in this piece is thrown away. | none | 98 |
+| `voice.startOverYes` | her | Start over | none | 40 |
+| `voice.startRefused` | her | That prompt can't be used. Choose another. | none | 84 |
+| `voice.startedOver` | her | Started over. Nothing was kept. | none | 62 |
+| `voice.starting` | her | Starting… | none | 40 |
+| `voice.summary` | her | {written}, {polished} polished. | `{written}` `{polished}` | 62 |
+| `voice.summaryNone` | her | {written}. | `{written}` | 40 |
+| `voice.tagChanged` | her | Changed | none | 40 |
+| `voice.tagKept` | her | Kept | none | 40 |
+| `voice.tagNew` | her | New | none | 40 |
+| `voice.tagSame` | her | Same as before | none | 40 |
+| `voice.timerLeft` | her | {time} left | `{time}` | 40 |
+| `voice.timerName` | her | Time left | none | 40 |
+| `voice.timerUp` | her | Time's up | none | 40 |
+| `voice.timerWriting` | her | Writing | none | 40 |
+| `voice.title` | her | Your writing voice | none | 40 |
+| `voice.toList` | her | See all your pieces | none | 40 |
+| `voice.traitFrom` | her | from “{piece}” | `{piece}` | 40 |
+| `voice.traitOne` | her | (from one piece only) | none | 42 |
+| `voice.undo` | her | Undo | none | 40 |
+| `voice.unreadable` | her | Some pieces can't be opened. | none | 56 |
+| `voice.unreadableFile` | details | {file}: {guidance} | `{file}` `{guidance}` | 40 |
+| `voice.wherePortable` | details | Portable: {path} | `{path}` | 40 |
+| `voice.wherePrivate` | details | Private: {path} | `{path}` | 40 |
+| `voice.wordRange` | her | About {min} to {max} words. | `{min}` `{max}` | 54 |
+| `voice.writeOne` | her | Write a piece | none | 40 |
+| `voice.writeTitle` | her | Write a piece | none | 40 |
 | `write.collectionHelp` | her | Put it with others, like all your posts on one topic. | none | 106 |
 | `youtube.change` | her | Change | none | 40 |
 | `youtube.chapterHelp` | her | Chapters are lines in your words that start with a time, like “0:00 Getting started”. The first starts at 0:00, and YouTube needs at least three, each 10 seconds or longer. | none | 240 |

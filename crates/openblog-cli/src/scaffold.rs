@@ -106,6 +106,9 @@ pub fn init_with(
     if let Some(t) = title {
         config.title = t.to_string();
     }
+    // A new site walks its owner through Getting started on her first sign-in (Studio R9b, G80).
+    // Sites that exist already are not touched: theirs is off until the file or the server says on.
+    config.studio.onboarding = Some(serde_json::json!("on"));
     match starter {
         None => write(CONFIG_FILE, &format!("{}\n", config.to_json()))?,
         Some(Starter::Trade { trade }) => {
@@ -698,6 +701,11 @@ mod tests {
             .any(|f| f.contains("services") || f.contains("landing")));
         let config = fs::read_to_string(plain.join(CONFIG_FILE)).unwrap();
         assert!(!config.contains("\"business\""));
+        // A new site is onboarded by default (Studio R9b), and the file still loads.
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(parsed["studio"]["onboarding"], "on");
+        assert!(parsed["studio"].get("words").is_none());
+        assert!(site::load_config(&plain).is_ok());
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&plain);
     }

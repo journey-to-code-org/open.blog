@@ -17,6 +17,21 @@ export const HER_BANNED_WORDS = Object.freeze([
 /** Matches any banned word or phrase as a whole word, in any case. */
 export const HER_BANNED = new RegExp(`\\b(${HER_BANNED_WORDS.map((w) => w.replace(/ /g, "\\s+")).join("|")})\\b`, "i");
 
+/**
+ * The first banned word in `text` that isn't one of `allows`, or "". A few ids use a listed word
+ * in the owner's own sense ("a piece" of her writing, R9): each names it in its catalog entry's
+ * `allows`, and only that id may say it.
+ */
+export function bannedExcept(text, allows = []) {
+  const value = String(text ?? "");
+  const all = new RegExp(HER_BANNED.source, "gi");
+  for (const found of value.matchAll(all)) {
+    const word = found[1].toLowerCase().replace(/\s+/g, " ");
+    if (!allows.includes(word)) return word;
+  }
+  return "";
+}
+
 /** The first banned word in `text`, or "". */
 export function bannedIn(text) {
   const found = HER_BANNED.exec(String(text ?? ""));

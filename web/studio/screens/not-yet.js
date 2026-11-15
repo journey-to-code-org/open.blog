@@ -5,9 +5,9 @@ import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 
 const NAMES = {
-  comparisons: "Comparisons", design: "Design a theme",
+  comparisons: "Comparisons",
   distribution: "Where your posts went", paths: "Reading paths",
-  research: "Research", shared: "Writing together", voice: "Voice",
+  research: "Research", shared: "Writing together",
 };
 
 export async function createNotYet(_context, route) {

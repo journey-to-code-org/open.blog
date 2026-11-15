@@ -95,6 +95,7 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod onboarding;
 mod path_codes;
 mod pieces;
 mod post_settings;
@@ -212,6 +213,11 @@ pub struct AppState {
     pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
+    /// The server's Getting started switch (`OPENBLOG_STUDIO_ONBOARDING`), read once at start.
+    /// It wins over `studio.onboarding` in the site's file (Studio R9b, G70).
+    pub onboarding_env: Option<String>,
+    /// Looks saved a moment ago that can still be undone (G68): in memory, ten minutes each.
+    theme_undos: Mutex<Vec<theme_draft::ThemeUndo>>,
     /// When each session last asked the provider to check its key (at most once per 10 s).
     assistant_checks: Mutex<BTreeMap<String, std::time::Instant>>,
     /// Last analytics backup to the branch, as a unix time.
@@ -296,6 +302,8 @@ impl AppState {
             host_resets_files: crate::workspace::host_resets_files(),
             studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
+            onboarding_env: crate::onboarding::environment_value(),
+            theme_undos: Mutex::new(Vec::new()),
             assistant_checks: Mutex::new(BTreeMap::new()),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
@@ -1036,12 +1044,18 @@ fn authenticated_api_routes(
         }
         return social::route(req, &session.user, rest);
     }
+    if let (true, Some(theme)) = (req.method == "DELETE", theme_draft::undo_route(name)) {
+        return theme_draft::undo(state, req, theme, &session.csrf);
+    }
     if let Some(route) = voice::sample_route(name) {
         return match (req.method.as_str(), route) {
             ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
             ("PUT", voice::SampleRoute::One(id)) => voice::save_polished(state, req, id),
             ("POST", voice::SampleRoute::Visibility(id)) => voice::set_visibility(state, req, id),
             ("POST", voice::SampleRoute::Promote(id)) => voice::promote(state, req, id),
+            ("DELETE", voice::SampleRoute::One(id)) => {
+                voice::delete_piece(state, req, id, &session.user)
+            }
             _ => Response::error(404, "Unknown API route"),
         };
     }
@@ -1051,13 +1065,20 @@ fn authenticated_api_routes(
             200,
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
-        ("GET", "meta") => meta(state),
+        ("GET", "meta") => meta_for(state, &session.user),
+        ("GET", "onboarding") => onboarding::get(state, &session.user),
+        ("PUT", "onboarding") => onboarding::put(state, req, &session.user),
+        ("GET", "onboarding/nudge") => onboarding::nudge(state, &session.user),
+        ("POST", "onboarding/nudge") => onboarding::nudge_event(state, req, &session.user),
+        ("GET", "onboarding/accounts") => onboarding::accounts(state),
+        ("POST", "onboarding/reset") => onboarding::reset(state, req, &session.user),
+        ("PUT", "onboarding/restore") => onboarding::restore(state, req, &session.user),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "theme-draft") => theme_draft::options(state),
         ("POST", "theme-draft") => theme_draft::draft(state, req),
         ("POST", "theme-draft/preview") => theme_draft::preview(state, req),
-        ("POST", "theme-draft/save") => theme_draft::save(state, req),
+        ("POST", "theme-draft/save") => theme_draft::save(state, req, &session.csrf),
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
@@ -1138,18 +1159,20 @@ fn authenticated_api_routes(
         ("GET", "landing/history/item") => landing::history_item(state, req),
         ("POST", "landing/history/restore") => landing::history_restore(state, req),
         ("GET", "voice/catalog") => voice::catalog(state),
-        ("GET", "voice/status") => voice::status(state),
+        ("GET", "voice/status") => voice::status(state, &session.user),
+        ("POST", "voice/invitation") => voice::set_invitation(state, req, &session.user),
+        ("POST", "voice/spoken") => voice::spoken(state, req, &session.user),
         ("POST", "voice/draw") => voice::draw(state, req),
-        ("GET", "voice/session") => voice::get_session(state),
+        ("GET", "voice/session") => voice::get_session(state, req),
         ("DELETE", "voice/session") => voice::scrap(state, req),
         ("GET", "voice/erase") => voice::erase_plan(state),
         ("POST", "voice/erase") => voice::erase(state, req),
         ("GET", "voice/guide/move") => voice::guide_move_plan(state, req),
         ("POST", "voice/guide/move") => voice::guide_move(state, req),
-        ("POST", "voice/session/start") => voice::start(state, req),
+        ("POST", "voice/session/start") => voice::start(state, req, &session.user),
         ("PUT", "voice/session/draft") => voice::save_draft(state, req),
         ("POST", "voice/session/lock") => voice::lock_session(state, req),
-        ("GET", "voice/samples") => voice::list(state),
+        ("GET", "voice/samples") => voice::list(state, req),
         ("POST", "voice/samples") => voice::create_polished(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
@@ -4382,6 +4405,19 @@ fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
         }
     }
     Ok(out)
+}
+
+/// `meta` for the signed-in account: the site's, plus where that account stands with Getting
+/// started (`onboarding: { mode, practice, due, step, total, resume }`, Studio R9b).
+fn meta_for(state: &AppState, user: &str) -> Response {
+    let mut response = meta(state);
+    if response.status == 200 {
+        if let Ok(Json::Object(mut body)) = serde_json::from_slice::<Json>(&response.body) {
+            body.insert("onboarding".into(), onboarding::meta_json(state, user));
+            response = Response::json(200, &Json::Object(body));
+        }
+    }
+    response
 }
 
 fn meta(state: &AppState) -> Response {
@@ -20774,6 +20810,7 @@ mod tests {
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod onboarding_routes;
     mod piece_routes;
     mod post_settings_routes;
     mod proof_routes;
