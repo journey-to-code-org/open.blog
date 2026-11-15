@@ -1396,6 +1396,251 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.whyFor` | her |  (choose why) for {label} | `{label}` | 50 |
 | `readers.whyText` | her | Choose the reason that fits best. | none | 66 |
 | `readers.whyTitle` | her | Why? | none | 40 |
+| `readings.about` | her | About | none | 40 |
+| `readings.aboutWhole` | her | the whole comparison | none | 40 |
+| `readings.addExplanation` | her | Add an explanation | none | 40 |
+| `readings.addReading` | her | Add a reading | none | 40 |
+| `readings.addRelation` | her | Add a relation | none | 40 |
+| `readings.addressFixed` | her | Its address is {address}. It can't be changed. | `{address}` | 92 |
+| `readings.addressHelp` | her | The last part of its web address. It can't be changed after the first save. | none | 150 |
+| `readings.ai` | her | An AI tool drafted these words | none | 60 |
+| `readings.aiTool` | her | Which tool | none | 40 |
+| `readings.approvalDropped` | her | Saved. You changed words you'd approved in “{who}”, so readers won't see them until you approve them again. | `{who}` | 214 |
+| `readings.approvalTextChanged` | her | The words changed since you read them. Nothing was approved. Read them again. | none | 154 |
+| `readings.approvalWithdrawn` | her | Withdrew the approval. | none | 44 |
+| `readings.approveMeans` | her | Approving says you read these words, checked them against the evidence and take responsibility for them. Readers see them labelled as drafted with AI. | none | 240 |
+| `readings.approveThese` | her | Approve these words | none | 40 |
+| `readings.approveTitle` | her | Approve these words? | none | 40 |
+| `readings.approvedOn` | her | You approved these words on {date}. | `{date}` | 70 |
+| `readings.approvedStatus` | her | Approved the words of “{who}”. | `{who}` | 60 |
+| `readings.asWritten` | her | Show the comparison as written (for {helper}) | `{helper}` | 90 |
+| `readings.back` | her | ‹ All comparisons of readings | none | 58 |
+| `readings.cancel` | her | Cancel | none | 40 |
+| `readings.certainty` | her | How firmly it's theirs | none | 44 |
+| `readings.certaintyAttributed` | her | Attributed | none | 40 |
+| `readings.certaintyDisputed` | her | Disputed | none | 40 |
+| `readings.certaintyNone` | her | Not said | none | 40 |
+| `readings.certaintyStated` | her | Stated | none | 40 |
+| `readings.certaintyUncertain` | her | Uncertain | none | 40 |
+| `readings.change` | her | Change | none | 40 |
+| `readings.changedHeading` | her | Changed somewhere else | none | 44 |
+| `readings.changedText` | her | This comparison was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep? | none | 240 |
+| `readings.checkEvidence` | her | Evidence to check (saving still works): | none | 78 |
+| `readings.crumbHome` | her | Home | none | 40 |
+| `readings.crumbResearch` | her | Research | none | 40 |
+| `readings.delete` | her | Delete | none | 40 |
+| `readings.deleteAsk` | her | Delete “{title}”? | `{title}` | 40 |
+| `readings.deleteAskLive` | her | It's on your site now. Deleting takes it off. You can bring it back right after with Undo. | none | 180 |
+| `readings.deleteAskText` | her | You can bring it back right after with Undo. | none | 88 |
+| `readings.deleted` | her | Deleted “{title}”. | `{title}` | 40 |
+| `readings.describe` | her | Describe them | none | 40 |
+| `readings.describeHelp` | her | Like an anonymous twelfth-century commentator. | none | 92 |
+| `readings.dismiss` | her | Dismiss | none | 40 |
+| `readings.done` | her | Done | none | 40 |
+| `readings.eChanged` | her | This comparison changed somewhere else since you opened it. Nothing was saved. | none | 156 |
+| `readings.eExists` | her | A comparison already has that address. Choose another. | none | 108 |
+| `readings.eGeneric` | her | That didn't work. Nothing was changed. | none | 76 |
+| `readings.eMissing` | her | That comparison isn't there any more. | none | 74 |
+| `readings.eNoApproval` | her | There's no approval to withdraw. | none | 64 |
+| `readings.eNotAi` | her | Only words an AI tool drafted need approval. Words you wrote don't. | none | 134 |
+| `readings.eSentence` | details | What the server said: | none | 42 |
+| `readings.eStorage` | her | Your site couldn't keep it. Nothing was changed. | none | 96 |
+| `readings.eTooLarge` | her | That's more than a comparison can hold. | none | 78 |
+| `readings.eitherWay` | her | Either way round means the same. | none | 64 |
+| `readings.emptyText` | her | Start from two readings of the same subject. | none | 88 |
+| `readings.emptyTitle` | her | No comparisons of readings yet | none | 60 |
+| `readings.evidenceAdd` | her | Add evidence | none | 40 |
+| `readings.evidenceCount` | her | {count} evidence | `{count}` | 40 |
+| `readings.evidenceFromReading` | her | An explanation uses only evidence its reading already cites. | none | 120 |
+| `readings.evidenceHeading` | her | Evidence | none | 40 |
+| `readings.evidenceLinks` | her | Evidence links | none | 40 |
+| `readings.evidenceMissing` | her | Not in your library | none | 40 |
+| `readings.evidenceNone` | her | No evidence yet | none | 40 |
+| `readings.evidenceNoneYet` | her | No evidence yet. You can still save: say so under What's uncertain. | none | 134 |
+| `readings.evidencePick` | her | Evidence to add | none | 40 |
+| `readings.evidencePrivate` | her | In your research, private: readers won't see it | none | 94 |
+| `readings.evidencePublic` | her | Readers can see this | none | 40 |
+| `readings.evidenceSources` | her | Sources | none | 40 |
+| `readings.evidenceTakeOut` | her | Take out this evidence | none | 44 |
+| `readings.evidenceUnchecked` | her | Not checked: your research couldn't be read | none | 86 |
+| `readings.evidenceWhere` | her | Where in the source | none | 40 |
+| `readings.explanationLede` | her | An explanation adds to your words for one audience. It never replaces them. | none | 150 |
+| `readings.explanationLine` | her | For {level} · about {about} | `{level}` `{about}` | 54 |
+| `readings.explanationText` | her | The explanation | none | 40 |
+| `readings.explanationsEmpty` | her | No explanations yet. They're optional. | none | 76 |
+| `readings.explanationsHeading` | her | Explanations by audience | none | 48 |
+| `readings.factAuthors` | her | By {authors} | `{authors}` | 40 |
+| `readings.factBefore` | her | Before reading: {text} | `{text}` | 44 |
+| `readings.factModes` | her | For {modes} reading | `{modes}` | 40 |
+| `readings.factTranslates` | her | Translates {other} | `{other}` | 40 |
+| `readings.factsLine` | her | Saved with the file, not changed here: {facts} | `{facts}` | 92 |
+| `readings.fieldAddress` | her | Address | none | 40 |
+| `readings.fieldSubject` | her | What the readings are about | none | 54 |
+| `readings.fieldTitle` | her | Title | none | 40 |
+| `readings.fileDetails` | details | Item id: {id} | `{id}` | 40 |
+| `readings.findAddExplanation` | her | Add an explanation to this comparison | none | 74 |
+| `readings.findAddReading` | her | Add a reading to this comparison | none | 64 |
+| `readings.findAddRelation` | her | Add a relation between readings | none | 62 |
+| `readings.findList` | her | Readings side by side | none | 42 |
+| `readings.findMake` | her | New comparison of readings | none | 52 |
+| `readings.findSave` | her | Save this comparison | none | 40 |
+| `readings.forLevel` | her | For | none | 40 |
+| `readings.goBack` | her | Go back | none | 40 |
+| `readings.goTo` | her | Go to {title} | `{title}` | 40 |
+| `readings.keepIt` | her | Keep it | none | 40 |
+| `readings.language` | her | Language, if not the blog's | none | 54 |
+| `readings.languageHelp` | her | A language tag such as en or grc. | none | 66 |
+| `readings.leaveGo` | her | Leave without saving | none | 40 |
+| `readings.leaveHeading` | her | Save this comparison? | none | 42 |
+| `readings.leaveSave` | her | Save | none | 40 |
+| `readings.leaveText` | her | You changed it and didn't save. | none | 62 |
+| `readings.lede` | her | Set readings of one subject side by side, say who holds each, and never rule between them. | none | 180 |
+| `readings.leftAttribution` | her | its source isn't public, so the reading is left out | none | 102 |
+| `readings.leftAwaiting` | her | not approved | none | 40 |
+| `readings.leftDetails` | details | Reason: {reason} | `{reason}` | 40 |
+| `readings.leftDraft` | her | the comparison is a draft | none | 50 |
+| `readings.leftEvidence` | her | some evidence is private and was left out | none | 82 |
+| `readings.leftOutHeading` | her | Only you see this: what readers don't see | none | 82 |
+| `readings.leftOutLine` | her | {name}: {why} | `{name}` `{why}` | 40 |
+| `readings.leftStale` | her | changed after you approved it | none | 58 |
+| `readings.leftSubject` | her | explains a reading readers don't see | none | 72 |
+| `readings.leftTooFew` | her | fewer than two readings can be shown | none | 72 |
+| `readings.leftWithdrawn` | her | withdrawn | none | 40 |
+| `readings.levelBeginner` | her | Beginners | none | 40 |
+| `readings.levelScholarly` | her | Scholars | none | 40 |
+| `readings.levelStudent` | her | Students | none | 40 |
+| `readings.loadFailed` | her | Your comparisons of readings didn't load. | none | 82 |
+| `readings.make` | her | New comparison of readings | none | 52 |
+| `readings.makeDraft` | her | Make it a draft again | none | 42 |
+| `readings.markedAi` | her | Marked as drafted with AI. It needs your approval before readers see it. | none | 144 |
+| `readings.markedOwn` | her | Marked as your own words. | none | 50 |
+| `readings.more` | her | More | none | 40 |
+| `readings.move` | her | Move | none | 40 |
+| `readings.moveDown` | her | Move down | none | 40 |
+| `readings.moveUp` | her | Move up | none | 40 |
+| `readings.moved` | her | {title} is number {number} of {count} now. Not saved yet. | `{title}` `{number}` `{count}` | 114 |
+| `readings.name` | her | Name | none | 40 |
+| `readings.needTwo` | her | Two readings are needed to relate them. | none | 78 |
+| `readings.newHeading` | her | New comparison of readings | none | 52 |
+| `readings.notCompare` | her | To read versions of one passage side by side, use Compare. | none | 116 |
+| `readings.notNow` | her | Not now | none | 40 |
+| `readings.nothingChanged` | her | Nothing's changed. | none | 40 |
+| `readings.open` | her | Open {title} | `{title}` | 40 |
+| `readings.pAddress` | her | The address uses lowercase letters, numbers and single hyphens, up to 64 characters. | none | 168 |
+| `readings.pApproval` | her | Approvals are only given by reading the words and pressing Approve. Saving can't add one. | none | 178 |
+| `readings.pBadValue` | her | Something here isn't right. Check it and try again. | none | 102 |
+| `readings.pDuplicate` | her | Another item has the same name inside the comparison. Take one out and add it again. | none | 168 |
+| `readings.pEvidence` | her | An explanation uses only evidence its reading already cites. | none | 120 |
+| `readings.pExplanation` | her | Write the explanation. | none | 44 |
+| `readings.pJudgement` | her | That field only takes a few set choices. | none | 80 |
+| `readings.pSelf` | her | A reading can't be related to itself. | none | 74 |
+| `readings.pStatement` | her | Write what this reading holds. | none | 60 |
+| `readings.pSubject` | her | Say what the readings are about. | none | 64 |
+| `readings.pTitle` | her | Give the comparison a title. | none | 56 |
+| `readings.pTooLong` | her | That's too long. | none | 40 |
+| `readings.pTooMany` | her | A comparison can't hold more than that. | none | 78 |
+| `readings.pTool` | her | Name the AI tool that drafted these words. | none | 84 |
+| `readings.pUnknown` | her | That points at something that isn't there. Choose again. | none | 112 |
+| `readings.pWho` | her | Say who held this reading, or choose Someone unknown and describe them. | none | 142 |
+| `readings.previewClose` | her | Back to your comparison | none | 46 |
+| `readings.previewDraft` | her | This is a draft. It shows what readers would see if you published it now. | none | 146 |
+| `readings.previewEmpty` | her | Add readings to see it here. | none | 56 |
+| `readings.previewFailed` | her | That didn't load. Try again. | none | 56 |
+| `readings.previewHeading` | her | What readers will see | none | 42 |
+| `readings.previewOnlyYou` | her | Only you see this page. Nothing is published by looking. | none | 112 |
+| `readings.previewRefresh` | her | Looking at your latest changes… | none | 62 |
+| `readings.previewUncertain` | her | Uncertain: {text} | `{text}` | 40 |
+| `readings.previewWithheld` | her | Readers can't see this comparison yet: it needs two readings that are your own words or approved. | none | 194 |
+| `readings.problemsHeading` | her | Not saved yet | none | 40 |
+| `readings.problemsMany` | her | {count} things need a look first. | `{count}` | 66 |
+| `readings.problemsOne` | her | One thing needs a look first. | none | 58 |
+| `readings.provenanceAi` | her | Drafted with AI ({tool}), approved by the author | `{tool}` | 96 |
+| `readings.provenanceOwn` | her | Written by the author | none | 42 |
+| `readings.publish` | her | Publish | none | 40 |
+| `readings.published` | her | Published. Readers see it at {url}, in about a minute. | `{url}` | 108 |
+| `readings.publishedHidden` | her | Saved, but readers can't see it yet: two readings must be your own words or approved. | none | 170 |
+| `readings.publishedSiteOff` | her | Saved as published, but your site isn't showing comparisons of readings yet. | none | 152 |
+| `readings.readApprove` | her | Read and approve | none | 40 |
+| `readings.readingsEmpty` | her | No readings yet. Add the first one, then another. | none | 98 |
+| `readings.readingsHeading` | her | Readings | none | 40 |
+| `readings.relAgrees` | her | Agrees with | none | 40 |
+| `readings.relBuilds` | her | Builds on | none | 40 |
+| `readings.relBy` | her | Relates by | none | 40 |
+| `readings.relDiffers` | her | Differs from | none | 40 |
+| `readings.relHelp` | her | No relation says which reading is right. | none | 80 |
+| `readings.relNote` | her | A note, if it helps | none | 40 |
+| `readings.relResponds` | her | Responds to | none | 40 |
+| `readings.relThat` | her | That reading | none | 40 |
+| `readings.relThis` | her | This reading | none | 40 |
+| `readings.relationLine` | her | {from} · {kind} · {to} | `{from}` `{kind}` `{to}` | 44 |
+| `readings.relationsEmpty` | her | No relations yet. They're optional. | none | 70 |
+| `readings.relationsHeading` | her | How the readings relate | none | 46 |
+| `readings.researchTrouble` | her | Your research couldn't be read, so evidence can't be checked right now. You can still write. | none | 184 |
+| `readings.rowCounts` | her | Readings: {readings} · Explanations: {explanations} | `{readings}` `{explanations}` | 102 |
+| `readings.rowDraft` | her | Draft | none | 40 |
+| `readings.rowNotShown` | her | Not shown yet: two readings must be your own words or approved | none | 124 |
+| `readings.rowShown` | her | On {product} | `{product}` | 40 |
+| `readings.rowUnreadable` | her | Can't be read yet | none | 40 |
+| `readings.saveDraft` | her | Save draft | none | 40 |
+| `readings.saveFirstText` | her | You approve the words as saved. | none | 62 |
+| `readings.saveFirstTitle` | her | Save first? | none | 40 |
+| `readings.saveNow` | her | Save now | none | 40 |
+| `readings.saved` | her | Saved. | none | 40 |
+| `readings.savedDraft` | her | Saved as a draft. Readers don't see it. | none | 78 |
+| `readings.savesWith` | her | Saves with the comparison. | none | 52 |
+| `readings.seeReaders` | her | See what readers will see | none | 50 |
+| `readings.sheetExplanation` | her | An explanation | none | 40 |
+| `readings.sheetReading` | her | Reading: {who} | `{who}` | 40 |
+| `readings.sheetRelation` | her | A relation | none | 40 |
+| `readings.showTheirs` | her | Show the other version | none | 44 |
+| `readings.siteOff` | her | {product} doesn't show comparisons of readings yet. Tell {helper}. | `{product}` `{helper}` | 132 |
+| `readings.siteOffDetails` | details | The site's setting interpretations.publish is off. | none | 100 |
+| `readings.someone` | her | Someone unknown | none | 40 |
+| `readings.sourceChoose` | her | Choose a source | none | 40 |
+| `readings.sourceGone` | her | That source isn't in your library. | none | 68 |
+| `readings.sourceLabel` | her | Source | none | 40 |
+| `readings.standingApproved` | her | Drafted with AI, approved by you | none | 64 |
+| `readings.standingAuthored` | her | Your own words | none | 40 |
+| `readings.standingAwaiting` | her | Drafted with AI: not approved, readers don't see it | none | 102 |
+| `readings.standingStale` | her | Changed after you approved it: readers don't see it until you approve it again | none | 156 |
+| `readings.standingUnknown` | her | Not checked yet | none | 40 |
+| `readings.statement` | her | What this reading holds | none | 46 |
+| `readings.subjectHelp` | her | Neutral words: say the subject, not which reading is right. | none | 118 |
+| `readings.takeOut` | her | Take it out | none | 40 |
+| `readings.theirsShown` | her | Here's the other version. | none | 50 |
+| `readings.title` | her | Readings side by side | none | 42 |
+| `readings.tookOutExplanation` | her | Took out the explanation for {level}. Not saved yet. | `{level}` | 104 |
+| `readings.tookOutReading` | her | Took out “{who}” and the relations that named it. Not saved yet. | `{who}` | 128 |
+| `readings.tryAgain` | her | Try again | none | 40 |
+| `readings.uncertain` | her | What's uncertain | none | 40 |
+| `readings.uncertainHelp` | her | Honest uncertainty is welcome, with or without evidence. | none | 112 |
+| `readings.undo` | her | Undo | none | 40 |
+| `readings.undoFailed` | her | That couldn't be put back, because it changed since. Open it again. | none | 134 |
+| `readings.undone` | her | Put back as it was. | none | 40 |
+| `readings.unreadable` | her | This comparison's file can't be read, so it can't be edited here. | none | 130 |
+| `readings.unreadableDetails` | details | The first problem the server found: | none | 70 |
+| `readings.untitled` | her | A comparison of readings | none | 48 |
+| `readings.update` | her | Update | none | 40 |
+| `readings.updated` | her | Updated. | none | 40 |
+| `readings.useMine` | her | Use my changes | none | 40 |
+| `readings.useMineSure` | her | Use your changes? | none | 40 |
+| `readings.useMineSureText` | her | This replaces the other changes with what you have here. | none | 112 |
+| `readings.useMineYes` | her | Yes, use my changes | none | 40 |
+| `readings.waiting` | her | {count} AI drafts waiting for you to approve | `{count}` | 88 |
+| `readings.waitingOne` | her | 1 AI draft is waiting for you to approve | none | 80 |
+| `readings.wasDrafted` | her | It's a draft again. Readers don't see it. | none | 82 |
+| `readings.who` | her | Who holds it | none | 40 |
+| `readings.whoAnonymous` | her | Someone unknown | none | 40 |
+| `readings.whoNamed` | her | A person, school or tradition | none | 58 |
+| `readings.whoSource` | her | A source in your library | none | 48 |
+| `readings.withdraw` | her | Withdraw approval | none | 40 |
+| `readings.withdrawPublishedText` | her | A published comparison can't hold AI words nobody approved, so the whole comparison goes back to draft. | none | 206 |
+| `readings.withdrawPublishedTitle` | her | Withdraw and make it a draft again? | none | 70 |
+| `readings.withdrawPublishedYes` | her | Withdraw and make it a draft | none | 56 |
+| `readings.withdrawn` | her | Withdrawn: readers don't see it. | none | 64 |
+| `readings.writtenClose` | her | Close | none | 40 |
+| `readings.writtenHeading` | details | The comparison as written | none | 50 |
+| `readings.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
 | `ready.addCover` | her | Add a cover photo | none | 40 |
 | `ready.addTag` | her | Add a tag | none | 40 |
 | `ready.also` | her | Also {count} suggestions. | `{count}` | 50 |

@@ -33,6 +33,8 @@ import { createPeople } from "./people.js";
 import { createHelper } from "./helper.js";
 import { createPaths } from "./paths.js";
 import { createPathEdit } from "./path-edit.js";
+import { createReadings } from "./readings.js";
+import { createReadingEdit } from "./reading-edit.js";
 import { say } from "../parts/words.js";
 
 export const SCREENS = [
@@ -49,6 +51,16 @@ export const SCREENS = [
   // address and Find ("Make a reading path") reach them. #/paths/new and #/path/<address> are the editor.
   { name: "paths", nav: () => say("paths.nav"), area: "paths", navWhen: (meta) => meta.siteUses?.paths === true, create: (context, route) => (route.arg === "new" ? createPathEdit(context, route) : createPaths(context)) },
   { name: "path", area: "paths", create: (context, route) => createPathEdit(context, route) },
+  // R13: readings side by side. There is no Research area on this branch, so Readings is its own door under
+  // #/research/readings (list), #/research/readings/new and #/research/reading/<address> (editor); any other
+  // #/research address is still "not yet".
+  { name: "research", nav: () => say("readings.findList"), href: "#/research/readings", area: "research", navWhen: (meta) => meta.siteUses?.readings === true, create: (context, route) => {
+    const [part, ...rest] = String(route.arg || "").split("/");
+    if (part === "readings" && rest[0] === "new") return createReadingEdit(context, { ...route, arg: "new" });
+    if (part === "readings") return createReadings(context);
+    if (part === "reading" && rest.length) return createReadingEdit(context, { ...route, arg: rest.join("/") });
+    return createNotYet(context, { ...route, arg: "research" });
+  } },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   // R10: Readers (what readers sent, Visitors, How readers reach you). In the navigation when comments are
   // set up or there are visitor numbers; always routable, so an old address and Find reach How readers reach you.
