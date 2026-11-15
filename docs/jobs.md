@@ -118,7 +118,7 @@ Write) first says where the recording goes (only the recording), and the words c
 made plain, with **Undo**. Setting up a provider or a local engine is in
 [the admin guide](admin.md#transcribing-a-voice-note).
 
-**Write it up for me** (in Write's **More** on a job, and in Find) turns your words into a title, a one-line
+**Write it up for me** (in Write's **More** on a job, in the **Writing helper** sheet, and in Find) turns your words into a title, a one-line
 summary and the four parts. It appears only when your site has an Assistant provider. It first says what goes and
 where: your words in this job, its service and town, and your voice guide if you leave **Make it sound like me**
 on; never your photos or voice note. What comes back fills the boxes for you to read and change, keeps your photos,
@@ -128,7 +128,7 @@ See [ADR 0296](adr/0296-a-capture-is-a-job-draft-started-from-a-phone-built-from
 [ADR 0297](adr/0297-a-capture-waits-in-a-bounded-versioned-queue-on-the-phone-and-is-sent-with-its-id-as-an-idempotency-key.md),
 [ADR 0298](adr/0298-a-voice-note-is-recorded-only-after-a-tap-is-bounded-in-time-and-size-and-stays-on-the-authors-server.md),
 [ADR 0302](adr/0302-transcription-is-a-separate-confirmed-call-through-the-provider-boundary-that-sends-only-the-recording-and-returns-untrusted-text.md)
-and [ADR 0304](adr/0304-a-draft-is-applied-as-editable-unsaved-fields-in-capture-with-one-undo-and-the-authors-save-is-the-only-save.md).
+and [ADR 0304](adr/0304-a-draft-is-applied-as-editable-unsaved-fields-in-capture-with-one-undo-and-the-authors-save-is-the-only-save.md). When it fails it says why in the same words as every other [writing helper](admin.md#the-writing-helper) call (the company is busy, didn't answer, or didn't accept the key), and your words are left as they were.
 
 ## Trades
 Bundled: `general-contractor`, `excavation`, `flooring`, `mobile-mechanic`, `auto-body-paint`, `roofing`,

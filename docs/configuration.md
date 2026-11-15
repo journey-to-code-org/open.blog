@@ -375,12 +375,14 @@ blog itself or that it did not create.
 
 ## Knowledge checks
 
-Knowledge checks and their local reader interactions need no configuration. Setting
-`generationEndpoint` enables optional author-time question generation and review in the admin
-editor when a private credential is saved from the Assistant panel or
-`OPENBLOG_LESSONS_API_KEY` is present in the server environment. Environment configuration takes
-precedence. `model` is an
-optional identifier passed through to that endpoint. See [The admin editor](admin.md#optional-question-generation)
+Knowledge checks and their local reader interactions need no configuration. `provider`, `model`
+and (for a custom https endpoint) `generationEndpoint` turn on the optional
+[writing helper](admin.md#the-writing-helper): question generation, review and suggestions as you
+type. They are set on Studio's **Writing helper** screen, together with the key, which is never
+written to `openblog.json`: it is write-only from the page (set or not set, replace, remove; never
+shown) and is refused over plain http except from the same computer. A key in the server
+environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`..., or `OPENBLOG_LESSONS_API_KEY` for a custom
+endpoint) takes precedence over a saved one. See [The admin editor](admin.md#optional-question-generation)
 for the endpoint contract and security boundary.
 
 ## Admin

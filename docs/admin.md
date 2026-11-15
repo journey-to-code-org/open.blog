@@ -125,6 +125,101 @@ knowledge-check, runnable-example, and coding-challenge proposals, while Context
 site, and post notes plus selected sources. Provider failures do not disable ordinary non-AI
 authoring.
 
+### The writing helper
+
+Studio's **Writing helper** replaces the old Admin's Assistant pane (Studio R8). It is two places:
+a sheet in **Write** for help with the post in front of you, and the **Writing helper** screen
+(`#/helper`, in the account menu and Find) where it is turned on and where it keeps what it knows
+about you. An old link to `#/edit/<post>?pane=assistant` opens the sheet.
+
+Three rules hold everywhere the helper is used:
+
+- **It says what leaves, before it leaves.** Above every button that sends something to another
+  company sits a box headed **What goes to** *the company*: one line per thing that goes, what never
+  goes, and **Word for word**, the exact text. Nothing is sent before that button is pressed, and
+  nothing is kept to send later when there is no signal.
+- **It suggests; you decide.** Nothing the helper returns changes a post without a press, every
+  press can be undone, and what it returns is shown as text: never a link, a picture or a button,
+  and never an instruction the blog acts on.
+- **Where you were stays private.** A route file's token, the route, its shape and the drawing of
+  the climb are never part of any helper request.
+
+**Read it over.** Open the **Writing helper** card under *Before you publish* (or **More → Writing
+helper…**, or Find). Choose **What to read**: **The whole post**, **The words I selected** (what was
+selected when the sheet opened, even though opening it moved the selection), or **The part I'm in**
+(from the heading before the caret to the next; with no heading, the box you were in). A part or a
+selection longer than 20,000 letters is refused before anything is sent. Choose **What to look
+for**: *Spelling, grammar and clear sentences*, *How it flows from start to finish* (not for a
+selection), *Whether it sounds like me* (with a voice guide) and, on a research post, *Facts that
+need a source*. **Use what your helper knows about you** sends your notes; **Sound like me** sends
+your voice guide. The box lists exactly those. **Read it over** then asks; after twenty seconds it
+says it is still reading and offers **Stop waiting**. Closing the sheet does not stop it: the card
+says when it has finished.
+
+**What your helper found** lists each suggestion in post order: where it is, your words quoted, why,
+and what to try. **Use this** swaps exactly the quoted words, and only when they are found once,
+inside one box of your words and outside any card; anything else is advice with **Show me**, which
+closes the sheet and selects the words. **Undo** is on the card and in the line under the box, and
+puts back only that swap, so anything typed since stays. **Use all** applies every one that still
+fits, with one Undo. **Not this one** sets a suggestion aside, with **Bring it back**. Suggestions
+live in the page's memory for this visit only.
+
+**Suggest the next words as I type** is a switch in the sheet, off by default and never
+remembered: it is on for this post and this visit. While it is on, a line under your words says so,
+with **Turn off**, because each pause in typing sends the post to the company. A suggestion shows
+under the box as plain words; **Tab** or **Use it** puts it in at the caret (with Undo), **Escape**
+or **No thanks** drops it, and typing, moving the caret or changing the title drops it silently.
+It never asks from a title, a recipe row or a card, nor with fewer than twelve letters written.
+
+**Tell your helper about this post** keeps two notes with a saved post, *Who it's for* and *What
+you want it to do* (and, under the details, learning outcomes, sources and anything else it should
+keep to). They save by themselves, privately, and saving a note sends nothing anywhere.
+
+**Write questions for me** and **Draft it for me** are in the forms for *A question for readers*
+and *Code readers can run* ([Add something](#add-something)). Each says what goes first: the words
+you selected, else the part you are in, else all your words, and nothing else. What comes back
+fills the form, not the post; **Put back what I had** restores the form; and the result goes through
+the same checks as what you type when you press **Add it** (a written answer that carries a link is
+refused). Nothing is run in the page.
+
+**The Writing helper screen** says whether the helper is on and holds **About you** and **About
+your blog**, two notes that save by themselves. New notes are private
+(`.openblog/private/context/`); a note already kept with the project (`assistant/context/`) stays
+there until it is moved. If private notes are not ignored by Git the screen says so. Under **For
+the person who set up your site** are:
+
+- **Connection**: the company, the model, an address for a custom https endpoint, and the key.
+  **The key is write-only.** The page never receives it: it shows only whether one is set, whether
+  the server's environment sets one (which wins), or whether the saved one is for another company.
+  The key field is empty when the screen opens and after every answer, is emptied before the
+  request is sent, and has no way to show what was typed. A key that does not look like that
+  company's (a pasted password, say) is questioned before it is sent. **Remove the saved key** asks
+  first. Replacing or removing a key cannot be undone, because the blog never shows the old one.
+  **Check it** asks the company whether it accepts the key, with one small call that carries
+  nothing of the site, at most once every ten seconds.
+- **What it can look for**: every skill, built in or the site's own, with an editor for the site's
+  own and Undo after a save.
+- **Things it can read**: where the notes are kept (and **Move**), text you add, and a web page
+  fetched once after a confirm, shown before it is kept, and never fetched again.
+
+**A key is never sent or accepted over plain http.** On a page reached over `http://` from anywhere
+but this computer, the key field is disabled and says why. The server refuses a key (`422`,
+`insecure`) unless the request reached it from the same computer with nothing in between, or
+through a proxy listed in `admin.trustedProxies` that sends `X-Forwarded-Proto: https`. A local
+reverse proxy that is not listed cannot vouch for how the browser connected, so list it (or set the
+key in the server's environment, which needs no page at all). Every change to the key is logged
+with who made it and for which company, never the key, its length or any part of it.
+
+When a helper call fails, the page says what happened in one sentence and leaves the post as it
+was. The server answers each failure with a code beside its sentence: `key-rejected`,
+`provider-busy` (with `retryAfter` when the company gives one), `provider-down`, `timeout`,
+`refused`, `cut-short`, `invalid-result`, `concurrency-limit` (two helper calls may run at once on
+a server), and for a request it cannot take `too-long`, `no-text`, `too-many`, `over-budget`,
+`skill-scope`, `context-unavailable`, `bad-language` and `bad-count`.
+
+The rest of this section describes the same features in the old Admin, which keeps working until it
+is retired.
+
 ### Review an unsaved document
 
 Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
@@ -1345,9 +1440,12 @@ sign in again. It is unrelated to stylesheet MIME errors.
 
 ## Optional question generation
 
-Knowledge checks work without an AI service. To add **Generate draft** and document review,
-site owners can configure the provider from the Assistant panel. The endpoint and model are saved
-in `openblog.json`:
+Knowledge checks work without an AI service. To add **Write questions for me**, **Read it over**
+and the rest of [the writing helper](#the-writing-helper), set it up on Studio's **Writing helper**
+screen (or the old Admin's Assistant panel). The company, the address and the model are saved in
+`openblog.json`; the key never is. It is kept in `.openblog/private/assistant/api-key` (mode 0600,
+protected with DPAPI on Windows), is write-only from the page, and is refused over plain http
+except from the same computer.
 
 ```jsonc
 // openblog.json
@@ -1469,7 +1567,14 @@ to add. It never displays the endpoint or credential value.
   `pages/`, `.md` only) and resolved inside the content directory, including through symlinks.
 - Uploads are accepted by their bytes, not their names: PNG, JPEG, GIF, WebP, and AVIF only.
   SVG is refused because it can carry scripts.
-- The admin page is served with a strict Content-Security-Policy (no inline scripts). Full-page
+- The admin page is served with a strict Content-Security-Policy: `script-src 'self'`,
+  `style-src 'self'`, `frame-src 'self'`, with no inline scripts, no WebAssembly and no other
+  site framed. Runnable code and embeds are shown only inside a preview, which carries its own
+  policy.
+- The writing helper's key is write-only: no response, log line or error carries it, it is
+  refused over plain http except from the same computer, and each change is logged with who made
+  it and never the key. Text a helper returns is treated as untrusted text and is never executed.
+  Full-page
   previews are kept in a small in-memory cache behind an authenticated random URL and rendered in
   an opaque-origin sandbox. Built-in components and the selected theme's local or configured-CDN
   assets can run, while owner-supplied analytics, comments, and other raw HTML snippets are removed

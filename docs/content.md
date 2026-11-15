@@ -360,7 +360,7 @@ What does `draft: true` do?
 A question needs two to four choices and exactly one checked (`[x]`) answer. The final
 `>` explanation is optional. Prompts, choices, and explanations support emphasis,
 strikethrough, and inline code, but not links, images, raw HTML, or multiple lines.
-`openblog check` reports an invalid knowledge check instead of publishing it.
+`openblog check` reports an invalid knowledge check instead of publishing it. In Studio, the form for **A question for readers** (Add something) has **Write questions for me** when the [writing helper](admin.md#the-writing-helper) is set up, and the form for **Code readers can run** has **Draft it for me**; both fill the form for you to check, and nothing enters the post until **Add it**.
 
 In Write, choose **Add something › A question for readers** to fill in a small form instead of
 writing the fence: the question, two to four answers with the right one marked, and what to tell
