@@ -46,6 +46,42 @@ test("a record with another version, or one that doesn't parse, is never rewritt
   assert.ok(storage.values.has("ob-voice-draft:grammi"));
 });
 
+test("a record of another version is never deleted or rewritten: not by clear(), save() or signing in and out", () => {
+  forgetMemoryCopies();
+  const storage = fakeStorage();
+  const newer = JSON.stringify({ v: 2, sessionId: "s", text: "from a later release", deadline: "d", savedAt: Date.now() });
+  const broken = "{not json";
+  storage.values.set("ob-voice-draft:grammi", newer);
+  storage.values.set("ob-voice-polished:grammi:a.md", broken);
+  storage.values.set("ob-voice-draft:mikey", newer);
+  const rough = createVoiceDraftStore("ob-voice-draft:grammi", () => storage);
+  const polished = createPolishedDraftStore("ob-voice-polished:grammi:a.md", () => storage);
+  assert.equal(rough.keptByNewer, true, "read as kept by a newer version");
+  assert.equal(polished.keptByNewer, false, "a record that doesn't parse is not a newer version");
+  rough.clear();
+  polished.clear();
+  assert.equal(storage.values.get("ob-voice-draft:grammi"), newer, "clear() leaves it byte for byte");
+  assert.equal(storage.values.get("ob-voice-polished:grammi:a.md"), broken);
+  assert.equal(rough.save({ sessionId: "mine", deadline: "d", text: "kept on the page" }), true);
+  assert.equal(storage.values.get("ob-voice-draft:grammi"), newer, "save() doesn't write over it");
+  assert.equal(rough.inMemoryOnly, true, "the copy lives in page memory, and the screen says so");
+  assert.equal(rough.load().text, "kept on the page");
+  assert.equal(polished.save({ title: "t", body: "b" }), true);
+  assert.equal(storage.values.get("ob-voice-polished:grammi:a.md"), broken);
+  rough.clear();
+  assert.equal(rough.load(), null);
+  assert.equal(storage.values.get("ob-voice-draft:grammi"), newer);
+  clearVoiceCopies(() => storage, { keepUser: "grammi" });
+  clearVoiceCopies(() => storage);
+  assert.deepEqual(Object.fromEntries(storage.values), { "ob-voice-draft:grammi": newer, "ob-voice-polished:grammi:a.md": broken, "ob-voice-draft:mikey": newer });
+  // Ours, after theirs is gone, is kept on the phone again.
+  storage.values.delete("ob-voice-draft:grammi");
+  assert.equal(rough.keptByNewer, false);
+  rough.save({ sessionId: "mine", deadline: "d", text: "now kept" });
+  assert.equal(JSON.parse(storage.values.get("ob-voice-draft:grammi")).text, "now kept");
+  assert.equal(rough.inMemoryOnly, false);
+});
+
 test("with a phone that refuses, the copy lives in page memory and nothing breaks", () => {
   forgetMemoryCopies();
   const store = createVoiceDraftStore("blocked-key", () => fakeStorage({ blocked: true }));

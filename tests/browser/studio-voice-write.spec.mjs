@@ -253,6 +253,27 @@ test("when saving the rough draft never reaches the server, the words stay on th
   expect((await copyOnPhone(page)).text).toBe(`kept on the phone ${MARK}`);
 });
 
+test("a copy kept by a newer version is never deleted or written over: opening, writing and losing the signal leave it", async ({ page }) => {
+  const newer = JSON.stringify({ v: 2, sessionId: "later", text: "kept by a later release", deadline: "d", savedAt: Date.now(), extra: [1] });
+  await page.evaluate((value) => localStorage.setItem("ob-voice-draft:sam", value), newer);
+  await open(page, site, "#/voice/write");
+  await expect(cards(page)).toHaveCount(3);
+  expect(await page.evaluate(() => localStorage.getItem("ob-voice-draft:sam"))).toBe(newer);
+  await cards(page).first().click();
+  await screen(page).getByRole("button", { name: "Start writing" }).click();
+  await rough(page).pressSequentially("typed with a newer copy here");
+  await expect(screen(page).locator(".studio-voice-save")).toHaveText("Saved.");
+  await page.route("**/admin/api/voice/session/draft", (route) => route.abort());
+  await rough(page).pressSequentially(" and more");
+  await expect(screen(page).locator(".studio-voice-save")).toContainText("A newer version of");
+  await expect(screen(page).locator(".studio-voice-save")).toContainText("keeps its own writing on this phone");
+  expect(await page.evaluate(() => localStorage.getItem("ob-voice-draft:sam"))).toBe(newer);
+  await page.unroute("**/admin/api/voice/session/draft");
+  await screen(page).getByRole("button", { name: "I'm done" }).click();
+  await expect(screen(page).getByText(/rough draft is saved/i).first()).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("ob-voice-draft:sam"))).toBe(newer);
+});
+
 test("reduced motion: nothing on the page animates", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await startWriting(page);

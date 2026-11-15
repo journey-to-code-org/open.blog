@@ -29,10 +29,25 @@ export const polishedKey = (user, roughFile) => `ob-voice-polished:${user}:${rou
 const validDraft = (record) => isObject(record) && record.v === DRAFT_VERSION && typeof record.sessionId === "string" && typeof record.text === "string" && typeof record.deadline === "string" && Number.isFinite(record.savedAt);
 const validPolished = (record) => isObject(record) && record.v === POLISHED_VERSION && (record.base === null || typeof record.base === "string") && typeof record.title === "string" && typeof record.body === "string";
 
-function createStore(key, storage, { valid, ttl, make, size }) {
+function createStore(key, storage, { valid, ttl, make, size, version }) {
   let blocked = false;
+  // What sits under the key in storage: nothing, ours, a newer version's, or something else (one that
+  // doesn't parse, another `v`). Only ours is ever written over or removed.
+  const held = () => {
+    const text = storage()?.getItem(key);
+    if (text === null || text === undefined) return "none";
+    let record;
+    try { record = JSON.parse(text); } catch { return "other"; }
+    if (!isObject(record)) return "other";
+    if (record.v === version) return "ours";
+    return Number.isInteger(record.v) && record.v > version ? "newer" : "other";
+  };
+  const heldSafely = () => { try { return held(); } catch { blocked = true; return "blocked"; } };
+  let foreign = false;
   return {
-    get inMemoryOnly() { return blocked; },
+    get inMemoryOnly() { return blocked || foreign; },
+    /** A newer version keeps its own copy under this key: ours lives in page memory only. */
+    get keptByNewer() { return heldSafely() === "newer"; },
     load(now = Date.now()) {
       let found = null;
       let inStorage = false;
@@ -57,6 +72,10 @@ function createStore(key, storage, { valid, ttl, make, size }) {
       if (byteLength(size(fields)) > VOICE_LIMITS.maxDraftBytes) return false;
       const record = make(fields, now);
       memory.set(key, record);
+      const there = heldSafely();
+      if (there === "blocked") return true;
+      foreign = there === "newer" || there === "other";
+      if (foreign) return true;
       try {
         storage().setItem(key, JSON.stringify(record));
         blocked = false;
@@ -65,8 +84,11 @@ function createStore(key, storage, { valid, ttl, make, size }) {
       }
       return true;
     },
+    /** Forget our copy. A record of another version or shape under the key is never removed. */
     clear() {
       memory.delete(key);
+      const there = heldSafely();
+      if (there !== "ours") return;
       try { storage()?.removeItem(key); } catch { blocked = true; }
     },
   };
@@ -75,7 +97,7 @@ function createStore(key, storage, { valid, ttl, make, size }) {
 /** The rough draft in progress, one record per sign-in. */
 export function createVoiceDraftStore(key, storage = () => globalThis.localStorage) {
   return createStore(key, storage, {
-    valid: validDraft, ttl: ROUGH_COPY_TTL_MS, size: (f) => f.text,
+    valid: validDraft, ttl: ROUGH_COPY_TTL_MS, size: (f) => f.text, version: DRAFT_VERSION,
     make: ({ sessionId, deadline, text }, now) => ({ v: DRAFT_VERSION, sessionId, deadline, text, savedAt: now }),
   });
 }
@@ -83,16 +105,26 @@ export function createVoiceDraftStore(key, storage = () => globalThis.localStora
 /** Unsaved changes to a polished copy, one record per rough draft. */
 export function createPolishedDraftStore(key, storage = () => globalThis.localStorage) {
   return createStore(key, storage, {
-    valid: validPolished, ttl: POLISHED_COPY_TTL_MS, size: (f) => f.body,
+    valid: validPolished, ttl: POLISHED_COPY_TTL_MS, size: (f) => f.body, version: POLISHED_VERSION,
     make: ({ base, title, body }, now) => ({ v: POLISHED_VERSION, base: base ?? null, title, body, savedAt: now }),
   });
 }
 
 const isVoiceKey = (key) => typeof key === "string" && (key.startsWith("ob-voice-draft:") || key.startsWith("ob-voice-polished:"));
+const versionOf = (key) => (key.startsWith("ob-voice-draft:") ? DRAFT_VERSION : POLISHED_VERSION);
+/** Whether the stored text is a record of ours (this version); anything else under a voice key stays. */
+const ours = (key, text) => {
+  try {
+    const record = JSON.parse(text);
+    return isObject(record) && record.v === versionOf(key);
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Remove voice copies on this phone, by their two prefixes only: nothing else in storage is
- * touched. Signing out removes every one. Signing in removes every copy except `keepUser`'s, so a
+ * touched, and a record of another version or one that doesn't parse is left byte for byte. Signing out removes every one. Signing in removes every copy except `keepUser`'s, so a
  * sign-in that ran out gives the same person her unsaved writing back, and nobody else sees it.
  * Never throws.
  */
@@ -104,7 +136,7 @@ export function clearVoiceCopies(storage = () => globalThis.localStorage, { keep
     if (store) {
       const keys = [];
       for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
-      for (const key of keys) if (goes(key)) store.removeItem(key);
+      for (const key of keys) if (goes(key) && ours(key, store.getItem(key))) store.removeItem(key);
     }
   } catch {
     // Blocked storage holds nothing to clear.

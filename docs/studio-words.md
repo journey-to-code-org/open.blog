@@ -4079,6 +4079,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.inProgress` | her | You have a piece in progress: “{title}”, {time} left. | `{title}` `{time}` | 106 |
 | `voice.inProgressDone` | her | Time ran out on “{title}”. Your rough draft is waiting. | `{title}` | 110 |
 | `voice.keepWriting` | her | Keep writing | none | 40 |
+| `voice.keptByNewer` | her | A newer version of {product} keeps its own writing on this phone, so this copy stays on this page only. Keep it open until it says Saved. | `{product}` | 240 |
 | `voice.keptPhone` | her | Waiting for a signal. Your writing is kept on this phone. | none | 114 |
 | `voice.leaveAsk` | her | Stop writing for now? | none | 42 |
 | `voice.leaveGo` | her | Leave | none | 40 |
@@ -4092,6 +4093,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.loadFailed` | her | Your pieces didn't load. | none | 48 |
 | `voice.loading` | her | Loading… | none | 40 |
 | `voice.lockFailedMemory` | her | Your rough draft couldn't be saved just now, and this phone won't keep a copy. Keep this page open until you have a signal. | none | 240 |
+| `voice.lockFailedNewer` | her | Your rough draft couldn't be saved just now. A newer version of {product} keeps its own writing on this phone, so keep this page open until you have a signal. | `{product}` | 240 |
 | `voice.lockFailedPhone` | her | Your rough draft couldn't be saved just now. Your latest words are kept on this phone; open this page again when you have a signal. | none | 240 |
 | `voice.lockFailedSent` | her | Your rough draft couldn't be saved just now, but your words reached {product}. Open this page again when you have a signal. | `{product}` | 240 |
 | `voice.lockRetry` | her | Saving your rough draft… trying again. | none | 76 |

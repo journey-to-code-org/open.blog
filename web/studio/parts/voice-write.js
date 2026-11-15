@@ -346,7 +346,7 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
       symbol.textContent = label.symbol;
       stateText.textContent = label.text;
     };
-    const kept = () => (drafts.inMemoryOnly ? say("voice.phoneRefused") : say("voice.keptPhone"));
+    const kept = () => (drafts.keptByNewer ? say("voice.keptByNewer") : drafts.inMemoryOnly ? say("voice.phoneRefused") : say("voice.keptPhone"));
 
     async function flush() {
       if (finishing || mine !== generation || saving) return;
@@ -429,7 +429,7 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
         }
       }
       done.loading = false;
-      message.textContent = text === lastSent ? say("voice.lockFailedSent") : drafts.inMemoryOnly ? say("voice.lockFailedMemory") : say("voice.lockFailedPhone");
+      message.textContent = text === lastSent ? say("voice.lockFailedSent") : drafts.keptByNewer ? say("voice.lockFailedNewer") : drafts.inMemoryOnly ? say("voice.lockFailedMemory") : say("voice.lockFailedPhone");
     }
 
     async function askStartOver() {
