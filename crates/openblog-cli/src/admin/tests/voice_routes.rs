@@ -30,11 +30,9 @@ fn start(f: &Fixture, s: &(String, String), prompt: &str) -> Json {
 }
 
 fn first_prompt(f: &Fixture, s: &(String, String)) -> String {
-    let (_, catalog) = get(f, s, "/admin/api/voice/catalog");
-    catalog["packs"][0]["prompts"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    let (status, drawn) = call(f, s, "POST", "/admin/api/voice/draw", json!({}));
+    assert_eq!(status, 200, "{drawn}");
+    drawn["prompts"][0]["id"].as_str().unwrap().to_string()
 }
 
 /// Move the open session's deadline so it began `ago` seconds ago.
@@ -62,7 +60,6 @@ fn lock(f: &Fixture, s: &(String, String), session: &Json, text: &str) -> (u16, 
 fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin() {
     let f = fixture("voice-auth");
     let routes: &[(&str, &str, bool)] = &[
-        ("GET", "/admin/api/voice/catalog", false),
         ("GET", "/admin/api/voice/status", false),
         ("POST", "/admin/api/voice/draw", true),
         ("GET", "/admin/api/voice/session", false),
@@ -134,7 +131,6 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
     // Deny by default: other verbs and names are not routes, and nothing was created.
     for (method, path) in [
         ("DELETE", "/admin/api/voice/samples"),
-        ("PATCH", "/admin/api/voice/catalog"),
         ("GET", "/admin/api/voice/other"),
         ("POST", "/admin/api/voice/samples/2026-10-28-a-rough/erase"),
         ("DELETE", "/admin/api/voice/samples/2026-10-28-a-rough"),
@@ -178,19 +174,15 @@ fn the_body_limits_are_set_before_any_body_is_read() {
 }
 
 #[test]
-fn the_catalog_and_the_draw_give_three_different_prompts_and_a_redraw_avoids_the_last() {
+fn the_draw_gives_three_different_prompts_and_a_redraw_avoids_the_last() {
     let f = fixture("voice-draw");
     let s = login_ok(&f);
-    let (status, catalog) = get(&f, &s, "/admin/api/voice/catalog");
+    let (status, first) = call(&f, &s, "POST", "/admin/api/voice/draw", json!({}));
     assert_eq!(status, 200);
-    assert!(catalog["packs"].as_array().unwrap().len() >= 10);
-    assert!(catalog["rule"]
+    assert!(first["rule"]
         .as_str()
         .unwrap()
         .contains("the way you would say it"));
-    assert_eq!(catalog["limits"]["defaultSeconds"], 180);
-    let (status, first) = call(&f, &s, "POST", "/admin/api/voice/draw", json!({}));
-    assert_eq!(status, 200);
     let ids = |v: &Json| -> Vec<String> {
         v["prompts"]
             .as_array()
@@ -216,7 +208,7 @@ fn the_catalog_and_the_draw_give_three_different_prompts_and_a_redraw_avoids_the
         "{first_ids:?} {again_ids:?}"
     );
     // A draw restricted to one pack stays in it; an unknown pack is not a pack.
-    let pack = catalog["packs"][2]["id"].as_str().unwrap();
+    let pack = first["prompts"][0]["pack"].as_str().unwrap();
     let (_, in_pack) = call(
         &f,
         &s,
@@ -769,11 +761,7 @@ fn an_invalid_file_is_listed_with_guidance_and_responses_hold_no_absolute_path_o
     let root = f.dir.display().to_string();
     let root_slashes = root.replace('\\', "/");
     let mut everything = vec![list.to_string(), rough.to_string()];
-    for path in [
-        "/admin/api/voice/catalog",
-        "/admin/api/voice/status",
-        "/admin/api/voice/session",
-    ] {
+    for path in ["/admin/api/voice/status", "/admin/api/voice/session"] {
         everything.push(get(&f, &s, path).1.to_string());
     }
     for text in &everything {

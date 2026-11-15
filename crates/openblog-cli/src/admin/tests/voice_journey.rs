@@ -334,7 +334,6 @@ fn an_author_goes_from_a_draw_to_an_erased_library_through_the_admin_api() {
 fn routes(id: &str) -> Vec<(&'static str, String, bool)> {
     let sample = format!("/admin/api/voice/samples/{id}");
     vec![
-        ("GET", "/admin/api/voice/catalog".into(), false),
         ("GET", "/admin/api/voice/status".into(), false),
         ("POST", "/admin/api/voice/draw".into(), true),
         ("GET", "/admin/api/voice/session".into(), false),
