@@ -1,3 +1,5 @@
+import { researchRoute } from "./parts/research-rules.js";
+
 // Hash routes → screens. `#/`, `#/posts`, `#/write`, `#/write/<path>`, `#/sign-in`.
 // Before leaving a screen the router asks it (`leave()`), so unsaved work is never lost on the way.
 import { readersRoute } from "./parts/reader-rules.js";
@@ -32,14 +34,14 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
 /**
  * The old editor's panes and the Write sheet each opens: Settings is About this post (R5); Social,
  * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
- * is Your route (R7), Assistant is the Writing helper (R8). Evidence waits for R12 and opens the post.
+ * is Your route (R7), Assistant is the Writing helper (R8). Evidence is Your research (R11).
  */
-export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
-const NOT_YET = new Set(["research", "shared"]);
+export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "claims" });
+const NOT_YET = new Set(["shared"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
- * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/research" → "#/not-yet/research".
+ * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/shared" → "#/not-yet/shared".
  */
 export function legacyRoute(hash) {
   const raw = String(hash || "").replace(/^#\/?/, "");
@@ -89,6 +91,9 @@ export function legacyRoute(hash) {
   if (name === "voice" && rest[0] === "library") return rest.length > 1 ? `#/voice/piece/${rest.slice(1).join("/")}${tail}` : `#/voice${tail}`;
   if (name === "voice" && !rest.length && new URLSearchParams(search).has("pack")) return `#/voice/write${tail}`;
   if (name === "design") return `#/look/design${tail}`;
+  // R11: research's old addresses (#/sources, #/research/overview, #/atlas, #/compare...).
+  const research = researchRoute(name, rest, search);
+  if (research !== undefined) return research;
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;
   return null;

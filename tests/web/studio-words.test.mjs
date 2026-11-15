@@ -191,8 +191,14 @@ test("her-layer defaults never use a banned word", () => {
   const MAY = {
     piece: /^(voice|home|helper|start)\./,
     prompt: /^(voice|home)\./,
-    key: /^(start\.key[A-Z0-9]\w*|start\.voiceKeyProblem|helper\.keyRejected)$/,
+    // - research's own terms (R11 decision 2): a citation "key" and a claim's "context".
+    key: /^(start\.key[A-Z0-9]\w*|start\.voiceKeyProblem|helper\.keyRejected|(research|sources|notebook|cite|yours|atlas|compare|public)\.\w+)$/,
+    context: /^claims\./,
     api: /^start\.keyStep3$/,
+    // research's scholarly names (R11 decision 2): "CSL JSON" as the kind of file she picks,
+    // and "canonical place" as a kind of place in a source.
+    json: /^(sources|cite)\./,
+    canonical: /^(place|cite)\./,
   };
   for (const [id, entry] of Object.entries(catalog())) {
     if (!entry.allows) continue;

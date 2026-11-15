@@ -124,6 +124,9 @@ export function createWordBox({ label, name = label, place = name, rows = 8, des
       description: part === 1 ? description : "",
       placeholder: room ? say("card.keepWriting") : "",
     });
+    // R11: what goes directly under this box's words (Cited here), redrawn as she types.
+    const underSlot = host.under ? h("div", { class: "studio-under-words" }) : null;
+    const paintUnder = () => { if (underSlot) underSlot.replaceChildren(host.under(box, { text: whole ? text : blocks[index]?.source ?? "", offset, index, whole }) || ""); };
     field.addEventListener("valuechange", (event) => {
       const next = String(event.detail ?? "");
       if (whole) text = next;
@@ -135,6 +138,7 @@ export function createWordBox({ label, name = label, place = name, rows = 8, des
       remember(field, index, offset);
       slash(field);
       emit();
+      paintUnder();
     });
     requestAnimationFrame(() => {
       const area = field.querySelector("textarea");
@@ -145,7 +149,9 @@ export function createWordBox({ label, name = label, place = name, rows = 8, des
       area.addEventListener("keydown", (event) => keys(event, area, index));
       area.addEventListener("paste", (event) => host.paste?.(box, area, event));
     });
-    return field;
+    if (!underSlot) return field;
+    requestAnimationFrame(paintUnder);
+    return h("div", { class: "studio-segment-wrap" }, field, underSlot);
   }
 
   function remember(field, index, offset) {
@@ -248,6 +254,8 @@ export function createWordBox({ label, name = label, place = name, rows = 8, des
     /** Where she was: an offset in the text (the end when she hasn't been in it yet). */
     caret: () => (caret ? caret.at : text.replace(/\s+$/, "").length),
     selection: () => caret?.selection || "",
+    /** Where the selected words are in the text, `{ start, end }`, or null before she has been in it (R12 claims). */
+    selectionRange: () => (caret ? { start: caret.at - caret.selection.length, end: caret.at } : null),
     /** The line she typed "/" on is where the caret is. */
     focus(where = {}) { focusAfterRender(where.at !== undefined || where.card !== undefined ? where : { segment: where.segment || "first", end: where.end }); },
     redraw: () => render(),

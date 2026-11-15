@@ -23,6 +23,7 @@ import { ask } from "./parts/dialogs.js";
 import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
 import { startDecision, stepRoute } from "./parts/onboarding-rules.js";
 import { clearRecordings, hasRecording } from "./parts/story-store.js";
+import { researchFind } from "./parts/research-find.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav() : s.nav, href: s.href || (s.name === "home" ? "#/" : `#/${s.name}`) }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
@@ -163,6 +164,8 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     // R9b: Getting started, and its stories by name (`again`: a finished run starts a new one).
     { id: "go-start", label: say("start.menu"), group: "Do", href: "#/start" },
     { id: "go-start-stories", label: say("start.findStories"), group: "Do", href: "#/start/stories?again=1" },
+    // R11: research by name on a site that uses it; the developer's door everywhere.
+    ...researchFind(meta),
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },

@@ -9,6 +9,7 @@ import {
   acknowledgementRequest, gateWords, groupWords, markProblem, markWords, publicationReviewCountsText, publicationReviewPlace, reviewCountsWords,
   reviewGroups, reviewPlaceWords, reviewTarget,
 } from "./review-rules.js";
+import { openItHash } from "./research-rules.js";
 
 let made = 0;
 
@@ -16,7 +17,7 @@ let made = 0;
  * `context()` → { post, firstBodyLine, body }; `show(target)` goes to a place in this post;
  * `reload()` asks for the review again; `tell(words, undo?)` says what happened in the sheet.
  */
-export function createResearchReview({ api, context, show, reload, tell }) {
+export function createResearchReview({ api, context, show, reload, tell, site = false }) {
   const prefix = `studio-review-${++made}`;
   const element = h("section", { class: "studio-ready-group studio-review", "aria-labelledby": `${prefix}-h` });
   let review = null;
@@ -50,12 +51,16 @@ export function createResearchReview({ api, context, show, reload, tell }) {
 
   function findingView(finding, id, ctx) {
     const place = reviewPlaceWords(finding, ctx);
-    const target = reviewTarget(finding, ctx);
+    // On What readers see (R12) the report is the whole site's: nothing is "in this post".
+    const target = site ? null : reviewTarget(finding, ctx);
     const message = h("p", { id: `${id}-m` }, h("bdi", { text: String(finding.message || "") }));
     const state = h("p", { class: "studio-help", hidden: !finding.acknowledgement, text: markWords(finding.acknowledgement) });
     const error = h("p", { class: "studio-field-error", role: "alert", hidden: true });
     const buttons = [];
     if (target) buttons.push(h("action-button", { variant: "secondary", size: "sm", label: say("review.showMeLabel", { what: place }), onClick: () => show(target) }, say("review.showMe")));
+    // R11: a finding in her research opens it there.
+    const openIt = openItHash({ ...finding.scope, related: finding.related }, { post: site ? "" : ctx.post, site });
+    if (openIt) buttons.push(h("action-button", { variant: "secondary", size: "sm", href: openIt }, say("research.openIt")));
     if (finding.gate === "advisory") {
       const mark = h("action-button", { variant: "secondary", size: "sm", label: say("review.markLabel", { what: String(finding.message || finding.code || "") }), disabled: !revision,
         onClick: () => toggle(finding, mark, state, error) }, say("review.mark"));

@@ -125,6 +125,18 @@
         "box"
       ]
     },
+    "add.citation": {
+      "text": "A citation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "add.citationBlurb": {
+      "text": "Point to a source in your library, and where in it.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
     "add.cleared": {
       "text": "Cleared.",
       "layer": "her",
@@ -240,6 +252,18 @@
       "max": 40,
       "vars": []
     },
+    "add.quotation": {
+      "text": "A quotation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "add.quotationBlurb": {
+      "text": "Exact words from your notebook, with their citation.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
     "add.slashTip": {
       "text": "Tip: type / on an empty line to add something.",
       "layer": "her",
@@ -287,6 +311,1633 @@
     },
     "add.yourWords": {
       "text": "your words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.about": {
+      "text": "About (c.)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.add": {
+      "text": "Add an entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addAlias": {
+      "text": "Add another name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addDating": {
+      "text": "Add a dating",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addDissent": {
+      "text": "Add someone who disagrees",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "atlas.addEvidence": {
+      "text": "Add evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addFrom": {
+      "text": "Add a link from {name}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "name"
+      ]
+    },
+    "atlas.addIt": {
+      "text": "Add it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addLink": {
+      "text": "Add a link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.addTo": {
+      "text": "Add a link to {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "atlas.added": {
+      "text": "Added to your atlas.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.after": {
+      "text": "after",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.againstItself": {
+      "text": "A dating can't be dated against itself.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "atlas.aliasRow": {
+      "text": "Other name {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.aliases": {
+      "text": "Also called",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.alsoCalled": {
+      "text": "also called {names}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "names"
+      ]
+    },
+    "atlas.and": {
+      "text": "and",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.anyAspect": {
+      "text": "Anything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.anyKind": {
+      "text": "Any kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.approveHelp": {
+      "text": "You agree to show this on your blog's atlas pages once {product} publishes the atlas.",
+      "layer": "her",
+      "max": 170,
+      "vars": [
+        "product"
+      ]
+    },
+    "atlas.aspectActive": {
+      "text": "activity",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectBirth": {
+      "text": "birth",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectComposition": {
+      "text": "composition",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectDeath": {
+      "text": "death",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectEmergence": {
+      "text": "emergence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectPublication": {
+      "text": "publication",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.aspectSpan": {
+      "text": "span",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.backToList": {
+      "text": "‹ Your atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.badAspect": {
+      "text": "This entry can't be dated that way.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "atlas.badCentury": {
+      "text": "A century is a number from 1 to {max}, like 4.",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.badDate": {
+      "text": "That date can't be right. Check the year and era.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "atlas.badDay": {
+      "text": "That month has days 1 to {max}.",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.badDecade": {
+      "text": "A decade is a year ending in 0, like 380.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "atlas.badEnds": {
+      "text": "That kind of link can't join these entries.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "atlas.badYear": {
+      "text": "Type the year from 1 to {max}, and choose BCE or CE. There is no year 0.",
+      "layer": "her",
+      "max": 144,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.bce": {
+      "text": "BCE",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.before": {
+      "text": "before",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.between": {
+      "text": "between",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.byNamed": {
+      "text": "A named person or group",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "atlas.bySource": {
+      "text": "A source in your library",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "atlas.byYou": {
+      "text": "You",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.cantShow": {
+      "text": "Readers can't see this while {what} stays private.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "what"
+      ]
+    },
+    "atlas.ce": {
+      "text": "CE",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.century": {
+      "text": "century",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.centuryNumber": {
+      "text": "Century, like 4: {which}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.checkDating": {
+      "text": "Check dating {n} of {name}",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "n",
+        "name"
+      ]
+    },
+    "atlas.checkNote": {
+      "text": "Prompts, never verdicts: these datings can't all hold as stated. None says which is right.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "atlas.chooseAspect": {
+      "text": "Choose what this dating dates.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "atlas.chooseAspectOption": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chooseEntryOption": {
+      "text": "Choose an entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chooseEvidenceSource": {
+      "text": "Choose the source for evidence {n}.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.chooseFrom": {
+      "text": "Choose the entry the link starts from.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "atlas.chooseHolder": {
+      "text": "Choose the source that says so.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "atlas.chooseLinkKind": {
+      "text": "Choose what kind of link this is.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "atlas.chooseLinkKindOption": {
+      "text": "Choose a kind of link",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "atlas.chooseMonth": {
+      "text": "Choose a month.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chooseOther": {
+      "text": "Choose the entry it's dated against.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "atlas.chooseSourceOption": {
+      "text": "Choose a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chooseTo": {
+      "text": "Choose the entry the link goes to.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "atlas.chooseWork": {
+      "text": "Choose a work from your library, or none.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "atlas.chronology": {
+      "text": "Chronology",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chronologyFilters": {
+      "text": "Show",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chronologyFind": {
+      "text": "Entry or link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.chronologyLede": {
+      "text": "Every dating in your atlas, as words. Competing datings stand side by side; nothing is preferred, merged or averaged.",
+      "layer": "her",
+      "max": 234,
+      "vars": []
+    },
+    "atlas.circa": {
+      "text": "c.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.contested": {
+      "text": "Disputed by {who}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "who"
+      ]
+    },
+    "atlas.count": {
+      "text": "{shown} of {total} entries",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "shown",
+        "total"
+      ]
+    },
+    "atlas.cycle": {
+      "text": "That would make a loop of links.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "atlas.dateLabel": {
+      "text": "{which} of dating {n}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "which",
+        "n"
+      ]
+    },
+    "atlas.datingApproveHelp": {
+      "text": "Shown only while what it dates is shown too, with who says so.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "atlas.datingN": {
+      "text": "Dating {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.datingNote": {
+      "text": "Note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.datingsCount": {
+      "text": "{count} datings.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.datingsOf": {
+      "text": "Datings of the {aspect} of {name}",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "aspect",
+        "name"
+      ]
+    },
+    "atlas.day": {
+      "text": "Day: {which}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.decade": {
+      "text": "Decade, like 380: {which}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.dissentNeedsWhy": {
+      "text": "Give evidence or a note saying why they disagree ({n}).",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.dissentNote": {
+      "text": "Why they disagree ({n})",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.dissentWho": {
+      "text": "Who disagrees ({n})",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.dissents": {
+      "text": "Who disagrees",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.dissentsHelp": {
+      "text": "Anyone who disputes this link, with their evidence or a note saying why.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "atlas.duplicate": {
+      "text": "These entries already have that link.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "atlas.during": {
+      "text": "during",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.duringLasts": {
+      "text": "During needs a date that lasts: a span, an activity or a composition.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "atlas.edit": {
+      "text": "Change this entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.editEntry": {
+      "text": "Change the entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.editLink": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.editLinkTitle": {
+      "text": "Change the link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.emptyText": {
+      "text": "Add the people, works, ideas, movements and events you study, then note who says what about them.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "atlas.emptyTitle": {
+      "text": "Your atlas is empty",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.endsHelp": {
+      "text": "Only entries this kind of link can join are offered.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "atlas.era": {
+      "text": "BCE or CE: {which}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.evidence": {
+      "text": "Evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.evidenceCount": {
+      "text": "On {count} pieces of evidence.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.evidenceHelp": {
+      "text": "A source, and where in it. A passage from your notebook is optional and stays private.",
+      "layer": "her",
+      "max": 172,
+      "vars": []
+    },
+    "atlas.evidencePassage": {
+      "text": "Passage for evidence {n}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.evidenceSource": {
+      "text": "Source of evidence {n}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.explore": {
+      "text": "Explore {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "atlas.exploreNote": {
+      "text": "Only links someone asserted. Nothing is worked out from dates or order.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "atlas.find": {
+      "text": "Find an entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.firm": {
+      "text": "How firmly they hold it",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "atlas.firmHelp": {
+      "text": "How firmly they hold it, not how widely it's accepted.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "atlas.firmPlausible": {
+      "text": "Plausible",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.firmStrong": {
+      "text": "Strong",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.firmTentative": {
+      "text": "Tentative",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.formAt": {
+      "text": "On a date",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.formRange": {
+      "text": "Between two dates",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.formRelative": {
+      "text": "Before, after or during another entry's date",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "atlas.formUnknown": {
+      "text": "Unknown: they say it isn't known",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "atlas.formWindow": {
+      "text": "Sometime within a window",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "atlas.from": {
+      "text": "from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.fromYear": {
+      "text": "from {year}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "year"
+      ]
+    },
+    "atlas.gone": {
+      "text": "That isn't in your atlas any more.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "atlas.groupBy": {
+      "text": "Group by",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.howDated": {
+      "text": "How it's dated",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.isContested": {
+      "text": "Disputed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.key": {
+      "text": "Key",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "atlas.keyHelp": {
+      "text": "Lowercase letters, numbers and dashes. It's part of the page's address and can't change later.",
+      "layer": "her",
+      "max": 188,
+      "vars": []
+    },
+    "atlas.keyTaken": {
+      "text": "Something else in your atlas has that key. Choose another.",
+      "layer": "her",
+      "max": 116,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "atlas.kind": {
+      "text": "Kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.kindConcept": {
+      "text": "Concept",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.kindEvent": {
+      "text": "Event",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.kindMovement": {
+      "text": "Movement",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.kindPerson": {
+      "text": "Person",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.kindWork": {
+      "text": "Work",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.label": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.linkApproveHelp": {
+      "text": "Shown only while both entries are shown too, with who says so and who disagrees.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "atlas.linkKind": {
+      "text": "What kind of link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.linkKindReads": {
+      "text": "Read one way: {reading}. The other way: {inverse}.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "reading",
+        "inverse"
+      ]
+    },
+    "atlas.linkLede": {
+      "text": "A link records that someone says so. It's never worked out from dates or order.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "atlas.linksFrom": {
+      "text": "Links from {name} ({count})",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "name",
+        "count"
+      ]
+    },
+    "atlas.linksTo": {
+      "text": "Links to {name} ({count})",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "name",
+        "count"
+      ]
+    },
+    "atlas.missingConcepts": {
+      "text": "Concepts your notes use, not in your atlas yet:",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "atlas.missingMark": {
+      "text": "(not in your atlas)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.month": {
+      "text": "Month: {which}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.nameHolder": {
+      "text": "Say who says so.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.needEvidence": {
+      "text": "Add evidence, or mark it as a draft with no evidence yet.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "atlas.needName": {
+      "text": "Give it a name.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.needOneEnd": {
+      "text": "Give at least one end; the other can stay open.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "atlas.newEntry": {
+      "text": "New entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.noDatings": {
+      "text": "No datings yet. Add one under When on an entry or link.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "atlas.noDatingsHere": {
+      "text": "No datings yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.noEvidence": {
+      "text": "No evidence yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.noPassage": {
+      "text": "No passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.noWork": {
+      "text": "None",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.noneMatch": {
+      "text": "No entries match.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.notAfter": {
+      "text": "not after",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.notBefore": {
+      "text": "not before",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.notComplete": {
+      "text": "not complete yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.notCompleteOther": {
+      "text": "not complete yet: choose the other entry and which of its dates",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "atlas.notPublished": {
+      "text": "Your blog doesn't publish the atlas yet. {helper} can turn it on.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "helper"
+      ]
+    },
+    "atlas.notesHere": {
+      "text": "Notes in your notebook on this concept ({count})",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.nowPrivate": {
+      "text": "It's private again.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.nowShown": {
+      "text": "Readers can see it once your atlas is published.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "atlas.of": {
+      "text": "of",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.oneTime": {
+      "text": "That happens at one time. Use a window instead of two dates.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "atlas.onlyAspect": {
+      "text": "only {aspect}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "aspect"
+      ]
+    },
+    "atlas.onlyCompeting": {
+      "text": "only competing datings",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "atlas.onlyCompetingBox": {
+      "text": "Only competing datings",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "atlas.onlyPrompted": {
+      "text": "only datings to check",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "atlas.onlyPromptedBox": {
+      "text": "Only datings to check",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "atlas.open": {
+      "text": "open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.openStart": {
+      "text": "No earliest date stated",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "atlas.order": {
+      "text": "Before, after or during",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "atlas.otherAspect": {
+      "text": "Which of its dates",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.otherEntry": {
+      "text": "The other entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.outsideWindow": {
+      "text": "(outside these years)",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "atlas.passageGone": {
+      "text": "The passage for evidence {n} isn't in your notebook any more.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.passageOtherSource": {
+      "text": "That passage comes from another source. Choose one from this source.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "atlas.precision": {
+      "text": "How exact: {which}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.precisionCentury": {
+      "text": "Century",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.precisionDay": {
+      "text": "Day",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.precisionDecade": {
+      "text": "Decade",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.precisionMonth": {
+      "text": "Month",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.precisionOpen": {
+      "text": "Left open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.precisionYear": {
+      "text": "Year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.readersCan": {
+      "text": "Readers can see it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.readersSee": {
+      "text": "Readers can see it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.readsAs": {
+      "text": "Reads as: {date}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "date"
+      ]
+    },
+    "atlas.rebuildFailed": {
+      "text": "Saved, but your published atlas didn't update. Tell {helper}.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "helper"
+      ]
+    },
+    "atlas.rebuilt": {
+      "text": "Your published atlas was updated.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "atlas.relative": {
+      "text": "Relative datings ({count})",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.removed": {
+      "text": "Taken out of your atlas.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "atlas.removedNotes": {
+      "text": "{count} notes now name a concept with no entry: {list}.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "count",
+        "list"
+      ]
+    },
+    "atlas.reversed": {
+      "text": "The start is later than the end. Check the years and BCE or CE.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "atlas.sameDating": {
+      "text": "That dating is already here.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "atlas.sameKindEnds": {
+      "text": "This kind of link joins two entries of the same kind.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "atlas.sameName": {
+      "text": "Each other name only once.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "atlas.save": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.saved": {
+      "text": "Saved to your atlas.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.saySoOn": {
+      "text": "say so, on {count} pieces of evidence",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.self": {
+      "text": "A link needs two different entries.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "atlas.showNeedsEvidence": {
+      "text": "Readers can't see a draft with no evidence. Add evidence first.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "atlas.showNoPassage": {
+      "text": "What readers see can't point into your notebook. Take the passage out and keep the source and places.",
+      "layer": "her",
+      "max": 202,
+      "vars": []
+    },
+    "atlas.showing": {
+      "text": "{shown} of {total} datings",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "shown",
+        "total"
+      ]
+    },
+    "atlas.slotAt": {
+      "text": "The date",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.slotFrom": {
+      "text": "Start",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.slotNotAfter": {
+      "text": "Not after",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.slotNotBefore": {
+      "text": "Not before",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.slotTo": {
+      "text": "End",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.stillLinked": {
+      "text": "Links still join this entry. Take them out first.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "atlas.strongNeedsEvidence": {
+      "text": "A draft with no evidence can't be held strongly. Add evidence first.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "atlas.summary": {
+      "text": "Summary",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.summaryHelp": {
+      "text": "Your own words. Quoted words belong in a passage.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "atlas.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.takeOutAlias": {
+      "text": "Take out other name {n}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.takeOutDating": {
+      "text": "Take out dating {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.takeOutDissent": {
+      "text": "Take out disagreement {n}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.takeOutEvidence": {
+      "text": "Take out evidence {n}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.takeOutLink": {
+      "text": "Take out this link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.the": {
+      "text": "the",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.timeline": {
+      "text": "Timeline",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.timelineNote": {
+      "text": "Order is for reading only. It never relates two datings.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "atlas.title": {
+      "text": "Your atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.to": {
+      "text": "to",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.toCheck": {
+      "text": "To check",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.toCheckCount": {
+      "text": "Datings to check ({count})",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.toYear": {
+      "text": "to {year}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "year"
+      ]
+    },
+    "atlas.tooManyDatings": {
+      "text": "At most {max} datings here.",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.tooManyDissents": {
+      "text": "At most {max} people who disagree.",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.tooManyNames": {
+      "text": "That's more other names than an entry can have ({max}).",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.tooManyPlaces": {
+      "text": "At most {max} places for each source of evidence.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.tooMuchEvidence": {
+      "text": "At most {max} pieces of evidence here.",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "max"
+      ]
+    },
+    "atlas.uncertainty": {
+      "text": "What's uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.unknown": {
+      "text": "unknown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.unnamed": {
+      "text": "someone not named",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.unplaced": {
+      "text": "Not placed in time ({count})",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.unsourced": {
+      "text": "A draft with no evidence yet",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "atlas.until": {
+      "text": "until",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.whatEnd": {
+      "text": "an entry it joins",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.whatItDates": {
+      "text": "What it dates",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.when": {
+      "text": "When",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.whenCount": {
+      "text": "When ({count})",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "atlas.whenHelp": {
+      "text": "Each dating says who dates what, on which evidence, as exactly as they state it. Competing datings stay side by side.",
+      "layer": "her",
+      "max": 234,
+      "vars": []
+    },
+    "atlas.whereIn": {
+      "text": "Where in the source (evidence {n})",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "n"
+      ]
+    },
+    "atlas.whichSource": {
+      "text": "Which source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.who": {
+      "text": "Who says so",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.whoName": {
+      "text": "Their name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.windowBad": {
+      "text": "Use whole years with BCE or CE, so these years aren't used.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "atlas.windowFrom": {
+      "text": "From year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.windowFromEra": {
+      "text": "From: BCE or CE",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.windowHelp": {
+      "text": "Leave either end empty to keep it open.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "atlas.windowReversed": {
+      "text": "The start is after the end, so these years aren't used.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "atlas.windowTo": {
+      "text": "To year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.windowToEra": {
+      "text": "To: BCE or CE",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "atlas.work": {
+      "text": "The work in your library",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "atlas.year": {
+      "text": "Year: {which}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "which"
+      ]
+    },
+    "atlas.yearHelp": {
+      "text": "Whole years, with BCE or CE. There is no year 0.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "atlas.you": {
+      "text": "you",
       "layer": "her",
       "max": 40,
       "vars": []
@@ -493,6 +2144,28 @@
       "max": 58,
       "vars": [
         "words"
+      ]
+    },
+    "card.quotation": {
+      "text": "Quotation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "card.quotationFrom": {
+      "text": "From {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "card.quotationName": {
+      "text": "Quotation from {source}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "source"
       ]
     },
     "card.social": {
@@ -713,6 +2386,836 @@
         "helper"
       ]
     },
+    "cite.addSource": {
+      "text": "Add a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.archived": {
+      "text": "archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.badPlace": {
+      "text": "Place {n} needs a kind and a value, like page 514.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "n"
+      ]
+    },
+    "cite.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.changeTitle": {
+      "text": "Change this citation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.changed": {
+      "text": "Citation changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.checking": {
+      "text": "Checking the citation…",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "cite.chipName": {
+      "text": "Citation: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "cite.choosePassage": {
+      "text": "Choose a passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.citeIt": {
+      "text": "Cite it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.citedHere": {
+      "text": "Cited here:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.copiedFromPassage": {
+      "text": "The source and where it is were copied. The exact words and your notes stay private.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "cite.count": {
+      "text": "{count} sources",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "cite.countLine": {
+      "text": "{citations} citations of {works} works.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "citations",
+        "works"
+      ]
+    },
+    "cite.countOneCitation": {
+      "text": "1 citation of 1 work.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "cite.countOneWork": {
+      "text": "{citations} citations of 1 work.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "citations"
+      ]
+    },
+    "cite.done": {
+      "text": "Cited.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.download": {
+      "text": "Download the works this post cites",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "cite.downloadBib": {
+      "text": "BibTeX",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.downloadCsl": {
+      "text": "CSL JSON",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "json"
+      ]
+    },
+    "cite.downloaded": {
+      "text": "Saved {filename}: {count} works. Nothing was looked up online.",
+      "layer": "her",
+      "max": 124,
+      "vars": [
+        "filename",
+        "count"
+      ]
+    },
+    "cite.emptyLibrary": {
+      "text": "Your library is empty. Add a source first.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "cite.find": {
+      "text": "Find a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.fromPassage": {
+      "text": "Start from a passage (optional)",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "cite.keyLine": {
+      "text": "Key: {key}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "key"
+      ]
+    },
+    "cite.libraryChanged": {
+      "text": "Your library changed. The list is up to date now; choose again.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "cite.locale": {
+      "text": "Language of the notes",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "cite.localeSite": {
+      "text": "Your blog's language",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.malformed": {
+      "text": "This citation can't be read.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "cite.malformedNow": {
+      "text": "That citation can't be read. Choose the source again.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "cite.needSource": {
+      "text": "Choose the source to cite.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "cite.noNotebook": {
+      "text": "Your notebook can't be read, so passages aren't offered. You can still cite any source.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "cite.noPassages": {
+      "text": "No passages yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.notInLibrary": {
+      "text": "That source isn't in your library. Choose another.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "cite.notesOn": {
+      "text": "Cited. Your sources will show as numbered notes at the end. Change that in About this post.",
+      "layer": "her",
+      "max": 182,
+      "vars": []
+    },
+    "cite.previewFirst": {
+      "text": "Check the post first: press See how it looks, then download.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "cite.reads": {
+      "text": "Reads as: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "cite.readsNone": {
+      "text": "Choose a source to see how it reads.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "cite.refusedCode": {
+      "text": "A citation can't go inside code. Put your cursor in plain words first.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "cite.refusedKept": {
+      "text": "A citation can't go inside a part kept as written.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "cite.refusedLink": {
+      "text": "A citation can't go inside a link. Put your cursor after it.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "cite.showMe": {
+      "text": "Show me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.source": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.sourceHelp": {
+      "text": "From your library. Only its key goes into your post.",
+      "layer": "her",
+      "max": 104,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "cite.sourceLine": {
+      "text": "{kind}, {year}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "kind",
+        "year"
+      ]
+    },
+    "cite.sourcesGroup": {
+      "text": "Sources in this post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.style": {
+      "text": "How sources show",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.styleHelp": {
+      "text": "Readers see only each source's public description and your places, never your notes.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "cite.styleList": {
+      "text": "A list of works at the end, with places in the text",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "cite.styleNotes": {
+      "text": "Numbered notes at the end",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "cite.styleOff": {
+      "text": "Not yet: citations stay as you typed them",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "cite.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.takenOut": {
+      "text": "Citation taken out.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.title": {
+      "text": "A citation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "cite.tooMany": {
+      "text": "This post has too many citations for one check.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "cite.tooManyPlaces": {
+      "text": "A citation can have up to 8 places.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "cite.unknownKey": {
+      "text": "Not in your library: {key}",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "key"
+      ],
+      "allows": [
+        "key"
+      ]
+    },
+    "cite.waiting": {
+      "text": "Waiting for a signal. What you chose is kept here. Press Cite it when you have one.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "cite.where": {
+      "text": "Where in the source (optional)",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "cite.whereHelp": {
+      "text": "Like page 514, or canonical place 514a to 520a.",
+      "layer": "her",
+      "max": 94,
+      "vars": [],
+      "allows": [
+        "canonical"
+      ]
+    },
+    "cite.wordsHelp": {
+      "text": "A citation shows in your words as [@ and its source's key. Change it with its button under the words.",
+      "layer": "her",
+      "max": 202,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "cite.writes": {
+      "text": "What it writes: {markdown}",
+      "layer": "details",
+      "max": 52,
+      "vars": [
+        "markdown"
+      ]
+    },
+    "claims.ambiguous": {
+      "text": "The words are in your post twice. Select the one you mean.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "claims.approveHelp": {
+      "text": "You agree to show this claim and what's doubtful in the post's Claims and evidence part.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "claims.badPlace": {
+      "text": "Each place needs a kind and a value, like page 514.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "claims.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.changeLink": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.checked": {
+      "text": "What you've checked",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.chooseRelation": {
+      "text": "Choose how the source bears on the claim. A citation alone says none of these.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "claims.chooseSource": {
+      "text": "Choose the source.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.column": {
+      "text": "{what} ({count})",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "what",
+        "count"
+      ]
+    },
+    "claims.context": {
+      "text": "Gives context",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "context"
+      ]
+    },
+    "claims.contradicts": {
+      "text": "Contradicts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.counts": {
+      "text": "{supports} supporting, {contradicts} contradicting, {context} giving context",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "supports",
+        "contradicts",
+        "context"
+      ],
+      "allows": [
+        "context"
+      ]
+    },
+    "claims.doubtful": {
+      "text": "What's doubtful:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.doubtfulField": {
+      "text": "What's doubtful",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.findFirst": {
+      "text": "Find the words again before adding evidence, so evidence never lands on words you didn't choose.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "claims.follow": {
+      "text": "Follow them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.followed": {
+      "text": "The claim now follows its words.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "claims.gaps": {
+      "text": "Gaps and prompts ({count})",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "count"
+      ]
+    },
+    "claims.inPlace": {
+      "text": "In place.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.lede": {
+      "text": "Private to you. A claim is your statement in this post; evidence records how one source bears on it. Nothing here scores evidence or decides what's true, and a citation alone links nothing.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "claims.link": {
+      "text": "Link evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.linkApproveHelp": {
+      "text": "You agree to show its source, places, how it bears, your reasoning, how firmly and what's uncertain beside the claim.",
+      "layer": "her",
+      "max": 234,
+      "vars": []
+    },
+    "claims.linkFor": {
+      "text": "Link evidence to: {statement}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "statement"
+      ]
+    },
+    "claims.linkSaved": {
+      "text": "Evidence saved privately.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "claims.linkTitle": {
+      "text": "Evidence for:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.lost": {
+      "text": "The words aren't in your post any more. Select them again.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "claims.make": {
+      "text": "Make a claim from the selected words",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "claims.moved": {
+      "text": "The words moved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.noPassagePublic": {
+      "text": "Evidence readers see cites the source and places, never a private passage. Take the passage out or keep it private.",
+      "layer": "her",
+      "max": 230,
+      "vars": []
+    },
+    "claims.none": {
+      "text": "No claims in this post yet.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "claims.noneContext": {
+      "text": "No evidence giving context recorded.",
+      "layer": "her",
+      "max": 72,
+      "vars": [],
+      "allows": [
+        "context"
+      ]
+    },
+    "claims.noneContradicts": {
+      "text": "No contradicting evidence recorded.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "claims.noneSupports": {
+      "text": "No supporting evidence recorded.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "claims.onePart": {
+      "text": "Select words inside one paragraph, heading, list or quote.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "claims.passage": {
+      "text": "Passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.passageHelp": {
+      "text": "Optional. Stays private; it's pointed to, never copied.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "claims.passageOtherSource": {
+      "text": "That passage comes from another source.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "claims.plainWords": {
+      "text": "Select plain words: these have hidden characters in them.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "claims.relation": {
+      "text": "How does this source bear on the claim?",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "claims.relationHelp": {
+      "text": "Your reading of the source. Nothing checks whether it's true.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "claims.removed": {
+      "text": "Taken out.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.reviewNone": {
+      "text": "Not compared with the source yet",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "claims.reviewPlace": {
+      "text": "Checked the place in the source",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "claims.reviewRead": {
+      "text": "Read it, and I stand behind this",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "claims.reviewSuggested": {
+      "text": "Check a suggested link yourself before readers see it.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "claims.save": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.saveFirst": {
+      "text": "Press Update first: claims are checked against your saved post.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "claims.saved": {
+      "text": "Saved privately.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.selectAgain": {
+      "text": "Select again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.selectFirst": {
+      "text": "Select the words of the claim in your post first.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "claims.showBoth": {
+      "text": "Readers can't see this claim's support without its contradicting evidence. Let them see both, or neither.",
+      "layer": "her",
+      "max": 210,
+      "vars": []
+    },
+    "claims.source": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.statement": {
+      "text": "The claim, in your words",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "claims.summary": {
+      "text": "{detected} found, {potential} possible, {review} to review.",
+      "layer": "her",
+      "max": 118,
+      "vars": [
+        "detected",
+        "potential",
+        "review"
+      ]
+    },
+    "claims.summaryNone": {
+      "text": "No gaps or prompts for this post's claims from the checks that ran.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "claims.supports": {
+      "text": "Supports",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.takeOutLink": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.title": {
+      "text": "Claims and evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.tooMuch": {
+      "text": "Select at most {max} letters for one claim.",
+      "layer": "her",
+      "max": 86,
+      "vars": [
+        "max"
+      ]
+    },
+    "claims.twice": {
+      "text": "Those words are in your post twice. Select the one you mean.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "claims.where": {
+      "text": "Where in it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "claims.whole": {
+      "text": "About the whole post.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "claims.why": {
+      "text": "Why you read it this way",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "claims.words": {
+      "text": "About the words: “{text}”",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "text"
+      ]
+    },
     "common.ask": {
       "text": "Ask {helper}.",
       "layer": "her",
@@ -819,6 +3322,781 @@
       "max": 40,
       "vars": []
     },
+    "compare.aSource": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.aVersion": {
+      "text": "A version in your library",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "compare.absent": {
+      "text": "This version doesn't have this passage.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "compare.absentHere": {
+      "text": "This version doesn't have it",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "compare.add": {
+      "text": "Add an alignment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.addPlace": {
+      "text": "Add a place",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.added": {
+      "text": "Alignment added. It's private until you let readers see it.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "compare.allVersions": {
+      "text": "All versions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.anInterpretation": {
+      "text": "An interpretation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.anonymous": {
+      "text": "Made by: nobody named",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "compare.approveHelp": {
+      "text": "You agree to show these aligned passages on your blog, quoting only words whose rights you cleared.",
+      "layer": "her",
+      "max": 198,
+      "vars": []
+    },
+    "compare.approvedNotPublished": {
+      "text": "Approved, but your blog doesn't publish aligned passages yet. {helper} can turn it on.",
+      "layer": "her",
+      "max": 172,
+      "vars": [
+        "helper"
+      ]
+    },
+    "compare.archived": {
+      "text": "Archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.backToList": {
+      "text": "‹ Your alignments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.browser": {
+      "text": "app",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.checkPlace": {
+      "text": "Check this place: it may not match what your library says.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "compare.chooseInterpretation": {
+      "text": "Choose the interpretation for place {n}.",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.chooseOption": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.chooseVersion": {
+      "text": "Choose the version place {n} is in.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.copied": {
+      "text": "Copied {count} places.",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "count"
+      ]
+    },
+    "compare.copy": {
+      "text": "Copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.copyThem": {
+      "text": "Copy them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.copyTitle": {
+      "text": "Copy or download places",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "compare.copyYourself": {
+      "text": "Your {app} didn't allow copying. Select the text below and copy it.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "app"
+      ]
+    },
+    "compare.corresponding": {
+      "text": "You read these places as corresponding",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "compare.divergent": {
+      "text": "You read these places as corresponding but differing",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "compare.download": {
+      "text": "Download",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.downloaded": {
+      "text": "Saved alignment-{id}.txt.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "id"
+      ]
+    },
+    "compare.edit": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.editLede": {
+      "text": "Aligning places records where you read them as corresponding, never that they mean the same thing.",
+      "layer": "her",
+      "max": 196,
+      "vars": []
+    },
+    "compare.editTitle": {
+      "text": "Change {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "compare.emptyText": {
+      "text": "Add your first alignment: the places in two or more versions you read as corresponding.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "compare.emptyTitle": {
+      "text": "Nothing to compare yet",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "compare.exportFooter": {
+      "text": "Copied from your private research. Rights statements are your own; nothing here decides what copying is allowed.",
+      "layer": "her",
+      "max": 224,
+      "vars": []
+    },
+    "compare.exportName": {
+      "text": "Alignment:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.exportNoPlace": {
+      "text": "not recorded",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.exportPlace": {
+      "text": "Where:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.exportWords": {
+      "text": "The exact words, from {from}:",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "from"
+      ]
+    },
+    "compare.factHeldAt": {
+      "text": "Held at",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factInterprets": {
+      "text": "Interprets",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factIssued": {
+      "text": "Issued",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factLibrary": {
+      "text": "In your library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factMadeFrom": {
+      "text": "Made from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factOf": {
+      "text": "A form of",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factRevises": {
+      "text": "Revises",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factUncertain": {
+      "text": "Uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.factVolumes": {
+      "text": "Volumes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.fromInterpretation": {
+      "text": "the interpretation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.fromPassage": {
+      "text": "your notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.gone": {
+      "text": "That alignment isn't here any more.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "compare.howCorrespond": {
+      "text": "How they correspond",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.includeNotes": {
+      "text": "Include my notes on places",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "compare.interpretation": {
+      "text": "Interpretation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.interpretationGone": {
+      "text": "The interpretation for place {n} isn't in your library any more.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.keyTaken": {
+      "text": "Another alignment has that key. Choose another.",
+      "layer": "her",
+      "max": 94,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "compare.layout": {
+      "text": "Layout",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.locatedOnly": {
+      "text": "No words kept for this place; only where it is.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "compare.madeBy": {
+      "text": "Made by: {names}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "names"
+      ]
+    },
+    "compare.missingPassage": {
+      "text": "The passage this place names is gone.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "compare.name": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.needTwo": {
+      "text": "An alignment needs places in at least two versions, and at least one that has the passage.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "compare.newAlignment": {
+      "text": "New alignment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.normalized": {
+      "text": "Your normalization, not the source's words",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "compare.normalizedHidden": {
+      "text": "You wrote a normalization. Turn on Show your normalizations to read it.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "compare.normalizedNote": {
+      "text": "What you normalized (place {n})",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.normalizedWording": {
+      "text": "Your normalized words for place {n} (optional)",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.notAWork": {
+      "text": "Choose an edition, translation or manuscript for place {n}: a work has no words of its own.",
+      "layer": "her",
+      "max": 182,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.notInLibrary": {
+      "text": "Not in your library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.notNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.notPublishedHelp": {
+      "text": "Your blog doesn't publish aligned passages yet. {helper} can turn it on.",
+      "layer": "her",
+      "max": 144,
+      "vars": [
+        "helper"
+      ]
+    },
+    "compare.notesHelp": {
+      "text": "Your notes are private, so they're left out unless you include them.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "compare.notice": {
+      "text": "An alignment records where you read these places as corresponding. It doesn't say they mean the same thing, and no version is treated as the right one.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "compare.oneAfter": {
+      "text": "One after another",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.partial": {
+      "text": "You read these places as corresponding in part",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "compare.passage": {
+      "text": "Passage from your notebook for place {n}",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.placeAbsent": {
+      "text": "Readers see that this version doesn't have it.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "compare.placeHeldLength": {
+      "text": "Readers see where it is, not the words: they're longer than {max} letters.",
+      "layer": "her",
+      "max": 148,
+      "vars": [
+        "max"
+      ]
+    },
+    "compare.placeHeldRights": {
+      "text": "Readers see where it is, not the words: the version's rights aren't cleared.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "compare.placeNote": {
+      "text": "Your note: {note}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "note"
+      ]
+    },
+    "compare.placeNoteField": {
+      "text": "Your note on place {n}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.placeShown": {
+      "text": "Readers see these words, with the version's rights statement.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "compare.placeType": {
+      "text": "Place {n} is in",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.placeUnquoted": {
+      "text": "Readers see where it is; no words are kept for it.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "compare.places": {
+      "text": "Versions and places",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.private": {
+      "text": "Private: not published.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "compare.published": {
+      "text": "Published at {address}.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "address"
+      ]
+    },
+    "compare.reading": {
+      "text": "Reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.reasoning": {
+      "text": "Your reasoning",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.rebuildFailed": {
+      "text": "Saved, but your published aligned passages didn't update. Tell {helper}.",
+      "layer": "her",
+      "max": 144,
+      "vars": [
+        "helper"
+      ]
+    },
+    "compare.rebuilt": {
+      "text": "Your published aligned passages were updated.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "compare.recordedBy": {
+      "text": "Who reads them this way",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "compare.recordedByWho": {
+      "text": "recorded by {who}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "who"
+      ]
+    },
+    "compare.removed": {
+      "text": "Alignment taken out.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.rendering": {
+      "text": "Rendering",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.rights": {
+      "text": "Rights: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "compare.rightsText": {
+      "text": "These are your own statements about rights; they don't say copying is allowed. Copying them is your decision.",
+      "layer": "her",
+      "max": 218,
+      "vars": []
+    },
+    "compare.rightsTitle": {
+      "text": "Copy words whose rights aren't cleared?",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "compare.rightsYours": {
+      "text": "Rights statements are your own.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "compare.saved": {
+      "text": "Alignment saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.sayWhere": {
+      "text": "Say where place {n} is, or choose a passage, or mark that this version doesn't have it.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.selectAll": {
+      "text": "Select all",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.selectFirst": {
+      "text": "Select at least one place first.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "compare.selectPlace": {
+      "text": "Select place {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.selected": {
+      "text": "{count} places selected.",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "count"
+      ]
+    },
+    "compare.showNormalized": {
+      "text": "Show your normalizations",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "compare.sideBySide": {
+      "text": "Side by side",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.takeOut": {
+      "text": "Take out this alignment",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "compare.takeOutPlace": {
+      "text": "Take out place {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.theText": {
+      "text": "The places, as text",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.title": {
+      "text": "Compare versions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.tooManyPlaces": {
+      "text": "At most {max} places in one alignment.",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "max"
+      ]
+    },
+    "compare.uncertain": {
+      "text": "Uncertain:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.version": {
+      "text": "Version for place {n}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.versionFilter": {
+      "text": "Version",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "compare.versionsCount": {
+      "text": "{count} versions",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "compare.where": {
+      "text": "Where it is (place {n})",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.whichInterpretation": {
+      "text": "Interpretation for place {n}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "n"
+      ]
+    },
+    "compare.why": {
+      "text": "Why:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "copy.notReady": {
       "text": "Your blog can't make a copy for it right now. Try another, or tell {helper}.",
       "layer": "her",
@@ -826,6 +4104,262 @@
       "vars": [
         "helper"
       ]
+    },
+    "curate.by": {
+      "text": "By",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.changed": {
+      "text": "Your choices changed somewhere else. Here they are now.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "curate.chooseComment": {
+      "text": "Add my comment on this source",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "curate.chooseComparison": {
+      "text": "Choose these aligned passages",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "curate.chooseDating": {
+      "text": "Choose the dating “{date}”",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "date"
+      ]
+    },
+    "curate.chooseEntry": {
+      "text": "Choose this entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.chooseExplanation": {
+      "text": "Add my explanation of this entry",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "curate.chooseLink": {
+      "text": "Choose the link “{label}”",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "label"
+      ]
+    },
+    "curate.chooseSource": {
+      "text": "Choose this source as a reference",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "curate.chooseTitle": {
+      "text": "Choose for readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.chosen": {
+      "text": "Chosen for readers.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.chosenTitle": {
+      "text": "Chosen for readers ({count})",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "count"
+      ]
+    },
+    "curate.find": {
+      "text": "For readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.kindComment": {
+      "text": "Your comment on a source",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "curate.kindComparison": {
+      "text": "Aligned passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.kindDating": {
+      "text": "Dating",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.kindEntry": {
+      "text": "Atlas entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.kindExplanation": {
+      "text": "Your explanation of an entry",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "curate.kindLink": {
+      "text": "Link between entries",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.kindReference": {
+      "text": "Reference",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.lede": {
+      "text": "Choose research readers get beside this post. Choosing never makes anything public that isn't already.",
+      "layer": "her",
+      "max": 204,
+      "vars": []
+    },
+    "curate.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.moveDownLabel": {
+      "text": "Move down: {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "curate.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.moveUpLabel": {
+      "text": "Move up: {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "curate.moved": {
+      "text": "Moved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.needBy": {
+      "text": "Say who wrote it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.needText": {
+      "text": "Write your comment.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.noneChosen": {
+      "text": "Nothing chosen yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.notYet": {
+      "text": "Not choosable yet: no published post, atlas or aligned passages show it. Choosing never approves it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "curate.saveFirst": {
+      "text": "Save your post first, then choose what readers get beside it.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "curate.seeWhat": {
+      "text": "See what readers get",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.showAgain": {
+      "text": "Show it again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.shown": {
+      "text": "Shown to readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.shownAgain": {
+      "text": "Chosen again, as it is now.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "curate.stop": {
+      "text": "Stop showing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.stopped": {
+      "text": "Readers won't get it now.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "curate.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.takenOut": {
+      "text": "Taken out of what readers get.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "curate.text": {
+      "text": "Your words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "curate.title": {
+      "text": "For readers of this post",
+      "layer": "her",
+      "max": 48,
+      "vars": []
     },
     "decorations.betweenOff": {
       "text": "The look {product} wears while the calendar is off.",
@@ -5782,6 +9316,717 @@
         "helper"
       ]
     },
+    "notebook.aboutMissing": {
+      "text": "About a passage that's gone",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "notebook.aboutPassages": {
+      "text": "About these passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.aboutSources": {
+      "text": "About these sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.addPlace": {
+      "text": "Add another place",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.addToAtlas": {
+      "text": "Add it to the atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.all": {
+      "text": "Everything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.alsoConcept": {
+      "text": "Notes on {concept} ({count})",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "concept",
+        "count"
+      ]
+    },
+    "notebook.alsoNone": {
+      "text": "Nothing else yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.alsoPassage": {
+      "text": "Also about this passage ({count})",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "count"
+      ]
+    },
+    "notebook.alsoSource": {
+      "text": "Other research on {source} ({count})",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "source",
+        "count"
+      ]
+    },
+    "notebook.ambiguousPlace": {
+      "text": "Say which volume: that place is in more than one.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "notebook.answered": {
+      "text": "Answered questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.anyPlace": {
+      "text": "Any",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.anySource": {
+      "text": "Any source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.archive": {
+      "text": "Archive",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.archived": {
+      "text": "Archived. It stays in your notebook and in copies, out of the lists.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "notebook.archivedLine": {
+      "text": "Archived: kept, but left out of lists and search unless you show archived ones.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "notebook.backToList": {
+      "text": "‹ Your notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.badConcept": {
+      "text": "Use lowercase letters, numbers and dashes for each concept.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "notebook.badPassage": {
+      "text": "One of those passages is gone. Take it off the list.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "notebook.badPlace": {
+      "text": "Place {n} needs a kind and a value, like page 514.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "n"
+      ]
+    },
+    "notebook.badSource": {
+      "text": "Choose a source in your library.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "notebook.bringBlocked": {
+      "text": "Some entries clash with ones you have. Nothing was brought in.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "notebook.bringCheck": {
+      "text": "Check what it would do",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "notebook.bringDo": {
+      "text": "Bring in {count}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "notebook.bringFile": {
+      "text": "A notebook copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.bringLede": {
+      "text": "Adds what your notebook doesn't have. It never changes or removes anything here.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "notebook.bringNotCopy": {
+      "text": "That file isn't a notebook copy.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "notebook.bringNote": {
+      "text": "Note {id}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "notebook.bringOpen": {
+      "text": "Bring in a notebook copy…",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "notebook.bringPassage": {
+      "text": "Passage {id}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "notebook.bringSummary": {
+      "text": "{add} to add, {same} already here, {conflicts} in conflict.",
+      "layer": "her",
+      "max": 118,
+      "vars": [
+        "add",
+        "same",
+        "conflicts"
+      ]
+    },
+    "notebook.bringTitle": {
+      "text": "Bring in a notebook copy",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "notebook.broughtIn": {
+      "text": "Brought in: {summary}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "summary"
+      ]
+    },
+    "notebook.citeIt": {
+      "text": "Cite it in your post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.clear": {
+      "text": "Clear the filters",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.concept": {
+      "text": "Concept",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.conceptEntry": {
+      "text": "In your atlas: {label}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "label"
+      ]
+    },
+    "notebook.conceptMissing": {
+      "text": "isn't in your atlas yet.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "notebook.concepts": {
+      "text": "Concepts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.conceptsHelp": {
+      "text": "Lowercase words, like allegory or the-good.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "notebook.conceptsTitle": {
+      "text": "Its concepts in your atlas",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "notebook.conflict": {
+      "text": "Your notebook changed somewhere else, so nothing was saved. Your changes are still here.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "notebook.copied": {
+      "text": "Saved {filename}: {passages} passages and {notes} notes.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "filename",
+        "passages",
+        "notes"
+      ]
+    },
+    "notebook.copyGo": {
+      "text": "Save the copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.copyOpen": {
+      "text": "Save a copy of your notebook…",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "notebook.copyStay": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.copyText": {
+      "text": "The file holds every passage and note, archived ones too. Keep it somewhere private, never in your blog's folders.",
+      "layer": "her",
+      "max": 228,
+      "vars": []
+    },
+    "notebook.copyTitle": {
+      "text": "Save a copy of your notebook?",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "notebook.dropTitle": {
+      "text": "Leave out your changes to this entry?",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "notebook.emptyText": {
+      "text": "Keep the exact words you read, with where they are, and your own notes and questions beside them.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "notebook.emptyTitle": {
+      "text": "Nothing kept yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.filters": {
+      "text": "Filters ({count})",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "notebook.follow": {
+      "text": "A note about it (optional)",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "notebook.followHelp": {
+      "text": "Your own words. Leave it empty to keep the passage alone.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "notebook.from": {
+      "text": "From",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.fromHelp": {
+      "text": "A source in your library.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "notebook.fromPostLede": {
+      "text": "Saved to your notebook. Your post doesn't change.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "notebook.inNote": {
+      "text": "your note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.inSource": {
+      "text": "the source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.inWords": {
+      "text": "the exact words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.isAnswered": {
+      "text": "It's answered",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.keep": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.keepFromPost": {
+      "text": "Keep these words as a passage…",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "notebook.kept": {
+      "text": "Kept in your notebook.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "notebook.kind": {
+      "text": "Kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.kindObservation": {
+      "text": "Observation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.kindQuestion": {
+      "text": "Question",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.language": {
+      "text": "Language (optional)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.listLabel": {
+      "text": "What to list",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.matchedIn": {
+      "text": "Found in: {where}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "where"
+      ]
+    },
+    "notebook.needSource": {
+      "text": "Add a source first, then keep passages from it.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "notebook.neverMind": {
+      "text": "Never mind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.newNote": {
+      "text": "Write a note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.newPassage": {
+      "text": "Keep a passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.noNotes": {
+      "text": "No notes yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.noPassages": {
+      "text": "No passages kept yet.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "notebook.noResults": {
+      "text": "Nothing matches. Clear a filter or try other words.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "notebook.notPrivate": {
+      "text": "This entry came from somewhere else and can't be changed here.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "notebook.note": {
+      "text": "Your note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.noteHeading": {
+      "text": "Note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.noteHelp": {
+      "text": "Your own words. Quoted words belong in a passage.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "notebook.notePartial": {
+      "text": "The passage is kept, but the note isn't. Fix the note and save, or leave it out.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "notebook.notes": {
+      "text": "Notes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.observation": {
+      "text": "Observation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.open": {
+      "text": "Open questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.passageHeading": {
+      "text": "Passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.passages": {
+      "text": "Passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.placeKind": {
+      "text": "Kind of place",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.placeLimit": {
+      "text": "A passage can have up to 8 places.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "notebook.privateLine": {
+      "text": "Private. Readers never see this.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "notebook.questionAnswered": {
+      "text": "Question · answered",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.questionOpen": {
+      "text": "Question · open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.questions": {
+      "text": "Questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.restore": {
+      "text": "Restore",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.restored": {
+      "text": "Restored.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.results": {
+      "text": "{count} found",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "notebook.save": {
+      "text": "Save changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.search": {
+      "text": "Search your notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.searchHelp": {
+      "text": "Words you kept, your notes, a source or a key.",
+      "layer": "her",
+      "max": 92,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "notebook.showArchived": {
+      "text": "Show archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.showThem": {
+      "text": "Show them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.source": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.sourceFixed": {
+      "text": "A passage stays with its source. Keep words from another source as a new passage.",
+      "layer": "her",
+      "max": 162,
+      "vars": []
+    },
+    "notebook.stillLinked": {
+      "text": "{count} notes are about this passage. Take them out or unlink them first.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "count"
+      ]
+    },
+    "notebook.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.takenOut": {
+      "text": "Taken out of your notebook.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "notebook.title": {
+      "text": "Your notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.where": {
+      "text": "Where it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.words": {
+      "text": "The exact words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "notebook.wordsHelp": {
+      "text": "Kept exactly as you type them, as someone else's words.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
     "notify.appSwitch": {
       "text": "News from your other apps",
       "layer": "her",
@@ -7085,6 +11330,653 @@
       "text": "For people who can't see it, like “A red front door with a wreath”.",
       "layer": "her",
       "max": 134,
+      "vars": []
+    },
+    "place.atRow": {
+      "text": "Place {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "place.canonical": {
+      "text": "canonical place",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "canonical"
+      ]
+    },
+    "place.chapter": {
+      "text": "chapter",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.choose": {
+      "text": "Choose a kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.folio": {
+      "text": "folio",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.kind": {
+      "text": "Kind of place",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.kindRow": {
+      "text": "Kind of place {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "place.line": {
+      "text": "line",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.page": {
+      "text": "page",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.section": {
+      "text": "section",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.takeOut": {
+      "text": "Take out place {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "place.through": {
+      "text": "to",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.timestamp": {
+      "text": "time",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "place.toRow": {
+      "text": "Place {n} ends at",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "public.at": {
+      "text": "At",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.cantBuild": {
+      "text": "What readers see can't be worked out right now: your blog doesn't build as it stands. Tell {helper}.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "helper"
+      ]
+    },
+    "public.checkAgain": {
+      "text": "Check again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.checked": {
+      "text": "Checked again.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.checksFailed": {
+      "text": "The research checks didn't run. What readers see is still listed above.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "public.counts": {
+      "text": "{shown} shown. {held} stay private.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "shown",
+        "held"
+      ]
+    },
+    "public.fieldAddress": {
+      "text": "Address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldAliases": {
+      "text": "Other names",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldAspect": {
+      "text": "Which date",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldBy": {
+      "text": "Who wrote it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldCorrespondence": {
+      "text": "How the places correspond",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "public.fieldCsl": {
+      "text": "Full reference details",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "public.fieldDate": {
+      "text": "The date, as they state it",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "public.fieldDates": {
+      "text": "What it dates",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldDisputed": {
+      "text": "Who disputes it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldDoubt": {
+      "text": "What's uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldEvidence": {
+      "text": "The evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldFirm": {
+      "text": "How firmly",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldFirstYear": {
+      "text": "First year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldFrom": {
+      "text": "From",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldIdentifiers": {
+      "text": "Identifiers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldIssued": {
+      "text": "Date issued",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldKey": {
+      "text": "Key",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "public.fieldKind": {
+      "text": "Kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldLanguage": {
+      "text": "Language",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldLastYear": {
+      "text": "Last year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldName": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldNote": {
+      "text": "Their note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldOtherWay": {
+      "text": "Read the other way",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldPeople": {
+      "text": "People",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldPlacement": {
+      "text": "How it's placed in time",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "public.fieldReasoning": {
+      "text": "The reasoning",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldRecordedBy": {
+      "text": "Who recorded it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldShown": {
+      "text": "shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldStanding": {
+      "text": "Whether it's disputed",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "public.fieldSummary": {
+      "text": "Summary",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldTo": {
+      "text": "To",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldVersions": {
+      "text": "The versions compared",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "public.fieldWhere": {
+      "text": "Where in the source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldWho": {
+      "text": "Who says so",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldWording": {
+      "text": "The compared words (only where each version's rights allow)",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "public.fieldWords": {
+      "text": "The words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.fieldWork": {
+      "text": "The work it stands for",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "public.fromPost": {
+      "text": "What readers will see from this post",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "public.fromPostFailed": {
+      "text": "What readers will see from this post couldn't be worked out just now. Check again in a moment.",
+      "layer": "her",
+      "max": 188,
+      "vars": []
+    },
+    "public.held": {
+      "text": "Stays private ({count})",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "count"
+      ]
+    },
+    "public.lede": {
+      "text": "Nothing in your research is public because it exists. Each part shows only what you let readers see; everything else stays private, and says why.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "public.never": {
+      "text": "Never shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.neverText": {
+      "text": "Your notebook, your notes and anything you haven't let readers see are never published.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "public.nothingShown": {
+      "text": "Nothing shown from here.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "public.shownBadge": {
+      "text": "Readers see this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeAtlas": {
+      "text": "Atlas entries",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeBlocked": {
+      "text": "This part couldn't be checked. Tell {helper}.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "helper"
+      ]
+    },
+    "public.storeChosen": {
+      "text": "Chosen for readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeClaims": {
+      "text": "Claims and evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeComparisons": {
+      "text": "Aligned passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeDatings": {
+      "text": "Datings",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeInterpretations": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "public.storeLinks": {
+      "text": "Links to research pages",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "public.storeOff": {
+      "text": "Your blog doesn't publish this part. {helper} can turn it on.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "helper"
+      ]
+    },
+    "public.storePaths": {
+      "text": "Reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.storeSources": {
+      "text": "Sources your posts cite",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "public.tab": {
+      "text": "What readers see",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.title": {
+      "text": "What readers see from your research",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "public.whyAddress": {
+      "text": "Its web address isn't one readers should be given.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "public.whyContradiction": {
+      "text": "Evidence against it is still private.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "public.whyDisagrees": {
+      "text": "What would be published doesn't agree with itself, so it's left out. Tell {helper}.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "helper"
+      ]
+    },
+    "public.whyGone": {
+      "text": "What it chose isn't there any more.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "public.whyHeld": {
+      "text": "It stays private.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "public.whyIdentifier": {
+      "text": "That kind of identifier is never shown.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "public.whyLength": {
+      "text": "The words are longer than a short quotation.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "public.whyLoop": {
+      "text": "What it needs leads back to it.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "public.whyNeedsGone": {
+      "text": "Something it needs isn't there.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "public.whyNeedsHeld": {
+      "text": "Something it needs is held back.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "public.whyNoPost": {
+      "text": "No published post, atlas or aligned passages show it yet.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "public.whyNotPublished": {
+      "text": "It isn't in what your blog publishes.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "public.whyNotShown": {
+      "text": "You haven't let readers see it.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "public.whyPageNotUp": {
+      "text": "The page it links to isn't on your blog yet.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "public.whyPassage": {
+      "text": "It points into your notebook.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "public.whyPostNotUp": {
+      "text": "Its post isn't on your blog yet.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "public.whyRights": {
+      "text": "The words are held back under their rights statement.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "public.whySiteOff": {
+      "text": "Your blog doesn't publish this yet.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "public.whyStale": {
+      "text": "It changed after you chose it. Choose it again to show it as it is now.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "public.whyTooBig": {
+      "text": "It's over a size limit, so it's left out. Tell {helper}.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "helper"
+      ]
+    },
+    "public.whyUnsourced": {
+      "text": "It's a draft with no evidence yet.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "public.whyWithdrawn": {
+      "text": "You stopped showing it.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "public.whyWordsMoved": {
+      "text": "The words it's about have changed.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "quotation.changeHelp": {
+      "text": "The quoted words stay exactly as you kept them. Change them in your notebook.",
+      "layer": "her",
+      "max": 154,
       "vars": []
     },
     "quote.hostChose": {
@@ -11463,6 +16355,563 @@
         "product"
       ]
     },
+    "research.addFirst": {
+      "text": "Add your first source",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "research.backToPost": {
+      "text": "Back to your post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.checkField": {
+      "text": "Check this against the help under it.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "research.conflict": {
+      "text": "Your {what} changed somewhere else, so nothing was saved. Your changes are still here.",
+      "layer": "her",
+      "max": 172,
+      "vars": [
+        "what"
+      ]
+    },
+    "research.detailsCounts": {
+      "text": "{active} kept, {archived} archived.",
+      "layer": "details",
+      "max": 70,
+      "vars": [
+        "active",
+        "archived"
+      ]
+    },
+    "research.detailsFile": {
+      "text": "{file} · revision {revision}",
+      "layer": "details",
+      "max": 56,
+      "vars": [
+        "file",
+        "revision"
+      ]
+    },
+    "research.detailsRepair": {
+      "text": "Repair it by hand, then reload. Nothing was changed.",
+      "layer": "details",
+      "max": 104,
+      "vars": []
+    },
+    "research.failed": {
+      "text": "That didn't work.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.fill": {
+      "text": "Fill this in.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.findStart": {
+      "text": "Start research (for {helper})",
+      "layer": "details",
+      "max": 58,
+      "vars": [
+        "helper"
+      ]
+    },
+    "research.home": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.keepMine": {
+      "text": "Keep mine, on the newer one",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "research.kept": {
+      "text": "You have an unsaved {what}: “{name}”.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "what",
+        "name"
+      ]
+    },
+    "research.keptGo": {
+      "text": "Go back to it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.keptHere": {
+      "text": "Kept on this phone until you save it or close {product}.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "product"
+      ]
+    },
+    "research.keptMany": {
+      "text": "You have {count} unsaved changes in your research.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "count"
+      ]
+    },
+    "research.keptMine": {
+      "text": "Your changes now rest on the newer copy. Save again to keep them.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "research.leaveGo": {
+      "text": "Leave them out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.leaveItOut": {
+      "text": "Leave it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.leaveStay": {
+      "text": "Stay in research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.leaveText": {
+      "text": "Your changes are kept while you move between research screens. Leaving research leaves them out.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "research.leaveTitle": {
+      "text": "Leave your research with unsaved changes?",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "research.ledeEmpty": {
+      "text": "These steps take you from a source to a cited post. Everything before the post stays private.",
+      "layer": "her",
+      "max": 186,
+      "vars": []
+    },
+    "research.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.nav": {
+      "text": "Research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.noSignal": {
+      "text": "{product} can't reach your research right now. Nothing changed. Try again when you have a signal.",
+      "layer": "her",
+      "max": 194,
+      "vars": [
+        "product"
+      ]
+    },
+    "research.notChecked": {
+      "text": "Nothing checked this link.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "research.open": {
+      "text": "Open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openAtlas": {
+      "text": "Open the atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openCompare": {
+      "text": "Compare versions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openIt": {
+      "text": "Open it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openNotebook": {
+      "text": "Open your notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openPublic": {
+      "text": "See what readers see",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.openSources": {
+      "text": "Open Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.optional": {
+      "text": "Optional.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.private": {
+      "text": "Private",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.privateLine": {
+      "text": "Everything here is private. A post shows a source only when it cites it; atlas entries, links, claims and aligned passages only when you approve them.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "research.readersSee": {
+      "text": "Readers see this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.saving": {
+      "text": "Saving…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.serverDown": {
+      "text": "{product} didn't save that, so nothing changed. Your changes are still here.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "research.startPost": {
+      "text": "Start a research post",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "research.stepCite": {
+      "text": "Cite it in a post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepCiteNoPost": {
+      "text": "No post open yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepCitePost": {
+      "text": "Your post: “{title}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "research.stepCiteText": {
+      "text": "In Write, choose Cite to point to a source and the place in it. Readers see only what you cite; your passages and notes stay private.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "research.stepPassage": {
+      "text": "Keep a passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepPassageDone": {
+      "text": "{passages} passages and {notes} notes.",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "passages",
+        "notes"
+      ]
+    },
+    "research.stepPassageNone": {
+      "text": "Not started: no passages kept yet.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "research.stepPassageText": {
+      "text": "Copy the exact words with where they are in the source, and keep your own notes and questions beside them.",
+      "layer": "her",
+      "max": 212,
+      "vars": []
+    },
+    "research.stepPublic": {
+      "text": "Check what readers will see",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "research.stepPublicText": {
+      "text": "See exactly what your published posts, atlas and aligned passages show, and why everything else stays private.",
+      "layer": "her",
+      "max": 220,
+      "vars": []
+    },
+    "research.stepRelate": {
+      "text": "Relate and compare",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepRelateDone": {
+      "text": "{entries} atlas entries and {alignments} alignments.",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "entries",
+        "alignments"
+      ]
+    },
+    "research.stepRelateNone": {
+      "text": "Nothing related yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepRelateText": {
+      "text": "Note who says what about the people, works and ideas you study, and read versions of a passage side by side.",
+      "layer": "her",
+      "max": 216,
+      "vars": []
+    },
+    "research.stepSource": {
+      "text": "Add a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.stepSourceDone": {
+      "text": "{count} sources in your library.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "count"
+      ]
+    },
+    "research.stepSourceNone": {
+      "text": "Not started: your library is empty.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "research.stepSourceText": {
+      "text": "Record the work you read, then the edition, translation or manuscript you quote from. Each gets a key your citations use.",
+      "layer": "her",
+      "max": 240,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "research.tabAtlas": {
+      "text": "Atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabCompare": {
+      "text": "Compare",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabNotebook": {
+      "text": "Notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabOverview": {
+      "text": "Overview",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabPublic": {
+      "text": "What readers see",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabSources": {
+      "text": "Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tabsLabel": {
+      "text": "Part of your research",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "research.title": {
+      "text": "From a source to a cited post",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "research.titleEmpty": {
+      "text": "Start your research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.tooLarge": {
+      "text": "That's too much for one save. Split it up.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "research.tooLong": {
+      "text": "That's longer than {max} letters.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "max"
+      ]
+    },
+    "research.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.undoChanged": {
+      "text": "It changed again since, so it wasn't undone.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "research.undoTaken": {
+      "text": "Something else uses that key now, so it wasn't put back.",
+      "layer": "her",
+      "max": 112,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "research.undone": {
+      "text": "Undone.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.unreadable": {
+      "text": "Your {what} can't be read, so nothing here changed.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "what"
+      ]
+    },
+    "research.useNewer": {
+      "text": "Use the newer copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatAlignments": {
+      "text": "alignments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatAtlas": {
+      "text": "atlas",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatChoices": {
+      "text": "choices for readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatClaims": {
+      "text": "claims",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatLibrary": {
+      "text": "source library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatNote": {
+      "text": "note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatNotebook": {
+      "text": "notebook",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatPassage": {
+      "text": "passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "research.whatSource": {
+      "text": "source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "review.blocking": {
       "text": "Needs fixing before it can go up ({count})",
       "layer": "her",
@@ -11745,6 +17194,42 @@
       "text": "Waiting for the research checks.",
       "layer": "her",
       "max": 64,
+      "vars": []
+    },
+    "rights.openLicense": {
+      "text": "Under an open licence, you say",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "rights.ownWork": {
+      "text": "Your own work, you say",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "rights.permission": {
+      "text": "The rights holder agreed, you say",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "rights.publicDomain": {
+      "text": "In the public domain, you say",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "rights.reserved": {
+      "text": "Under copyright, you say",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "rights.unknown": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "route.addRoute": {
@@ -12335,6 +17820,1074 @@
         "service",
         "helper"
       ]
+    },
+    "sources.add": {
+      "text": "Add a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.addId": {
+      "text": "Add an identifier",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.addIt": {
+      "text": "Add the source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.addPerson": {
+      "text": "Add a person",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.added": {
+      "text": "Source added.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.addedHelp": {
+      "text": "To set it aside, archive it.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "sources.allArchived": {
+      "text": "Every source is archived. Show archived ones to open one.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "sources.anonymousAndNamed": {
+      "text": "It's marked as anonymous but names a person. {helper} can fix that in the library.",
+      "layer": "her",
+      "max": 164,
+      "vars": [
+        "helper"
+      ]
+    },
+    "sources.archive": {
+      "text": "Archive this source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.archived": {
+      "text": "Archived. Posts that cite it still show it.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "sources.archivedBadge": {
+      "text": "Archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.backToList": {
+      "text": "‹ Your sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.badId": {
+      "text": "That {kind} doesn't look right. Check it against the book or page.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "kind"
+      ]
+    },
+    "sources.badKey": {
+      "text": "Use lowercase letters, numbers and dashes.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "sources.badKind": {
+      "text": "Choose one of these types.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "sources.badOf": {
+      "text": "Choose a source it can belong to.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "sources.basedOn": {
+      "text": "Translated from (optional)",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "sources.basedOnHelp": {
+      "text": "An edition, witness or translation it was made from.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "sources.choose": {
+      "text": "Choose a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.citedIn": {
+      "text": "Cited in {count} posts:",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.close": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.conflict": {
+      "text": "Your library changed somewhere else, so nothing was saved. Your changes are still here.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "sources.copyKey": {
+      "text": "Copy its key",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.count": {
+      "text": "{shown} of {total} shown.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "shown",
+        "total"
+      ]
+    },
+    "sources.cycle": {
+      "text": "That would make the source a form of itself.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "sources.dependents": {
+      "text": "{count} other sources point at this one. They keep working while it's archived.",
+      "layer": "her",
+      "max": 158,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.detailsRecord": {
+      "text": "The record as stored",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "sources.detailsRights": {
+      "text": "Rights statements and interpretations are edited in the library file.",
+      "layer": "details",
+      "max": 138,
+      "vars": []
+    },
+    "sources.dropGo": {
+      "text": "Leave them out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.dropStay": {
+      "text": "Keep editing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.dropTitle": {
+      "text": "Leave out your changes to this source?",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "sources.emptyText": {
+      "text": "Add a work first, then the editions, translations, manuscripts and places in them that you quote from.",
+      "layer": "her",
+      "max": 204,
+      "vars": []
+    },
+    "sources.emptyTitle": {
+      "text": "Your library is empty",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "sources.exportBib": {
+      "text": "BibTeX",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exportBibHelp": {
+      "text": "For LaTeX.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exportCsl": {
+      "text": "CSL JSON",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "json"
+      ]
+    },
+    "sources.exportCslHelp": {
+      "text": "For Zotero and most reference managers.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "sources.exportDo": {
+      "text": "Export",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exportFormat": {
+      "text": "Kind of file",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exportHelp": {
+      "text": "Includes archived sources. The file is saved where your downloads go.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "sources.exportLoss": {
+      "text": "It can't carry: {list}.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "list"
+      ]
+    },
+    "sources.exportOpen": {
+      "text": "Export your library…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exportTitle": {
+      "text": "Export your library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.exported": {
+      "text": "Saved {filename}: {count} sources.",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "filename",
+        "count"
+      ]
+    },
+    "sources.find": {
+      "text": "Find a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.findHelp": {
+      "text": "Title, person, key or identifier.",
+      "layer": "her",
+      "max": 66,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.goneElsewhere": {
+      "text": "This source was taken out somewhere else.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "sources.idKind": {
+      "text": "Kind of identifier {n}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.idOther": {
+      "text": "Other",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.idTakeOut": {
+      "text": "Take out identifier {n}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.idUrl": {
+      "text": "Web address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.idValue": {
+      "text": "Identifier {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.ids": {
+      "text": "Identifiers (optional)",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "sources.idsHelp": {
+      "text": "A DOI, ISBN or web address. Nothing looks them up.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "sources.importAgain": {
+      "text": "The text changed. Check it again.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "sources.importBlocked": {
+      "text": "Fix the items that can't be imported in your reference manager, then try again. Nothing was imported.",
+      "layer": "her",
+      "max": 202,
+      "vars": []
+    },
+    "sources.importChanged": {
+      "text": "Your library changed while you were checking. Check again.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "sources.importChanges": {
+      "text": "Changes {field}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "field"
+      ]
+    },
+    "sources.importCheck": {
+      "text": "Check what it would do",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "sources.importChecking": {
+      "text": "Checking…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importConflicts": {
+      "text": "{count} can't be imported",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.importDo": {
+      "text": "Import {count}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.importFile": {
+      "text": "CSL JSON file",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "json"
+      ]
+    },
+    "sources.importFrom": {
+      "text": "from {cslId}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "cslId"
+      ]
+    },
+    "sources.importGroupBlocked": {
+      "text": "Can't be imported",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importGroupNew": {
+      "text": "New",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importGroupUpdated": {
+      "text": "Updated",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importItem": {
+      "text": "Item {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.importKeeps": {
+      "text": "Keeps {fields} as you wrote them",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "fields"
+      ]
+    },
+    "sources.importLede": {
+      "text": "From Zotero, Mendeley or another reference manager: export your items as CSL JSON, then choose the file here or paste it. Importing adds and updates sources, never removes any, and keeps details you already wrote.",
+      "layer": "her",
+      "max": 240,
+      "vars": [],
+      "allows": [
+        "json"
+      ]
+    },
+    "sources.importLoss": {
+      "text": "Not kept: {field}: {reason}",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "field",
+        "reason"
+      ]
+    },
+    "sources.importMore": {
+      "text": "Show more",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importNeed": {
+      "text": "Choose a file or paste the items first.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "sources.importNew": {
+      "text": "{count} new",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.importNotJson": {
+      "text": "That file isn't CSL JSON. Export it again from your reference manager.",
+      "layer": "her",
+      "max": 140,
+      "vars": [],
+      "allows": [
+        "json"
+      ]
+    },
+    "sources.importNothing": {
+      "text": "Everything is already in your library.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "sources.importOpen": {
+      "text": "Import sources…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importPaste": {
+      "text": "Or paste it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importProblem": {
+      "text": "Can't be imported: {problem}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "problem"
+      ]
+    },
+    "sources.importSame": {
+      "text": "{count} already here",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.importSummary": {
+      "text": "{parts}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "parts"
+      ]
+    },
+    "sources.importTitle": {
+      "text": "Import sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.importTooBig": {
+      "text": "That file is bigger than 3 MB. Export fewer items at a time.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "sources.importUpdated": {
+      "text": "{count} updated",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "sources.imported": {
+      "text": "Imported: {summary}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "summary"
+      ]
+    },
+    "sources.issued": {
+      "text": "Date (optional)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.issuedHelp": {
+      "text": "Kept as you write it, like 1992 or c. 375 BCE.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "sources.keepMine": {
+      "text": "Keep mine, on the newer library",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "sources.keptMine": {
+      "text": "Your changes now sit on the newer library. Check them, then save.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "sources.key": {
+      "text": "Key",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.keyCopied": {
+      "text": "Key copied.",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.keyFixed": {
+      "text": "Your citations use this key, so it stays.",
+      "layer": "her",
+      "max": 82,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.keyHelp": {
+      "text": "The short name your citations use, like plato-republic. Lowercase letters, numbers and dashes. It can't change later.",
+      "layer": "her",
+      "max": 234,
+      "vars": []
+    },
+    "sources.keyTaken": {
+      "text": "Another source has that key. Choose another.",
+      "layer": "her",
+      "max": 88,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.kindEdition": {
+      "text": "Edition",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindEditionHelp": {
+      "text": "A published form of a work or a translation.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "sources.kindEditions": {
+      "text": "Editions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindReference": {
+      "text": "Reference",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindReferenceHelp": {
+      "text": "A place in one of your sources.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "sources.kindReferences": {
+      "text": "References",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindSource": {
+      "text": "source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindTranslation": {
+      "text": "Translation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindTranslationHelp": {
+      "text": "A work in another language.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "sources.kindTranslations": {
+      "text": "Translations",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindWitness": {
+      "text": "Witness",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindWitnessHelp": {
+      "text": "A manuscript, recording or other surviving copy.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "sources.kindWitnesses": {
+      "text": "Witnesses",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindWork": {
+      "text": "Work",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.kindWorkHelp": {
+      "text": "A creation, apart from any copy of it.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "sources.kindWorks": {
+      "text": "Works",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.language": {
+      "text": "Language",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.languageHelp": {
+      "text": "Like English or Ancient Greek.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "sources.leaveMine": {
+      "text": "Leave my changes out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.needTitle": {
+      "text": "Give the source a title.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "sources.needVolume": {
+      "text": "Name the volume: pages restart in each one.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "sources.neverMind": {
+      "text": "Never mind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.newHeading": {
+      "text": "A new source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.noMatch": {
+      "text": "No sources match. Clear the search or choose another type.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "sources.none": {
+      "text": "None",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.notCredit": {
+      "text": "People who made a source can't be people credited on your posts.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "sources.of": {
+      "text": "It's a form of",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.ofReference": {
+      "text": "It points at",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.optional": {
+      "text": "{label} (optional)",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "sources.people": {
+      "text": "People who made it (optional)",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "sources.peopleHelp": {
+      "text": "Who wrote, edited or translated it. They aren't the people credited on your posts.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "sources.personName": {
+      "text": "Name of person {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.personRole": {
+      "text": "Role for person {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.personTakeOut": {
+      "text": "Take out person {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "sources.place": {
+      "text": "Place",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.placeHelp": {
+      "text": "Like 514a, 12r or 1:02:30.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "sources.rebuildFailed": {
+      "text": "Saved, but published aligned passages didn't update. Tell {helper}.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "helper"
+      ]
+    },
+    "sources.restore": {
+      "text": "Restore",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.restored": {
+      "text": "Restored.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.rights": {
+      "text": "Rights: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "sources.rightsHelp": {
+      "text": "Your own statement; it doesn't mean you may use the words. {helper} can change it.",
+      "layer": "her",
+      "max": 164,
+      "vars": [
+        "helper"
+      ]
+    },
+    "sources.roleAuthor": {
+      "text": "Author",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleCompiler": {
+      "text": "Compiler",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleEditor": {
+      "text": "Editor",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleNone": {
+      "text": "No role",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleOther": {
+      "text": "Other",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleScribe": {
+      "text": "Scribe",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.roleTranslator": {
+      "text": "Translator",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.save": {
+      "text": "Save changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.show": {
+      "text": "Show",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.showActive": {
+      "text": "Active",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.showArchived": {
+      "text": "Archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.showBoth": {
+      "text": "Active and archived",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.stillUsed": {
+      "text": "Your notebook or atlas still points at this source, so it can't change that way.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "sources.title": {
+      "text": "Your sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.titleField": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.type": {
+      "text": "Type",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.typeAll": {
+      "text": "All types",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.typeFilter": {
+      "text": "Type",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.typeFixed": {
+      "text": "A source keeps its type. Add another source for another type.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "sources.untitled": {
+      "text": "Untitled {kind} ({key})",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "kind",
+        "key"
+      ],
+      "allows": [
+        "key"
+      ]
+    },
+    "sources.useNewer": {
+      "text": "Use the newer copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.usedIn": {
+      "text": "Your notebook has {passages} passages and {notes} notes from it.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "passages",
+        "notes"
+      ]
+    },
+    "sources.volume": {
+      "text": "Volume (optional)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "sources.volumeHelp": {
+      "text": "Pages restart in each volume, so name it, like 2.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "sources.where": {
+      "text": "Where in it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "start.back": {
       "text": "Back",
@@ -16162,6 +22715,489 @@
       "text": "Tell a few stories now",
       "layer": "her",
       "max": 44,
+      "vars": []
+    },
+    "yours.back": {
+      "text": "‹ Your research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.cantPublish": {
+      "text": "The next update can't publish this. Open it to see why.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "yours.checks": {
+      "text": "Research checks: {count} to look at.",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "count"
+      ]
+    },
+    "yours.checksNone": {
+      "text": "The research checks found nothing for this post. Checks can't see everything.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "yours.checksNot": {
+      "text": "Research checks run on research posts and posts that cite.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "yours.checksOpen": {
+      "text": "Before you publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.citeInterpreted": {
+      "text": "Cite the source it interprets",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "yours.citeOnly": {
+      "text": "Cite it only",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.close": {
+      "text": "Close your research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.convert": {
+      "text": "Turn into my own words…",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "yours.convertGo": {
+      "text": "Put it in",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.convertStay": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.convertText": {
+      "text": "It stops being private there: readers see it once you publish.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "yours.convertTitle": {
+      "text": "Put this note in your post as your own words?",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "yours.converted": {
+      "text": "Your note is in your post as your own words.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "yours.count": {
+      "text": "{count} found",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "yours.interpretationNever": {
+      "text": "An interpretation is never cited or put in a post. Readers see it only inside aligned passages you publish.",
+      "layer": "her",
+      "max": 214,
+      "vars": []
+    },
+    "yours.keepNew": {
+      "text": "Keep a new passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.lede": {
+      "text": "Only what you put in goes into this post. Quotations go in with their citation; your notes go in only if you turn one into your own words.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "yours.linkComparison": {
+      "text": "Put in a link to these aligned passages",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "yours.linkDating": {
+      "text": "Put in “{date}” linked to the entry",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "date"
+      ]
+    },
+    "yours.linkEntry": {
+      "text": "Put in a link to this entry",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "yours.linked": {
+      "text": "Link put in.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.linkedNotes": {
+      "text": "{count} of your notes are about it. They never go in with it.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "count"
+      ]
+    },
+    "yours.loading": {
+      "text": "Getting your research…",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "yours.noCitation": {
+      "text": "That didn't go in: no citation came back. Your post didn't change.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "yours.noNotes": {
+      "text": "No notes match.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.noPlace": {
+      "text": "No place recorded.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.none": {
+      "text": "Nothing in your research matches.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "yours.notApproved": {
+      "text": "Not published: you haven't let readers see this. Nothing private is linked.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "yours.notPublished": {
+      "text": "Not published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.noteLine": {
+      "text": "Your own unpublished thinking. It never goes in unless you turn it into your own words.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "yours.open": {
+      "text": "Your research…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.openAtlas": {
+      "text": "Open it in your atlas",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "yours.openCompare": {
+      "text": "Open it in Compare",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.openNotebook": {
+      "text": "Open in your notebook",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "yours.openSources": {
+      "text": "Open in Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.partFailed": {
+      "text": "Your {what} can't be read, so it isn't offered here. Nothing changed.",
+      "layer": "her",
+      "max": 138,
+      "vars": [
+        "what"
+      ]
+    },
+    "yours.passageFrom": {
+      "text": "Passage from {source}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "source"
+      ]
+    },
+    "yours.published": {
+      "text": "Published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.quoteHelp": {
+      "text": "The words go in exactly as kept, as a quotation after the paragraph you're in, with its citation. The rights statement is yours; it doesn't mean you may quote them.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "yours.quoteIt": {
+      "text": "Put the quotation in",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.quoted": {
+      "text": "Quotation put in after “{words}”.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "words"
+      ]
+    },
+    "yours.reading": {
+      "text": "Reading of {source}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "source"
+      ]
+    },
+    "yours.refresh": {
+      "text": "Check again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.refusedBlock": {
+      "text": "That can't go inside code or a part kept as written. Put your cursor in plain words first.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "yours.rendering": {
+      "text": "Rendering of {source}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "source"
+      ]
+    },
+    "yours.rights": {
+      "text": "Rights: {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "yours.rightsGo": {
+      "text": "Quote them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.rightsReserved": {
+      "text": "are reserved",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.rightsStay": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.rightsText": {
+      "text": "Quoting them on your blog is your decision.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "yours.rightsTitle": {
+      "text": "Quote words whose rights {state}?",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "state"
+      ]
+    },
+    "yours.rightsUnknown": {
+      "text": "nobody has checked",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.rowName": {
+      "text": "{type}: {title}, {visibility}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "type",
+        "title",
+        "visibility"
+      ]
+    },
+    "yours.search": {
+      "text": "Search your research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.show": {
+      "text": "Show",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.showAll": {
+      "text": "Everything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.showContext": {
+      "text": "Atlas entries and aligned passages",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "yours.showInterpretations": {
+      "text": "Interpretations",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.showNotes": {
+      "text": "My notes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.showPassages": {
+      "text": "Passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.showSources": {
+      "text": "Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.siteOff": {
+      "text": "Your blog doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on.",
+      "layer": "her",
+      "max": 190,
+      "vars": [
+        "helper"
+      ]
+    },
+    "yours.siteOffCompare": {
+      "text": "Your blog doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on.",
+      "layer": "her",
+      "max": 204,
+      "vars": [
+        "helper"
+      ]
+    },
+    "yours.sourceHelp": {
+      "text": "Only the key and the places you give go into your post.",
+      "layer": "her",
+      "max": 110,
+      "vars": [],
+      "allows": [
+        "key"
+      ]
+    },
+    "yours.sourceKey": {
+      "text": "{kind}, key {key}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "kind",
+        "key"
+      ],
+      "allows": [
+        "key"
+      ]
+    },
+    "yours.title": {
+      "text": "Your research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typeAtlas": {
+      "text": "Atlas entry",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typeComparison": {
+      "text": "Aligned passages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typeInterpretation": {
+      "text": "Interpretation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typeNote": {
+      "text": "Note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typePassage": {
+      "text": "Passage",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "yours.typeSource": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "youtube.change": {
