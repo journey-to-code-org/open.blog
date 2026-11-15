@@ -222,8 +222,8 @@ changes with them. A theme with no choices is written exactly as before.
 
 ## Describing a theme in words
 
-Admin's **Design a theme** screen drafts a theme from a description, through the Assistant, and saves it as an
-ordinary `theme.json` that extends one of your themes ([The admin editor](admin.md#design-a-theme),
+Studio's **Describe a new look** screen (`#/look/design`, under Look) drafts a theme from a description, through the writing helper, and saves it as an
+ordinary `theme.json` that extends one of your themes ([The admin editor](admin.md#describe-a-new-look),
 [ADR 0410](adr/0410-an-owner-describes-a-theme-in-words-and-the-assistant-may-propose-only-colours-fonts-and-sizes-the-engine-makes-readable.md)).
 The Assistant proposes only `page`, `surface`, `text`, `muted`, `border` and `accent` for each scheme, a font
 style, a corner style and a text size; the engine derives the rest of the colour tokens (`outer`,
