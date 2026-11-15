@@ -97,13 +97,20 @@ export function kindsList(settings) {
 export function setupChecklist(settings, health, meta = {}) {
   const checks = new Map((health?.checks || []).map((c) => [c.id, c.ok]));
   const from = (id) => (checks.has(id) ? checks.get(id) : null);
+  // The tables this site's settings need: yes only when each the server checked is there, no when one is
+  // missing, can't tell when none was checked or one didn't answer.
+  const tables = (known) => {
+    const seen = ["comments", "feedback", "moderation", "protection"].filter((id) => known.has(id)).map((id) => known.get(id));
+    if (seen.includes(false)) return false;
+    return seen.length && seen.every((ok) => ok === true) ? true : null;
+  };
   const rows = [
     { id: "readers.checkAddress", state: settings ? httpsAddress(String(settings.endpoint || "")) : null },
     { id: "readers.checkKey", state: settings ? Boolean(settings.credential?.configured) : null },
     { id: "readers.checkAnswers", state: from("service") },
-    { id: "readers.checkTables", state: from("tables") },
-    { id: "readers.checkVars", state: from("variables"), vars: { names: "SUPABASE_URL, SUPABASE_SECRET_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, OPENBLOG_ANALYTICS_SALT" } },
-    { id: "readers.checkBuilt", state: from("published") },
+    { id: "readers.checkTables", state: tables(checks) },
+    { id: "readers.checkVars", state: null, vars: { names: "SUPABASE_URL, SUPABASE_SECRET_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, OPENBLOG_ANALYTICS_SALT" } },
+    { id: "readers.checkBuilt", state: null },
   ];
   return rows.map((r) => ({ ...r, vars: r.vars || {}, mark: r.state === true ? "✓" : r.state === false ? "✗" : "?" }));
 }
