@@ -8238,6 +8238,1550 @@
       "max": 40,
       "vars": []
     },
+    "readings.about": {
+      "text": "About",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.aboutWhole": {
+      "text": "the whole comparison",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addExplanation": {
+      "text": "Add an explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addReading": {
+      "text": "Add a reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addRelation": {
+      "text": "Add a relation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addressFixed": {
+      "text": "Its address is {address}. It can't be changed.",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "address"
+      ]
+    },
+    "readings.addressHelp": {
+      "text": "The last part of its web address. It can't be changed after the first save.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "readings.ai": {
+      "text": "An AI tool drafted these words",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.aiTool": {
+      "text": "Which tool",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approvalDropped": {
+      "text": "Saved. You changed words you'd approved in “{who}”, so readers won't see them until you approve them again.",
+      "layer": "her",
+      "max": 214,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.approvalTextChanged": {
+      "text": "The words changed since you read them. Nothing was approved. Read them again.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "readings.approvalWithdrawn": {
+      "text": "Withdrew the approval.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.approveMeans": {
+      "text": "Approving says you read these words, checked them against the evidence and take responsibility for them. Readers see them labelled as drafted with AI.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readings.approveThese": {
+      "text": "Approve these words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approveTitle": {
+      "text": "Approve these words?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approvedOn": {
+      "text": "You approved these words on {date}.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "date"
+      ]
+    },
+    "readings.approvedStatus": {
+      "text": "Approved the words of “{who}”.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.asWritten": {
+      "text": "Show the comparison as written (for {helper})",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "helper"
+      ]
+    },
+    "readings.back": {
+      "text": "‹ All comparisons of readings",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.cancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certainty": {
+      "text": "How firmly it's theirs",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.certaintyAttributed": {
+      "text": "Attributed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyDisputed": {
+      "text": "Disputed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyNone": {
+      "text": "Not said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyStated": {
+      "text": "Stated",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyUncertain": {
+      "text": "Uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.changedHeading": {
+      "text": "Changed somewhere else",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.changedText": {
+      "text": "This comparison was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep?",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readings.checkEvidence": {
+      "text": "Evidence to check (saving still works):",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.crumbHome": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.crumbResearch": {
+      "text": "Research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.delete": {
+      "text": "Delete",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.deleteAsk": {
+      "text": "Delete “{title}”?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.deleteAskLive": {
+      "text": "It's on your site now. Deleting takes it off. You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "readings.deleteAskText": {
+      "text": "You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readings.deleted": {
+      "text": "Deleted “{title}”.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.describe": {
+      "text": "Describe them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.describeHelp": {
+      "text": "Like an anonymous twelfth-century commentator.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "readings.dismiss": {
+      "text": "Dismiss",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.done": {
+      "text": "Done",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.eChanged": {
+      "text": "This comparison changed somewhere else since you opened it. Nothing was saved.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "readings.eExists": {
+      "text": "A comparison already has that address. Choose another.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "readings.eGeneric": {
+      "text": "That didn't work. Nothing was changed.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readings.eMissing": {
+      "text": "That comparison isn't there any more.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.eNoApproval": {
+      "text": "There's no approval to withdraw.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.eNotAi": {
+      "text": "Only words an AI tool drafted need approval. Words you wrote don't.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.eSentence": {
+      "text": "What the server said:",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "readings.eStorage": {
+      "text": "Your site couldn't keep it. Nothing was changed.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "readings.eTooLarge": {
+      "text": "That's more than a comparison can hold.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.eitherWay": {
+      "text": "Either way round means the same.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.emptyText": {
+      "text": "Start from two readings of the same subject.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readings.emptyTitle": {
+      "text": "No comparisons of readings yet",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.evidenceAdd": {
+      "text": "Add evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceCount": {
+      "text": "{count} evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.evidenceFromReading": {
+      "text": "An explanation uses only evidence its reading already cites.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readings.evidenceHeading": {
+      "text": "Evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceLinks": {
+      "text": "Evidence links",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceMissing": {
+      "text": "Not in your library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceNone": {
+      "text": "No evidence yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceNoneYet": {
+      "text": "No evidence yet. You can still save: say so under What's uncertain.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.evidencePick": {
+      "text": "Evidence to add",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidencePrivate": {
+      "text": "In your research, private: readers won't see it",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "readings.evidencePublic": {
+      "text": "Readers can see this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceSources": {
+      "text": "Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceTakeOut": {
+      "text": "Take out this evidence",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.evidenceUnchecked": {
+      "text": "Not checked: your research couldn't be read",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "readings.evidenceWhere": {
+      "text": "Where in the source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.explanationLede": {
+      "text": "An explanation adds to your words for one audience. It never replaces them.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "readings.explanationLine": {
+      "text": "For {level} · about {about}",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "level",
+        "about"
+      ]
+    },
+    "readings.explanationText": {
+      "text": "The explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.explanationsEmpty": {
+      "text": "No explanations yet. They're optional.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readings.explanationsHeading": {
+      "text": "Explanations by audience",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.factAuthors": {
+      "text": "By {authors}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "authors"
+      ]
+    },
+    "readings.factBefore": {
+      "text": "Before reading: {text}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "text"
+      ]
+    },
+    "readings.factModes": {
+      "text": "For {modes} reading",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "modes"
+      ]
+    },
+    "readings.factTranslates": {
+      "text": "Translates {other}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "other"
+      ]
+    },
+    "readings.factsLine": {
+      "text": "Saved with the file, not changed here: {facts}",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "facts"
+      ]
+    },
+    "readings.fieldAddress": {
+      "text": "Address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.fieldSubject": {
+      "text": "What the readings are about",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readings.fieldTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.fileDetails": {
+      "text": "Item id: {id}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "readings.findAddExplanation": {
+      "text": "Add an explanation to this comparison",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.findAddReading": {
+      "text": "Add a reading to this comparison",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.findAddRelation": {
+      "text": "Add a relation between readings",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.findList": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.findMake": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.findSave": {
+      "text": "Save this comparison",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.forLevel": {
+      "text": "For",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.goBack": {
+      "text": "Go back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.goTo": {
+      "text": "Go to {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.keepIt": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.language": {
+      "text": "Language, if not the blog's",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readings.languageHelp": {
+      "text": "A language tag such as en or grc.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readings.leaveGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leaveHeading": {
+      "text": "Save this comparison?",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.leaveSave": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leaveText": {
+      "text": "You changed it and didn't save.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.lede": {
+      "text": "Set readings of one subject side by side, say who holds each, and never rule between them.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "readings.leftAttribution": {
+      "text": "its source isn't public, so the reading is left out",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.leftAwaiting": {
+      "text": "not approved",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leftDetails": {
+      "text": "Reason: {reason}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "reason"
+      ]
+    },
+    "readings.leftDraft": {
+      "text": "the comparison is a draft",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.leftEvidence": {
+      "text": "some evidence is private and was left out",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.leftOutHeading": {
+      "text": "Only you see this: what readers don't see",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.leftOutLine": {
+      "text": "{name}: {why}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name",
+        "why"
+      ]
+    },
+    "readings.leftStale": {
+      "text": "changed after you approved it",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.leftSubject": {
+      "text": "explains a reading readers don't see",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "readings.leftTooFew": {
+      "text": "fewer than two readings can be shown",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "readings.leftWithdrawn": {
+      "text": "withdrawn",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelBeginner": {
+      "text": "Beginners",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelScholarly": {
+      "text": "Scholars",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelStudent": {
+      "text": "Students",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.loadFailed": {
+      "text": "Your comparisons of readings didn't load.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.make": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.makeDraft": {
+      "text": "Make it a draft again",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.markedAi": {
+      "text": "Marked as drafted with AI. It needs your approval before readers see it.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "readings.markedOwn": {
+      "text": "Marked as your own words.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.move": {
+      "text": "Move",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moved": {
+      "text": "{title} is number {number} of {count} now. Not saved yet.",
+      "layer": "her",
+      "max": 114,
+      "vars": [
+        "title",
+        "number",
+        "count"
+      ]
+    },
+    "readings.name": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.needTwo": {
+      "text": "Two readings are needed to relate them.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.newHeading": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.notCompare": {
+      "text": "To read versions of one passage side by side, use Compare.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "readings.notNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.nothingChanged": {
+      "text": "Nothing's changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.open": {
+      "text": "Open {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.pAddress": {
+      "text": "The address uses lowercase letters, numbers and single hyphens, up to 64 characters.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "readings.pApproval": {
+      "text": "Approvals are only given by reading the words and pressing Approve. Saving can't add one.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "readings.pBadValue": {
+      "text": "Something here isn't right. Check it and try again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.pDuplicate": {
+      "text": "Another item has the same name inside the comparison. Take one out and add it again.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "readings.pEvidence": {
+      "text": "An explanation uses only evidence its reading already cites.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readings.pExplanation": {
+      "text": "Write the explanation.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.pJudgement": {
+      "text": "That field only takes a few set choices.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.pSelf": {
+      "text": "A reading can't be related to itself.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.pStatement": {
+      "text": "Write what this reading holds.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.pSubject": {
+      "text": "Say what the readings are about.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.pTitle": {
+      "text": "Give the comparison a title.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.pTooLong": {
+      "text": "That's too long.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.pTooMany": {
+      "text": "A comparison can't hold more than that.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.pTool": {
+      "text": "Name the AI tool that drafted these words.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readings.pUnknown": {
+      "text": "That points at something that isn't there. Choose again.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.pWho": {
+      "text": "Say who held this reading, or choose Someone unknown and describe them.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "readings.previewClose": {
+      "text": "Back to your comparison",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.previewDraft": {
+      "text": "This is a draft. It shows what readers would see if you published it now.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "readings.previewEmpty": {
+      "text": "Add readings to see it here.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.previewFailed": {
+      "text": "That didn't load. Try again.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.previewHeading": {
+      "text": "What readers will see",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.previewOnlyYou": {
+      "text": "Only you see this page. Nothing is published by looking.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.previewRefresh": {
+      "text": "Looking at your latest changes…",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.previewUncertain": {
+      "text": "Uncertain: {text}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "text"
+      ]
+    },
+    "readings.previewWithheld": {
+      "text": "Readers can't see this comparison yet: it needs two readings that are your own words or approved.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "readings.problemsHeading": {
+      "text": "Not saved yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.problemsMany": {
+      "text": "{count} things need a look first.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.problemsOne": {
+      "text": "One thing needs a look first.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.provenanceAi": {
+      "text": "Drafted with AI ({tool}), approved by the author",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "tool"
+      ]
+    },
+    "readings.provenanceOwn": {
+      "text": "Written by the author",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.publish": {
+      "text": "Publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.published": {
+      "text": "Published. Readers see it at {url}, in about a minute.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "url"
+      ]
+    },
+    "readings.publishedHidden": {
+      "text": "Saved, but readers can't see it yet: two readings must be your own words or approved.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "readings.publishedSiteOff": {
+      "text": "Saved as published, but your site isn't showing comparisons of readings yet.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "readings.readApprove": {
+      "text": "Read and approve",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.readingsEmpty": {
+      "text": "No readings yet. Add the first one, then another.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readings.readingsHeading": {
+      "text": "Readings",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relAgrees": {
+      "text": "Agrees with",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relBuilds": {
+      "text": "Builds on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relBy": {
+      "text": "Relates by",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relDiffers": {
+      "text": "Differs from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relHelp": {
+      "text": "No relation says which reading is right.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.relNote": {
+      "text": "A note, if it helps",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relResponds": {
+      "text": "Responds to",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relThat": {
+      "text": "That reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relThis": {
+      "text": "This reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relationLine": {
+      "text": "{from} · {kind} · {to}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "from",
+        "kind",
+        "to"
+      ]
+    },
+    "readings.relationsEmpty": {
+      "text": "No relations yet. They're optional.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readings.relationsHeading": {
+      "text": "How the readings relate",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.researchTrouble": {
+      "text": "Your research couldn't be read, so evidence can't be checked right now. You can still write.",
+      "layer": "her",
+      "max": 184,
+      "vars": []
+    },
+    "readings.rowCounts": {
+      "text": "Readings: {readings} · Explanations: {explanations}",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "readings",
+        "explanations"
+      ]
+    },
+    "readings.rowDraft": {
+      "text": "Draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.rowNotShown": {
+      "text": "Not shown yet: two readings must be your own words or approved",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "readings.rowShown": {
+      "text": "On {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "readings.rowUnreadable": {
+      "text": "Can't be read yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveDraft": {
+      "text": "Save draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveFirstText": {
+      "text": "You approve the words as saved.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.saveFirstTitle": {
+      "text": "Save first?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveNow": {
+      "text": "Save now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.savedDraft": {
+      "text": "Saved as a draft. Readers don't see it.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.savesWith": {
+      "text": "Saves with the comparison.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.seeReaders": {
+      "text": "See what readers will see",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.sheetExplanation": {
+      "text": "An explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sheetReading": {
+      "text": "Reading: {who}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.sheetRelation": {
+      "text": "A relation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.showTheirs": {
+      "text": "Show the other version",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.siteOff": {
+      "text": "{product} doesn't show comparisons of readings yet. Tell {helper}.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "readings.siteOffDetails": {
+      "text": "The site's setting interpretations.publish is off.",
+      "layer": "details",
+      "max": 100,
+      "vars": []
+    },
+    "readings.someone": {
+      "text": "Someone unknown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sourceChoose": {
+      "text": "Choose a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sourceGone": {
+      "text": "That source isn't in your library.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "readings.sourceLabel": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.standingApproved": {
+      "text": "Drafted with AI, approved by you",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.standingAuthored": {
+      "text": "Your own words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.standingAwaiting": {
+      "text": "Drafted with AI: not approved, readers don't see it",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.standingStale": {
+      "text": "Changed after you approved it: readers don't see it until you approve it again",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "readings.standingUnknown": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.statement": {
+      "text": "What this reading holds",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.subjectHelp": {
+      "text": "Neutral words: say the subject, not which reading is right.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readings.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.theirsShown": {
+      "text": "Here's the other version.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.title": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.tookOutExplanation": {
+      "text": "Took out the explanation for {level}. Not saved yet.",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "level"
+      ]
+    },
+    "readings.tookOutReading": {
+      "text": "Took out “{who}” and the relations that named it. Not saved yet.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.uncertain": {
+      "text": "What's uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.uncertainHelp": {
+      "text": "Honest uncertainty is welcome, with or without evidence.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.undoFailed": {
+      "text": "That couldn't be put back, because it changed since. Open it again.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.undone": {
+      "text": "Put back as it was.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.unreadable": {
+      "text": "This comparison's file can't be read, so it can't be edited here.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "readings.unreadableDetails": {
+      "text": "The first problem the server found:",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "readings.untitled": {
+      "text": "A comparison of readings",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.update": {
+      "text": "Update",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.updated": {
+      "text": "Updated.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMine": {
+      "text": "Use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMineSure": {
+      "text": "Use your changes?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMineSureText": {
+      "text": "This replaces the other changes with what you have here.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.useMineYes": {
+      "text": "Yes, use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.waiting": {
+      "text": "{count} AI drafts waiting for you to approve",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.waitingOne": {
+      "text": "1 AI draft is waiting for you to approve",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.wasDrafted": {
+      "text": "It's a draft again. Readers don't see it.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.who": {
+      "text": "Who holds it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.whoAnonymous": {
+      "text": "Someone unknown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.whoNamed": {
+      "text": "A person, school or tradition",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.whoSource": {
+      "text": "A source in your library",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.withdraw": {
+      "text": "Withdraw approval",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.withdrawPublishedText": {
+      "text": "A published comparison can't hold AI words nobody approved, so the whole comparison goes back to draft.",
+      "layer": "her",
+      "max": 206,
+      "vars": []
+    },
+    "readings.withdrawPublishedTitle": {
+      "text": "Withdraw and make it a draft again?",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readings.withdrawPublishedYes": {
+      "text": "Withdraw and make it a draft",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.withdrawn": {
+      "text": "Withdrawn: readers don't see it.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.writtenClose": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.writtenHeading": {
+      "text": "The comparison as written",
+      "layer": "details",
+      "max": 50,
+      "vars": []
+    },
+    "readings.writtenHelp": {
+      "text": "The file exactly as it is kept. Shown for {helper}; changes are made on the form.",
+      "layer": "details",
+      "max": 162,
+      "vars": [
+        "helper"
+      ]
+    },
     "ready.addCover": {
       "text": "Add a cover photo",
       "layer": "her",

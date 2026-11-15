@@ -348,7 +348,7 @@ export async function createPathEdit(context, route) {
       const reply = saved ? await api.call("PUT", BASE, { json: { ...body, revision } }) : await api.post(BASE, body);
       const wasNew = !saved;
       const shown = reply.projection ? reply.projection.withheld === false : true;
-      adopt(reply, { keep: R.pathSame(draft, mineNow) ? null : draft });
+      adopt(reply, { keep: R.pathSame({ ...draft, status: mineNow.status }, mineNow) ? null : draft });
       takenAddresses = [...new Set([...takenAddresses, slug])];
       if (wasNew) context.replaceRoute?.(`#/path/${encodeURIComponent(slug)}`);
       const said = R.savedWords({ wasPublished, status: sent.status, url, publish, shown });

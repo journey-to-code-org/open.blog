@@ -69,6 +69,14 @@ export function legacyRoute(hash) {
     if (rest[0] === "edit" && rest[1]) return `#/path/${rest.slice(1).join("/")}${tail}`;
     return !rest.length || (rest.length === 1 && rest[0] === "new") ? null : `#/paths${tail}`;
   }
+  // R13: readings side by side. The old comparisons editor moves under Research; #/research/readings… is Studio's
+  // own, while plain #/research is still not yet.
+  if (name === "comparisons") {
+    if (rest[0] === "new" && rest.length === 1) return `#/research/readings/new${tail}`;
+    if (rest[0] === "edit" && rest[1]) return `#/research/reading/${rest.slice(1).join("/")}${tail}`;
+    return `#/research/readings${tail}`;
+  }
+  if (name === "research" && (rest[0] === "readings" || (rest[0] === "reading" && rest[1]))) return null;
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
   // R5: Contributors is People.
   if (name === "contributors") return `#/people${tail}`;

@@ -103,3 +103,15 @@ test("R13: reading paths are Studio's own; the old editor address moves, whateve
   assert.equal(legacyRoute("#/paths/something?x=1"), "#/paths?x=1");
   assert.equal(legacyRoute("#/path/start-here"), null);
 });
+
+test("R13: comparisons move under Research > Readings; Studio's own readings addresses stay; plain research is not yet", () => {
+  assert.equal(legacyRoute("#/comparisons"), "#/research/readings");
+  assert.equal(legacyRoute("#/comparisons/new"), "#/research/readings/new");
+  assert.equal(legacyRoute("#/comparisons/edit/the-cave"), "#/research/reading/the-cave");
+  assert.equal(legacyRoute("#/comparisons/edit/the-cave?x=1"), "#/research/reading/the-cave?x=1");
+  assert.equal(legacyRoute("#/comparisons/other/thing"), "#/research/readings");
+  assert.equal(legacyRoute("#/research/readings"), null);
+  assert.equal(legacyRoute("#/research/readings/new"), null);
+  assert.equal(legacyRoute("#/research/reading/the-cave"), null);
+  assert.equal(legacyRoute("#/research"), "#/not-yet/research");
+});
