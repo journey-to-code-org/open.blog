@@ -59,9 +59,21 @@ export async function createPathEdit(context, route) {
   const sheet = h("side-sheet", { label: say("paths.sheetHeading"), side: "right" });
   const form = h("div", { class: "studio-path-form" }, title, address, addressLine, summary, listed);
   const bar = h("div", { class: "studio-write-bar studio-path-bar" }, see, publishButton, saveButton, more);
+  const stepsSection = h("section", { class: "studio-section", "aria-labelledby": "studio-path-steps-h" }, stepsHeading, stepsLede, moveHelp, list, count, add);
+  // A path that exists shows nothing she can type in until it has loaded: what she typed first would
+  // be replaced by the saved path when it arrived.
+  const waiting = h("skeleton-block", { lines: 6, hidden: isNew });
   const element = h("section", { class: "studio-page studio-path", "aria-labelledby": "studio-path-h" },
-    h("div", { class: "studio-write-top" }, trail, back), heading, status, undoSlot, banner, form,
-    h("section", { class: "studio-section", "aria-labelledby": "studio-path-steps-h" }, stepsHeading, stepsLede, moveHelp, list, count, add), bar, sheet);
+    h("div", { class: "studio-write-top" }, trail, back), heading, status, undoSlot, banner, waiting, form, stepsSection, bar, sheet);
+  const showEditor = (on) => {
+    for (const part of [form, stepsSection, bar]) part.hidden = !on;
+    waiting.hidden = true;
+    if (on) element.removeAttribute("aria-busy");
+  };
+  if (!isNew) {
+    for (const part of [form, stepsSection, bar]) part.hidden = true;
+    element.setAttribute("aria-busy", "true");
+  }
 
   const dirty = () => loaded && !unreadable && (!saved ? Boolean(draft.title.trim() || draft.steps.length || (draft.summary || "").trim()) : !R.pathSame(draft, saved));
   const relationships = () => (targets?.relationships || []).map((r) => r.value);
@@ -312,6 +324,7 @@ export async function createPathEdit(context, route) {
       takenAddresses = (all.items || []).map((i) => i.slug);
       publish = all.publish === true;
       if (!loadedTargets || targets.problem) banner.replaceChildren(h("alert-banner", { variant: "warning", heading: say("paths.targetsTrouble") }, say("common.tell")));
+      showEditor(true);
       if (reply) adopt(reply);
       else paint();
       loaded = true;
@@ -319,6 +332,8 @@ export async function createPathEdit(context, route) {
       if (entry && entry.what === "delete") undo.forget();
       drawUndo(undo.current(BASE));
     } catch (error) {
+      waiting.hidden = true;
+      element.removeAttribute("aria-busy");
       const problem = R.pathProblem(error);
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: R.errorWords(problem.code === "missing" ? "missing" : "") },
         h("action-button", { variant: "secondary", onClick: () => load() }, say("paths.tryAgain")), h("a", { href: "#/paths", text: say("paths.back") })));
