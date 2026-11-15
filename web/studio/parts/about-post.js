@@ -286,14 +286,22 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     opener = from;
     onClose = closed;
     paintFooter();
-    credits.ready();
+    // Who wrote it is drawn once People answers; focusing before that lands on the placeholder,
+    // which is then replaced, and focus is lost.
+    const people = credits.ready();
     if (group === "details") details.open();
     element.open = true;
     shownNow = true;
     paintSearch();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
       const name = focusName || GROUP_FIRST[group] || "";
-      if (group === "credits") { groups.credits.scrollIntoView?.({ block: "start" }); credits.focus(); return; }
+      if (group === "credits") {
+        await people;
+        if (!element.open) return;
+        groups.credits.scrollIntoView?.({ block: "start" });
+        credits.focus();
+        return;
+      }
       const target = name && controls.get(name);
       if (target) { target.element.scrollIntoView?.({ block: "center" }); target.focus(); } else heading.focus();
     }));
