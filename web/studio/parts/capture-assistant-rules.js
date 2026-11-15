@@ -3,6 +3,8 @@
 // reaches her words; a write-up is bounded and fills the job's four parts. Studio R4
 // (docs/specs/studio/r4/ux.md).
 
+import { carriesMarkup, moreThanWords } from "./helper-rules.js";
+
 /**
  * A transcript made safe to sit in her words, which become the post's Markdown. `<` becomes an entity,
  * so no tag can form; a line that starts a heading, quote, list, rule or fence is escaped, and a
@@ -50,6 +52,21 @@ export function normalizeDraft(raw) {
   for (const key of SECTION_KEYS) sections[key] = block(raw.sections?.[key], DRAFT_LIMITS.section);
   if (!title && SECTION_KEYS.every((key) => !sections[key])) return null;
   return { title, description, sections };
+}
+
+/**
+ * Whether a write-up is words alone, so it may go into her boxes: no link, picture, markup, code or
+ * address anywhere (helper-rules `carriesMarkup`, the rule a suggestion is held to), a title and a
+ * summary that are plain lines, and no part that starts a heading (which would be a new box), a
+ * fence or the top of a file. Paragraphs and a plain list are words.
+ */
+export function draftIsWords(draft) {
+  if (!draft || typeof draft !== "object") return false;
+  if (moreThanWords(draft.title) || moreThanWords(draft.description)) return false;
+  return SECTION_KEYS.every((key) => {
+    const text = String(draft.sections?.[key] ?? "");
+    return !carriesMarkup(text) && !text.split("\n").some((line) => /^ {0,3}(?:#|~~~|---|\+\+\+|={3,})/.test(line));
+  });
 }
 
 /** The body a write-up makes: its sections under the scaffold's own headings (or the standard four). */

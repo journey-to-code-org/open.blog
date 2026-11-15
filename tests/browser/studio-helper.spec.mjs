@@ -321,6 +321,58 @@ test("keyboard only: open it, read with Ctrl+Enter, use all, and Tab never leave
   await expect(card(page).getByRole("button")).toBeFocused();
 });
 
+// B1: her post is Markdown and her site turns Markdown into a page, so a suggestion carrying markup
+// would be a stranger's script on her public site. It is shown for her to type, and never put in.
+test("a suggestion with more than words in it is advice only: no Use this, skipped by Use all, and nothing of it reaches her box, her file or the preview", async ({ page }) => {
+  test.setTimeout(120000);
+  await asAnthropic(page);
+  await openPost(page, site, "2026-10-05-pie.md", STORY);
+  const REPRO = 'a lot of butter <img src=x onerror="window.__pwn=1"> [click](https://evil.example/x) <script>window.__pwn=2</script>';
+  await stubReview(page, review([
+    finding("alot of butter", REPRO),
+    finding("in this pie", "in this one", { explanation: "Plainer." }),
+    finding("work fast", "work quickly", { explanation: "Plainer." }),
+    // One the server marked as advice is honoured, whatever its words look like.
+    finding("Keep the butter cold", "Keep your butter cold", { explanation: "Warmer.", applicable: false }),
+  ]));
+  await card(page).getByRole("button").click();
+  await sheet(page).getByRole("button", { name: "Read it over", exact: true }).click();
+  const first = sheet(page).locator('[data-finding="1"]');
+  await expect(first).toBeVisible();
+  await expect(first).toContainText("Your helper suggested something with more than words in it, so it's shown here for you to type yourself.");
+  await expect(first).toContainText('<img src=x onerror="window.__pwn=1">');
+  await expect(first.getByRole("button", { name: /^Use this/ })).toHaveCount(0);
+  await expect(first.getByRole("button", { name: /^Show me/ })).toBeVisible();
+  await expect(sheet(page).locator('[data-finding="3"]').getByRole("button", { name: /^Use this/ })).toHaveCount(0);
+  await expect(sheet(page).locator('[data-finding="3"]')).toContainText("type yourself");
+  await expect(sheet(page).getByRole("button", { name: /^Use this/ })).toHaveCount(2);
+  // Shown as text: nothing a helper returned became an element.
+  expect(await sheet(page).locator("img, a[href], script, iframe").count()).toBe(0);
+  await axeClean(page, "Writing helper, a suggestion with more than words", "side-sheet.studio-helper-sheet");
+
+  // Use all takes the two that are words and skips the others.
+  await sheet(page).getByRole("button", { name: "Use all 2", exact: true }).click();
+  const after = "I use alot of butter in this one.\n\n## Making the crust\n\nKeep the butter cold and work quickly.";
+  await expect(words(page)).toHaveValue(after);
+  await expect(sheet(page).locator(".studio-ready-did")).toContainText("Changed 2 places.");
+  await expect(first.getByRole("button", { name: /^Use this/ })).toHaveCount(0);
+  await closeButton(page).click();
+
+  // Her saved draft has her words and the two changes, and no markup.
+  await expect.poll(() => fileOf(site, "2026-10-05-pie.md"), { timeout: 10000 }).toContain("work quickly");
+  const saved = fileOf(site, "2026-10-05-pie.md");
+  for (const bad of ["<img", "onerror", "evil.example", "<script", "__pwn", "[click]"]) expect(saved, bad).not.toContain(bad);
+  expect(saved).toContain("I use alot of butter in this one.");
+
+  // And the page her readers would get has none either.
+  await page.getByRole("button", { name: "See how it looks", exact: true }).click();
+  const frame = page.frameLocator("iframe").first();
+  await expect(frame.locator("body")).toContainText("I use alot of butter in this one.");
+  expect(await frame.locator('img[src="x"], a[href*="evil.example"], [onerror]').count()).toBe(0);
+  expect(await frame.locator("body").innerHTML()).not.toContain("__pwn");
+  expect(await page.evaluate(() => window.__pwn)).toBeUndefined();
+});
+
 test("a recipe: a suggestion in Your story changes that box only, and one in an ingredient row is advice", async ({ page }) => {
   await asAnthropic(page);
   const recipe = "---\ntitle: Apple pie\ndate: 2026-10-06\ndraft: true\nprofile: recipe\nservings: \"8\"\n---\n\nMy mother made this alot.\n\n## Ingredients\n\n- 2 cups flour\n- 1 cup buter\n\n## Method\n\n1. Mix it all.\n\n## Notes\n\nKeep it cold.\n";

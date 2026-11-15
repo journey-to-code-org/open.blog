@@ -6,13 +6,15 @@
 // its quoted words inside one box, outside any card, with an Undo that is exact.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   MAX_PASSAGE, NEVER_SENT, applyAssistantSuggestion, applyFinding, assistantReviewPassage, boxSpans, captureTarget, cardRanges, clip, companyName, detailGroups, findingInBoxes, findingPlace,
-  helperLine, helperProblem, helperSource, helperState, lookForChoices, markdownHeadingStarts, orderFindings, passageFor, plainSuggestion, reasonWords, reviewRequest, scopeOf,
+  helperLine, helperProblem, helperSource, helperState, lookForChoices, markdownHeadingStarts, moreThanWords, orderFindings, passageFor, plainSuggestion, reasonWords, reviewRequest, scopeOf,
   selectableSkillIds, shiftUsed, skillFitsScope, skillPresentation, skillsFor, sourceChanged, stateWords, undoFinding, usableFinding, whatGoes, wordsAbout,
 } from "../../web/studio/parts/helper-rules.js";
 import { defaultContextIds } from "../../web/studio/parts/helper-context-rules.js";
+import { plainCompletion } from "../../web/studio/parts/suggest-rules.js";
 import { configureWords } from "../../web/studio/parts/words.js";
 import { transcribeTrouble, writeUpTrouble } from "../../web/studio/parts/job-words.js";
 
@@ -457,8 +459,32 @@ test("what a helper suggests is made plain before it enters her words", () => {
   const post = { body: "I use alot of butter.", boxes: [{ name: "Words", value: "I use alot of butter." }] };
   const out = applyFinding(post, finding("alot", "a‮ lot\u0000\r\n", 6), []);
   assert.equal(out.text, "I use a lot\n of butter.");
-  // Markup stays the letters it is: the page only ever shows it as text, and it goes in as words.
-  assert.equal(applyFinding(post, finding("alot", "<img src=x onerror=alert(1)>", 6), []).text, "I use <img src=x onerror=alert(1)> of butter.");
+});
+
+// B1: her post is Markdown, and Markdown on her site becomes a page. A suggestion is words or it
+// is advice.
+const TABLE = JSON.parse(readFileSync(new URL("../fixtures/helper-plain-words.json", import.meta.url), "utf8"));
+
+test("a suggestion with more than words in it is told apart by one table, shared with the server", () => {
+  for (const words of TABLE.words) assert.equal(moreThanWords(words), false, JSON.stringify(words));
+  for (const more of TABLE.more) assert.equal(moreThanWords(more), true, JSON.stringify(more));
+  // Characters that hide (a direction mark, a null) don't hide markup.
+  assert.equal(moreThanWords("see [this]\u200b(https://evil.example)"), true);
+  assert.equal(moreThanWords("a <\u0000script>"), true);
+  assert.equal(moreThanWords("line one\r\n# heading"), true);
+  for (const nothing of [null, undefined, ""]) assert.equal(moreThanWords(nothing), false);
+});
+
+test("a suggestion with more than words in it never goes into her post", () => {
+  const post = { body: "I use alot of butter.", boxes: [{ name: "Words", value: "I use alot of butter." }] };
+  const repro = 'a lot of butter <img src=x onerror="window.__pwn=1"> [click](https://evil.example/x) <script>window.__pwn=2</script>';
+  assert.deepEqual(applyFinding(post, finding("alot of butter", repro, 6), []), { ok: false, why: "more" });
+  for (const more of TABLE.more) assert.deepEqual(applyFinding(post, finding("alot", more, 6), []), { ok: false, why: "more" }, JSON.stringify(more));
+  // The server's word is honoured even when the words look plain.
+  assert.deepEqual(applyFinding(post, { ...finding("alot", "a lot", 6), applicable: false }, []), { ok: false, why: "more" });
+  assert.equal(applyFinding(post, { ...finding("alot", "a lot", 6), applicable: true }, []).ok, true);
+  // Suggested next words follow the same table.
+  for (const more of TABLE.more) assert.equal(plainCompletion(more), "", JSON.stringify(more));
 });
 
 test("Undo reverses only its own swap, so what she typed since stays", () => {

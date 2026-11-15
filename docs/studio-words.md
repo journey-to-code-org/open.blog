@@ -610,6 +610,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `found.fromNotes` | her | Based on your notes. | none | 40 |
 | `found.heading` | her | What your helper found | none | 44 |
 | `found.inBox` | her | In {box} | `{box}` | 40 |
+| `found.moreThanWords` | her | Your helper suggested something with more than words in it, so it's shown here for you to type yourself. | none | 208 |
 | `found.near` | her | Near “{words}” | `{words}` | 40 |
 | `found.notThis` | her | Not this one | none | 40 |
 | `found.notThisList` | her | Not this one ({count}) | `{count}` | 44 |

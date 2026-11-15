@@ -3,7 +3,7 @@
 // photos or the voice note), with "Make it sound like me" when she has a voice guide. What comes back
 // is untrusted: normalizeDraft bounds it, and it is shown as text in her boxes, never saved by itself.
 import { h } from "./dom.js";
-import { normalizeDraft } from "./capture-assistant-rules.js";
+import { draftIsWords, normalizeDraft } from "./capture-assistant-rules.js";
 import { companyName, writeUpDisclosure, writeUpTrouble } from "./job-words.js";
 
 /** Whether writing up is set up, and the voice guide that could go: `{ ready, status, guide }`. */
@@ -52,7 +52,8 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
         try {
           const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [] } });
           const draft = normalizeDraft(reply?.draft);
-          finish(draft ? { draft } : { error: writeUpTrouble({}, { company }) });
+          // Words alone go into her boxes: a write-up carrying a link, a picture or markup is not used.
+          finish(draft && draftIsWords(draft) ? { draft } : { error: writeUpTrouble({}, { company }) });
         } catch (error) {
           finish({ error: writeUpTrouble(error, { company }) });
         }

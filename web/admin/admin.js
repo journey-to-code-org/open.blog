@@ -9050,7 +9050,8 @@ export function applyAssistantSuggestion(markdown, finding = {}) {
   const source = Array.from(String(markdown ?? ""));
   const evidence = typeof finding.evidence === "string" ? Array.from(finding.evidence) : [];
   const suggestion = typeof finding.suggestion === "string" ? Array.from(finding.suggestion) : null;
-  if (!evidence.length || suggestion === null) return { ok: false, error: "This finding does not include an applicable replacement." };
+  // The server marks a replacement that is more than words (markup, a link, code) as advice only.
+  if (!evidence.length || suggestion === null || finding.applicable === false) return { ok: false, error: "This finding does not include an applicable replacement." };
   const matchesAt = (start) => start >= 0 && start + evidence.length <= source.length && evidence.every((character, index) => source[start + index] === character);
   const requestedStart = finding.range?.start;
   const requestedEnd = finding.range?.end;
@@ -24326,7 +24327,9 @@ export class Editor {
                     "div",
                     { class: "oba-review-suggestion" },
                     h("details", {}, h("summary", {}, "Suggested replacement"), h("pre", {}, finding.suggestion)),
-                    h("button", { class: "oba-btn", type: "button", onClick: (event) => this.applyAssistantReviewFinding(finding, event.currentTarget) }, "Apply suggestion"),
+                    finding.applicable === false
+                      ? h("p", { class: "oba-small" }, "Shown as advice only: it has more than words in it, so type it yourself if you want it.")
+                      : h("button", { class: "oba-btn", type: "button", onClick: (event) => this.applyAssistantReviewFinding(finding, event.currentTarget) }, "Apply suggestion"),
                   ),
               h("p", { class: "oba-small" }, finding.verification === "supplied-context" ? "Based on supplied context" : "Unverified review advice"),
             ),

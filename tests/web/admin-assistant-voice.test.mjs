@@ -200,6 +200,8 @@ test("an anchored voice-match suggestion applies to exactly its passage and the 
 test("an advice-only voice-match finding has no replacement to apply", () => {
   const advice = { evidence: "Words the author never wrote", suggestion: null, range: { start: 0, end: 0 } };
   assert.deepEqual(applyAssistantSuggestion("Opening.", advice), { ok: false, error: "This finding does not include an applicable replacement." });
+  // A replacement the server marked as more than words is never applied either (Studio R8, B1).
+  assert.deepEqual(applyAssistantSuggestion("Opening.", { evidence: "Opening", suggestion: "<img src=x onerror=alert(1)>", range: { start: 0, end: 7 }, applicable: false }), { ok: false, error: "This finding does not include an applicable replacement." });
   assert.equal(applyAssistantSuggestion("Opening.", { ...advice, suggestion: "Warmer" }).ok, false, "evidence that is not in the draft is never applied");
 });
 

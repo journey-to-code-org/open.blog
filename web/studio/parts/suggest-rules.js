@@ -4,7 +4,7 @@
 //
 // It is off until she turns it on, for one post and one visit, and what comes back is plain words
 // that go in only when she chooses.
-import { helperSource } from "./helper-rules.js";
+import { helperSource, moreThanWords } from "./helper-rules.js";
 
 /** How long she stops typing before one is asked for. */
 export const PAUSE_MS = 850;
@@ -74,18 +74,16 @@ export function captureIsCurrent(captured, now) {
 
 /**
  * The suggested words made plain before they are shown or go into her words: one paragraph of
- * text, no control characters, nothing that could start a heading, a list, a quote, code or
- * markup; cut at 400 letters. "" when nothing usable is left.
+ * text, no control characters, nothing that is more than words (helper-rules `moreThanWords`:
+ * markup, a link, an address, code, or the start of a heading, a list or a quote); cut at 400 letters. "" when nothing usable is left.
  */
 export function plainCompletion(text) {
   if (typeof text !== "string") return "";
-  const clean = text
-    .replace(/\r\n?/g, "\n")
-    .replace(/^\n+/, "")
-    .replace(/[\u0000-\u0009\u000b-\u001f\u007f​‪-‮⁦-⁩﻿]/g, "")
-    .split(/\n\s*\n/)[0]
-    .replace(/\n+/g, " ");
-  if (/[<>`]|^\s*([#>|]|[-+*]\s|\d+[.)]\s)|!?\[[^\]]*\]\(/.test(clean)) return "";
+  const whole = text.replace(/\r\n?/g, "\n").replace(/^\n+/, "").replace(/[\u0000-\u0009\u000b-\u001f\u007f\u200b\u202a-\u202e\u2066-\u2069\ufeff]/g, "");
+  // The same rule as a suggestion from Read it over, on everything that came back, before its
+  // lines are joined: more than words never goes in.
+  if (moreThanWords(text)) return "";
+  const clean = whole.split(/\n\s*\n/)[0].replace(/\n+/g, " ");
   return Array.from(clean).slice(0, 400).join("").replace(/\s+$/, "");
 }
 
