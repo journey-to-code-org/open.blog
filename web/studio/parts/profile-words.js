@@ -20,9 +20,10 @@ const UNKNOWN = { label: "Something else", get help() { return `Your blog shows 
  * it is another (a video stays offered on a video post). An unknown id is kept as "Something else".
  * @returns {{ value: string, label: string, help: string }[]}
  */
-export function kindChoices(meta, current, { trade = false } = {}) {
+export function kindChoices(meta, current, { trade = false, research = false } = {}) {
   const known = new Set((meta?.profiles || []).map((p) => p.id));
-  const ids = ["article", "recipe", ...(trade ? ["job"] : [])];
+  // R11 decision 1: a site that uses research is offered Research too.
+  const ids = ["article", "recipe", ...(trade ? ["job"] : []), ...(research ? ["research"] : [])];
   if (current && !ids.includes(current)) ids.push(current);
   return ids.map((id) => ({ value: id, ...(KIND_WORDS[id] && (known.has(id) || !meta?.profiles) ? KIND_WORDS[id] : UNKNOWN) }));
 }

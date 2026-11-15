@@ -100,6 +100,7 @@ mod post_settings;
 mod push;
 mod quote;
 mod reading_paths;
+mod research;
 mod seasonal;
 mod seasons;
 mod social;
@@ -855,7 +856,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
     }
     if !state.workspace_enabled {
-        return authenticated_api(state, req, name, &session);
+        return research::coded(
+            name,
+            &req.method,
+            authenticated_api(state, req, name, &session),
+        );
     }
     let mut workspace = lock(&state.workspace);
     // Social routes change nothing on disk, so they never open a workspace transaction.
@@ -891,7 +896,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             }
         }
     }
-    let response = authenticated_api(state, req, name, &session);
+    let response = research::coded(
+        name,
+        &req.method,
+        authenticated_api(state, req, name, &session),
+    );
     if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
@@ -1425,15 +1434,22 @@ fn source_contributors(
 
 fn list_sources(state: &AppState) -> Response {
     match source_store::load(&state.root, &source_contributors(state)) {
-        Ok(snapshot) => Response::json(
-            200,
-            &json!({
-                "file": source_store::LIBRARY_FILE,
-                "revision": snapshot.revision,
-                "stored": snapshot.stored,
-                "sources": snapshot.library.sources,
-            }),
-        ),
+        Ok(snapshot) => {
+            // Studio R11 G94: where each source is used, beside the records (never inside them).
+            let posts = site::load_config(&state.root)
+                .and_then(|config| site::read_sources(&state.root, &config))
+                .unwrap_or_default();
+            Response::json(
+                200,
+                &json!({
+                    "file": source_store::LIBRARY_FILE,
+                    "revision": snapshot.revision,
+                    "stored": snapshot.stored,
+                    "sources": snapshot.library.sources,
+                    "uses": research::source_uses(&state.root, &snapshot.library, &posts),
+                }),
+            )
+        }
         Err(error) => source_store_error(state, error, None),
     }
 }
@@ -1768,6 +1784,14 @@ fn check_citation_request(state: &AppState, req: &Request) -> Response {
         Ok(checked) => {
             let mut view = json!(checked);
             view["revision"] = json!(snapshot.revision);
+            // Studio R11 G95: as readers will see it, in the named post's language.
+            let config = site::load_config(&state.root).unwrap_or_default();
+            let posts = site::read_sources(&state.root, &config).unwrap_or_default();
+            let locale = research::post_locale(&config, &posts, body["post"].as_str());
+            let (label, note) = research::citation_reads(&checked, locale);
+            view["label"] = json!(label);
+            view["note"] = json!(note);
+            view["locale"] = json!(locale.key());
             Response::json(200, &view)
         }
         Err(diagnostics) => Response::json(
@@ -4522,7 +4546,11 @@ fn meta(state: &AppState) -> Response {
                 "shared": crate::outcomes::any_shared(&state.root, &config),
                 // Pins are sent (Studio R5 G39): a post's Pin words are on her layer.
                 "pinterest": config.syndication.pinterest.as_ref().is_some_and(|pins| pins.enabled),
+                // Studio R11 G92: research shows only on a site that uses it.
+                "research": research::site_uses_research(&state.root, &config, &sources),
             },
+            // Studio R11 G92: the research switches her words depend on.
+            "research": research::research_meta(&config),
             // How a scheduled post reaches readers (Studio R5 G37): "self" or "next-send".
             "schedule": post_settings::schedule_mode(&state.root, &config),
             "job": job_form,
@@ -20310,6 +20338,7 @@ mod tests {
     mod push_routes;
     mod quote_routes;
     mod reading_path_routes;
+    mod research_routes;
     mod safety_audit;
     mod seasonal_routes;
     mod seasons_routes;

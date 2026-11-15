@@ -101,6 +101,9 @@ export const ADD_ITEMS = [
   { id: "contact", needs: "contact", name: () => say("item.contact"), about: () => say("item.contactAbout") },
   { id: "abstract", name: () => say("item.abstract"), about: () => say("item.abstractAbout") },
   { id: "references", name: () => say("item.references"), about: () => say("item.referencesAbout") },
+  // R11: only on a site that uses research (G92).
+  { id: "cite", research: true, name: () => say("add.citation"), about: () => say("add.citationBlurb") },
+  { id: "quotation", research: true, name: () => say("add.quotation"), about: () => say("add.quotationBlurb") },
   { id: "code", name: () => say("item.code"), about: () => say("item.codeAbout") },
   { id: "runnable", name: () => say("item.runnable"), about: () => say("item.runnableAbout") },
   { id: "codepen", name: () => say("item.codepen"), about: () => say("item.codepenAbout") },
@@ -127,6 +130,9 @@ export function addItems(meta, post = {}) {
   if (post.kind === "job") { more.splice(more.indexOf("compare"), 1); most.unshift("compare"); }
   if (trade) most.push("hours", "contact"); else details.push("hours", "contact");
   if (post.kind === "research") most.push("abstract", "references");
+  // R11: a citation and a quotation, first on a research post and with "More things" otherwise; a
+  // site that doesn't use research never sees them.
+  if (meta?.siteUses?.research === true) (post.kind === "research" ? most : more).push("cite", "quotation");
   const list = (ids) => ids.map(byId).filter(has).map((item) => ({ id: item.id, name: item.name(), about: item.about() }));
   return { most: list(most), more: list(more), details: list(details) };
 }

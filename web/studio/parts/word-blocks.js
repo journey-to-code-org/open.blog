@@ -68,6 +68,8 @@ export function blockKind(source, previous = "") {
   const fence = fenceOf(first);
   if (fence && lines.length > 1 && closes(lines[lines.length - 1], fence)) return fenceKind(fence.info);
   if (/^ {0,3}>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i.test(first)) return "callout";
+  // R11: a block quote whose last line ends with one citation is a quotation from her notebook.
+  if (parseQuotation(lines.join("\n"))) return "quotation";
   if (lines.every((line, index) => /^[-*+] \[[ xX]\] /.test(line) || (index > 0 && /^[ \t]+\S/.test(line)))) return "tasklist";
   if (lines.length >= 2 && first.includes("|") && /^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*\r?$/.test(lines[1]) && (lines[1].includes("|") || first.trim().startsWith("|"))) return "table";
   if (/^\[\^[^\]\s]+\]:/.test(first)) return "footnote";
@@ -75,6 +77,40 @@ export function blockKind(source, previous = "") {
   if (previous !== "" && previous !== "indented" && previous !== "list") return lines.every((line) => /^(?: {4}|\t)/.test(line)) ? "indented" : "";
   if (previous === "" && lines.every((line) => /^(?: {4}|\t)/.test(line))) return "indented";
   return "";
+}
+
+// R11: a quotation is a block quote (every line starts with ">") whose last line ends with one
+// citation marker and nothing after it: `> the words [@key, page 514]`. Hand-written ones count.
+const QUOTE_LINE = /^ {0,3}>/;
+const ENDING_CITATION = /(?<!\\)\[@[^[\]\n]*\]$/;
+const LITERAL_REFERENCES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&#124;": "|", "&#126;": "~", "&#35;": "#", "&#45;": "-", "&#43;": "+", "&#61;": "=", "&#46;": ".", "&#41;": ")", "&#32;": " ", "&#9;": "\t" };
+
+/** A line of quoted words as she reads them: the escapes a quotation is written with taken back. For showing only. */
+export function quotedWords(line) {
+  return String(line ?? "").replace(/&(?:amp|lt|gt|#124|#126|#35|#45|#43|#61|#46|#41|#32|#9);/g, (ref) => LITERAL_REFERENCES[ref]).replace(/\\([\\*_`[\]])/g, "$1");
+}
+
+/**
+ * A quotation card's parts, or null when `source` isn't one: `{ lines, citation, at }` where
+ * `lines` are the quoted words (without "> " and without the citation), `citation` the marker as
+ * written and `at` its offset in `source`.
+ */
+export function parseQuotation(source) {
+  const text = String(source ?? "").replace(/\n+$/, "");
+  const lines = text.split("\n");
+  if (!lines.length || !lines.every((line) => QUOTE_LINE.test(line))) return null;
+  if (/^ {0,3}>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i.test(lines[0])) return null;
+  const last = lines[lines.length - 1].replace(/\r$/, "");
+  const marker = ENDING_CITATION.exec(last);
+  if (!marker) return null;
+  const before = last.slice(0, marker.index);
+  // One citation: not two side by side, and words before it.
+  if (/\]\s*$/.test(before) && ENDING_CITATION.test(before.replace(/\s+$/, ""))) return null;
+  const strip = (line) => line.replace(/\r$/, "").replace(/^ {0,3}> ?/, "");
+  const words = [...lines.slice(0, -1).map(strip), strip(before).replace(/\s+$/, "")];
+  if (!words.some((line) => line.trim())) return null;
+  const at = text.length - lines[lines.length - 1].length + marker.index;
+  return { lines: words, citation: marker[0], at };
 }
 
 /**

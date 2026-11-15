@@ -24,7 +24,8 @@ export function cardBody(summary) {
       h("tr", {}, row.map((cell) => h(index === 0 ? "th" : "td", { text: cell })))))));
   }
   const lines = summary.table ? summary.lines.slice(-1) : summary.lines;
-  if (lines.length) parts.push(h("div", { class: summary.mono ? "studio-piece-lines studio-mono" : "studio-piece-lines" }, lines.filter((line) => line !== "").map((line) => h("p", { text: line }))));
+  // R11: a quotation's words keep their own direction and language.
+  if (lines.length) parts.push(h("div", { class: summary.mono ? "studio-piece-lines studio-mono" : "studio-piece-lines", dir: summary.dir || null, lang: summary.lang || null }, lines.filter((line) => line !== "").map((line) => h("p", { text: line }))));
   if (summary.more) parts.push(h("p", { class: "studio-help", text: summary.more }));
   return parts;
 }

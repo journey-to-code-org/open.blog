@@ -9,6 +9,7 @@ import {
   acknowledgementRequest, gateWords, groupWords, markProblem, markWords, publicationReviewCountsText, publicationReviewPlace, reviewCountsWords,
   reviewGroups, reviewPlaceWords, reviewTarget,
 } from "./review-rules.js";
+import { openItHash } from "./research-rules.js";
 
 let made = 0;
 
@@ -56,6 +57,9 @@ export function createResearchReview({ api, context, show, reload, tell }) {
     const error = h("p", { class: "studio-field-error", role: "alert", hidden: true });
     const buttons = [];
     if (target) buttons.push(h("action-button", { variant: "secondary", size: "sm", label: say("review.showMeLabel", { what: place }), onClick: () => show(target) }, say("review.showMe")));
+    // R11: a finding in her research opens it there.
+    const openIt = openItHash(finding.scope);
+    if (openIt) buttons.push(h("action-button", { variant: "secondary", size: "sm", href: openIt }, say("research.openIt")));
     if (finding.gate === "advisory") {
       const mark = h("action-button", { variant: "secondary", size: "sm", label: say("review.markLabel", { what: String(finding.message || finding.code || "") }), disabled: !revision,
         onClick: () => toggle(finding, mark, state, error) }, say("review.mark"));

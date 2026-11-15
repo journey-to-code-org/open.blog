@@ -183,13 +183,17 @@ test("her-layer defaults never use a banned word", () => {
     assert.equal(bannedExcept(entry.text, entry.allows), "", id);
     assert.equal(bannedExcept(say(id), entry.allows), "", `${id} filled in`);
   }
-  // The one exception (R9, decided): "a piece" of her own writing, on Your writing voice and
-  // Getting started only. No other id may allow anything.
+  // The exceptions (decided): "a piece" of her own writing, on Your writing voice and Getting
+  // started only (R9); and research's scholarly names (R11 decision 2): "CSL JSON" as the kind of
+  // file she picks, and "canonical place" as a kind of place in a source. No other id may allow anything.
+  const ALLOWED = { piece: /^(voice|home|helper|start)\./, json: /^(sources|cite)\./, canonical: /^(place|cite)\./ };
   for (const [id, entry] of Object.entries(catalog())) {
     if (!entry.allows) continue;
-    assert.deepEqual(entry.allows, ["piece"], id);
-    assert.match(id, /^(voice|home|helper|start)\./, `${id} may not allow a banned word`);
-    assert.match(entry.text, /\bpiece\b/i, `${id} allows a word it doesn't use`);
+    assert.equal(entry.allows.length, 1, id);
+    const [word] = entry.allows;
+    assert.ok(word in ALLOWED, `${id} may not allow ${word}`);
+    assert.match(id, ALLOWED[word], `${id} may not allow a banned word`);
+    assert.match(entry.text, new RegExp(`\\b${word}\\b`, "i"), `${id} allows a word it doesn't use`);
   }
   assert.equal(bannedExcept("Write a piece", ["piece"]), "");
   assert.equal(bannedExcept("Sync a piece", ["piece"]), "sync");

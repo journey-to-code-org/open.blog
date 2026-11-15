@@ -6,6 +6,10 @@ import { parseQuiz } from "./quiz-rules.js";
 import { parseCodeFence } from "./code-rules.js";
 import { imageMarkdown } from "./image-markdown.js";
 import { say } from "./words.js";
+import { parseQuotation, quotedWords } from "./word-blocks.js";
+import { citationLabel, citationReadable, parseCitationText } from "./cite-rules.js";
+import { sourceLabel } from "./source-rules.js";
+import { cachedPassages, cachedSources } from "./research-cache.js";
 
 /** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
 export const WORDS = {
@@ -123,6 +127,9 @@ export function thingName(kind, extra = "") {
     case "footnote": return say("thing.footnote");
     case "abstract": return say("thing.abstract");
     case "references": return say("thing.references");
+    // R11: a citation and a quotation from her notebook.
+    case "cite": return say("add.citation");
+    case "quotation": return say("card.quotation");
     default: return say("thing.kept");
   }
 }
@@ -132,6 +139,7 @@ export function blockThing(block) {
   const kind = { photo: "photo", "photo-web": "photo", callout: "tip", tasklist: "checklist", table: "table", "video-link": "video", "codepen-link": "codepen",
     quiz: "quiz", code: "code", runnable: "runnable", footnote: "footnote", compare: "compare" }[block.kind];
   if (kind) return thingName(kind, /\[!([A-Za-z]+)\]/.exec(block.source)?.[1]?.toUpperCase());
+  if (block.kind === "quotation") return thingName("quotation");
   if (block.kind === "piece") {
     const piece = /^\s*`{3,}piece[ \t]+([a-z]+)/.exec(block.source)?.[1];
     return thingName(piece === "image" ? "photo" : piece === "callout" ? "tip" : piece || "");
@@ -162,6 +170,8 @@ export function cardForm(block, pieces = []) {
       try { return imageMarkdown(photo.url, photo.alt) === source.trim() ? "photo" : ""; } catch { return ""; }
     }
     case "callout": return parseCallout(source) ? "tip" : "";
+    // R11: Change opens Cite for its citation only; the quoted words never change here.
+    case "quotation": return parseQuotation(source) ? "quotation" : "";
     case "tasklist": return parseTaskList(source) ? "checklist" : "";
     case "table": return parseTable(source) ? "table" : "";
     case "video-link": return parseEmbed(source) ? "video" : "";
@@ -271,6 +281,7 @@ export function cardSummary(block) {
       out.lines.push(match?.[2]?.split("\n")[0] || "");
       return out;
     }
+    case "quotation": return quotationSummary(source, out);
     case "demo": out.name = say("thing.demo"); return out;
     case "quote-form": out.name = say("thing.quoteForm"); return out;
     default:
@@ -340,4 +351,29 @@ function pieceSummary(source, out) {
       out.name = say("thing.kept");
       return out;
   }
+}
+
+/**
+ * A quotation card (R11): "Quotation", the first 3 lines of the quoted words as she reads them,
+ * and "From {label}", named "Quotation from {source}". The source's name comes from the last
+ * library loaded this visit; with none, its key. `dir` is the words' own, and `lang` the passage's
+ * when one in her notebook holds these words.
+ */
+function quotationSummary(source, out) {
+  const quote = parseQuotation(source);
+  const cited = parseCitationText(quote?.citation);
+  const citation = citationReadable(cited) ? cited : { key: String(cited?.key || ""), locators: [] };
+  const sources = cachedSources();
+  const record = sources.find((item) => item.id === citation.key);
+  const lines = (quote?.lines || []).filter((line) => line.trim()).map(quotedWords);
+  const first = lines[0] || "";
+  const passage = cachedPassages().find((item) => first && String(item.excerpt?.text || item.preview || "").replace(/\s+/g, " ").trim().startsWith(first.replace(/\s+/g, " ").trim().slice(0, 40)));
+  out.badge = say("card.quotation");
+  out.lines = lines.slice(0, 3);
+  out.more = say("card.quotationFrom", { label: citationLabel(citation, sources) });
+  out.name = say("card.quotationName", { source: record ? sourceLabel(record) : citation.key });
+  out.tone = "quotation";
+  out.dir = "auto";
+  out.lang = passage?.excerpt?.language || "";
+  return out;
 }

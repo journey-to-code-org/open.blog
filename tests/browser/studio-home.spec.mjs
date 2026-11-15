@@ -111,8 +111,9 @@ test("an old Admin address opens its Studio screen, and one not in Studio yet sa
   await signIn(page);
   await page.goto(`${origin}/admin/studio/#/greetings`);
   await expect(page).toHaveURL(/#\/cards$/);
-  await page.goto(`${origin}/admin/studio/#/research`);
-  await expect(page).toHaveURL(/#\/not-yet\/research$/);
-  await expect(page.getByRole("heading", { name: "Research isn't in Studio yet" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Research in the old Admin" })).toHaveAttribute("href", "/admin/#/research");
+  // Research is Studio's own since R11, so a screen still waiting stands in for it.
+  await page.goto(`${origin}/admin/studio/#/shared`);
+  await expect(page).toHaveURL(/#\/not-yet\/shared$/);
+  await expect(page.getByRole("heading", { name: "Writing together isn't in Studio yet" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Writing together in the old Admin" })).toHaveAttribute("href", "/admin/#/shared");
 });

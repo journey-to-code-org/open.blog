@@ -11,7 +11,7 @@ import { jobEditor } from "./job-body.js";
 import { createWordBox } from "./word-box.js";
 
 /** `onChange()` after every edit; `pieces` is Add something's host (add-menu.js) for every box. */
-export async function createBodyHost({ onChange, pieces }) {
+export async function createBodyHost({ onChange, pieces, moreHelp = "" }) {
   await use("text-field", "action-button", "alert-banner", "dropdown-menu", "status-badge", "toggle-switch");
   let recipe = null; // the recipe boxes, when the body fits them
   let plainWhy = ""; // why a recipe is open in one box
@@ -19,7 +19,7 @@ export async function createBodyHost({ onChange, pieces }) {
   let job = null; // { scaffold, extra(url), help, removed(url) } for a job post
   const current = () => (recipe ? recipe.body() : parts ? parts.body() : words.value);
   const host = { ...pieces, changed: (box) => { pieces.changed?.(box); onChange?.(); } };
-  const words = createWordBox({ label: "Words", name: "Words", place: say("add.yourWords"), rows: 18, description: say("add.wordsHelp"), host, data: { "data-box": "words" } });
+  const words = createWordBox({ label: "Words", name: "Words", place: say("add.yourWords"), rows: 18, description: [say("add.wordsHelp"), moreHelp].filter(Boolean).join(" "), host, data: { "data-box": "words" } });
   const element = h("div", { class: "studio-body" });
 
   /** Show `text`, in the recipe boxes when `boxes` and it fits them, else in one box. */

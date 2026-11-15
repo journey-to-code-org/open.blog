@@ -37,10 +37,23 @@ import { createVoiceWriteScreen } from "./voice-write.js";
 import { createVoicePieceScreen } from "./voice-piece.js";
 import { createVoiceGuideScreen } from "./voice-guide.js";
 import { createDesign } from "./design.js";
+import { createResearchHome } from "./research.js";
+import { createSources } from "./sources.js";
+import { createNotebook } from "./notebook.js";
+import { researchUsed } from "../parts/research-rules.js";
+import { say } from "../parts/words.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
   { name: "posts", nav: "Posts", area: "posts", create: (context) => createPosts(context) },
+  // R11: Research. Its address always opens (the developer's door is Find › Start research); the
+  // navigation shows it only on a site that uses research (G92). #/research is home,
+  // #/research/sources[/<key>] the library, #/research/notebook[/<id>] the notebook.
+  { name: "research", get nav() { return say("research.nav"); }, area: "research", navWhen: researchUsed,
+    create: (context, route) => (/^(atlas|compare|public)(\/|$)/.test(route.arg) ? createNotYet(context, { ...route, arg: "research" })
+      : /^sources(\/|$)/.test(route.arg) ? createSources(context, route)
+      : /^notebook(\/|$)/.test(route.arg) ? createNotebook(context, route)
+        : createResearchHome(context, route)) },
   // R4: a job from the site. Always present (an old Capture link, or something waiting on a phone,
   // never lands on a blank Home); in the navigation on a trade site.
   { name: "new-job", nav: "New job", area: "jobs", navWhen: tradeSite, create: (context, route) => createNewJob(context, route) },

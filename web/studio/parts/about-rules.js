@@ -22,6 +22,9 @@ export const ABOUT_NAMES = Object.freeze({
   canonical: ["canonical", "canonicalUrl"],
   theme: ["theme"],
   coverCredit: ["coverCredit"],
+  // R11: Sources in this post (how sources show, the language of the notes).
+  citations: ["citations"],
+  citationLocale: ["citationLocale", "citation_locale"],
 });
 
 export const ABOUT_KEYS = Object.freeze(Object.keys(ABOUT_NAMES));

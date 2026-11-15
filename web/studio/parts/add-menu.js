@@ -187,6 +187,11 @@ export async function createAddMenu(ctx) {
 
   function showForm(kind, { block = null, link = null, heading = null, quote = null, file = null } = {}) {
     if (kind === "abstract" || kind === "references") { research(kind); return; }
+    // R11: a citation and a quotation are research's own forms, in this same sheet.
+    if ((kind === "cite" || kind === "quotation") && ctx.research) {
+      ctx.research.form(kind, { box: target?.box, caret: target?.caret, opener: target?.opener, block, sheet, back: () => showList(), afterClose: () => afterClose(), where: () => where() });
+      return;
+    }
     const box = target?.box;
     const live = h("div", { class: "studio-add-sketch", "aria-hidden": "true" });
     const writes = h("pre", { class: "studio-mono studio-add-writes" });
@@ -523,6 +528,8 @@ export async function createAddMenu(ctx) {
     card,
     paste,
     extra: (box, block) => ctx.extra?.(box, block) || null,
+    // R11: what goes directly under one box of her words (Cited here), on a research site only.
+    ...(ctx.research ? { under: (box, segment) => ctx.research.under(box, segment) } : {}),
   };
 
   return {
