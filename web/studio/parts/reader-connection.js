@@ -83,6 +83,8 @@ export function createConnection({ api, onSaved, onConflict, onFail }) {
     } catch (error) {
       if (error.status === 401) throw error;
       if (error.status === 409) { await onConflict?.(); return; }
+      // G62: the server takes a key only over https (or from this computer, when it isn't deployed).
+      if (error?.data?.code === "insecure") { problem.textContent = say("readers.connInsecure"); problem.hidden = false; return; }
       onFail?.(error);
     } finally {
       busy = false;

@@ -7440,6 +7440,12 @@
       "max": 76,
       "vars": []
     },
+    "readers.connInsecure": {
+      "text": "The server refused the key because the request didn't reach it over https. It wasn't saved. List the proxy in admin.trustedProxies (it must send X-Forwarded-Proto: https), or set the key in the server's environment.",
+      "layer": "details",
+      "max": 260,
+      "vars": []
+    },
     "readers.connKeyEnv": {
       "text": "Set by {name}; the environment key takes precedence.",
       "layer": "details",

@@ -1217,3 +1217,262 @@ fn a_review_of_a_trip_with_a_hidden_place_sends_nothing_about_the_place() {
         assert!(!sent.contains(place), "{place} reached the provider");
     }
 }
+
+/// S3: "from this same computer with nothing in between" is taken as private only while nothing
+/// says the server is deployed. A proxy on the same computer that isn't listed, and that strips
+/// the forwarded headers and rewrites `Host`, looks exactly like a person at the keyboard; so once
+/// the server knows it is deployed, that look is not enough.
+#[test]
+fn a_request_from_this_computer_is_not_private_once_the_server_knows_it_is_deployed() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("ANTHROPIC_API_KEY");
+    std::env::remove_var("ANTHROPIC_API_KEY");
+    let mut f = fixture("s3-deployed");
+    let config_path = f.dir.join("openblog.json");
+    let original = fs::read_to_string(&config_path).unwrap();
+    let key_file = f.dir.join(ASSISTANT_CREDENTIAL_FILE);
+    let replace = |f: &Fixture, session: &(String, String)| {
+        let body = json!({ "provider": "anthropic", "model": "claude-test", "etag": settings(f, session)["etag"], "credentialAction": "replace", "credential": KEY });
+        put_settings(
+            f,
+            session,
+            local_json_req("PUT", "/admin/api/assistant/settings", body),
+        )
+    };
+    let refused = |f: &Fixture, session: &(String, String), why: &str| {
+        let response = replace(f, session);
+        let text = String::from_utf8_lossy(&response.body).into_owned();
+        assert_eq!(response.status, 422, "{why}: {text}");
+        assert_eq!(body_json(&response)["code"], "insecure", "{why}");
+        assert!(!text.contains(KEY), "{why}");
+        assert!(!key_file.exists(), "{why}: nothing was written");
+    };
+
+    // What the site's own settings say.
+    let session = login_ok(&f);
+    for (why, change) in [
+        (
+            "a proxy is listed, and this request didn't come through it",
+            json!({ "trustedProxies": ["10.9.9.9"] }),
+        ),
+        (
+            "the Admin is said to be served over https",
+            json!({ "secureCookies": true }),
+        ),
+    ] {
+        let mut config: Json = serde_json::from_str(&original).unwrap();
+        for (key, value) in change.as_object().unwrap() {
+            config["admin"][key] = value.clone();
+        }
+        fs::write(&config_path, config.to_string()).unwrap();
+        refused(&f, &session, why);
+    }
+    fs::write(&config_path, &original).unwrap();
+
+    // What the server knows about where it runs.
+    type Signal = (&'static str, fn(&mut AppState));
+    let signals: [Signal; 3] = [
+        ("it listens beyond this computer", |state| {
+            state.listens_beyond_this_computer = true
+        }),
+        ("a host's own variable is set", |state| {
+            state.hosted_env = true
+        }),
+        (
+            "the host chose the port and the site has a public address",
+            |state| state.port_env = true,
+        ),
+    ];
+    for (why, set) in signals {
+        let mut state = AppState::new(f.dir.clone(), None, false, true);
+        set(&mut state);
+        f.state = Arc::new(state);
+        f.state.rebuild().unwrap();
+        let session = login_ok(&f);
+        if why.starts_with("the host chose the port") {
+            // With no public address the port alone says nothing (a developer's own PORT).
+            let mut config: Json = serde_json::from_str(&original).unwrap();
+            config["url"] = json!("http://localhost:8080");
+            fs::write(&config_path, config.to_string()).unwrap();
+            assert_eq!(
+                replace(&f, &session).status,
+                200,
+                "a port and a local address"
+            );
+            fs::remove_file(&key_file).unwrap();
+            config["url"] = json!("https://blog.example");
+            fs::write(&config_path, config.to_string()).unwrap();
+        }
+        refused(&f, &session, why);
+        // Deployed, the way in is the listed proxy saying https.
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["admin"]["trustedProxies"] = json!(["127.0.0.1"]);
+        fs::write(&config_path, config.to_string()).unwrap();
+        refused(&f, &session, "the listed proxy didn't say https");
+        let body = json!({ "provider": "anthropic", "model": "claude-test", "etag": settings(&f, &session)["etag"], "credentialAction": "replace", "credential": KEY });
+        let mut through = local_json_req("PUT", "/admin/api/assistant/settings", body);
+        through
+            .headers
+            .insert("x-forwarded-proto".into(), "https".into());
+        assert_eq!(put_settings(&f, &session, through).status, 200, "{why}");
+        fs::remove_file(&key_file).unwrap();
+        fs::write(&config_path, &original).unwrap();
+    }
+
+    // Nothing says deployed: a person at this computer may set the key, as before.
+    f.state = Arc::new(AppState::new(f.dir.clone(), None, false, true));
+    f.state.rebuild().unwrap();
+    let session = login_ok(&f);
+    assert_eq!(replace(&f, &session).status, 200);
+    assert!(key_file.exists());
+}
+
+/// S3 (N8): the same rule on every route that accepts a secret. The readers' service token and a
+/// social account's app password are refused over plain http, before anything is read or written.
+#[test]
+fn every_route_that_accepts_a_secret_refuses_it_over_plain_http() {
+    let f = fixture("s3-secrets");
+    let session = login_ok(&f);
+    let config_path = f.dir.join(site::CONFIG_FILE);
+    let before = fs::read_to_string(&config_path).unwrap();
+    let etag = body_json(&handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/engagement/settings"),
+            &session,
+            false,
+        ),
+    ))["etag"]
+        .clone();
+    let engagement = |action: &str| {
+        let mut body = json!({ "enabled": true, "comments": true, "analytics": true, "endpoint": "https://blog.example/api", "etag": etag, "credentialAction": action });
+        if action == "replace" {
+            body["credential"] = json!("SECRET-MARK-5512");
+        }
+        body
+    };
+    let insecure = |request: Request, why: &str| {
+        let response = handle(&f.state, &authed(request, &session, true));
+        let text = String::from_utf8_lossy(&response.body).into_owned();
+        assert_eq!(response.status, 422, "{why}: {text}");
+        assert_eq!(body_json(&response)["code"], "insecure", "{why}");
+        assert!(!text.contains("SECRET-MARK-5512"), "{why}");
+    };
+    insecure(
+        json_req(
+            "PUT",
+            "/admin/api/engagement/settings",
+            engagement("replace"),
+        ),
+        "the readers' service token from another computer",
+    );
+    let mut spoofed = json_req(
+        "PUT",
+        "/admin/api/engagement/settings",
+        engagement("replace"),
+    );
+    spoofed
+        .headers
+        .insert("x-forwarded-proto".into(), "https".into());
+    insecure(spoofed, "an untrusted peer claiming https");
+    assert_eq!(
+        fs::read_to_string(&config_path).unwrap(),
+        before,
+        "nothing was written"
+    );
+    for path in [
+        "/admin/api/social/connections",
+        "/admin/api/social/accounts/11111111-1111-4111-8111-111111111111/reconnect",
+    ] {
+        insecure(
+            json_req(
+                "POST",
+                path,
+                json!({ "provider": "bluesky", "identifier": "me.example", "appPassword": "SECRET-MARK-5512" }),
+            ),
+            path,
+        );
+        // With no password in it there is no secret to refuse.
+        let plain = handle(
+            &f.state,
+            &authed(
+                json_req("POST", path, json!({ "provider": "linkedin" })),
+                &session,
+                true,
+            ),
+        );
+        assert_ne!(body_json(&plain)["code"], "insecure", "{path}");
+    }
+    // Saving without a token, and a token from this computer, go through.
+    let kept = handle(
+        &f.state,
+        &authed(
+            json_req("PUT", "/admin/api/engagement/settings", engagement("keep")),
+            &session,
+            true,
+        ),
+    );
+    assert_ne!(body_json(&kept)["code"], "insecure");
+    let etag = body_json(&handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/engagement/settings"),
+            &session,
+            false,
+        ),
+    ))["etag"]
+        .clone();
+    let mut body = engagement("replace");
+    body["etag"] = etag;
+    let local = handle(
+        &f.state,
+        &authed(
+            local_json_req("PUT", "/admin/api/engagement/settings", body),
+            &session,
+            true,
+        ),
+    );
+    assert_eq!(
+        local.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&local.body)
+    );
+}
+
+/// S3: which of a host's own variables say the server runs on its platform.
+#[test]
+fn a_hosts_own_variable_says_the_server_is_deployed() {
+    let with = |name: &'static str, value: &'static str| {
+        hosted_env_given(move |asked| (asked == name).then(|| value.to_string()))
+    };
+    assert!(!hosted_env_given(|_| None));
+    for name in [
+        "RAILWAY_ENVIRONMENT",
+        "RAILWAY_PROJECT_ID",
+        "RAILWAY_SERVICE_ID",
+        "RAILWAY_STATIC_URL",
+        "RAILWAY_PUBLIC_DOMAIN",
+        "FLY_APP_NAME",
+        "DYNO",
+        "K_SERVICE",
+    ] {
+        assert!(with(name, "x"), "{name}");
+        assert!(!with(name, "  "), "{name} set to nothing");
+    }
+    assert!(with("RENDER", "true"));
+    assert!(!with("RENDER", "false"));
+    assert!(!with("HOME", "/root"));
+    for (host, own) in [
+        ("localhost", true),
+        ("127.0.0.1", true),
+        ("[::1]", true),
+        ("LOCALHOST", true),
+        ("blog.example", false),
+        ("0.0.0.0", false),
+        ("10.0.0.4", false),
+    ] {
+        assert_eq!(names_this_computer(host), own, "{host}");
+    }
+}

@@ -204,10 +204,34 @@ the person who set up your site** are:
 
 **A key is never sent or accepted over plain http.** On a page reached over `http://` from anywhere
 but this computer, the key field is disabled and says why. The server refuses a key (`422`,
-`insecure`) unless the request reached it from the same computer with nothing in between, or
-through a proxy listed in `admin.trustedProxies` that sends `X-Forwarded-Proto: https`. A local
-reverse proxy that is not listed cannot vouch for how the browser connected, so list it (or set the
-key in the server's environment, which needs no page at all). Every change to the key is logged
+`insecure`) unless the request reached it:
+
+- through a proxy listed in `admin.trustedProxies` that sends `X-Forwarded-Proto: https`; or
+- from the same computer with nothing in between (a loopback address, no forwarded headers, a
+  `localhost` `Host`), **and only while nothing says the server is deployed**.
+
+The server takes itself to be deployed when any of these holds, and then a request from the same
+computer is not private by itself: a local reverse proxy that is not listed, drops the forwarded
+headers and rewrites `Host` looks exactly like a person at the keyboard.
+
+| What the server knows | Where it comes from |
+| --- | --- |
+| A proxy is listed | `admin.trustedProxies` is not empty |
+| The Admin is served over https | `admin.secureCookies` is `true` |
+| It listens beyond this computer | `serve --host` is not `127.0.0.1`, `localhost` or `::1` (the container starts it with `0.0.0.0`) |
+| A host runs it | `RENDER=true`, any of `RAILWAY_ENVIRONMENT`, `RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_STATIC_URL`, `RAILWAY_PUBLIC_DOMAIN`, or `FLY_APP_NAME`, `DYNO`, `K_SERVICE` |
+| The host chose the port and the site is public | `PORT` is set and `url` in `openblog.json` is not a `localhost` address |
+
+The site's `url` alone does not count: a site with a public address is also edited on its owner's
+own computer. On a deployed server, list the proxy (or set the key in the server's environment,
+which needs no page at all).
+
+The same rule covers every route that accepts a secret: the helper's key
+(`PUT assistant/settings`), the readers' service token (`PUT engagement/settings`) and a social
+account's app password (`POST social/connections`, `POST social/accounts/<id>/reconnect`).
+Signing in is the one exception: a password has to reach the server to start a session, so use
+https (`admin.secureCookies`) wherever the Admin is reachable from another computer.
+Every change to the key is logged
 with who made it and for which company, never the key, its length or any part of it.
 
 When a helper call fails, the page says what happened in one sentence and leaves the post as it
