@@ -155,11 +155,13 @@ test.beforeEach(async ({ page, context }) => {
   // Headless Chrome has no push service: the sign-up is stood in for, kept in localStorage like a real one is kept by the browser.
   // A phone whose answer was reset (localStorage "test:permission" = "default") is asked again; and
   // "test:standalone" stands in for the app opened from its icon.
+  // Chrome's headless shell reports Notification.permission as "denied" even after
+  // grantPermissions (navigator.permissions.query and requestPermission both say "granted"), so
+  // without an override the getter answers with what the context granted above.
   await context.addInitScript(() => {
     if (globalThis.Notification) {
-      const real = Object.getOwnPropertyDescriptor(Notification, "permission").get;
       const ask = Notification.requestPermission.bind(Notification);
-      Object.defineProperty(Notification, "permission", { configurable: true, get: () => localStorage.getItem("test:permission") || real.call(Notification) });
+      Object.defineProperty(Notification, "permission", { configurable: true, get: () => localStorage.getItem("test:permission") || "granted" });
       Notification.requestPermission = async () => (localStorage.getItem("test:permission") ? (localStorage.removeItem("test:permission"), "granted") : ask());
     }
     if (localStorage.getItem("test:standalone")) {
