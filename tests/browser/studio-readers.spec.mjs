@@ -200,6 +200,50 @@ test("a report is kept quietly; another kind of note links to the full inbox; a 
   expect(decisions.at(-1)).toMatchObject({ id: ID(6), version: 7 });
 });
 
+test("a right-to-left mark in a stranger's name stays inside that name: Studio's own words keep their order", async ({ page }) => {
+  const RLO = "‮";
+  const reported = item(11, {
+    source: "report", kind: "abuse-report", kindLabel: "Report", reader: { name: `${RLO}Eve`, publishName: false }, body: "Rude.",
+    report: { ground: "abusive", groundLabel: `${RLO}Abusive` },
+    target: { source: "comment", id: ID(19), kind: "comment", kindLabel: "Comment", status: "pending", statusLabel: `${RLO}Pending`, authorName: `${RLO}Bob "Pie"`, body: "Hm." },
+    actions: [{ action: "reject", label: "Dismiss", reasons: [{ id: "no-action", label: "No action" }] }],
+  });
+  const reflection = item(12, {
+    source: "feedback", kind: "third-perspective", kindLabel: "Reflection", reader: { name: `${RLO}Ann`, publishName: true },
+    publicPreview: { name: `${RLO}Ann`, quote: `${RLO}a quote` }, perspectivePreview: { heading: `${RLO}A heading` },
+  });
+  await mockInbox(page, [reported, reflection]);
+  await signIn(page);
+  const card = page.locator(".studio-comment", { hasText: "Hm." });
+  await expect(card).toBeVisible();
+  // Every sentence of Studio's that holds someone's words: the words sit in their own isolated node,
+  // and the text around them is Studio's in order (no right-to-left mark outside an isolate).
+  const sentences = await page.locator(".studio-reader").evaluateAll((cards) => cards.flatMap((c) => [...c.querySelectorAll("h3, p")]
+    .filter((p) => p.textContent.includes("‮"))
+    .map((p) => ({
+      text: p.textContent,
+      outside: [...p.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(""),
+      isolated: [...p.querySelectorAll("bdi")].every((b) => b.dir === "auto" || getComputedStyle(b).unicodeBidi === "isolate"),
+      ownDir: p.getAttribute("dir"),
+    }))));
+  const want = ["A report about a comment, from", "Written by", "Why:", "Right now it's", "On the post it shows quoting", "If you show it, it's titled", "They agree to show the name"];
+  for (const start of want) expect(sentences.some((s) => s.text.startsWith(start)), start).toBe(true);
+  for (const s of sentences.filter((x) => want.some((w) => x.text.startsWith(w)))) {
+    expect(s.outside, s.text).not.toContain("‮");
+    expect(s.isolated, s.text).toBe(true);
+    expect(s.ownDir, `${s.text}: Studio's sentence keeps the page's direction`).toBeNull();
+  }
+  // What the eye sees: "Written by" reads left to right before the name.
+  const box = card.locator("p", { hasText: "Written by" });
+  const [by, name] = await box.evaluate((p) => {
+    const range = document.createRange();
+    const text = p.firstChild;
+    range.setStart(text, 0); range.setEnd(text, 7);
+    return [range.getBoundingClientRect().left, p.querySelector("bdi").getBoundingClientRect().left];
+  });
+  expect(by).toBeLessThan(name);
+});
+
 test("Home says what's waiting, and the switch rewrites only engagement", async ({ page }) => {
   await mockInbox(page, [item(7), item(8)]);
   await signIn(page, "#/");

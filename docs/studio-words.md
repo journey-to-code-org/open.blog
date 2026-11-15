@@ -2309,7 +2309,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `public.whyWithdrawn` | her | You stopped showing it. | none | 46 |
 | `public.whyWordsMoved` | her | The words it's about have changed. | none | 68 |
 | `quotation.changeHelp` | her | The quoted words stay exactly as you kept them. Change them in your notebook. | none | 154 |
+| `quote.backUnderNew` | her | {name} is back under New. | `{name}` | 50 |
+| `quote.eraseAsk` | her | Erase {name}'s request? | `{name}` | 46 |
+| `quote.handled` | her | {name}: handled. | `{name}` | 40 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
+| `quote.undone` | her | Undone. {name}'s request is back. | `{name}` | 66 |
 | `read.agree` | her | Agree to publish this | none | 42 |
 | `read.agreeAsk` | her | Agree to publish exactly what you just read? | none | 88 |
 | `read.agreeAskText` | her | If anyone changes their words, you'll be asked again. | none | 106 |
@@ -3273,11 +3277,21 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.wholeHelp` | her | Each person agrees to everyone's parts, so any change asks everyone again. | none | 148 |
 | `rules.whoseAgreement` | her | Whose agreement counts | none | 44 |
 | `share.tellOrSkip` | her | Tell {helper}, or choose Don't share it. | `{helper}` | 80 |
+| `social.already` | her | {name} is already connected. Use Reconnect on it if it stopped working. | `{name}` | 142 |
 | `social.canTurnOn` | her | {helper} can turn it on. Your site works the same without it. | `{helper}` | 122 |
+| `social.connected` | her | Connected. {product} can post to {name} on {service} now. | `{product}` `{name}` `{service}` | 114 |
+| `social.connectedFacebook` | her | Connected. {product} can post to {name} on {service} now. To add another Facebook Page, connect Facebook again. | `{product}` `{name}` `{service}` | 240 |
+| `social.connectedIt` | her | Connected. {product} can post to it on {service} now. | `{product}` `{service}` | 106 |
+| `social.disconnectAsk` | her | Disconnect {name}? | `{name}` | 40 |
+| `social.disconnected` | her | Disconnected {name}. | `{name}` | 40 |
 | `social.facebookNoPage` | her | Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask {helper} to add you to its Facebook app. | `{helper}` | 240 |
+| `social.gone` | her | {name} isn't connected any more. Connect it again. | `{name}` | 100 |
 | `social.noPlaces` | her | {helper} needs to add Facebook or another place first. | `{helper}` | 108 |
 | `social.orgsTruncated` | her | LinkedIn sent only some of your company pages. If yours isn't here, tell {helper}. | `{helper}` | 164 |
 | `social.pagesTruncated` | her | Facebook sent only some of your Pages. If yours isn't here, tell {helper}. | `{helper}` | 148 |
+| `social.reconnectTitle` | her | Reconnect {name} | `{name}` | 40 |
+| `social.reconnected` | her | Reconnected. {name} works again. | `{name}` | 64 |
+| `social.reconnectedIt` | her | Reconnected. It works again. | none | 56 |
 | `social.signInAgain` | her | {service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}. | `{service}` `{helper}` | 240 |
 | `sources.add` | her | Add a source | none | 40 |
 | `sources.addId` | her | Add an identifier | none | 40 |

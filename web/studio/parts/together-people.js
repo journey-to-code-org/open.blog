@@ -6,7 +6,8 @@
 // owner account's (the server holds the line, G110/G112).
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
-import { say } from "./words.js";
+import { say, sayParts, isolating, partsText } from "./words.js";
+import { partsNodes } from "./stranger.js";
 import { ask } from "./dialogs.js";
 import { createSheet } from "./sheet.js";
 import { createDidLine } from "./did-line.js";
@@ -75,7 +76,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
   function drawMembers() {
     membersHost.replaceChildren(...(members.members || []).map((member) => {
       const name = member.isYou ? say("together.you") : member.displayName;
-      const warnings = memberWarnings(member);
+      const warnings = memberWarnings(member, isolating);
       const choices = ROLE_CHOICES.filter((c) => !c.ownerOnly || (summary.roles || []).includes("siteOwner"));
       const items = member.canChangeRoles && !member.isYou ? [
         ...choices.filter((c) => !roleChoice(member.roles)?.value || c.value !== roleChoice(member.roles).value).map((c) => ({ value: `role:${c.value}`, label: c.words() })),
@@ -85,7 +86,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
         h("span", { slot: "label" }, say("together.doChange"), h("span", { class: "studio-visually-hidden", text: ` ${say("people.changeLabel", { name: member.displayName })}` }))) : null;
       return h("li", { class: "studio-together-person studio-row" },
         h("bdi", { class: "studio-stranger", text: name }), h("span", { class: "studio-help", text: roleWords(member.roles) }), menu,
-        ...warnings.map((w) => h("p", { class: "studio-help", text: w })));
+        ...warnings.map((w) => h("p", { class: "studio-help" }, ...partsNodes(w))));
     }));
   }
 
@@ -97,9 +98,9 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
   }
 
   async function changeRoles(member, roles, undoing = false) {
-    const impact = undoing ? [] : roleChangeImpact(member, roles);
+    const impact = undoing ? [] : roleChangeImpact(member, roles, isolating);
     if (impact.length) {
-      const choice = await ask({ heading: say("people.changeAsk", { name: member.displayName }), text: impact,
+      const choice = await ask({ heading: sayParts("people.changeAsk", { name: member.displayName }, ["name"]), text: impact,
         choices: [{ label: say("people.changeGo"), value: "go" }, { label: say("people.changeKeep"), value: "keep", variant: "secondary" }] });
       if (choice !== "go") return;
     }
@@ -107,7 +108,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
     try {
       const reply = await api.post("collaboration/members/roles", { publicationId: id, participantId: member.participantId, expectedRevision: members.revision, roles });
       members.revision = reply?.revision ?? members.revision;
-      did.tell(say("people.changed", { name: member.displayName, what: roleWords(roles) }),
+      did.tell(sayParts("people.changed", { name: member.displayName, what: roleWords(roles) }, ["name"]),
         undoing ? {} : { undo: () => changeRoles({ ...member, roles }, previous, true), undoLabel: say("part.undo") });
       await load();
       onChange?.();
@@ -120,13 +121,14 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
 
   async function stop(member) {
     const title = summary.title || summary.guidingQuestion || say("together.untitled");
-    const choice = await ask({ heading: say("people.stopAsk", { name: member.displayName, title }), text: removalImpact(member),
+    const choice = await ask({ heading: sayParts("people.stopAsk", { name: member.displayName, title }, ["name", "title"]), text: removalImpact(member),
       choices: [{ label: say("people.stopKeep"), value: "keep" }, { label: say("people.stopGo"), value: "go", variant: "secondary" }] });
     if (choice !== "go") return;
     try {
       await api.post("collaboration/members/remove", { publicationId: id, participantId: member.participantId, expectedRevision: members.revision });
-      toast(say("people.stopped", { name: member.displayName }));
-      did.tell(say("people.stopped", { name: member.displayName }));
+      const stopped = sayParts("people.stopped", { name: member.displayName }, ["name"]);
+      toast(partsText(stopped));
+      did.tell(stopped);
       await load();
       onChange?.();
     } catch (error) {
@@ -142,7 +144,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
       const name = nameOf(invitation.contributorId) || invitation.adminUser;
       return h("li", { class: "studio-together-person" },
         h("p", {}, h("bdi", { class: "studio-stranger", text: `${name} · ${roleWords(invitation.roles)}` })),
-        h("p", { class: "studio-help", text: invitationStatusText(invitation, name) }),
+        h("p", { class: "studio-help" }, ...partsNodes(invitationStatusText(invitation, name, {}, isolating))),
         h("div", { class: "studio-row" },
           invitation.state === "pending" ? h("action-button", { variant: "secondary", size: "sm", label: say("people.withdrawLabel", { name }), onClick: () => withdraw(invitation, name) }, say("people.withdraw")) : null,
           h("action-button", { variant: "secondary", size: "sm", label: say("people.newLinkLabel", { name }), onClick: () => newLink(invitation, name) }, say("people.newLink"))));
@@ -151,7 +153,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
 
   async function withdraw(invitation, name, quiet = false) {
     if (!quiet) {
-      const choice = await ask({ heading: say("people.withdrawAsk", { name }), text: say("people.withdrawText"),
+      const choice = await ask({ heading: sayParts("people.withdrawAsk", { name }, ["name"]), text: say("people.withdrawText"),
         choices: [{ label: say("people.withdrawKeep"), value: "keep" }, { label: say("people.withdraw"), value: "go", variant: "secondary" }] });
       if (choice !== "go") return;
     }
@@ -197,7 +199,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
     const share = typeof navigator.share === "function" && globalThis.matchMedia?.("(pointer: coarse)").matches
       ? h("action-button", { variant: "secondary", onClick: () => navigator.share({ url: link }).catch(() => {}) }, say("people.sendLink")) : null;
     linkHost.replaceChildren(h("div", { class: "studio-together-linkcard" },
-      h("p", { text: say("people.linkMade", { name, when }) }), field, h("div", { class: "studio-row" }, copy, share),
+      h("p", {}, ...partsNodes(sayParts("people.linkMade", { name, when }, ["name"]))), field, h("div", { class: "studio-row" }, copy, share),
       h("p", { class: "studio-help", text: say("people.onlyNow") })));
     did.tell(said, reply?.invitation ? { undo: () => withdraw(reply.invitation, name, true), undoLabel: say("part.undo") } : {});
     requestAnimationFrame(() => copy.querySelector("button")?.focus());
@@ -250,7 +252,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
         if (error.status === 401) throw error;
         const said = togetherProblem(error, "invite");
         const field = said.field === "signInName" || said.code === "name-taken" || said.field === "adminUser" ? signIn : said.field === "contributorId" ? who : null;
-        if (field) { field.error = said.code === "already-invited" ? say("people.alreadyIn", { name: nameOf(draft.contributorId) }) : said.words; field.querySelector("input, select")?.focus(); }
+        if (field) { field.error = said.code === "already-invited" ? partsText(sayParts("people.alreadyIn", { name: nameOf(draft.contributorId) }, ["name"])) : said.words; field.querySelector("input, select")?.focus(); }
         else did.tell(said.words, { variant: "problem" });
       } finally {
         make.loading = false;
@@ -273,7 +275,7 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
       let list = [];
       try { list = (await api.get("collaboration/co-writers"))?.coWriters || []; } catch (error) { if (error.status === 401) throw error; }
       host.replaceChildren(list.length ? h("ul", {}, ...list.map((one) => h("li", { class: "studio-row" },
-        h("span", { class: "studio-mono", text: one.waiting ? say("people.coWriterWaiting", { name: one.name }) : say("people.coWriterRow", { name: one.name, count: (one.reflections || []).map((r) => r.title || r.publicationId).join(", ") }) }),
+        h("span", { class: "studio-mono" }, ...partsNodes(one.waiting ? sayParts("people.coWriterWaiting", { name: one.name }, ["name"]) : sayParts("people.coWriterRow", { name: one.name, count: (one.reflections || []).map((r) => r.title || r.publicationId).join(", ") }, ["name", "count"]))),
         h("action-button", { variant: "ghost", size: "sm", onClick: () => removeCoWriter(one.name, details) }, say("people.coWriterRemove", { name: one.name })))))
         : h("p", { text: say("people.coWritersNone") }));
     });
@@ -281,12 +283,12 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
   }
 
   async function removeCoWriter(name, details) {
-    const choice = await ask({ heading: say("people.coWriterRemoveAsk", { name }), text: say("people.coWriterRemoveText"),
+    const choice = await ask({ heading: sayParts("people.coWriterRemoveAsk", { name }, ["name"]), text: say("people.coWriterRemoveText"),
       choices: [{ label: say("people.coWriterRemoveKeep"), value: "keep" }, { label: say("people.coWriterRemoveGo"), value: "go", variant: "secondary" }] });
     if (choice !== "go") return;
     try {
       await api.post("collaboration/co-writers/remove", { name });
-      did.tell(say("people.coWriterRemoved", { name }));
+      did.tell(sayParts("people.coWriterRemoved", { name }, ["name"]));
       details.open = false;
       await load();
       onChange?.();

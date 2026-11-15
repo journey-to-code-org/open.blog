@@ -2,7 +2,7 @@
 // given her words: what started it, the start form's checks and request, who does what, the
 // invitation's words, the next step for each state (`togetherStep`), each person's row, and every
 // refusal in her words (`togetherProblem`). Pure and DOM-free; words come from say().
-import { say } from "./words.js";
+import { say, theirs } from "./words.js";
 import { isAbsoluteHttpUrl } from "./people-rules.js";
 import { sayDay, sayWhen } from "./dates.js";
 
@@ -27,9 +27,12 @@ export function kindWords(kind) {
   return (SHARED_SOURCE_KINDS.find((item) => item.value === kind) || SHARED_SOURCE_KINDS[4]).words();
 }
 
+// Functions below that put someone's name or words in a sentence take `speak = say`; a screen passes
+// `isolating` (parts/words.js) to get parts with those words apart, placed with `partsNodes()`.
+
 /** "A video: How to Listen" for a stored source. */
-export function sourceWords(source) {
-  return say("together.sourceLine", { kind: kindWords(source?.kind), title: String(source?.title || "") });
+export function sourceWords(source, speak = say) {
+  return speak("together.sourceLine", { kind: kindWords(source?.kind), title: String(source?.title || "") }, ["title"]);
 }
 
 function validIsbnShape(value) {
@@ -191,8 +194,8 @@ export function invitationShareLink(origin, link) {
 }
 
 /** Problems with a member's sign-in, in her words. */
-export function memberWarnings(member) {
-  return member?.bindingCurrent === false ? [say("people.signInGone", { name: member.displayName || member.adminUser || "" })] : [];
+export function memberWarnings(member, speak = say) {
+  return member?.bindingCurrent === false ? [speak("people.signInGone", { name: member.displayName || member.adminUser || "" }, ["name"])] : [];
 }
 
 /** What stopping someone's access does, in her words. */
@@ -201,69 +204,72 @@ export function removalImpact(member) {
 }
 
 /** What a change to what someone does takes away, as sentences; empty when it only adds. */
-export function roleChangeImpact(member, nextRoles) {
+export function roleChangeImpact(member, nextRoles, speak = say) {
   const current = new Set(member?.roles || []);
   const next = new Set(nextRoles || []);
   const name = member?.displayName || "";
   const lines = [];
-  if (current.has("siteOwner") && !next.has("siteOwner")) lines.push(say("people.loseCharge", { name }));
-  if ((current.has("coordinator") || current.has("siteOwner")) && !next.has("coordinator") && !next.has("siteOwner")) lines.push(say("people.loseRun", { name }));
-  if (current.has("contributor") && !next.has("contributor")) lines.push(say("people.loseWrite", { name }));
-  if (lines.length && member?.hasContributions) lines.push(say("people.keepsWords"));
+  if (current.has("siteOwner") && !next.has("siteOwner")) lines.push(speak("people.loseCharge", { name }, ["name"]));
+  if ((current.has("coordinator") || current.has("siteOwner")) && !next.has("coordinator") && !next.has("siteOwner")) lines.push(speak("people.loseRun", { name }, ["name"]));
+  if (current.has("contributor") && !next.has("contributor")) lines.push(speak("people.loseWrite", { name }, ["name"]));
+  if (lines.length && member?.hasContributions) lines.push(speak("people.keepsWords"));
   return lines;
 }
 
 /** An invitation's state in words, so it never depends on colour. `expiresAt` is seconds. */
-export function invitationStatusText(invitation, name = "", { now = new Date(), timeZone } = {}) {
+export function invitationStatusText(invitation, name = "", { now = new Date(), timeZone } = {}, speak = say) {
   const when = invitation?.expiresAt ? sayDay(new Date(invitation.expiresAt * 1000).toISOString(), { now, timeZone }) : "";
   switch (invitation?.state) {
-    case "pending": return say("people.inviteStatePending", { name, when });
-    case "accepted": return say("people.inviteStateAccepted", { name });
-    case "declined": return say("people.inviteStateDeclined", { name });
-    case "revoked": return say("people.inviteStateRevoked");
-    default: return say("people.inviteStateExpired", { name });
+    case "pending": return speak("people.inviteStatePending", { name, when }, ["name"]);
+    case "accepted": return speak("people.inviteStateAccepted", { name }, ["name"]);
+    case "declined": return speak("people.inviteStateDeclined", { name }, ["name"]);
+    case "revoked": return speak("people.inviteStateRevoked");
+    default: return speak("people.inviteStateExpired", { name }, ["name"]);
   }
 }
 
 // ---- reading and agreeing
 
 /** One person's part on Everyone's parts: whose it is, and whether it can be read. */
-export function revealSlotText(slot) {
+export function revealSlotText(slot, speak = say) {
   const name = slot?.displayName || "";
-  if (slot?.kind === "own") return say("read.yourPart");
-  if (slot?.kind === "revealed") return name;
-  return say("read.notShared", { name });
+  if (slot?.kind === "own") return speak("read.yourPart");
+  if (slot?.kind === "revealed") return theirs(name, speak);
+  return speak("read.notShared", { name }, ["name"]);
 }
 
 /** One author's line under the preview: where their agreement stands. */
-export function previewSectionText(section) {
+export function previewSectionText(section, speak = say) {
   const name = section?.displayName || "";
-  if (!section?.shown) return say("read.linePrivate", { name });
-  if (section?.required === false) return say("read.lineNotNeeded", { name });
-  if (section?.approval === "approved") return say("read.lineAgreed", { name });
-  if (section?.approval === "stale") return say("read.lineEarlier", { name });
-  return say("read.lineWaiting", { name });
+  if (!section?.shown) return speak("read.linePrivate", { name }, ["name"]);
+  if (section?.required === false) return speak("read.lineNotNeeded", { name }, ["name"]);
+  if (section?.approval === "approved") return speak("read.lineAgreed", { name }, ["name"]);
+  if (section?.approval === "stale") return speak("read.lineEarlier", { name }, ["name"]);
+  return speak("read.lineWaiting", { name }, ["name"]);
 }
 
 /** One conversation item's line (R14b shows these); kept so the preview's items are words too. */
-export function previewItemText(item) {
-  const names = joinNames(item?.awaiting || []);
-  return names ? say("read.missing", { names }) : say("read.allAgreed");
+export function previewItemText(item, speak = say) {
+  const names = joinNames(item?.awaiting || [], speak);
+  return names.length ? speak("read.missing", { names }, ["names"]) : speak("read.allAgreed");
 }
 
 /** The one line for the whole preview. */
-export function previewStateText(preview) {
-  if (preview?.ready) return say("read.allAgreed");
+export function previewStateText(preview, speak = say) {
+  if (preview?.ready) return speak("read.allAgreed");
   if (preview?.complete) {
-    const names = joinNames((preview.sections || []).filter((s) => s.required !== false && s.approval !== "approved").map((s) => s.displayName));
-    return say("read.missing", { names });
+    const names = joinNames((preview.sections || []).filter((s) => s.required !== false && s.approval !== "approved").map((s) => s.displayName), speak);
+    return speak("read.missing", { names }, ["names"]);
   }
-  return say("read.incomplete");
+  return speak("read.incomplete");
 }
 
-/** "Ruth", "Ruth and Sam", "Ruth, Sam and Lee". */
-export function joinNames(names) {
+/** "Ruth", "Ruth and Sam", "Ruth, Sam and Lee"; from `isolating`, parts with each name apart ([] for none). */
+export function joinNames(names, speak = say) {
   const list = [...new Set((names || []).map((name) => String(name || "").trim()).filter(Boolean))];
+  if (speak?.parts) {
+    return list.flatMap((name, i) => [i === 0 ? "" : i === list.length - 1 ? ` ${say("together.and")} ` : ", ", { isolate: name }]).filter((part) => part !== "");
+  }
   if (list.length <= 1) return list[0] || "";
   return `${list.slice(0, -1).join(", ")} ${say("together.and")} ${list[list.length - 1]}`;
 }
@@ -278,26 +284,26 @@ const WHERE = {
 };
 
 /** One row per person, as text ("You · writing"), then each invitation waiting for an answer. */
-export function togetherPeopleRows(summary, { now = new Date(), timeZone } = {}) {
+export function togetherPeopleRows(summary, { now = new Date(), timeZone } = {}, speak = say) {
   const rows = (summary?.people || []).map((person) => {
     const name = person.you ? say("together.you") : String(person.displayName || "");
     const where = (WHERE[person.where] || WHERE.notReady)();
-    return { name, where, you: Boolean(person.you), text: say("together.personRow", { name, where }) };
+    return { name, where, you: Boolean(person.you), text: speak("together.personRow", { name, where }, person.you ? [] : ["name"]) };
   });
   for (const invited of summary?.invited || []) {
     const when = invited.expiresAt ? sayDay(new Date(invited.expiresAt * 1000).toISOString(), { now, timeZone }) : "";
-    rows.push({ name: String(invited.forName || ""), where: "", invited: true, text: say("together.invitedRow", { name: String(invited.forName || ""), when }) });
+    rows.push({ name: String(invited.forName || ""), where: "", invited: true, text: speak("together.invitedRow", { name: String(invited.forName || ""), when }, ["name"]) });
   }
   if (!(summary?.invited || []).length && summary?.invitationsWaiting > 0) {
-    rows.push({ name: "", where: "", invited: true, text: say("together.invitedCount", { n: summary.invitationsWaiting }) });
+    rows.push({ name: "", where: "", invited: true, text: speak("together.invitedCount", { n: summary.invitationsWaiting }) });
   }
   return rows;
 }
 
 /** "You, Ruth and Sam" for a card. */
-export function peopleWords(summary) {
+export function peopleWords(summary, speak = say) {
   const names = (summary?.people || []).filter((p) => p.where !== "left").map((p) => (p.you ? say("together.you") : p.displayName));
-  return say("together.peopleList", { names: joinNames(names) });
+  return speak("together.peopleList", { names: joinNames(names, speak) }, ["names"]);
 }
 
 const others = (summary, where) => (summary?.people || []).filter((p) => !p.you && where.includes(p.where)).map((p) => p.displayName);

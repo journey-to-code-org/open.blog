@@ -5,7 +5,8 @@
 // Publishing and putting away live in parts/together-publish.js. Everything anyone typed is text.
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { say } from "../parts/words.js";
+import { say, isolating } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 import { ask } from "../parts/dialogs.js";
 import { createDidLine } from "../parts/did-line.js";
 import { guardedLeave } from "../parts/sheet.js";
@@ -95,13 +96,13 @@ export async function createTogetherOne(context, id, route = {}) {
     question.hidden = !(summary.title && summary.guidingQuestion);
     const first = (summary.sources || [])[0];
     const href = first ? sharedSourceHref(first.url) : "";
-    source.replaceChildren(...(first ? [h("bdi", { class: "studio-stranger", dir: "auto", text: sourceWords(first) }),
+    source.replaceChildren(...(first ? [h("span", {}, ...partsNodes(sourceWords(first, isolating))),
       href ? h("a", { href, target: "_blank", rel: "noopener noreferrer nofollow", referrerpolicy: "no-referrer", "aria-label": say("together.openSourceLabel", { title: first.title }), text: say("together.openSource") }) : null] : []));
     const at = togetherStep(summary, { coWriter });
     badge.replaceChildren(h("status-badge", { variant: at.variant }, at.badge));
     step.textContent = at.step;
     fill(actions, ...[at.primary, at.secondary].filter(Boolean).map((action, index) => stepButton(action, index === 0, title)));
-    fill(everyone, ...togetherPeopleRows(summary).map((row) => h("li", { class: "studio-together-person" }, h("bdi", { class: "studio-stranger", text: row.text }))));
+    fill(everyone, ...togetherPeopleRows(summary, {}, isolating).map((row) => h("li", { class: "studio-together-person" }, ...partsNodes(row.text))));
     fill(peopleButton, summary.you?.canInvite ? h("action-button", { variant: "secondary", onClick: (e) => people.open(summary, e.currentTarget) }, say("together.peopleButton")) : null);
     drawSharing();
     drawMore(title);

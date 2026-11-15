@@ -5,7 +5,8 @@
 // undone. Moments the others shared are listed as text.
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
-import { say } from "./words.js";
+import { say, isolating } from "./words.js";
+import { partsNodes } from "./stranger.js";
 import { createSheet } from "./sheet.js";
 import { createDidLine } from "./did-line.js";
 import { togetherProblem } from "./together-rules.js";
@@ -47,7 +48,7 @@ export async function createMomentsSheet({ api, id, onChange }) {
   function row(moment, mine) {
     const href = moment.link?.href && /^https?:\/\//.test(moment.link.href) ? moment.link.href : "";
     return h("li", { class: "studio-together-item" },
-      h("p", {}, h("bdi", { class: "studio-stranger", dir: "auto", text: momentText(moment, sources()) })),
+      h("p", {}, ...partsNodes(momentText(moment, sources(), isolating))),
       moment.quotation?.text ? h("blockquote", { class: "studio-stranger", dir: "auto", text: moment.quotation.text }) : null,
       moment.observation ? h("p", { class: "studio-stranger", dir: "auto", text: moment.observation }) : null,
       href ? h("a", { href, target: "_blank", rel: "noopener noreferrer nofollow", referrerpolicy: "no-referrer", text: momentLinkText(moment) }) : null,

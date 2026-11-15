@@ -9,7 +9,7 @@ import { sayWhen } from "../parts/dates.js";
 import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
 import { routeHash } from "../router.js";
 import { quietNotifyLink } from "../parts/notify-link.js";
-import { say } from "../parts/words.js";
+import { say, sayParts } from "../parts/words.js";
 import { readerHeader } from "../parts/reader-tabs.js";
 import { createReaderCard } from "../parts/reader-card.js";
 import { cardDetails, screenDetails } from "../parts/reader-details.js";
@@ -311,7 +311,7 @@ export async function createReaders(context, route) {
   async function startDecision(item, b, line, control) {
     if (b.action === "erase") {
       const choice = await ask({
-        heading: say("readers.eraseTitle", { name: item.reader?.name || say("readers.someone"), kind: item.source === "report" ? say("readers.kind.abuseReport").toLowerCase() : say("readers.kind.comment").toLowerCase() }),
+        heading: sayParts("readers.eraseTitle", { name: item.reader?.name || say("readers.someone"), kind: item.source === "report" ? say("readers.kind.abuseReport").toLowerCase() : say("readers.kind.comment").toLowerCase() }, item.reader?.name ? ["name"] : []),
         text: say("readers.eraseText"),
         choices: [{ label: say("readers.eraseKeep"), value: "keep", variant: "secondary" }, { label: say("readers.eraseYes"), value: "erase", variant: "destructive" }],
       });

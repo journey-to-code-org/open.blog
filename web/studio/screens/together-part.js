@@ -7,7 +7,7 @@
 // with Show the words as written.
 import { fill, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { say } from "../parts/words.js";
+import { say, sayParts, isolating } from "../parts/words.js";
 import { ask } from "../parts/dialogs.js";
 import { createDidLine } from "../parts/did-line.js";
 import { createKept } from "../parts/kept.js";
@@ -335,7 +335,7 @@ export async function createTogetherPart(context, id, route = {}) {
     if (reveal.policy === "independent") { did.tell(say("part.cantShareNever"), { variant: "problem" }); return; }
     const agreed = (summary.people || []).filter((p) => !p.you && p.where === "agreed").map((p) => p.displayName);
     const lines = [reveal.policy === "voluntary" ? say("part.shareAskVoluntary") : say("part.shareAskText")];
-    if (summary.you?.shared && agreed.length) lines.push(say("part.reagreeWarn", { names: joinNames(agreed) }));
+    if (summary.you?.shared && agreed.length) lines.push(sayParts("part.reagreeWarn", { names: joinNames(agreed, isolating) }, ["names"]));
     const choice = await ask({ heading: say("part.shareAsk"), text: lines, choices: [{ label: say("part.shareGo"), value: "go" }, { label: say("part.shareNo"), value: "no", variant: "secondary" }] });
     if (choice !== "go") return;
     if (dirty() && !(await save())) return;

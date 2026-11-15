@@ -15,7 +15,8 @@ import { createAccountSheets } from "../parts/account-sheets.js";
 import { detailsBox } from "../parts/account-details.js";
 import { createAccountCards } from "../parts/account-cards.js";
 import * as R from "../parts/social-rules.js";
-import { say as word } from "../parts/words.js";
+import { say as word, sayParts, isolating, partsText } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 
 const POLL_MS = 3000;
 const POLL_TRIES = 40; // two minutes
@@ -64,7 +65,8 @@ export async function createAccounts(context, route = { query: {} }) {
   });
 
   const cards = createAccountCards({ sheets, links, timeZone, onRetry: (account, failed, button) => retry(account, failed, button), onDisconnect: (account, opener) => disconnect(account, opener) });
-  const say = (words) => { status.textContent = words; };
+  // Words, or parts with an account's name (from the other company) apart.
+  const say = (words) => { status.replaceChildren(...partsNodes(words)); };
   const live = () => R.liveAttempts(connections, Date.now());
   const shown = () => accounts.filter((a) => a.status !== "disconnected" && a.health !== "disconnected");
 
@@ -189,7 +191,7 @@ export async function createAccounts(context, route = { query: {} }) {
   async function disconnect(account, opener) {
     const waiting = items ? R.waitingFor(items, account.id) : 0;
     const choice = await ask({
-      heading: `Disconnect ${account.displayName}?`,
+      heading: sayParts("social.disconnectAsk", { name: String(account.displayName ?? "") }, ["name"]),
       text: R.disconnectWords(waiting),
       choices: [{ label: "Keep it connected", value: "keep" }, { label: "Disconnect", value: "go", variant: "destructive" }],
     });
@@ -198,9 +200,9 @@ export async function createAccounts(context, route = { query: {} }) {
     try {
       const reply = await api.post(`social/accounts/${account.id}/disconnect`, {});
       await load();
-      const words = R.disconnectedWords(account.displayName, reply?.account?.canceledAnnouncements);
+      const words = R.disconnectedWords(account.displayName, reply?.account?.canceledAnnouncements, isolating);
       say(words);
-      toast(words);
+      toast(partsText(words));
       const after = shown()[Math.min(at, shown().length - 1)];
       requestAnimationFrame(() => (after ? element.querySelector(`#studio-account-${CSS.escape(after.id)}`) : heading)?.focus());
     } catch (error) {
@@ -217,14 +219,14 @@ export async function createAccounts(context, route = { query: {} }) {
   async function done(event) {
     if (event.kind === "connected") {
       await load();
-      const words = R.connectedWords(event.account);
+      const words = R.connectedWords(event.account, isolating);
       say(words);
       toast("Connected.", { action: { label: "Share a post", href: "#/sharing/new" } });
       focusCard(event.account?.id);
     } else if (event.kind === "reconnected") {
       await load();
       const account = accounts.find((a) => a.id === event.accountId);
-      say(`Reconnected. ${account?.displayName || "It"} works again.`);
+      say(account?.displayName ? sayParts("social.reconnected", { name: account.displayName }, ["name"]) : word("social.reconnectedIt"));
       focusCard(event.accountId);
     } else if (event.kind === "stopped") {
       await load();
@@ -236,12 +238,12 @@ export async function createAccounts(context, route = { query: {} }) {
       heading.focus();
     } else if (event.kind === "already") {
       await load();
-      say(`${event.name} is already connected. Use Reconnect on it if it stopped working.`);
+      say(sayParts("social.already", { name: String(event.name ?? "") }, ["name"]));
       const found = shown().find((a) => a.externalId === event.externalId);
       focusCard(found?.id || "", heading);
     } else if (event.kind === "gone") {
       await load();
-      say(`${event.account.displayName} isn't connected any more. Connect it again.`);
+      say(sayParts("social.gone", { name: String(event.account.displayName ?? "") }, ["name"]));
       requestAnimationFrame(() => addHeading.focus());
     } else if (event.kind === "returned") {
       sheet.close();
@@ -289,13 +291,13 @@ export async function createAccounts(context, route = { query: {} }) {
       return;
     }
     if (connection.status === "completed" && account) {
-      say(`Reconnected. ${account.displayName} works again.`);
+      say(sayParts("social.reconnected", { name: String(account.displayName ?? "") }, ["name"]));
       return focusCard(account.id);
     }
     if (connection.status === "completed") {
       const made = shown().filter((a) => a.provider === connection.provider && (connection.destinations || []).some((d) => d.id === a.externalId))
         .sort((a, b) => Date.parse(b.createdAt || "") - Date.parse(a.createdAt || ""))[0];
-      say(made ? R.connectedWords(made) : "Connected.");
+      say(made ? R.connectedWords(made, isolating) : "Connected.");
       return made ? focusCard(made.id) : heading.focus();
     }
     if (connection.status === "failed" || connection.status === "expired") {

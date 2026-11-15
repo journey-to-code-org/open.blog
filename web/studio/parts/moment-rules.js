@@ -140,9 +140,10 @@ export function sortMoments(moments, sources) {
 }
 
 /** One moment as words: in what, where, and who can see it. */
-export function momentText(moment, sources) {
+export function momentText(moment, sources, speak = say) {
   const source = (sources || []).find((entry) => entry.id === moment?.source);
-  return say("moments.line", { source: source ? source.title : say("moments.unlisted"), where: moment?.location || "", who: moment?.intent === "publication" ? say("moments.proposed") : say("moments.private") });
+  // The source's title and the place are someone's own words: apart, given `isolating`.
+  return speak("moments.line", { source: source ? source.title : say("moments.unlisted"), where: moment?.location || "", who: moment?.intent === "publication" ? say("moments.proposed") : say("moments.private") }, [...(source ? ["source"] : []), "where"]);
 }
 
 /** The words for a moment's link: whether it opens at the moment. "" when there is no link. */

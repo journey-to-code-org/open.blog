@@ -5,7 +5,8 @@
 // token (so she read it) and asks once; Undo takes the agreement back.
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { say } from "../parts/words.js";
+import { say, isolating } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 import { ask } from "../parts/dialogs.js";
 import { createDidLine } from "../parts/did-line.js";
 import { innerAria } from "../parts/inner-button.js";
@@ -65,15 +66,15 @@ export async function createTogetherRead(context, id, route = {}) {
     if (!slots.length) { fill(parts, h("p", { class: "studio-help", text: say("part.cantWrite") })); return; }
     fill(parts, ...slots.map((slot, index) => {
       const headingId = `studio-read-part-${index}`;
-      const name = revealSlotText(slot);
+      const name = revealSlotText(slot, isolating);
       const readable = slot.kind === "own" || slot.kind === "revealed";
       const words = readable ? partParagraphs(String(slot.markdown || "")) : [];
       return h("section", { class: "studio-together-part", "aria-labelledby": headingId },
-        h("h3", { id: headingId, class: "studio-together-h3" }, h("bdi", { class: "studio-stranger", text: slot.kind === "private" ? slot.displayName : name })),
+        h("h3", { id: headingId, class: "studio-together-h3" }, ...(slot.kind === "private" ? [h("bdi", { class: "studio-stranger", dir: "auto", text: slot.displayName || "" })] : partsNodes(name))),
         readable
           ? (words.length ? h("div", { class: "studio-stranger studio-together-words", dir: "auto" }, ...words.map((w) => (w.kind === "p" ? h("p", { dir: "auto", text: w.text }) : h("p", { class: "studio-part-rule", role: "separator", text: w.label }))))
             : h("p", { class: "studio-help", text: say("read.empty") }))
-          : h("p", { class: "studio-help", text: name }),
+          : h("p", { class: "studio-help" }, ...partsNodes(name)),
         slot.kind === "own" && summary?.state !== "agreeing" && summary?.state !== "ready" ? h("p", { class: "studio-help", text: say("read.notSharedYou") }) : null);
     }));
   }
@@ -89,8 +90,8 @@ export async function createTogetherRead(context, id, route = {}) {
       frame.setAttribute("referrerpolicy", "no-referrer");
       if (typeof p.previewUrl === "string" && p.previewUrl.startsWith("/admin/api/preview/")) frame.setAttribute("src", p.previewUrl);
       fill(previewHost, h("p", { class: "studio-help", text: say("read.previewNote") }), frame);
-      state.textContent = previewStateText(p);
-      fill(lines, ...(p.sections || []).map((section) => h("li", {}, h("bdi", { class: "studio-stranger", text: previewSectionText(section) }))));
+      fill(state, ...partsNodes(previewStateText(p, isolating)));
+      fill(lines, ...(p.sections || []).map((section) => h("li", {}, ...partsNodes(previewSectionText(section, isolating)))));
     } catch (error) {
       if (error.status === 401) throw error;
       did.tell(togetherProblem(error, "read").words, { variant: "problem" });

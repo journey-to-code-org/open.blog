@@ -14180,12 +14180,44 @@
       "max": 154,
       "vars": []
     },
+    "quote.backUnderNew": {
+      "text": "{name} is back under New.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "name"
+      ]
+    },
+    "quote.eraseAsk": {
+      "text": "Erase {name}'s request?",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "name"
+      ]
+    },
+    "quote.handled": {
+      "text": "{name}: handled.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
     "quote.hostChose": {
       "text": "{helper} chose this, so it can't be changed here.",
       "layer": "her",
       "max": 98,
       "vars": [
         "helper"
+      ]
+    },
+    "quote.undone": {
+      "text": "Undone. {name}'s request is back.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "name"
       ]
     },
     "read.agree": {
@@ -20427,6 +20459,14 @@
         "helper"
       ]
     },
+    "social.already": {
+      "text": "{name} is already connected. Use Reconnect on it if it stopped working.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "name"
+      ]
+    },
     "social.canTurnOn": {
       "text": "{helper} can turn it on. Your site works the same without it.",
       "layer": "her",
@@ -20435,12 +20475,65 @@
         "helper"
       ]
     },
+    "social.connected": {
+      "text": "Connected. {product} can post to {name} on {service} now.",
+      "layer": "her",
+      "max": 114,
+      "vars": [
+        "product",
+        "name",
+        "service"
+      ]
+    },
+    "social.connectedFacebook": {
+      "text": "Connected. {product} can post to {name} on {service} now. To add another Facebook Page, connect Facebook again.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "name",
+        "service"
+      ]
+    },
+    "social.connectedIt": {
+      "text": "Connected. {product} can post to it on {service} now.",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "product",
+        "service"
+      ]
+    },
+    "social.disconnectAsk": {
+      "text": "Disconnect {name}?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "social.disconnected": {
+      "text": "Disconnected {name}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
     "social.facebookNoPage": {
       "text": "Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask {helper} to add you to its Facebook app.",
       "layer": "her",
       "max": 240,
       "vars": [
         "helper"
+      ]
+    },
+    "social.gone": {
+      "text": "{name} isn't connected any more. Connect it again.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "name"
       ]
     },
     "social.noPlaces": {
@@ -20466,6 +20559,28 @@
       "vars": [
         "helper"
       ]
+    },
+    "social.reconnectTitle": {
+      "text": "Reconnect {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "social.reconnected": {
+      "text": "Reconnected. {name} works again.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "name"
+      ]
+    },
+    "social.reconnectedIt": {
+      "text": "Reconnected. It works again.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
     },
     "social.signInAgain": {
       "text": "{service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}.",

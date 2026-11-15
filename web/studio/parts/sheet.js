@@ -6,6 +6,8 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
 import { trapFocus } from "./focus-trap.js";
+import { partsText } from "./words.js";
+import { partsNodes } from "./stranger.js";
 
 /**
  * `question` is { heading, text?, save, leave } for the leave-guard; `save()` resolves true once
@@ -82,8 +84,9 @@ export async function createSheet({ label, wide = true }) {
   function show({ heading, children, dirty = () => false, save = null, question = null, opener = document.activeElement, focus = null, onClose = null }) {
     const shown = { dirty, save, question, opener, focus, onClose };
     current = shown;
-    element.label = heading;
-    element.replaceChildren(h("span", { slot: "heading", text: heading }), ...children.flat().filter(Boolean));
+    // `heading` is a string, or parts from `sayParts()` with someone else's words apart.
+    element.label = partsText(heading);
+    element.replaceChildren(h("span", { slot: "heading" }, ...partsNodes(heading)), ...children.flat().filter(Boolean));
     if (!element.isConnected) document.body.append(element);
     const open = () => {
       if (current !== shown) return; // closed, or replaced, while the last close settled

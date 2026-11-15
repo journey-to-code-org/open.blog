@@ -4,7 +4,8 @@
 // keeps her choice in the form beside the stored one. Once it is published, it changes from the post.
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
-import { say } from "./words.js";
+import { say, isolating } from "./words.js";
+import { partsNodes } from "./stranger.js";
 import { createSheet } from "./sheet.js";
 import { createDidLine } from "./did-line.js";
 import { togetherProblem } from "./together-rules.js";
@@ -48,7 +49,7 @@ export async function createCollectionSheet({ api, id, onChange }) {
     name = h("text-field", { label: say("collection.newName"), value: keep && name ? String(name.value || "") : stored && !storedSlug ? stored.series : "", onValuechange: () => { typed = true; } });
     place = h("text-field", { label: say("collection.place"), description: say("collection.placeHelp"), inputmode: "numeric", value: keep && place ? String(place.value || "") : stored?.order ?? "", onValuechange: () => { typed = true; } });
     const can = data.canPlace;
-    const order = h("ol", { class: "studio-together-lines" }, ...(data.preview?.parts || []).map((part, index) => h("li", {}, h("bdi", { class: "studio-stranger", text: seriesPartText(part, index) }))));
+    const order = h("ol", { class: "studio-together-lines" }, ...(data.preview?.parts || []).map((part, index) => h("li", {}, ...partsNodes(seriesPartText(part, index, isolating)))));
     const make = data.canCreate ? makeForm() : null;
     const see = h("action-button", { variant: "secondary", onClick: async () => {
       const chosen = String(which.value ?? "");
@@ -57,7 +58,7 @@ export async function createCollectionSheet({ api, id, onChange }) {
       const query = new URLSearchParams({ publicationId: id, series, ...(String(place.value || "").trim() ? { order: String(place.value).trim() } : {}) });
       try {
         const shown = await api.get(`collaboration/series?${query}`);
-        order.replaceChildren(...(shown.preview?.parts || []).map((part, index) => h("li", {}, h("bdi", { class: "studio-stranger", text: seriesPartText(part, index) }))));
+        order.replaceChildren(...(shown.preview?.parts || []).map((part, index) => h("li", {}, ...partsNodes(seriesPartText(part, index, isolating)))));
       } catch (error) {
         if (error.status === 401) throw error;
         did.tell(togetherProblem(error).words, { variant: "problem" });

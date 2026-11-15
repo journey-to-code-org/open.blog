@@ -10,7 +10,7 @@ import { providerName } from "./share-words.js";
 import * as R from "./social-rules.js";
 import { blueskySheet } from "./bluesky-sheet.js";
 import { connectionLines, detailsBox, providerLines, redirectRow } from "./account-details.js";
-import { say as word } from "./words.js";
+import { say as word, sayParts } from "./words.js";
 
 let uid = 0;
 
@@ -277,7 +277,7 @@ export function createAccountSheets(ctx) {
     const provider = ctx.providerOf(account.provider);
     if (provider?.login === "app-password" || account.provider === "bluesky") return openBluesky(account, { opener });
     const p = providerName(account.provider);
-    const title = `Reconnect ${account.displayName}`;
+    const title = sayParts("social.reconnectTitle", { name: String(account.displayName ?? "") }, ["name"]);
     const heading = headingOf(title);
     const status = statusBox();
     const extra = [];

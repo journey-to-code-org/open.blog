@@ -176,10 +176,10 @@ export function seriesPlacementText(name, order) {
 }
 
 /** One part of a previewed reading order, in words. */
-export function seriesPartText(part, index) {
+export function seriesPartText(part, index, speak = say) {
   const place = part?.order === null || part?.order === undefined ? say("collection.orderNoNumber") : say("collection.orderNumber", { n: part.order });
-  if (part?.thisPublication) return say("collection.orderThis", { n: index + 1, place });
-  return say("collection.orderPart", { n: index + 1, title: part?.title || say("collection.untitledPart"), place });
+  if (part?.thisPublication) return speak("collection.orderThis", { n: index + 1, place });
+  return speak("collection.orderPart", { n: index + 1, title: part?.title || say("collection.untitledPart"), place }, part?.title ? ["title"] : []);
 }
 
 /** The placement to send for the chosen collection, or what to fix (`{ error, field }`). */

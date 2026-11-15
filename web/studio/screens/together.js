@@ -5,7 +5,8 @@
 // co-writer sign-in this is Home and the only screen there is.
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { say } from "../parts/words.js";
+import { say, isolating } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 import { createDidLine } from "../parts/did-line.js";
 import { joinNames, kindWords, peopleWords, sourceWords, stepButtonWords, togetherProblem, togetherStep } from "../parts/together-rules.js";
 import { roleWords } from "../parts/together-rules.js";
@@ -127,8 +128,8 @@ export async function createTogetherList(context, route = {}) {
     return h("li", { class: "studio-together-card" },
       h("content-card", {},
         h("h3", { class: "studio-together-card-title" }, h("a", { class: "studio-together-open", href: `#/together/${id}`, "aria-label": label }, h("bdi", { class: "studio-stranger", text: title }))),
-        source ? h("p", { class: "studio-help" }, h("bdi", { class: "studio-stranger", dir: "auto", text: sourceWords(source) })) : null,
-        h("p", { class: "studio-help", text: peopleWords(summary) }),
+        source ? h("p", { class: "studio-help" }, ...partsNodes(sourceWords(source, isolating))) : null,
+        h("p", { class: "studio-help" }, ...partsNodes(peopleWords(summary, isolating))),
         h("p", { class: "studio-row studio-together-state" }, h("status-badge", { variant: step.variant }, step.badge)),
         step.step ? h("p", { text: step.step }) : null,
         button));

@@ -11,7 +11,8 @@ import { createSheet, guardedLeave } from "../parts/sheet.js";
 import { quietNotifyLink } from "../parts/notify-link.js";
 import { openDownload, openCleanup } from "../parts/quote-sheets.js";
 import { LISTS, listLabel, emailLine, troubleBanner, eraseLine, statusWords, telHref, quoteTrouble } from "../parts/quote-words.js";
-import { say as word } from "../parts/words.js";
+import { say as word, sayParts, isolating, partsText } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 
 export async function createQuotes({ api, meta }) {
   await use("action-button", "alert-banner", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
@@ -147,8 +148,10 @@ export async function createQuotes({ api, meta }) {
       await api.post(`quote/requests/${r.id}/status`, { status: to });
       r.status = to;
       draw();
-      const words = statusWords(r, to, reply.retentionDays);
-      status.textContent = words;
+      // The customer's name sits apart in the sentence; a toast or a heading takes only text.
+      const said = statusWords(r, to, reply.retentionDays, isolating);
+      const words = partsText(said);
+      status.replaceChildren(...partsNodes(said));
       if (quiet) return true;
       toast(words);
       const left = cards.querySelectorAll(".studio-comment-who");
@@ -160,7 +163,7 @@ export async function createQuotes({ api, meta }) {
           // Focus moves in the same moment the Undo button goes, so it never falls to the page.
           (cards.querySelector(`[data-id="${r.id}"] .studio-comment-who`) || heading).focus();
           undoSlot.replaceChildren();
-          status.textContent = `Undone. ${r.name}'s request is back.`;
+          status.replaceChildren(...partsNodes(sayParts("quote.undone", { name: String(r.name ?? "") }, ["name"])));
         } else {
           button.loading = false;
         }
@@ -188,7 +191,7 @@ export async function createQuotes({ api, meta }) {
     }
     const photos = preview.photos ? ` and ${preview.photos === 1 ? "its photo" : `its ${preview.photos} photos`}` : "";
     const choice = await ask({
-      heading: `Erase ${r.name}'s request?`,
+      heading: sayParts("quote.eraseAsk", { name: String(r.name ?? "") }, ["name"]),
       text: `This removes it${photos} for good. It can't be undone. If anything goes wrong, nothing is removed.`,
       choices: [{ label: "Keep it", value: "keep" }, { label: "Erase for good", value: "erase", variant: "destructive" }],
     });

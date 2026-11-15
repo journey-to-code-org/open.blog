@@ -429,14 +429,14 @@ export function roleLine(role) {
   return "";
 }
 
-/** Who sent it, for her only. */
-export function readerLine(reader, source = "feedback", kind = "") {
-  if (source === "report") return say("readers.reportAnonymous");
-  if (kind === "author-response") return say("readers.answerByAuthor");
-  if (source === "comment") return reader?.name ? (reader.publishName === false ? say("readers.onlyYou") : say("readers.nameShown")) : say("readers.anonymous");
-  if (reader?.private) return say("readers.nameOnlyOwner");
-  if (!reader?.name) return say("readers.anonymous");
-  return reader.publishName ? say("readers.nameIfShown", { name: name80(reader.name) }) : say("readers.namePrivate");
+/** Who sent it, for her only. Given `isolating` (parts/words.js), parts with the reader's name apart. */
+export function readerLine(reader, source = "feedback", kind = "", speak = say) {
+  if (source === "report") return speak("readers.reportAnonymous");
+  if (kind === "author-response") return speak("readers.answerByAuthor");
+  if (source === "comment") return reader?.name ? (reader.publishName === false ? speak("readers.onlyYou") : speak("readers.nameShown")) : speak("readers.anonymous");
+  if (reader?.private) return speak("readers.nameOnlyOwner");
+  if (!reader?.name) return speak("readers.anonymous");
+  return reader.publishName ? speak("readers.nameIfShown", { name: name80(reader.name) }, ["name"]) : speak("readers.namePrivate");
 }
 
 /** The passage block: `{ quoted, line, stale }`, where `line` is her words about it (or ""), or null with no passage. */
@@ -449,11 +449,13 @@ export function passageView(passage) {
 }
 
 /** How a published note would read, in her words. */
-export function previewWords(preview) {
+export function previewWords(preview, speak = say) {
   if (!preview) return "";
+  // The reader's own words (their name, their quote) are kept apart; "someone" is Studio's.
   const name = preview.name || say("readers.someone");
-  if (preview.quote) return say("readers.previewQuote", { quote: preview.quote, name });
-  return preview.stale ? say("readers.previewNoQuote") : say("readers.previewPlain", { name });
+  const theirs = preview.name ? ["name"] : [];
+  if (preview.quote) return speak("readers.previewQuote", { quote: preview.quote, name }, ["quote", ...theirs]);
+  return preview.stale ? speak("readers.previewNoQuote") : speak("readers.previewPlain", { name }, theirs);
 }
 
 /** Links to cards on the same page that may be about the same thing: `[{ ref, label }]`. */

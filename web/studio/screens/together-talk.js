@@ -5,7 +5,8 @@
 // Every item's words are text.
 import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
-import { say } from "../parts/words.js";
+import { say, isolating } from "../parts/words.js";
+import { partsNodes } from "../parts/stranger.js";
 import { createDidLine } from "../parts/did-line.js";
 import { ask } from "../parts/dialogs.js";
 import { togetherProblem } from "../parts/together-rules.js";
@@ -83,7 +84,7 @@ export async function createTogetherTalk(context, id) {
       h("action-button", { variant: "secondary", size: "sm", class: `studio-talk-up-${index}`, onClick: () => move(ids, item.id, -1, index) }, say("talk.moveUp")),
       h("action-button", { variant: "secondary", size: "sm", class: `studio-talk-down-${index}`, onClick: () => move(ids, item.id, 1, index) }, say("talk.moveDown")));
     return h("li", { class: "studio-together-item", "data-item": item.id },
-      h("p", { class: "studio-help" }, h("bdi", { class: "studio-stranger", text: synthesisItemText(item) })), words, actions);
+      h("p", { class: "studio-help" }, ...partsNodes(synthesisItemText(item, isolating))), words, actions);
   }
 
   function move(ids, itemId, by, index) {

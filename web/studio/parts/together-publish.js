@@ -5,13 +5,13 @@
 // an owner account in charge sees any of these (the server holds the same line, ⚑ 4).
 import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
-import { say } from "./words.js";
+import { say, sayParts, isolating } from "./words.js";
 import { ask } from "./dialogs.js";
 import { defaultTime, isFuture, joinInstant, sayWhen } from "./dates.js";
 import { joinNames, togetherProblem } from "./together-rules.js";
 
 export function createPublishing({ api, context, id, did, reload }) {
-  const signers = (summary) => joinNames((summary.people || []).filter((p) => p.where !== "left" && p.where !== "reads").map((p) => p.displayName));
+  const signers = (summary) => joinNames((summary.people || []).filter((p) => p.where !== "left" && p.where !== "reads").map((p) => p.displayName), isolating);
   const title = (summary) => summary.title || summary.guidingQuestion || say("together.untitled");
   const fail = (error, place = "publish") => {
     if (error.status === 401) throw error;
@@ -19,7 +19,7 @@ export function createPublishing({ api, context, id, did, reload }) {
   };
 
   async function publish(summary, button) {
-    const choice = await ask({ heading: say("together.publishAsk", { title: title(summary) }), text: say("together.publishAskText", { names: signers(summary) }),
+    const choice = await ask({ heading: sayParts("together.publishAsk", { title: title(summary) }, ["title"]), text: sayParts("together.publishAskText", { names: signers(summary) }, ["names"]),
       choices: [{ label: say("together.publishGo"), value: "go" }, { label: say("together.publishNo"), value: "no", variant: "secondary" }] });
     if (choice !== "go") return;
     button.loading = true;

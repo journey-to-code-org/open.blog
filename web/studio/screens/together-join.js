@@ -6,6 +6,7 @@
 import { fill, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { say } from "../parts/words.js";
+import { sayIsolated } from "../parts/stranger.js";
 import { ask } from "../parts/dialogs.js";
 import { joinProblem } from "../parts/join-rules.js";
 
@@ -32,10 +33,10 @@ function invitationFacts(view) {
   const title = view.title || view.question || say("together.untitled");
   const writes = (view.roles || []).includes("contributor");
   return [
-    h("p", { text: view.invitedBy ? say("join.invitedYou", { name: view.invitedBy }) : say("join.someoneInvited") }),
+    h("p", {}, ...(view.invitedBy ? sayIsolated("join.invitedYou", { name: view.invitedBy }) : [say("join.someoneInvited")])),
     h("p", { class: "studio-question studio-join-title" }, h("bdi", { class: "studio-stranger", text: title })),
     view.title && view.question ? h("p", { class: "studio-lede" }, h("bdi", { class: "studio-stranger", dir: "auto", text: view.question })) : null,
-    h("p", { text: writes ? say("join.youWrite", { name: view.forName }) : say("join.youRead", { name: view.forName }) }),
+    h("p", {}, ...(writes ? sayIsolated("join.youWrite", { name: view.forName }) : sayIsolated("join.youRead", { name: view.forName }))),
   ];
 }
 
@@ -71,7 +72,7 @@ export async function showJoinPage(root, api, view) {
     const form = h("form", { class: "studio-signin-form", "aria-labelledby": "studio-join-h", novalidate: true },
       h("h1", { id: "studio-join-h", class: "studio-title", text: say("join.title") }),
       ...invitationFacts(view),
-      h("p", { class: "studio-help", text: say("join.signInNameIs", { name: view.signInName }) }),
+      h("p", { class: "studio-help" }, ...sayIsolated("join.signInNameIs", { name: view.signInName })),
       // The sign-in name, for password managers to save beside the new password.
       h("input", { type: "text", name: "username", autocomplete: "username", value: view.signInName, hidden: true, readonly: true }),
       problem, password, again, h("div", { class: "studio-row" }, no, yes));
@@ -136,7 +137,7 @@ export async function createTogetherJoin(context) {
     }
     host.removeAttribute("aria-busy");
     if (view.signInName !== api.user) {
-      fill(host, h("alert-banner", { variant: "warning" }, say("join.wrongPerson", { name: view.signInName })),
+      fill(host, h("alert-banner", { variant: "warning" }, ...sayIsolated("join.wrongPerson", { name: view.signInName })),
         h("action-button", { variant: "secondary", onClick: () => signOut() }, say("join.signOut")));
       return;
     }

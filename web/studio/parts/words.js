@@ -141,8 +141,13 @@ export const wordVars = () => ({ ...vars });
 
 const capital = (value) => value.charAt(0).toUpperCase() + value.slice(1);
 
-/** Fill in the variables; one that starts a sentence (the text's start, or after . ! ? and a space) starts with a capital. */
-function fillIn(words, values) {
+/**
+ * Fill in the variables; one that starts a sentence (the text's start, or after . ! ? and a space)
+ * starts with a capital. Values named in `isolate` come back as `{ isolate: value }` parts, as they
+ * are (no capital): someone else's words, which the caller puts in a node of their own.
+ */
+function fillParts(words, values, isolate = []) {
+  const parts = [];
   let out = "";
   let from = 0;
   for (const m of words.matchAll(/\{([a-zA-Z]+)\}/g)) {
@@ -150,20 +155,36 @@ function fillIn(words, values) {
     from = m.index + m[0].length;
     if (!(m[1] in values)) { out += m[0]; continue; }
     const value = String(values[m[1]] ?? "");
-    out += /(^|[.!?]\s+)$/.test(out) ? capital(value) : value;
+    if (isolate.includes(m[1])) {
+      if (out) parts.push(out);
+      out = "";
+      // A value may itself be parts (a list of names): its own text joins the sentence.
+      if (Array.isArray(values[m[1]])) {
+        for (const part of values[m[1]]) {
+          if (typeof part !== "string") parts.push(part);
+          else if (typeof parts.at(-1) === "string") parts[parts.length - 1] += part;
+          else parts.push(part);
+        }
+      } else {
+        parts.push({ isolate: value });
+      }
+      continue;
+    }
+    // After someone else's words, the sentence has started.
+    const before = parts.length && !out ? "x" : out;
+    out += /(^|[.!?]\s+)$/.test(before) ? capital(value) : value;
   }
-  return out + words.slice(from);
+  out += words.slice(from);
+  if (out) parts.push(out);
+  return parts;
 }
 
-/**
- * The words for `id`, with the site's change if it has one, its variables filled in.
- * @param {string} id a literal id, like "common.tell"
- * @param {Record<string, string|number>} [values] values for the id's own variables
- */
-export function say(id, values = {}) {
+const fillIn = (words, values) => fillParts(words, values).join("");
+
+/** The words of `id` to show, with the site's change if it has one. */
+function wordsFor(id, all) {
   const entry = catalog()[id];
   if (!entry) throw new Error(`say(): ${id} isn't a word id`);
-  const all = { ...vars, ...values };
   const own = text[id];
   let words = own ?? entry.text;
   // With no name for her, words that need it give way: a site's change to the built-in words when
@@ -173,8 +194,56 @@ export function say(id, values = {}) {
     if (own !== undefined && !usesOwner(entry.text)) words = entry.text;
     else if (entry.bare !== undefined) words = entry.bare;
   }
-  return fillIn(words, all);
+  return words;
 }
+
+/**
+ * The words for `id`, with the site's change if it has one, its variables filled in.
+ * @param {string} id a literal id, like "common.tell"
+ * @param {Record<string, string|number>} [values] values for the id's own variables
+ */
+export function say(id, values = {}) {
+  const all = { ...vars, ...values };
+  return fillIn(wordsFor(id, all), all);
+}
+
+/**
+ * The words for `id` as parts: text, and `{ isolate: value }` for each of the `isolate` variables
+ * (a reader's name, a title someone else wrote), so the caller can put each in its own
+ * direction-isolated node and a right-to-left mark in it can't reorder the sentence around it.
+ * `say()` joined is the same sentence. Pure.
+ * @param {string} id
+ * @param {Record<string, string|number>} [values]
+ * @param {string[]} [isolate] the names of the variables that hold someone else's words
+ */
+export function sayParts(id, values = {}, isolate = []) {
+  const all = { ...vars, ...values };
+  return fillParts(wordsFor(id, all), all, isolate.filter((name) => name in values));
+}
+
+/**
+ * A speaker for rule functions that put someone else's words in a sentence: they take
+ * `speak = say` and call `speak(id, values, isolate)`; given `isolating` they return parts
+ * (see `sayParts()`) for the page to place with `partsNodes()`.
+ */
+export const isolating = Object.assign((id, values = {}, isolate = []) => sayParts(id, values, isolate), { parts: true });
+
+/** Someone else's words as they are, from a speaker: a string from `say`, one part from `isolating`. */
+export const theirs = (value, speak = say) => (speak?.parts ? [{ isolate: String(value ?? "") }] : String(value ?? ""));
+
+const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Parts from `sayParts()` as one string, for the places that take only text (an `aria-label`, a
+ * toast, a dialog's name): someone else's words are wrapped in FSI…PDI with their own direction
+ * marks taken out, so they still can't reorder the sentence. On the page, use `partsNodes()`.
+ */
+export function partsText(parts) {
+  return [].concat(parts).map((part) => (typeof part === "string" ? part : `\u2068${String(part?.isolate ?? "").replace(BIDI_CONTROLS, "")}\u2069`)).join("");
+}
+
+/** The same parts as plain text, as `say()` would give them (for tests and comparisons). */
+export const partsPlain = (parts) => [].concat(parts).map((part) => (typeof part === "string" ? part : String(part?.isolate ?? ""))).join("");
 
 /**
  * Home's details, "Words" (for {helper} only, never her layer): what a site's words change and what

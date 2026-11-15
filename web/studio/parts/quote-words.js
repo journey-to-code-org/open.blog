@@ -7,6 +7,10 @@ import { say } from "./words.js";
 /** Word ids a site may change (docs/studio-words.md). */
 export const WORDS = {
   "quote.hostChose": { text: "{helper} chose this, so it can't be changed here.", layer: "her" },
+  "quote.handled": { text: "{name}: handled.", layer: "her" },
+  "quote.backUnderNew": { text: "{name} is back under New.", layer: "her" },
+  "quote.undone": { text: "Undone. {name}'s request is back.", layer: "her" },
+  "quote.eraseAsk": { text: "Erase {name}'s request?", layer: "her" },
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -66,11 +70,11 @@ export function eraseLine(eraseAfter, now = Date.now()) {
   return `Erased automatically in ${left === 1 ? "1 day" : `${left} days`}.`;
 }
 
-/** What a status change says. */
-export function statusWords(request, to, retentionDays) {
-  if (to === "handled") return `${request.name}: handled.`;
+/** What a status change says. Given `isolating` (parts/words.js), parts with the customer's name apart. */
+export function statusWords(request, to, retentionDays, speak = say) {
+  if (to === "handled") return speak("quote.handled", { name: String(request.name ?? "") }, ["name"]);
   if (to === "archived") return `Archived. It's under Archived.${retentionDays ? ` It's erased automatically ${retentionDays} days after you archive it.` : ""}`;
-  return `${request.name} is back under New.`;
+  return speak("quote.backUnderNew", { name: String(request.name ?? "") }, ["name"]);
 }
 
 /** "tel:+13045550101" from what the customer typed: only digits and a leading +. */

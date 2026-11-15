@@ -323,15 +323,21 @@ export function disconnectWords(waiting) {
 }
 
 /** "Disconnected Grammi's House." plus how many waiting posts won't be shared. */
-export function disconnectedWords(name, canceled) {
+// The account's name comes from the other company: given `isolating` (parts/words.js), these give
+// parts with it apart, placed with `partsNodes()`.
+export function disconnectedWords(name, canceled, speak = say) {
   const n = Number.isSafeInteger(canceled) && canceled > 0 ? canceled : 0;
-  return `Disconnected ${name}.${n ? ` ${n === 1 ? "1 waiting post won't" : `${n} waiting posts won't`} be shared.` : ""}`;
+  const more = n ? ` ${n === 1 ? "1 waiting post won't" : `${n} waiting posts won't`} be shared.` : "";
+  const first = speak("social.disconnected", { name: String(name ?? "") }, ["name"]);
+  return speak.parts ? [...first, ...(more ? [more] : [])] : `${first}${more}`;
 }
 
 /** The status after a connect. */
-export function connectedWords(account) {
-  const extra = account?.provider === "facebook" ? " To add another Facebook Page, connect Facebook again." : "";
-  return `Connected. Your blog can post to ${account?.displayName || "it"} on ${providerName(account?.provider)} now.${extra}`;
+export function connectedWords(account, speak = say) {
+  const service = providerName(account?.provider);
+  if (!account?.displayName) return speak("social.connectedIt", { service });
+  if (account.provider === "facebook") return speak("social.connectedFacebook", { name: account.displayName, service }, ["name"]);
+  return speak("social.connected", { name: account.displayName, service }, ["name"]);
 }
 
 /**

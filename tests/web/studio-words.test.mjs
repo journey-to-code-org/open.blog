@@ -7,12 +7,24 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import {
-  catalog, configureWords, DEFAULT_VARS, wordsInEffect, ID_PATTERN, maxFor, overrideProblem, say, varProblem, varsIn, wordVars,
+  catalog, configureWords, DEFAULT_VARS, wordsInEffect, ID_PATTERN, maxFor, overrideProblem, say, sayParts, varProblem, varsIn, wordVars,
 } from "../../web/studio/parts/words.js";
 import { HER_BANNED, HER_BANNED_WORDS, bannedExcept, bannedIn } from "../../web/studio/parts/plain-words.js";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const studio = join(repository, "web", "studio");
+
+test("sayParts() gives the same sentence with someone else's words apart, as they are", () => {
+  configureWords();
+  const rlo = "\u202eBob";
+  assert.deepEqual(sayParts("readers.reportWrote", { name: rlo, on: "" }, ["name"]), ["Written by ", { isolate: rlo }, ":"]);
+  assert.deepEqual(sayParts("readers.reportHeading", { what: "a comment", name: "sam" }, ["name"]), ["A report about a comment, from ", { isolate: "sam" }]);
+  // Joined, it is say(); a value not isolated is filled in as before.
+  const parts = sayParts("readers.reportHeading", { what: "a comment", name: "sam" }, ["name"]);
+  assert.equal(parts.map((p) => (typeof p === "string" ? p : p.isolate)).join(""), say("readers.reportHeading", { what: "a comment", name: "sam" }));
+  assert.deepEqual(sayParts("common.tell"), ["Tell the person who set up your site."]);
+  assert.deepEqual(sayParts("readers.reportWhy", { ground: "x" }, ["ground", "missing"]), ["Why: ", { isolate: "x" }]);
+});
 
 test("say() gives the built-in words, with the three variables filled in", () => {
   configureWords();
@@ -151,14 +163,20 @@ const sources = [...walk(join(studio, "screens")), ...walk(join(studio, "parts")
 
 /** Each file's word calls: the name it imports `say` under, and every call of it. */
 function calls(file) {
-  const text = readFileSync(file, "utf8");
+  // (A spread, `...sayIsolated(`, is a call too: the dots go so the look-behind sees it.)
+  const text = readFileSync(file, "utf8").replaceAll("...", "   ");
   const imported = /import \{([^}]*)\} from "[./]+(?:parts\/)?words\.js";/.exec(text);
   const binding = imported && /(?:^|,)\s*say(?:\s+as\s+(\w+))?\s*(?:,|$)/.exec(imported[1]);
-  if (!binding) return { name: "", ids: [], nonLiteral: [] };
-  const name = binding[1] || "say";
+  // Someone else's words in a sentence: `sayParts()`, `sayIsolated()` and a rule's `speak()` take
+  // literal ids too.
+  const defines = /parts\/(words|stranger)\.js$/.test(file);
+  const others = defines ? [] : ["sayParts", "sayIsolated", "speak"].filter((fn) => new RegExp(`(?<![\\w.])${fn}\\(`).test(text) && (fn !== "sayIsolated" || /sayIsolated\b[^;]*from "[./]+(?:parts\/)?stranger\.js"/.test(text)));
+  if (!binding && !others.length) return { name: "", ids: [], nonLiteral: [] };
+  const names = [...(binding ? [binding[1] || "say"] : []), ...others];
+  const name = names.join("|");
   const ids = [];
   const nonLiteral = [];
-  for (const m of text.matchAll(new RegExp(`(?<![\\w.])${name}\\(\\s*([^\\s)])`, "g"))) {
+  for (const m of text.matchAll(new RegExp(`(?<![\\w.])(?:${name})\\(\\s*([^\\s)])`, "g"))) {
     const rest = text.slice(m.index + m[0].length - 1);
     const literal = /^"([^"]+)"/.exec(rest);
     if (literal) ids.push(literal[1]); else nonLiteral.push(`${file}: ${rest.slice(0, 40)}`);

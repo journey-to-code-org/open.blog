@@ -3,13 +3,24 @@
 // words, and clamped when long. A link a reader sent shows in full as text with Copy and Open; Open is
 // a link only for http(s), with no referrer, and says nothing checked it. Studio R10.
 import { h } from "./dom.js";
-import { say } from "./words.js";
+import { say, sayParts } from "./words.js";
+
+/** Parts from `sayParts()` (or a plain string) as nodes: someone else's words each in a `<bdi dir=auto>`. */
+export const partsNodes = (parts) => [].concat(parts ?? []).map((part) => (typeof part === "string" ? part : h("bdi", { class: "studio-stranger", dir: "auto", text: String(part?.isolate ?? "") })));
 
 export const LONG = 600;
 
 /** A stranger's name or short line as an isolated inline element. */
 export function strangerInline(text, tag = "span") {
   return h(tag, { class: "studio-stranger", dir: "auto", text: String(text ?? "") });
+}
+
+/**
+ * Studio's sentence `id` with someone else's words in it: each value named in `isolate` goes in its
+ * own `<bdi dir=auto>`, the rest is text. Spread into an element: `h("p", {}, ...sayIsolated(...))`.
+ */
+export function sayIsolated(id, values = {}, isolate = Object.keys(values)) {
+  return partsNodes(sayParts(id, values, isolate));
 }
 
 /** A stranger's paragraphs; past `LONG` letters it is clamped with Read all. */

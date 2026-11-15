@@ -17,16 +17,18 @@ export function synthesisKindLabel(kind) {
   return SYNTHESIS_KINDS.find((item) => item.value === kind)?.words() || say("talk.kindOther");
 }
 
-const names = (people) => joinNames((people || []).map((person) => person.displayName));
+const names = (people, speak) => joinNames((people || []).map((person) => person.displayName), speak);
 
-/** One item as words: its kind, who it speaks for, who agreed and who is still to agree. */
-export function synthesisItemText(item) {
-  return say("talk.itemLine", {
-    kind: synthesisKindLabel(item?.kind),
-    speaking: names(item?.contributors) || say("talk.noOne"),
-    agreed: names(item?.approved) || say("talk.noOneYet"),
-    waiting: names(item?.awaiting) || say("talk.noOne"),
-  });
+/**
+ * One item as words: its kind, who it speaks for, who agreed and who is still to agree. Given
+ * `isolating` (parts/words.js), parts with each name apart.
+ */
+export function synthesisItemText(item, speak = say) {
+  const or = (list, none) => (list.length ? list : none());
+  const speaking = or(names(item?.contributors, speak), () => say("talk.noOne"));
+  const agreed = or(names(item?.approved, speak), () => say("talk.noOneYet"));
+  const waiting = or(names(item?.awaiting, speak), () => say("talk.noOne"));
+  return speak("talk.itemLine", { kind: synthesisKindLabel(item?.kind), speaking, agreed, waiting }, ["speaking", "agreed", "waiting"].filter((key) => Array.isArray({ speaking, agreed, waiting }[key])));
 }
 
 /** The new order of item ids after moving one by `delta`, or null when it can't move. */
