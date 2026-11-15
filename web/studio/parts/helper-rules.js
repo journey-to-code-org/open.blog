@@ -530,11 +530,15 @@ export function orderFindings(findings = []) {
     .map((entry) => entry.finding);
 }
 
-/** Where a suggestion is, in her words: "In Your story", or near its first words when it spans boxes. */
-export function findingPlace(range, spans = [], evidence = "") {
+/**
+ * Where a suggestion is, in her words: "In Your story", or near its first words when it spans
+ * boxes. `within` is the same place said inside a sentence ("Show me: suggestion 2, in Your story").
+ */
+export function findingPlace(range, spans = [], evidence = "", { within = false } = {}) {
   const box = spans.find((span) => range && range.start >= span.startPoint && range.end <= span.endPoint);
-  if (box?.name) return say("found.inBox", { box: box.name });
-  return say("found.near", { words: clip(String(evidence).replace(/\s+/g, " ").trim(), 30).text });
+  const words = clip(String(evidence).replace(/\s+/g, " ").trim(), 30).text;
+  if (within) return box?.name ? say("found.inBoxWithin", { box: box.name }) : say("found.nearWithin", { words });
+  return box?.name ? say("found.inBox", { box: box.name }) : say("found.near", { words });
 }
 
 /** Where the evidence sits in `source` (arrays of code points): every start. */

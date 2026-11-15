@@ -164,7 +164,7 @@ test("a key is typed once, saved, and then nowhere the page can read it", async 
   await page.unroute("**/admin/api/assistant/check");
   await page.route("**/admin/api/assistant/check", (route) => route.fulfill({ status: 502, json: { error: "Anthropic returned HTTP 401", code: "key-rejected" } }));
   await page.getByRole("button", { name: "Check it", exact: true }).click();
-  await expect(status(page)).toHaveText("Anthropic didn't accept the key for your blog. Tell the person who set up your site.");
+  await expect(status(page)).toHaveText("Anthropic didn't accept your blog's key. Tell the person who set up your site.");
   await axeClean(page, "Writing helper screen, set up", ".studio-helper-page");
 });
 

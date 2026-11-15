@@ -161,7 +161,7 @@ export function createFound({ write, closeAndShow, changed }) {
         h("action-button", { variant: "secondary", size: "sm", onClick: () => undo(item) }, say("found.undo")));
     } else {
       if (fits) buttons.push(h("action-button", { size: "sm", class: "studio-found-use", label: say("found.useThisName", { from, to: clip(suggestion, 60).text }), onClick: () => use(item) }, say("found.useThis")));
-      buttons.push(h("action-button", { variant: "secondary", size: "sm", label: say("found.showMeName", { n: item.n, place }), onClick: () => showMe(item) }, say("found.showMe")));
+      buttons.push(h("action-button", { variant: "secondary", size: "sm", label: say("found.showMeName", { n: item.n, place: findingPlace(finding.range, spans, finding.evidence, { within: true }) }), onClick: () => showMe(item) }, say("found.showMe")));
       buttons.push(h("action-button", { variant: "ghost", size: "sm", label: say("found.notThisName", { n: item.n }), onClick: () => { item.state = "dismissed"; draw(); changed(); status.focus(); } }, say("found.notThis")));
     }
     // The card's heading is where the suggestion is ("In Your story").

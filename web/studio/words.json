@@ -47,7 +47,26 @@
     "html",
     "callout",
     "alt text",
-    "caption"
+    "caption",
+    "ai provider",
+    "provider",
+    "model",
+    "api key",
+    "api",
+    "key",
+    "credential",
+    "prompt",
+    "token",
+    "completion",
+    "autocomplete",
+    "skill",
+    "context",
+    "snapshot",
+    "severity",
+    "scope",
+    "finding",
+    "schema",
+    "capability"
   ],
   "words": {
     "about.aliasFix": {
@@ -2597,9 +2616,9 @@
       "vars": []
     },
     "form.photoLoading": {
-      "text": "Finding your photos",
+      "text": "Looking for your photos",
       "layer": "her",
-      "max": 40,
+      "max": 46,
       "vars": []
     },
     "form.photoNoSignal": {
@@ -3085,7 +3104,7 @@
       "vars": []
     },
     "found.back": {
-      "text": "‹ Read it over again",
+      "text": "Read it over again",
       "layer": "her",
       "max": 40,
       "vars": []
@@ -3178,6 +3197,14 @@
         "box"
       ]
     },
+    "found.inBoxWithin": {
+      "text": "in {box}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "box"
+      ]
+    },
     "found.moreThanWords": {
       "text": "Your helper suggested something with more than words in it, so it's shown here for you to type yourself.",
       "layer": "her",
@@ -3186,6 +3213,14 @@
     },
     "found.near": {
       "text": "Near “{words}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "words"
+      ]
+    },
+    "found.nearWithin": {
+      "text": "near “{words}”",
       "layer": "her",
       "max": 40,
       "vars": [
@@ -3591,13 +3626,16 @@
       "vars": []
     },
     "helper.keyRejected": {
-      "text": "{company} didn't accept the key for {product}. Tell {helper}.",
+      "text": "{company} didn't accept {product}'s key. Tell {helper}.",
       "layer": "her",
-      "max": 122,
+      "max": 110,
       "vars": [
         "company",
         "product",
         "helper"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "helper.keyRejectedDetail": {
@@ -4569,6 +4607,9 @@
       "max": 210,
       "vars": [
         "product"
+      ],
+      "allows": [
+        "prompt"
       ]
     },
     "home.voiceInviteUndo": {
@@ -5673,6 +5714,30 @@
         "helper"
       ]
     },
+    "job.noNotes": {
+      "text": "Write a few words about the job first.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "job.noWordsHeard": {
+      "text": "No words were heard in it. Type a few instead.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "job.noteStillHere": {
+      "text": "Your voice note is still here.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "job.notesTooLong": {
+      "text": "That's more words than it can take. Shorten them a little.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
     "kinds.collectionsAbout": {
       "text": "A collection gathers posts on one page, like all your posts on one topic. Put a post in one from the post itself.",
       "layer": "her",
@@ -6269,9 +6334,9 @@
       "vars": []
     },
     "paths.moveKeys": {
-      "text": "On a step you can also press Alt, Shift and an arrow key, or Home or End.",
+      "text": "On a step you can also press Alt, Shift and an arrow, or Home or End.",
       "layer": "her",
-      "max": 146,
+      "max": 138,
       "vars": []
     },
     "paths.moveLast": {
@@ -8212,15 +8277,15 @@
       "vars": []
     },
     "readers.leaveHeading": {
-      "text": "Leave without saving the key?",
+      "text": "Leave without saving what you typed?",
       "layer": "her",
-      "max": 58,
+      "max": 72,
       "vars": []
     },
     "readers.leaveText": {
-      "text": "The key you typed isn't kept anywhere.",
+      "text": "It isn't kept anywhere.",
       "layer": "her",
-      "max": 76,
+      "max": 46,
       "vars": []
     },
     "readers.ledeAsked": {
@@ -12440,19 +12505,28 @@
       "max": 108,
       "vars": [
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keyChanged": {
       "text": "These settings were changed somewhere else, so the key wasn't saved. Paste it again.",
       "layer": "her",
       "max": 168,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyCheckLater": {
       "text": "The key is saved, but it couldn't be checked just now. Your helper will try it when you use it.",
       "layer": "her",
       "max": 190,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyChecking": {
       "text": "Checking the key with {company}…",
@@ -12460,13 +12534,19 @@
       "max": 64,
       "vars": [
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keyEmpty": {
       "text": "Paste the key first.",
       "layer": "her",
       "max": 40,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyHeading": {
       "text": "Turn on your writing helper",
@@ -12488,19 +12568,28 @@
       "max": 170,
       "vars": [
         "helper"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keyLabel": {
       "text": "Paste the key",
       "layer": "her",
       "max": 40,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyLeaveAsk": {
       "text": "Leave without saving the key?",
       "layer": "her",
       "max": 58,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyLeaveGo": {
       "text": "Leave",
@@ -12527,6 +12616,9 @@
       "vars": [
         "product",
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keyNeedsHelper": {
@@ -12547,13 +12639,19 @@
       "text": "Saving a key needs a signal. Nothing was saved.",
       "layer": "her",
       "max": 94,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyNotSaved": {
       "text": "The key wasn't saved. Try again in a moment.",
       "layer": "her",
       "max": 88,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyRejected": {
       "text": "{company} didn't accept that key. Check you copied all of it, then paste it again.",
@@ -12561,13 +12659,19 @@
       "max": 164,
       "vars": [
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keySave": {
       "text": "Save the key",
       "layer": "her",
       "max": 40,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keySaveAnyway": {
       "text": "Save it anyway",
@@ -12579,7 +12683,10 @@
       "text": "Saving the key…",
       "layer": "her",
       "max": 40,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyShape": {
       "text": "That doesn't look like a {company} key. Check you pasted the key, not a password.",
@@ -12587,13 +12694,19 @@
       "max": 162,
       "vars": [
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keySignedOut": {
       "text": "You were signed out, so the key wasn't saved. Sign in, then paste it again.",
       "layer": "her",
       "max": 150,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keySkip": {
       "text": "Skip — {helper} will set this up",
@@ -12632,7 +12745,11 @@
       "text": "Open API keys and choose Create key.",
       "layer": "her",
       "max": 72,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key",
+        "api"
+      ]
     },
     "start.keyStep4": {
       "text": "Copy it and paste it here.",
@@ -12644,7 +12761,10 @@
       "text": "That's too long to be a key.",
       "layer": "her",
       "max": 56,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyWhat": {
       "text": "A key is a long code, like a password, that lets {product} use {company}'s helper. {company} charges the account the key belongs to.",
@@ -12653,13 +12773,19 @@
       "vars": [
         "product",
         "company"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.keyWhere": {
       "text": "Where do I get a key?",
       "layer": "her",
       "max": 42,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "key"
+      ]
     },
     "start.keyWhereOther": {
       "text": "{helper} can tell you where to get one.",
@@ -13303,6 +13429,9 @@
       "vars": [
         "company",
         "product"
+      ],
+      "allows": [
+        "key"
       ]
     },
     "start.voiceLearn": {
@@ -14244,7 +14373,10 @@
       "text": "Choose a prompt first.",
       "layer": "her",
       "max": 44,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "prompt"
+      ]
     },
     "voice.chooseHeading": {
       "text": "What would you like to write about?",
@@ -14373,7 +14505,8 @@
         "product"
       ],
       "allows": [
-        "piece"
+        "piece",
+        "prompt"
       ]
     },
     "voice.eraseAll": {
@@ -15056,6 +15189,9 @@
       "max": 240,
       "vars": [
         "product"
+      ],
+      "allows": [
+        "prompt"
       ]
     },
     "voice.loadFailed": {
@@ -15792,7 +15928,10 @@
       "text": "That prompt can't be used. Choose another.",
       "layer": "her",
       "max": 84,
-      "vars": []
+      "vars": [],
+      "allows": [
+        "prompt"
+      ]
     },
     "voice.startedOver": {
       "text": "Started over. Nothing was kept.",

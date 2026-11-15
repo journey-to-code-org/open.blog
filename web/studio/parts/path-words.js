@@ -52,7 +52,7 @@ export const WORDS = {
   "paths.moveDown": { text: "Move down", layer: "her" },
   "paths.moveFirst": { text: "Move to the start", layer: "her" },
   "paths.moveLast": { text: "Move to the end", layer: "her" },
-  "paths.moveKeys": { text: "On a step you can also press Alt, Shift and an arrow key, or Home or End.", layer: "her" },
+  "paths.moveKeys": { text: "On a step you can also press Alt, Shift and an arrow, or Home or End.", layer: "her" },
   "paths.moved": { text: "{title} is step {number} of {count} now. Not saved yet.", layer: "her" },
   "paths.change": { text: "Change", layer: "her" },
   "paths.takeOut": { text: "Take it out", layer: "her" },

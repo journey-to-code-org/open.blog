@@ -522,7 +522,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `form.photoAddHelp` | her | From your phone or computer. | none | 56 |
 | `form.photoAdding` | her | Adding your photo… | none | 40 |
 | `form.photoAnother` | her | Choose another | none | 40 |
-| `form.photoLoading` | her | Finding your photos | none | 40 |
+| `form.photoLoading` | her | Looking for your photos | none | 46 |
 | `form.photoNoSignal` | her | Your photos show here when there's a signal. | none | 88 |
 | `form.photoNone` | her | There are no photos on your site yet. Add one above. | none | 104 |
 | `form.photoOnSite` | her | Or use one already on your site | none | 62 |
@@ -597,7 +597,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `form.wordsUnder` | her | Words under it | none | 40 |
 | `form.wordsUnderHelp` | her | Shown under the photo. | none | 44 |
 | `form.yourPosts` | her | Your posts | none | 40 |
-| `found.back` | her | ‹ Read it over again | none | 40 |
+| `found.back` | her | Read it over again | none | 40 |
 | `found.bringBack` | her | Bring it back | none | 40 |
 | `found.bringBackName` | her | Bring it back: suggestion {n} | `{n}` | 58 |
 | `found.cantUndo` | her | Your words changed here since, so this one can't be put back for you. | none | 138 |
@@ -610,8 +610,10 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `found.fromNotes` | her | Based on your notes. | none | 40 |
 | `found.heading` | her | What your helper found | none | 44 |
 | `found.inBox` | her | In {box} | `{box}` | 40 |
+| `found.inBoxWithin` | her | in {box} | `{box}` | 40 |
 | `found.moreThanWords` | her | Your helper suggested something with more than words in it, so it's shown here for you to type yourself. | none | 208 |
 | `found.near` | her | Near “{words}” | `{words}` | 40 |
+| `found.nearWithin` | her | near “{words}” | `{words}` | 40 |
 | `found.notThis` | her | Not this one | none | 40 |
 | `found.notThisList` | her | Not this one ({count}) | `{count}` | 44 |
 | `found.notThisName` | her | Not this one: suggestion {n} | `{n}` | 56 |
@@ -670,7 +672,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `helper.groupTrip` | her | what you did and the conditions | none | 62 |
 | `helper.groupVideo` | her | video facts | none | 40 |
 | `helper.groupWhen` | her | when it appears | none | 40 |
-| `helper.keyRejected` | her | {company} didn't accept the key for {product}. Tell {helper}. | `{company}` `{product}` `{helper}` | 122 |
+| `helper.keyRejected` | her | {company} didn't accept {product}'s key. Tell {helper}. | `{company}` `{product}` `{helper}` | 110 |
 | `helper.keyRejectedDetail` | details | The key was refused (HTTP 401/403). Replace it on the Writing helper screen. | none | 152 |
 | `helper.lineFinished` | her | Your helper finished reading. {count} suggestions. | `{count}` | 100 |
 | `helper.lineFinishedOne` | her | Your helper finished reading. 1 suggestion. | none | 86 |
@@ -993,6 +995,10 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `item.video` | her | A video | none | 40 |
 | `item.videoAbout` | her | From YouTube or Vimeo. | none | 44 |
 | `job.newerVersion` | her | This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}. | `{helper}` | 232 |
+| `job.noNotes` | her | Write a few words about the job first. | none | 76 |
+| `job.noWordsHeard` | her | No words were heard in it. Type a few instead. | none | 92 |
+| `job.noteStillHere` | her | Your voice note is still here. | none | 60 |
+| `job.notesTooLong` | her | That's more words than it can take. Shorten them a little. | none | 116 |
 | `kinds.collectionsAbout` | her | A collection gathers posts on one page, like all your posts on one topic. Put a post in one from the post itself. | none | 226 |
 | `kinds.collectionsEmpty` | her | A collection gathers posts on one page, like all your posts on one topic. | none | 146 |
 | `kinds.pagesAbout` | her | Pages stay put, like About or Contact. Posts come and go by date. | none | 130 |
@@ -1087,7 +1093,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paths.move` | her | Move | none | 40 |
 | `paths.moveDown` | her | Move down | none | 40 |
 | `paths.moveFirst` | her | Move to the start | none | 40 |
-| `paths.moveKeys` | her | On a step you can also press Alt, Shift and an arrow key, or Home or End. | none | 146 |
+| `paths.moveKeys` | her | On a step you can also press Alt, Shift and an arrow, or Home or End. | none | 138 |
 | `paths.moveLast` | her | Move to the end | none | 40 |
 | `paths.moveUp` | her | Move up | none | 40 |
 | `paths.moved` | her | {title} is step {number} of {count} now. Not saved yet. | `{title}` `{number}` `{count}` | 110 |
@@ -1391,8 +1397,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.kinds.sourceSuggestion` | her | Suggested sources | none | 40 |
 | `readers.kinds.thirdPerspective` | her | Reflections | none | 40 |
 | `readers.leave` | her | Leave | none | 40 |
-| `readers.leaveHeading` | her | Leave without saving the key? | none | 58 |
-| `readers.leaveText` | her | The key you typed isn't kept anywhere. | none | 76 |
+| `readers.leaveHeading` | her | Leave without saving what you typed? | none | 72 |
+| `readers.leaveText` | her | It isn't kept anywhere. | none | 46 |
 | `readers.ledeAsked` | her | You asked these readers to say more. Their answer comes back here. What they first wrote can't be shown. | none | 208 |
 | `readers.ledeNotShown` | her | You chose not to show these. Only you can see them. | none | 102 |
 | `readers.ledeShown` | her | These are on your posts for everyone to read. | none | 90 |

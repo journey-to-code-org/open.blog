@@ -3,7 +3,7 @@
 // It says what goes to which company before anything is sent: the words she selected, else the
 // part she's in, else all her words, and nothing else. What comes back fills the form (never the
 // post), is made plain first, and goes through the same checks as what she types on Add it.
-import { fill, h } from "./dom.js";
+import { fill, glyph, h } from "./dom.js";
 import { say } from "./words.js";
 import { createGoesBox } from "./helper-goes.js";
 import { helperProblem, wordsAbout } from "./helper-rules.js";
@@ -18,7 +18,7 @@ import { interactionFromGenerated } from "./code-rules.js";
  */
 export function generateView({ api, kind, company, source, asked = {}, hasTyping = false, backLabel, onWritten, onBack }) {
   const quiz = kind === "quiz";
-  const back = h("action-button", { variant: "link", class: "studio-add-back", onClick: () => onBack() }, `‹ ${backLabel}`);
+  const back = h("action-button", { variant: "link", class: "studio-add-back", onClick: () => onBack() }, glyph("‹ "), backLabel);
   const count = quiz ? h("select-field", { label: say("hgen.howMany"), value: "2", options: ["1", "2", "3"].map((value) => ({ value, label: value })) }) : null;
   const asking = quiz ? null : h("p", { class: "studio-help", text: say("hgen.codeKind", { kind: asked.kind === "challenge" ? say("form.runChallenge") : say("form.runExample"), language: asked.language === "web" ? say("form.runWeb") : String(asked.language || "rust") }) });
   const goes = createGoesBox();

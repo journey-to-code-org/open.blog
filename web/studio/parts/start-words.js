@@ -12,7 +12,7 @@ const her = (text, extra = {}) => ({ text, layer: "her", ...extra });
 const details = (text, extra = {}) => ({ text, layer: "details", ...extra });
 
 /** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
-export const WORDS = {
+const ENTRIES = {
   // ---- the frame
   "start.title": her("Getting started"),
   "start.welcome": her("Welcome, {owner}", { bare: "Welcome" }),
@@ -207,3 +207,19 @@ export const WORDS = {
   "write.storyNudgeStopped": her("Okay, it won't ask again. Getting started is in the menu if you change your mind."),
   "write.storyNudgeUndo": her("Undo"),
 };
+
+// "key" is said in one place on her layer: Getting started's key step, where a sentence explains
+// it (and "API keys" there is the name another app shows her), and in the line for a key the
+// company refused. Each such id names the word in `allows`; no other id may.
+const KEY_IDS = /^start\.(key[A-Z0-9]|voiceKeyProblem$)/;
+const allowed = (id, entry) => [
+  ...(entry.allows || []),
+  ...(KEY_IDS.test(id) && /\bkey\b/i.test(entry.text) ? ["key"] : []),
+  ...(id === "start.keyStep3" ? ["api"] : []),
+];
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string, allows?: string[] }>} */
+export const WORDS = Object.fromEntries(Object.entries(ENTRIES).map(([id, entry]) => {
+  const allows = entry.layer === "her" ? allowed(id, entry) : [];
+  return [id, allows.length ? { ...entry, allows } : entry];
+}));

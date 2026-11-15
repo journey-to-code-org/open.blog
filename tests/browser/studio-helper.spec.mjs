@@ -156,6 +156,13 @@ test("Read it over a selection: it says what goes first, sends only on her press
   await expect(sheet(page).getByRole("button", { name: /^Use all/ })).toBeHidden();
   await axeClean(page, "What your helper found", "side-sheet.studio-helper-sheet");
 
+  // N2: the sheet's own × is a target she can hit: 44 by 44, like every other control.
+  const cross = await sheet(page).locator("button.sheet-close").boundingBox();
+  expect(Math.round(cross.width), "× width").toBeGreaterThanOrEqual(44);
+  expect(Math.round(cross.height), "× height").toBeGreaterThanOrEqual(44);
+  // N4: the arrow is for the eye; the button's name is its words.
+  await expect(sheet(page).locator(".studio-step-back button")).toHaveAccessibleName("Read it over again");
+  await expect(sheet(page).locator(".studio-step-back")).toContainText("‹ Read it over again");
   // Use this: only those words change, in her box. Undo puts them back exactly.
   await first.getByRole("button", { name: "Use this: change “alot of butter” to “a lot of butter”", exact: true }).click();
   await expect(words(page)).toHaveValue(wordsWith("alot", "a lot"));
@@ -185,7 +192,7 @@ test("Read it over a selection: it says what goes first, sends only on her press
 
   // Show me closes the sheet and selects the words in her box.
   await card(page).getByRole("button").click();
-  await sheet(page).getByRole("button", { name: "Show me: suggestion 2, In Words", exact: true }).click();
+  await sheet(page).getByRole("button", { name: "Show me: suggestion 2, in Words", exact: true }).click();
   await expect(sheet(page)).toBeHidden();
   await expect.poll(() => page.evaluate(() => { const area = document.activeElement; return area?.value?.slice(area.selectionStart, area.selectionEnd); })).toBe("work fast");
   expect(posts).toEqual(["/admin/api/assistant/review"]);
@@ -198,7 +205,7 @@ test("each way a read can fail says so in her words, and her post is unchanged",
   const read = sheet(page).getByRole("button", { name: "Read it over", exact: true });
   await expect(read).toBeVisible();
   const cases = [
-    [{ status: 502, json: { error: "Anthropic returned HTTP 401", code: "key-rejected" } }, "Anthropic didn't accept the key for your blog. Tell the person who set up your site."],
+    [{ status: 502, json: { error: "Anthropic returned HTTP 401", code: "key-rejected" } }, "Anthropic didn't accept your blog's key. Tell the person who set up your site."],
     [{ status: 502, json: { error: "Anthropic returned HTTP 429", code: "provider-busy", retryAfter: 30 } }, "Anthropic is busy right now. Try again in a few minutes."],
     [{ status: 502, json: { error: "Anthropic returned HTTP 500", code: "provider-down" } }, "Anthropic didn't answer, so nothing came back. Your words are as they were. Try again later."],
     [{ status: 504, json: { error: "Anthropic request timed out", code: "timeout" } }, "Anthropic took too long, so nothing came back. Try a smaller part."],
