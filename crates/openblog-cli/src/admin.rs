@@ -919,6 +919,62 @@ fn authenticated_api(
     name: &str,
     session: &auth::Session,
 ) -> Response {
+    let response = authenticated_api_routes(state, req, name, session);
+    if name.starts_with("engagement/") || name == "analytics" {
+        return with_engagement_code(response);
+    }
+    response
+}
+
+/// R10 G81: every refusal from an `engagement/*` or `analytics` route says what kind of trouble it is, so
+/// Studio can answer in her words instead of guessing from a status or a sentence. A route that already sent a
+/// `code` keeps it; the sentence is never changed.
+fn with_engagement_code(mut response: Response) -> Response {
+    if response.status < 400 || response.status == 401 {
+        return response;
+    }
+    let Ok(mut body) = serde_json::from_slice::<Json>(&response.body) else {
+        return response;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return response;
+    };
+    if object.contains_key("code") {
+        return response;
+    }
+    let message = object
+        .get("error")
+        .and_then(Json::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let code = match response.status {
+        404 if message.contains("not configured") || message.contains("not set up") => "not-set-up",
+        503 if message.contains("credential") => "not-set-up",
+        404 => "gone",
+        403 => "not-yours",
+        409 => "changed",
+        502 => "service-down",
+        504 => "service-slow",
+        422 if message.contains("moderation state") => "unknown-state",
+        422 if message.contains("participation kind") => "unknown-kind",
+        422 if message.contains("cursor") => "bad-cursor",
+        422 if message.contains("reason") => "reason-not-allowed",
+        413 => "too-long",
+        _ => return response,
+    };
+    object.insert("code".into(), json!(code));
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        response.body = bytes;
+    }
+    response
+}
+
+fn authenticated_api_routes(
+    state: &AppState,
+    req: &Request,
+    name: &str,
+    session: &auth::Session,
+) -> Response {
     if req.method == "GET" {
         if let Some(token) = name.strip_prefix("preview/") {
             return preview_document(state, token);
@@ -1075,7 +1131,9 @@ fn authenticated_api(
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
+        ("GET", "engagement/health") => engagement_health(state, req),
         ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
+        ("GET", "engagement/moderation/item") => moderation_inbox_one(state, req, session),
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
         ("POST", "engagement/author-response") => author_answer(state, req, session),
         ("PATCH", "engagement/author-response") => withdraw_author_answer(state, req, session),
@@ -5311,6 +5369,25 @@ fn save_assistant_settings(state: &AppState, req: &Request, session: &auth::Sess
 }
 
 const ENGAGEMENT_CREDENTIAL_FILE: &str = ".openblog/private/engagement/api-key";
+/// When old notes were last cleared out (R10 G91): private, per site, one RFC 3339 time.
+const RETENTION_LAST_RUN_FILE: &str = ".openblog/private/engagement/retention-last-run";
+
+fn retention_last_run(root: &Path) -> Option<String> {
+    let path = crate::assistant_storage::contained_target(root, Path::new(RETENTION_LAST_RUN_FILE))
+        .ok()?;
+    let text = fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    DateTime::parse(text).map(|at| at.rfc3339())
+}
+
+fn record_retention_last_run(root: &Path, at: DateTime) {
+    // Best effort: failing to note the day must never undo what was cleared out.
+    if let Ok(path) =
+        crate::assistant_storage::contained_target(root, Path::new(RETENTION_LAST_RUN_FILE))
+    {
+        let _ = write_private_bytes_atomic(&path, at.rfc3339().as_bytes());
+    }
+}
 const ENGAGEMENT_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_KEY";
 const ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_ORIGIN";
 
@@ -5526,8 +5603,173 @@ fn engagement_settings(state: &AppState) -> Response {
             "captcha": config.engagement.captcha,
             "etag": etag,
             "credential": credential,
+            // R10 G83: what readers can send and how long old notes are kept. Read-only:
+            // saving the settings ignores these.
+            "kinds": engagement_kinds(&config),
+            "retention": engagement_retention(&config),
+            "receipts": config.engagement.receipts,
+            "evidence": config.engagement.evidence,
+            "feedbackContact": config.engagement.feedback_contact,
         }),
     )
+}
+
+/// The kinds a site takes, as `[{id, setting}]` with the setting as it is in effect: comments by their
+/// own switch, the others by `participation.kinds` and what `engagement.feedback` folds in.
+fn engagement_kinds(config: &SiteConfig) -> Json {
+    let kinds: Vec<Json> = participation::ParticipationKind::ALL
+        .iter()
+        .map(|kind| {
+            let setting = if *kind == participation::ParticipationKind::Comment {
+                if config.engagement.comments {
+                    "open".to_string()
+                } else {
+                    "off".to_string()
+                }
+            } else {
+                serde_json::to_value(config.participation.setting(*kind))
+                    .ok()
+                    .and_then(|value| value.as_str().map(str::to_string))
+                    .unwrap_or_else(|| "off".to_string())
+            };
+            json!({ "id": kind.id(), "setting": setting })
+        })
+        .collect();
+    Json::Array(kinds)
+}
+
+/// The check ids the hosted function may report; anything else it sends is dropped.
+const HEALTH_HOSTED_IDS: [&str; 5] = [
+    "comments",
+    "feedback",
+    "moderation",
+    "protection",
+    "robot-secret",
+];
+
+/// The hosted function's table checks, as `[{id, ok, code}]`; refuses anything of another shape.
+fn validate_hosted_health(value: &Json) -> Result<Json, String> {
+    let checks = value["checks"]
+        .as_array()
+        .ok_or("Hosted engagement returned an unexpected health answer")?;
+    let kept: Vec<Json> = checks
+        .iter()
+        .filter_map(|check| {
+            let id = check["id"].as_str()?;
+            if !HEALTH_HOSTED_IDS.contains(&id) {
+                return None;
+            }
+            let ok = match &check["ok"] {
+                Json::Bool(ok) => json!(ok),
+                _ => Json::Null,
+            };
+            let code = ["ok", "missing", "unreachable"]
+                .into_iter()
+                .find(|known| Some(*known) == check["code"].as_str())
+                .unwrap_or("unreachable");
+            Some(json!({ "id": id, "ok": ok, "code": code }))
+        })
+        .collect();
+    Ok(json!({ "checks": kept }))
+}
+
+/// What reaching the hosted function came to, for the one "service answers" check.
+enum HostedHealth {
+    /// It answered with these table checks.
+    Answered(Vec<Json>),
+    /// This site does not use the hosted service, or the key is not here yet: nothing to ask.
+    NotAsked,
+    /// The deployed function predates the health check.
+    Older,
+    /// It did not answer in time.
+    Slow,
+    /// It could not be reached or answered with something unusable.
+    Down,
+}
+
+/// The setup checks: the settings' own (address, key) and what the hosted function said. Yes, no or
+/// `null` for "can't tell": never a value, key or address.
+fn health_checks(address_ok: bool, key_ok: Option<bool>, hosted: HostedHealth) -> Json {
+    let mut checks = vec![
+        json!({ "id": "address", "ok": address_ok, "code": if address_ok { "ok" } else { "bad-address" } }),
+        json!({ "id": "key", "ok": key_ok, "code": match key_ok { Some(true) => "ok", Some(false) => "missing", None => "unknown" } }),
+    ];
+    match hosted {
+        HostedHealth::Answered(rows) => {
+            checks.push(json!({ "id": "service", "ok": true, "code": "ok" }));
+            checks.extend(rows);
+        }
+        HostedHealth::NotAsked => {
+            checks.push(json!({ "id": "service", "ok": null, "code": "not-asked" }))
+        }
+        HostedHealth::Older => {
+            checks.push(json!({ "id": "service", "ok": true, "code": "older-function" }))
+        }
+        HostedHealth::Slow => {
+            checks.push(json!({ "id": "service", "ok": false, "code": "service-slow" }))
+        }
+        HostedHealth::Down => {
+            checks.push(json!({ "id": "service", "ok": false, "code": "service-down" }))
+        }
+    }
+    json!({ "checks": checks })
+}
+
+/// `GET engagement/health`: is this site's comments service set up and answering? The address and
+/// the key are checked here, the service and its tables by asking the hosted function (5 seconds at
+/// most). Admin only; the answer never holds a key.
+fn engagement_health(state: &AppState, req: &Request) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let address_ok = valid_engagement_endpoint(&config.engagement.endpoint);
+    let key_ok = if address_ok {
+        match engagement_credential(&state.root, &config.engagement.endpoint) {
+            Ok(Some(_)) => Some(true),
+            Ok(None) => Some(false),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let hosted = if !config.engagement.enabled || key_ok != Some(true) {
+        HostedHealth::NotAsked
+    } else {
+        let asked = hosted_engagement_request_within(state, req, "admin/health", 5);
+        match asked.status {
+            200 => match serde_json::from_slice::<Json>(&asked.body)
+                .ok()
+                .and_then(|value| value["checks"].as_array().cloned())
+            {
+                Some(rows) => HostedHealth::Answered(rows),
+                None => HostedHealth::Down,
+            },
+            504 => HostedHealth::Slow,
+            _ => {
+                if String::from_utf8_lossy(&asked.body)
+                    .contains("unsupported hosted engagement operation")
+                {
+                    HostedHealth::Older
+                } else {
+                    HostedHealth::Down
+                }
+            }
+        }
+    };
+    Response::json(200, &health_checks(address_ok, key_ok, hosted))
+}
+
+/// How long moderation keeps what it does not publish, and whether comments are covered.
+fn engagement_retention(config: &SiteConfig) -> Json {
+    let policy = moderation::ModerationPolicy::from_config(config);
+    json!({
+        "pendingDays": policy.retention.pending_days,
+        "clarificationDays": policy.retention.clarification_days,
+        "closedDays": policy.retention.closed_days,
+        "auditDays": policy.retention.audit_days,
+        "coversComments": policy.comment_retention,
+    })
 }
 
 fn valid_engagement_endpoint(endpoint: &str) -> bool {
@@ -5778,7 +6020,11 @@ fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
         "series": safe_series,
         "topPosts": safe_posts,
         "referrers": safe_referrers,
-        "agentRequests": 0,
+        // R10 G87: the hosted counter keeps what its table keeps (not reported here), and does not count
+        // agents, so that is "not counted" (null), never zero.
+        "keptDays": value["keptDays"].as_u64().filter(|days| (1..=36_500).contains(days)),
+        "counter": "hosted",
+        "agentRequests": null,
         "agents": [],
         "agentPages": [],
     }))
@@ -5791,11 +6037,21 @@ fn validate_hosted_engagement_response(
 ) -> Result<Json, String> {
     match (method, operation) {
         ("GET", "admin/analytics") => validate_hosted_analytics(value),
+        ("GET", "admin/health") => validate_hosted_health(value),
         _ => Err("unsupported hosted engagement operation".into()),
     }
 }
 
 fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -> Response {
+    hosted_engagement_request_within(state, req, operation, 20)
+}
+
+fn hosted_engagement_request_within(
+    state: &AppState,
+    req: &Request,
+    operation: &str,
+    seconds: u64,
+) -> Response {
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
@@ -5832,7 +6088,7 @@ fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -
         url.push_str(&query);
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(20)))
+        .timeout_global(Some(Duration::from_secs(seconds)))
         .max_redirects(0)
         .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -8199,6 +8455,81 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
     )
 }
 
+/// `GET engagement/moderation/item?source=&id=`: one inbox item as this account sees it (R10 G85), for a
+/// tapped notification and for checking that an Undo still applies. An item the account may not see
+/// is the same 404 as one that is gone, so the answer never says which.
+fn moderation_inbox_one(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let source = req.query.get("source").map_or("", String::as_str);
+    let id = req
+        .query
+        .get("id")
+        .map_or("", String::as_str)
+        .to_ascii_lowercase();
+    let uuid = id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        });
+    if !["comment", "feedback", "report"].contains(&source) || !uuid {
+        return Response::json(
+            422,
+            &json!({ "error": "Name an item by its source and id.", "code": "bad-item" }),
+        );
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let bound = sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    });
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let collected = collect_inbox_page(
+        bound,
+        None,
+        |_| match hosted_moderation_call(state, &[("source", source), ("id", id.as_str())], None) {
+            Ok((200, value)) => {
+                moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))
+            }
+            Ok(_) => Err(Response::error(
+                502,
+                "hosted engagement returned an invalid inbox",
+            )),
+            Err(response) => Err(response),
+        },
+        |page| {
+            sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
+                page.items
+                    .iter()
+                    .filter_map(|item| {
+                        inbox_view(inbox, item, published.as_ref(), perspectives.as_ref())
+                    })
+                    .collect()
+            })
+        },
+    );
+    let mut collected = match collected {
+        Ok(collected) => collected,
+        Err(response) => return response,
+    };
+    add_decision_choices(state, &sources.published, &mut collected.items);
+    match collected.items.into_iter().next() {
+        Some(item) => Response::json(200, &json!({ "item": item })),
+        None => Response::json(
+            404,
+            &json!({ "error": "That note isn't here any more.", "code": "gone" }),
+        ),
+    }
+}
+
 /// One page of the inbox as one account sees it.
 struct CollectedPage {
     protocol: moderation_inbox::Protocol,
@@ -8475,7 +8806,13 @@ fn retention_dry_run(state: &AppState, session: &auth::Session) -> Response {
     let policy = moderation::ModerationPolicy::from_config(&sources.config);
     let as_of = clock::now();
     match retention_plan(state, &policy, as_of) {
-        Ok(plan) => Response::json(200, &retention_report(&policy, as_of, &plan)),
+        Ok(plan) => {
+            let mut report = retention_report(&policy, as_of, &plan);
+            // R10 G91: when it was last run, and how many notes it would touch now.
+            report["lastRunAt"] = json!(retention_last_run(&state.root));
+            report["dueCount"] = json!(plan.items.len());
+            Response::json(200, &report)
+        }
         Err(response) => response,
     }
 }
@@ -8542,9 +8879,11 @@ fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Re
         count("purged"),
         count("skipped")
     );
+    record_retention_last_run(&state.root, now);
     Response::json(
         200,
         &json!({
+            "lastRunAt": now.rfc3339(),
             "expired": count("expired"),
             "purged": count("purged"),
             "scrubbed": count("scrubbed"),
@@ -31701,6 +32040,260 @@ What I read:
     }
 
     #[test]
+    fn engagement_settings_say_what_readers_can_send_and_how_long_notes_are_kept() {
+        let _env = quiz_env();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-settings-kinds");
+        let path = f.dir.join(site::CONFIG_FILE);
+        let mut written: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        written["engagement"] = json!({
+            "enabled": true, "comments": true, "endpoint": "https://comments.example/api",
+            "receipts": true, "feedbackContact": "mailto:write@example.com"
+        });
+        written["participation"] = json!({
+            "kinds": { "question": "open", "future-suggestion": "locked" },
+            "retention": { "pendingDays": 45 }
+        });
+        fs::write(&path, serde_json::to_string_pretty(&written).unwrap()).unwrap();
+        let session = login_ok(&f);
+        let settings = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        ));
+        let setting_of = |id: &str| {
+            settings["kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|kind| kind["id"] == id)
+                .map(|kind| kind["setting"].clone())
+        };
+        assert_eq!(setting_of("comment"), Some(json!("open")));
+        assert_eq!(setting_of("question"), Some(json!("open")));
+        assert_eq!(setting_of("future-suggestion"), Some(json!("locked")));
+        assert_eq!(setting_of("third-perspective"), Some(json!("off")));
+        assert_eq!(settings["kinds"].as_array().unwrap().len(), 9);
+        assert_eq!(settings["retention"]["pendingDays"], 45);
+        assert_eq!(settings["retention"]["closedDays"], 30);
+        assert_eq!(settings["retention"]["coversComments"], true);
+        assert_eq!(settings["receipts"], true);
+        assert_eq!(settings["evidence"], false);
+        assert_eq!(settings["feedbackContact"], "mailto:write@example.com");
+
+        // Saving ignores them: the file keeps its own `participation`.
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true, "comments": false, "analytics": false,
+                        "endpoint": "https://comments.example/api", "etag": settings["etag"],
+                        "credentialAction": "keep",
+                        "kinds": [{ "id": "question", "setting": "off" }],
+                        "retention": { "pendingDays": 1 }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let after: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after["participation"], written["participation"]);
+        assert_eq!(after["engagement"]["comments"], false);
+    }
+
+    #[test]
+    fn the_health_check_says_yes_no_or_cant_tell_and_never_holds_a_key() {
+        let rows = vec![json!({ "id": "comments", "ok": true, "code": "ok" })];
+        let answered = health_checks(true, Some(true), HostedHealth::Answered(rows));
+        let ok_of = |value: &Json, id: &str| {
+            value["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|check| check["id"] == id)
+                .map(|check| check["ok"].clone())
+        };
+        assert_eq!(ok_of(&answered, "address"), Some(json!(true)));
+        assert_eq!(ok_of(&answered, "service"), Some(json!(true)));
+        assert_eq!(ok_of(&answered, "comments"), Some(json!(true)));
+        let down = health_checks(true, Some(true), HostedHealth::Down);
+        assert_eq!(ok_of(&down, "service"), Some(json!(false)));
+        assert_eq!(
+            ok_of(&down, "comments"),
+            None,
+            "no table is claimed when the service did not answer"
+        );
+        let slow = health_checks(true, Some(true), HostedHealth::Slow);
+        assert_eq!(slow["checks"][2]["code"], "service-slow");
+        let unasked = health_checks(false, None, HostedHealth::NotAsked);
+        assert_eq!(ok_of(&unasked, "address"), Some(json!(false)));
+        assert_eq!(ok_of(&unasked, "key"), Some(Json::Null));
+        assert_eq!(ok_of(&unasked, "service"), Some(Json::Null));
+
+        // What the hosted function sends is cut down to the ids and words we know.
+        let cleaned = validate_hosted_health(&json!({ "checks": [
+            { "id": "comments", "ok": false, "code": "missing", "secret": "sb_secret_x" },
+            { "id": "surprise", "ok": true, "code": "ok" },
+            { "id": "feedback", "ok": "yes", "code": "weird" }
+        ]}))
+        .unwrap();
+        assert_eq!(
+            cleaned,
+            json!({ "checks": [
+                { "id": "comments", "ok": false, "code": "missing" },
+                { "id": "feedback", "ok": null, "code": "unreachable" }
+            ]})
+        );
+        assert!(validate_hosted_health(&json!({ "nothing": 1 })).is_err());
+    }
+
+    #[test]
+    fn the_health_route_works_without_a_comments_service() {
+        let _env = quiz_env();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-health-route");
+        let session = login_ok(&f);
+        let answer = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/engagement/health"), &session, false),
+        );
+        assert_eq!(answer.status, 200);
+        let body = body_json(&answer);
+        let service = body["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "service")
+            .unwrap();
+        assert_eq!(
+            service["ok"],
+            Json::Null,
+            "nothing was asked, so it can't tell"
+        );
+        let signed_out = handle(&f.state, &req("GET", "/admin/api/engagement/health"));
+        assert_eq!(signed_out.status, 401);
+    }
+
+    #[test]
+    fn one_inbox_item_is_asked_for_by_source_and_id_and_only_when_signed_in() {
+        let f = fixture("engagement-one-item");
+        let session = login_ok(&f);
+        let path = "/admin/api/engagement/moderation/item";
+        let asked = |query: &str| {
+            handle(
+                &f.state,
+                &authed(req("GET", &format!("{path}?{query}")), &session, false),
+            )
+        };
+        let id = "00000000-0000-4000-8000-000000000001";
+        for bad in [
+            String::new(),
+            format!("source=comment&id={}", "not-an-id"),
+            format!("source=newsletter&id={id}"),
+            format!("source=comment&id={id}x"),
+        ] {
+            let answer = asked(&bad);
+            assert_eq!(answer.status, 422, "{bad}");
+            assert_eq!(body_json(&answer)["code"], "bad-item");
+        }
+        assert_eq!(
+            handle(
+                &f.state,
+                &req("GET", &format!("{path}?source=comment&id={id}"))
+            )
+            .status,
+            401
+        );
+        // A well-formed ask on a site with no comments service is the same refusal the inbox gives.
+        assert_ne!(asked(&format!("source=comment&id={id}")).status, 200);
+    }
+
+    #[test]
+    fn the_day_old_notes_were_last_cleared_out_is_kept_privately_and_read_back() {
+        let f = fixture("retention-last-run");
+        assert_eq!(retention_last_run(&f.dir), None);
+        let at = DateTime::parse("2026-10-05T14:30:00Z").unwrap();
+        record_retention_last_run(&f.dir, at);
+        assert_eq!(
+            retention_last_run(&f.dir).as_deref(),
+            Some("2026-10-05T14:30:00Z")
+        );
+        // It lives under the private folder, never in the published tree or openblog.json.
+        let file = f.dir.join(RETENTION_LAST_RUN_FILE);
+        assert!(file.starts_with(f.dir.join(".openblog").join("private")));
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("2026-10-05"));
+        // Something that isn't a time is not a day.
+        fs::write(&file, "yesterday").unwrap();
+        assert_eq!(retention_last_run(&f.dir), None);
+    }
+
+    #[test]
+    fn engagement_refusals_carry_a_code_and_keep_their_own() {
+        let said = |status: u16, error: &str| {
+            body_json(&with_engagement_code(Response::error(status, error)))["code"].clone()
+        };
+        assert_eq!(
+            said(404, "Hosted engagement is not configured"),
+            "not-set-up"
+        );
+        assert_eq!(
+            said(503, "Hosted engagement admin credential is not configured"),
+            "not-set-up"
+        );
+        assert_eq!(
+            said(502, "Hosted engagement request failed"),
+            "service-down"
+        );
+        assert_eq!(said(504, "Hosted engagement timed out"), "service-slow");
+        assert_eq!(said(422, "Unknown moderation state"), "unknown-state");
+        assert_eq!(said(422, "Unknown participation kind"), "unknown-kind");
+        assert_eq!(said(422, "Invalid page cursor"), "bad-cursor");
+        assert_eq!(
+            said(422, "Choose one of the listed reasons."),
+            "reason-not-allowed"
+        );
+        assert_eq!(said(409, "changed"), "changed");
+        assert_eq!(said(404, "No such item"), "gone");
+        assert_eq!(said(403, "Only the site Admin runs retention"), "not-yours");
+        // A code the route chose stays; success and sign-in are left alone; the sentence is never changed.
+        let own = Response::json(422, &json!({ "error": "x", "code": "notAllowed" }));
+        assert_eq!(body_json(&with_engagement_code(own))["code"], "notAllowed");
+        assert_eq!(
+            with_engagement_code(Response::json(200, &json!({ "ok": true }))).status,
+            200
+        );
+        assert_eq!(
+            body_json(&with_engagement_code(Response::error(401, "no"))).get("code"),
+            None
+        );
+        assert_eq!(
+            body_json(&with_engagement_code(Response::error(404, "No such item")))["error"],
+            "No such item"
+        );
+    }
+
+    #[test]
     fn the_retention_dry_run_shows_facts_and_counts_never_text_or_names() {
         let policy = moderation::ModerationPolicy::default();
         let as_of = DateTime::parse("2026-10-27T10:00:00Z").unwrap();
@@ -32306,7 +32899,16 @@ What I read:
         let validated =
             validate_hosted_engagement_response("GET", "admin/analytics", &safe).unwrap();
         assert_eq!(validated["topPosts"][0]["path"], "/story/");
-        assert_eq!(validated["agentRequests"], 0);
+        assert_eq!(validated["agentRequests"], Json::Null);
+        assert_eq!(validated["counter"], "hosted");
+        assert_eq!(validated["keptDays"], Json::Null);
+        let kept = validate_hosted_engagement_response("GET", "admin/analytics", &{
+            let mut with = safe.clone();
+            with["keptDays"] = json!(400);
+            with
+        })
+        .unwrap();
+        assert_eq!(kept["keptDays"], 400);
 
         let unsafe_path = json!({
             "days": 30, "from": "2026-09-25", "to": "2026-10-24",
@@ -38489,6 +39091,8 @@ series: letters
         assert_eq!(dash["referrers"][0]["host"], "news.ycombinator.com");
         assert_eq!(dash["series"].as_array().unwrap().len(), 7);
         assert_eq!(dash["agentRequests"], 2);
+        assert_eq!(dash["counter"], "builtin");
+        assert!(dash["keptDays"].as_u64().is_some_and(|days| days >= 1));
         assert_eq!(dash["agents"][0]["requests"], 1);
         assert!(dash["agentPages"].as_array().unwrap().iter().any(|page| {
             page["path"] == "/posts/hello-world/"

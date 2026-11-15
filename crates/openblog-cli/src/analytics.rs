@@ -533,6 +533,9 @@ impl Store {
             "series": series,
             "topPosts": top.iter().take(25).map(|(p, (v, u))| json!({ "path": p, "views": v, "uniques": u, "allTime": totals.get(*p).copied().unwrap_or(0) })).collect::<Vec<_>>(),
             "referrers": refs.iter().take(25).map(|(h, n)| json!({ "host": h, "views": n })).collect::<Vec<_>>(),
+            // R10 G87: how long these numbers are kept, and which counter they come from.
+            "keptDays": self.retention_days,
+            "counter": "builtin",
             "agentRequests": agent_requests,
             "agents": agent_list.iter().map(|(name, requests)| json!({
                 "name": name,

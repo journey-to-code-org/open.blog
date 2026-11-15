@@ -470,9 +470,9 @@ export function waitingLine(page) {
  */
 export function readerProblem(error, place = "card") {
   const status = error?.status ?? 0;
-  const code = String(error?.code || "");
+  const code = String(error?.code || error?.data?.code || "");
   if (!status) return { id: "readers.noSignal", reload: false, code };
-  if (code === "changed" || (status === 409 && !code)) return { id: "readers.changedHere", reload: true, code: code || "changed" };
+  if (code === "changed" || code === "conflict" || status === 409) return { id: "readers.changedHere", reload: true, code: code || "changed" };
   if (code === "reason-needed" || code === "reason-not-allowed" || code === "reasonNotAllowed" || (status === 422 && /reason/i.test(String(error?.message || "")))) return { id: "readers.chooseWhy", reload: false, code };
   if (code === "not-offered") return { id: "readers.notOffered", reload: true, code };
   if (code === "not-yours") return { id: "readers.notYours", reload: false, code };

@@ -102,3 +102,23 @@ test("setup: state line, the saved body never carries a key unless replacing it,
   assert.equal(retentionCount(report), 3);
   assert.ok(retentionLines(report).length >= 3);
 });
+
+test("the checklist says yes, no or can't tell from what the server checked", async () => {
+  const { setupChecklist } = await import("../../web/studio/parts/reader-setup-rules.js");
+  const settings = { endpoint: "https://x.example", credential: { configured: true } };
+  const rows = (checks) => Object.fromEntries(setupChecklist(settings, { checks }, {}).map((r) => [r.id, r.state]));
+  const all = [{ id: "service", ok: true }, ...["comments", "feedback", "moderation", "protection"].map((id) => ({ id, ok: true }))];
+  assert.equal(rows(all)["readers.checkTables"], true);
+  assert.equal(rows(all)["readers.checkAnswers"], true);
+  assert.equal(rows([...all.slice(0, 2), { id: "feedback", ok: false }])["readers.checkTables"], false);
+  assert.equal(rows([{ id: "service", ok: true }])["readers.checkTables"], null);
+  assert.equal(rows(all)["readers.checkVars"], null);
+  assert.equal(setupChecklist(null, null, {})[0].state, null);
+});
+
+test("a refusal's code is read from the answer, and a 409 is always 'changed'", () => {
+  assert.equal(readerProblem({ status: 502, data: { code: "service-bad-answer" } }, "list").id, "readers.listFailed");
+  assert.equal(readerProblem({ status: 409, data: { code: "conflict" } }, "card").id, "readers.changedHere");
+  assert.equal(readerProblem({ status: 404, data: { code: "gone" } }, "card").id, "readers.gone");
+  assert.equal(readerProblem({ status: 422, data: { code: "reasonNotAllowed" } }, "card").id, "readers.chooseWhy");
+});
