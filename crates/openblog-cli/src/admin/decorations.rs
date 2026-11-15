@@ -1,5 +1,4 @@
-//! Admin routes for decoration pieces (Studio slice 3b): `GET`/`PUT /admin/api/decorations` and
-//! `POST decorations/preview`.
+//! Admin routes for decoration pieces (Studio slice 3b): `GET`/`PUT /admin/api/decorations`.
 //!
 //! A theme may declare its decorations as pieces (`theme.json` `decorations`). Here the owner takes
 //! one down or puts up another version of it. The choices are stored in `openblog.json`
@@ -204,40 +203,4 @@ pub(super) fn save_decorations(state: &AppState, req: &Request) -> Response {
     };
     state_arc(state).auto_publish("Change the decorations".to_string());
     Response::json(200, &described)
-}
-
-/// `POST decorations/preview { look, pieces }`: the home page in that look with these choices, before
-/// they're saved. Nothing is written.
-pub(super) fn preview_decorations(state: &AppState, req: &Request) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    if req.body.len() > MAX_REQUEST_BYTES {
-        return Response::error(413, "That request is too large");
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(Json::Object(body)) => Json::Object(body),
-        _ => return Response::error(400, "Invalid JSON"),
-    };
-    let Some(look) = body.get("look").and_then(Json::as_str).map(str::trim) else {
-        return Response::error(422, "Choose the look to see");
-    };
-    let pieces: BTreeMap<String, DecorChoice> =
-        match serde_json::from_value(body.get("pieces").cloned().unwrap_or_else(|| json!({}))) {
-            Ok(pieces) => pieces,
-            Err(error) => {
-                return Response::error(422, &format!("Those decorations can't be read: {error}"))
-            }
-        };
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let check = BTreeMap::from([(look.to_string(), pieces.clone())]);
-    match pieces_problems(&state.root, &config, &check) {
-        Ok(problems) if problems.is_empty() => {}
-        Ok(problems) => return Response::error(422, &problems.join("; ")),
-        Err(error) => return Response::error(500, &error),
-    }
-    super::seasons::preview_home(state, look, Some(pieces))
 }

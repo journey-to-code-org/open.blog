@@ -571,7 +571,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "seasons" || name == "seasons/preview" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
-        if name == "decorations" || name == "decorations/preview" {
+        if name == "decorations" {
             return Ok(decorations::MAX_REQUEST_BYTES);
         }
         if name == "business" {
@@ -994,7 +994,6 @@ fn authenticated_api(
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
         ("GET", "decorations") => decorations::get_decorations(state),
         ("PUT", "decorations") => decorations::save_decorations(state, req),
-        ("POST", "decorations/preview") => decorations::preview_decorations(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),
@@ -1067,7 +1066,6 @@ fn authenticated_api(
         ("GET", "landing/history") => landing::history_list(state),
         ("GET", "landing/history/item") => landing::history_item(state, req),
         ("POST", "landing/history/restore") => landing::history_restore(state, req),
-        ("GET", "voice/catalog") => voice::catalog(state),
         ("GET", "voice/status") => voice::status(state, &session.user),
         ("POST", "voice/invitation") => voice::set_invitation(state, req, &session.user),
         ("POST", "voice/spoken") => voice::spoken(state, req, &session.user),
