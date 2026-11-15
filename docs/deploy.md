@@ -508,6 +508,52 @@ A site repository can pin both to one engine commit and build them itself, as
 `railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
 (Railway's watch paths), or every save in the editor redeploys the editor.
 
+## Getting started for a new owner
+
+Studio can walk a new owner through a short **Getting started** the first time she signs in: turn
+on the writing helper (only when the site has no key), tell a few short stories, and let the helper
+learn how she sounds from them. One switch on the server decides whether it shows by itself:
+
+| `OPENBLOG_STUDIO_ONBOARDING` | What happens |
+| --- | --- |
+| `off` (or unset with nothing in `openblog.json`) | Never shows by itself. It still runs from her name's menu, and its reminder in Write is off. |
+| `on` | Shows once per account, at the first load that comes to Home, until that account reaches **You're ready** or chooses **Skip the rest**. |
+| `on:<round>` | As `on`, and once more for every account that finished a different round. The round is 1 to 32 of `a-z`, `0-9` and `-` (for example `on:2026-11-20`): change it to show Getting started to everyone again without a shell. |
+| `rehearse` | A **practice run** for whoever sets the site up: it opens at every load for every account and says so on every step. Stories and voice guides made in it are not kept and never appear in Your writing voice; no account is marked as finished. A key saved in it **is** kept (it belongs to the site). |
+
+- **The server's environment beats the site's file.** The variable, when set, wins over
+  `studio.onboarding` in `openblog.json` (which takes only `"off"` or `"on"`; a new site made with
+  `openblog init` says `"on"`). An empty variable counts as not set. A value that isn't one of the
+  four is treated as `off`, with one warning line when the server starts, in `openblog check`,
+  and under **For the person who set up your site › Getting started** on Studio's Home. It never
+  falls back to the file.
+- **Set it in the host's settings, not in a file.** open.blog reads no `.env` file. On Railway or
+  Render add the variable to the service (changing it redeploys the editor); with `openblog serve`
+  export it in the shell or the unit file that starts the server. It is read once, at start.
+- **Handing a site over.** Set `rehearse`, sign in as the owner's account and go through it
+  yourself. Then set `on` (or a new round, `on:<today>`): at the next start the server deletes the
+  practice run (`onboarding: cleared practice` in its log) and the owner gets the real one at her
+  next sign-in. Leaving `rehearse` on by mistake loses nothing of hers, but nothing she tells is
+  kept either, and the strip on every step says so.
+- **Skipping the key step.** With `ANTHROPIC_API_KEY` (or the key of whichever company the helper
+  uses) in the server's environment, or a key already saved, Getting started has two steps and
+  never mentions a key. Without one, she can paste a key (kept on the server, never shown again)
+  or leave it for you.
+- **Stories told out loud** are offered only when something on the server can turn a recording
+  into words: `OPENBLOG_TRANSCRIBE_COMMAND` (a program on the server; nothing leaves it), a helper
+  whose company takes audio, or `OPENAI_API_KEY` in the server's environment, used for audio only.
+  `GEMINI_API_KEY` works the same way when `OPENBLOG_TRANSCRIBE_MODEL` names the model to use.
+  The recording is deleted from the server as soon as it has been heard, whatever the outcome.
+- **Where it is kept.** Each account's place is a small private file under
+  `.openblog/private/onboarding/` (never in Git, never built); her stories are ordinary private
+  voice pieces. On a host whose disk is reset, keep `.openblog` on the volume (or use the
+  workspace store), or Getting started comes back and the stories are gone; Home's details say so.
+- **From a shell:** `openblog onboarding status` lists every account; `openblog onboarding reset
+  <user>` (or `--all`) shows it again at that account's next sign-in. Home's details offer the same
+  as **Show it again at next sign-in**, with Undo. Neither touches her stories.
+
+See [Getting started](admin.md#getting-started) for what the owner sees.
+
 ## Studio's words for every site on a host
 
 A host serving many sites can set Studio's words once for all of them: point each site's server at

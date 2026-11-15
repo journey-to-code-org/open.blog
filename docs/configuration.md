@@ -718,6 +718,13 @@ dropped and reported in Studio's Home details and by `openblog check`; an unknow
 same in a file named by `OPENBLOG_STUDIO_WORDS_PATH`; the site wins per key. See
 [Studio's words](studio-words.md) for every id, the limits and examples.
 
+`studio.onboarding` is `"on"` or `"off"` (absent means off): whether Studio's **Getting started**
+shows by itself to an account that hasn't been through it. `openblog init` writes `"on"` for a new
+site; an existing site without the key is unchanged. The server's `OPENBLOG_STUDIO_ONBOARDING`
+wins over it when set, and is the only place for a round (`on:<round>`) or a practice run
+(`rehearse`); any other value here is reported and treated as off. See
+[Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
+
 ## Documentation section
 
 `docs` publishes `content/docs/` as a tree of pages at `/docs/` with a sidebar: `{ "enabled": true, "title":
