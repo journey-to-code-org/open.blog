@@ -1,4 +1,4 @@
-// Moved from web/admin/look.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's look.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // The Customize look screen's logic (ADR 0256, #350): the plain words and the choices for each
 // control, and pure helpers for the unsaved look. A look is an object of choices; a control that is

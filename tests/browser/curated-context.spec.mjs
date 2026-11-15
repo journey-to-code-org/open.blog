@@ -99,7 +99,7 @@ test.beforeAll(async () => {
 
   // The author selects through the real Admin API, as the writing workspace does.
   const adminPort = await freePort();
-  const admin = await start(["serve", "--admin", "--root", root, "--port", String(adminPort)], adminPort, "/admin/");
+  const admin = await start(["serve", "--admin", "--root", root, "--port", String(adminPort)], adminPort, "/admin/studio/");
   try {
     const api = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${adminPort}` });
     const login = await api.post("/admin/api/login", { data: { username: "writer", password } });

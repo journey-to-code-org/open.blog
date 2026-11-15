@@ -1,6 +1,6 @@
 // Mastodon helpers of the Mastodon destination (epic #382, story #392, ADRs 0359 and 0360). Pure: no
 // network, no clock of its own, no secret kept. social-publish.mjs builds and checks a status with
-// them; the Admin composer (web/admin/announcements.js) repeats the counting rule for its preview.
+// them; Studio's composer (web/studio/parts/announcements-rules.js) repeats the counting rule for its preview.
 //
 // What is decided here and why:
 //   - the status is the caption, then a blank line and the canonical link, unless the caption

@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-services.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-services.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 // The Services screen's pure contract (ADR 0313, #511): the form read from a stored document, the fields a
 // save sends (flattened `faq.<n>.*` keys, unknown keys kept), the checks that match the build's rules, and

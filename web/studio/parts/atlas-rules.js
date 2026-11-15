@@ -1,5 +1,5 @@
 // The atlas (Studio R12): entries, links between them and their datings, as the old Admin's
-// knowledge-atlas helpers (web/admin/admin.js l.3895–5500), lifted. Drafts and payloads keep every
+// knowledge-atlas helpers (the old Admin's admin.js l.3895–5500), lifted. Drafts and payloads keep every
 // field they don't edit; checks return {field, id, vars} in her words; text that is data (names,
 // keys, the server's link readings) is composed in code, never at the start of a sentence id.
 import { say } from "./words.js";

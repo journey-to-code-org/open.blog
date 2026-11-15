@@ -1,5 +1,5 @@
 // New job's rules (Studio R4, docs/specs/studio/r4/ux.md), moved from the pure half of
-// web/admin/job-capture.js (ADR 0296) and said in Studio's words: the job's id, the limits, the
+// the old Admin's job-capture.js (ADR 0296) and said in Studio's words: the job's id, the limits, the
 // trade, service and town remembered on this phone, the draft's title, fields and body, and what's
 // wrong with a photo or a job before it's kept. DOM-free and tested
 // (tests/web/studio-new-job-rules.test.mjs).

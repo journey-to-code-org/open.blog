@@ -1,4 +1,4 @@
-// Moved from web/admin/business.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's business.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // The Business facts screen (ADR 0307, #508): your name, phone, hours, license and insurance, set once
 // under Site and used by the footer, the home page and search engines. One column from 320px, every

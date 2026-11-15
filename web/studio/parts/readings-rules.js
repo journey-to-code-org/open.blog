@@ -3,7 +3,7 @@
 // sent and the ones the server sent, and what the list and the preview say. The server owns every rule,
 // the canonical form and every approval: nothing here decides whether words are approved, and the editor
 // never builds an approval. DOM-free, tested. Lifted from the old Admin's comparison helpers
-// (web/admin/admin.js, "Interpretation comparisons"). Studio R13; docs/specs/studio/r13/ux.md.
+// (the old Admin's admin.js, "Interpretation comparisons"). Studio R13; docs/specs/studio/r13/ux.md.
 import { say } from "./words.js";
 
 export const LIMITS = Object.freeze({ title: 120, subject: 600, statement: 4000, uncertainty: 1000, explanation: 6000, note: 400, address: 64 });

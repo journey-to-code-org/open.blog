@@ -1,5 +1,5 @@
 // What the writing helper knows (Studio R8): her notes about herself, her blog and one post, the
-// things {helper} lets it read, and which of them go with a request. Lifted from web/admin/admin.js
+// things {helper} lets it read, and which of them go with a request. Lifted from the old Admin's admin.js
 // (`assistantContextLabel`, `assistantContextDisclosure`, `assistantVoiceBudget`,
 // `postContextFields`) with their behaviour and tests. Pure: no page, no network.
 import { say } from "./words.js";

@@ -10,7 +10,7 @@ import {
 import { joinToken, joinProblem, JOIN_HASH } from "../../web/studio/parts/join-rules.js";
 import { say } from "../../web/studio/parts/words.js";
 
-// Your part (Studio R14a), ported from tests/web/admin-shared-drafts (prompts, save state, part
+// Your part (Studio R14a), ported from the old admin-shared-drafts (prompts, save state, part
 // break, failures) and grown: part breaks as cards that round-trip byte for byte, and the token
 // that is read once from an invitation address.
 

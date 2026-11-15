@@ -61,16 +61,17 @@ function worker({ windows = [], release, caches = fakeCaches(), fetch = async ()
   const Request = class { constructor(url, init = {}) { this.url = new URL(url, ORIGIN).href; Object.assign(this, init); } };
   const URLPattern = class { constructor(init) { this.pathname = init.pathname; } };
   const setTimeout = (fn, ms) => timers.push({ fn, ms });
-  vm.runInNewContext(source, { self, URL, String, console, caches, fetch, Request, Promise, URLPattern, setTimeout, Set, Error, Date: { now: () => clock.now } });
+  const Response = { redirect: (url, status) => ({ redirect: url, status }) };
+  vm.runInNewContext(source, { self, URL, String, console, caches, fetch, Request, Response, Promise, URLPattern, setTimeout, Set, Error, Date: { now: () => clock.now } });
   const fire = async (type, event) => {
     let done = Promise.resolve();
     listeners[type]({ ...event, waitUntil: (p) => { done = p; } });
     await done;
   };
-  const request = (url, method = "GET") => {
+  const request = (url, method = "GET", mode = "same-origin") => {
     let answered = null;
     const waits = [];
-    listeners.fetch({ request: { url: new URL(url, ORIGIN).href, method }, respondWith: (p) => { answered = p; }, waitUntil: (p) => waits.push(p) });
+    listeners.fetch({ request: { url: new URL(url, ORIGIN).href, method, mode }, respondWith: (p) => { answered = p; }, waitUntil: (p) => waits.push(p) });
     return { answered, settle: async () => { const value = answered ? await answered.catch((e) => e) : null; await Promise.all(waits); return value; } };
   };
   return {
@@ -104,12 +105,15 @@ test("where the browser can, everything but Studio's files goes straight to the 
   w.listeners.install({ addRoutes: async (rules) => { routes.push(rules); }, waitUntil: (p) => waits.push(p) });
   await Promise.all(waits);
   assert.equal(routes.length, 1);
-  assert.equal(routes[0][0].source, "network");
-  assert.equal(routes[0][0].condition.not.urlPattern.pathname, "/admin/studio/*");
+  // R15: first, a page opened at /admin or /admin/ comes to the worker, which sends it to Studio.
+  assert.deepEqual({ ...routes[0][0], condition: { ...routes[0][0].condition, urlPattern: routes[0][0].condition.urlPattern.pathname } },
+    { condition: { urlPattern: "/admin{/}?", requestMode: "navigate" }, source: "fetch-event" });
+  assert.equal(routes[0][1].source, "network");
+  assert.equal(routes[0][1].condition.not.urlPattern.pathname, "/admin/studio/*");
   // A browser without "not" gets the API sent past it at least.
   const older = [];
   const waits2 = [];
-  w.listeners.install({ addRoutes: async (rules) => { if (rules[0].condition.not) throw new TypeError("no not"); older.push(rules); }, waitUntil: (p) => waits2.push(p) });
+  w.listeners.install({ addRoutes: async (rules) => { if (rules.some((rule) => rule.condition.not)) throw new TypeError("no not"); older.push(rules); }, waitUntil: (p) => waits2.push(p) });
   await Promise.all(waits2);
   assert.equal(older[0][0].condition.urlPattern.pathname, "/admin/api/*");
 });
@@ -235,6 +239,33 @@ test("with a signal Studio's files come from the server and the copy is refreshe
   const odd = worker({ release: RELEASE, fetch: async () => response("error", "basic", false) });
   await odd.request("/admin/studio/studio.js").settle();
   assert.equal(odd.caches.stores.get("studio-abc123")?.get("/admin/studio/studio.js"), undefined);
+});
+
+test("a page opened at /admin or /admin/ is sent to Studio by the worker too, with no signal (R15)", async () => {
+  const asked = [];
+  const w = worker({ release: RELEASE, fetch: async (request) => { asked.push(request.url); throw new TypeError("Failed to fetch"); } });
+  for (const url of ["/admin", "/admin/", "/admin/?x=1"]) {
+    assert.deepEqual(await w.request(url, "GET", "navigate").answered, { redirect: `${ORIGIN}/admin/studio/`, status: 302 }, url);
+  }
+  // Only page loads, only those two addresses, only this origin.
+  for (const [url, mode] of [["/admin/", "same-origin"], ["/admin/", "no-cors"], ["/admin/x", "navigate"], ["/admin/admin.js", "navigate"], ["/administrator", "navigate"], ["https://elsewhere.example/admin/", "navigate"]]) {
+    assert.equal(w.request(url, "GET", mode).answered, null, `${mode} ${url}`);
+  }
+  assert.deepEqual(asked, [], "it never asks the server first");
+  const { adminRedirect } = await import("../../web/studio/parts/worker-rules.js");
+  assert.equal(adminRedirect(`${ORIGIN}/admin`, "navigate", ORIGIN), true);
+  assert.equal(adminRedirect(`${ORIGIN}/admin/`, "cors", ORIGIN), false);
+  assert.equal(adminRedirect("not a url", "navigate", ORIGIN), false);
+});
+
+test("the worker's adminRedirect and the rules' copy are the same function", () => {
+  const rules = readFileSync(new URL("../../web/studio/parts/worker-rules.js", import.meta.url), "utf8");
+  const body = (code) => {
+    const start = code.indexOf("function adminRedirect(");
+    assert.ok(start >= 0);
+    return code.slice(start, code.indexOf("\n}\n", start) + 2);
+  };
+  assert.equal(body(rules), body(source));
 });
 
 test("the worker's keeps and the rules' copy are the same function", async () => {

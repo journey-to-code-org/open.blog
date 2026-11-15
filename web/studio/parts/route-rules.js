@@ -1,7 +1,7 @@
 // Your route (Studio R7): a route file read on this phone, what readers will see of it, and the
 // trip's own suggestions. Pure: no DOM, no network. The file is read with regular expressions, never
 // parsed as a document, so nothing in it can load or run; its text is never stored anywhere.
-// `analyzeGpx` is lifted from the old Admin (web/admin/admin.js, removed in R15) with three changes:
+// `analyzeGpx` is lifted from the old Admin (the old Admin's admin.js, removed in R15) with three changes:
 // the ends trimmed default to 500 m, heights and times are `null` when the file has none, and each
 // refusal has a code `gpxProblem` says in her words.
 import { say } from "./words.js";

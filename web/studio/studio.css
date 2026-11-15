@@ -220,7 +220,7 @@ side-sheet.studio-preview-sheet dialog, side-sheet.studio-preview-sheet .sheet {
 .studio-shell * { scroll-padding-bottom: 6rem; }
 .studio-write :focus { scroll-margin-bottom: 6rem; }
 
-/* Review round 2 (QA, Grammi, Mikey on slice 2) */
+/* Review round 2 (QA, both personas on slice 2) */
 /* Rows: the box takes the whole width; Move or remove sits on the label's line. */
 .studio-row-item { display: block; position: relative; }
 .studio-row-item .studio-row-menu { position: absolute; top: -0.35rem; right: 0; }

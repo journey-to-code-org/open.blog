@@ -34,8 +34,6 @@
     ("GET", "look"),
     ("PUT", "look"),
     ("POST", "look/preview"),
-    ("GET", "preferences"),
-    ("PUT", "preferences"),
     ("GET", "sources"),
     ("POST", "sources"),
     ("PUT", "sources"),

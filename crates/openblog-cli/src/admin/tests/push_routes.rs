@@ -379,14 +379,11 @@ fn the_installed_app_opens_studio_under_the_same_id_and_scope_with_studios_worke
         404
     );
 
-    // Both pages point at the manifest.
-    for page in ["/admin/", "/admin/studio/"] {
-        let body = String::from_utf8_lossy(&handle(&f.state, &req("GET", page)).body).to_string();
-        assert!(
-            body.contains(r#"<link rel="manifest" href="/admin/manifest.webmanifest">"#),
-            "{page}"
-        );
-    }
+    // Only Studio's page links the manifest: /admin/ is a redirect to it (R15).
+    let body =
+        String::from_utf8_lossy(&handle(&f.state, &req("GET", "/admin/studio/")).body).to_string();
+    assert!(body.contains(r#"<link rel="manifest" href="/admin/manifest.webmanifest">"#));
+    assert_eq!(handle(&f.state, &req("GET", "/admin/")).status, 302);
 
     // A site can bring its own icon, but not its own worker.
     let config = site::load_config(&f.state.root).unwrap_or_default();
@@ -431,10 +428,11 @@ fn studio_knows_which_release_it_is_and_the_worker_keeps_that_file_too() {
     assert!(files.contains(&"/admin/studio/release.js"));
     assert!(files.contains(&"/admin/studio/"));
     assert!(!files.iter().any(|file| file.contains("/api/")));
-    // Not a file of its own anywhere else, and only ever read.
+    // Not a file of its own anywhere else (an old Admin address, which opens Studio), and only
+    // ever read.
     assert_eq!(
         handle(&f.state, &req("GET", "/admin/release.js")).status,
-        404
+        302
     );
     assert_eq!(
         handle(&f.state, &req("POST", "/admin/studio/release.js")).status,

@@ -2,7 +2,7 @@
 // what the server offered), the request a decision sends, what each one says afterwards, who sent it,
 // what is on the post, and a failure in her words. The server decides who may do what and sends the
 // actions; these only name and shape what it sent. DOM-free, tested. Lifted from the old Admin's
-// moderation helpers (web/admin/admin.js, "The moderation inbox"). Studio R10.
+// moderation helpers (the old Admin's admin.js, "The moderation inbox"). Studio R10.
 import { say } from "./words.js";
 
 // ---- views --------------------------------------------------------------------------------------

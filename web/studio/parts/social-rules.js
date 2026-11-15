@@ -322,7 +322,7 @@ export function disconnectWords(waiting) {
   return say("social.forgets");
 }
 
-/** "Disconnected Grammi's House." plus how many waiting posts won't be shared. */
+/** "Disconnected Ridgeline Roofing." plus how many waiting posts won't be shared. */
 // The account's name comes from the other company: given `isolating` (parts/words.js), these give
 // parts with it apart, placed with `partsNodes()`.
 export function disconnectedWords(name, canceled, speak = say) {

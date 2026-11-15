@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-trade-checklist.test.mjs for the old Admin's retirement (R1): the
+// Ported from the old admin-trade-checklist.test.mjs for the old Admin's retirement (R1): the
 // checklist's pure rules against Studio's copy, Studio's step words and where each step opens, and
 // the recipe notes in her words (G14). The old card's tests stay with the old Admin until R15.
 import assert from "node:assert/strict";
@@ -51,6 +51,10 @@ test("each step opens its Studio screen; sharing a job opens Share this job; Sta
   assert.deepEqual(by, { business: "#/business", service: "#/services", job: "#/write/posts%2Foak.md", review: "#/reviews", destination: "#/sharing/job/posts%2Foak.md" });
   assert.equal(stepHref(checklistSteps(answer())[2]), "#/new-job", "the old Capture address opens New job");
   assert.equal(stepHref({ id: "destination", href: null }), null);
+  // Since R15 (G124) the server names Studio's own addresses; both forms open the same screens.
+  assert.equal(stepHref({ id: "job", href: "#/new-job" }), "#/new-job");
+  assert.equal(stepHref({ id: "job", href: "#/write/posts%2Foak.md" }), "#/write/posts%2Foak.md");
+  assert.equal(stepHref({ id: "destination", href: "#/write/posts%2Foak.md" }), "#/sharing/job/posts%2Foak.md");
   assert.equal(progressWords(steps), "1 of 5 done");
   assert.equal(STEP_TEXT.destination.waiting, "Publish a job first.");
   for (const text of Object.values(STEP_TEXT)) assert.doesNotMatch(JSON.stringify(text), /Capture|draft|Settings|Slug/, "her words, never the system's");

@@ -1,4 +1,4 @@
-// Moved from web/admin/distribution.js (the old Admin's "Where it went", epic DIST8, ADRs 0402 to
+// Moved from the old Admin's distribution.js (the old Admin's "Where it went", epic DIST8, ADRs 0402 to
 // 0404) for the old Admin's retirement: the pure half only, so Studio loads nothing from /admin/.
 // Every post and every place it went, read from the owner's own records (`GET distribution`) plus
 // the social shares in the hosted queue, which are normalized here by the same rules the server

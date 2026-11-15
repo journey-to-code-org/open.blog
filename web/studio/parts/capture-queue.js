@@ -1,4 +1,4 @@
-// The jobs waiting on this phone (ADR 0297), moved from web/admin/capture-queue.js for the old
+// The jobs waiting on this phone (ADR 0297), moved from the old Admin's capture-queue.js for the old
 // Admin's retirement (Studio R4, docs/specs/studio/r4/ux.md). Studio and the old Admin read and write
 // the same IndexedDB under the same rules, so nothing has to move:
 //

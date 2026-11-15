@@ -38,7 +38,7 @@ test.beforeAll(async () => {
   server.stderr.on("data", (data) => { output += data; });
   await expect(async () => {
     if (server.exitCode !== null) throw new Error(`Test server exited: ${output}`);
-    const response = await fetch(`${origin}/admin/`);
+    const response = await fetch(`${origin}/admin/studio/`);
     expect(response.ok).toBe(true);
   }).toPass({ timeout: 30000 });
 });
@@ -120,77 +120,3 @@ test("portable HTML works without scripts or CSS, in print, and with keyboard/re
   }
 });
 
-test("authenticated unsaved previews group losses, copy/download exact output, and navigate source without saving", async ({ page, context }) => {
-  await page.goto(`${origin}/admin/`);
-  await page.getByLabel("Username", { exact: true }).fill("portability");
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByRole("link", { name: /A lesson that travels/ }).click();
-  await page.getByRole("button", { name: "Site preview", exact: true }).click();
-  const mode = page.getByLabel("Preview representation or destination");
-  await mode.selectOption("destination:ghost");
-  await expect(page.getByText(/Ghost source=html converts.*lossy/).first()).toBeVisible();
-  await expect(page.getByText(/Ghost receives hosted image references only/)).toBeVisible();
-  await expect(page.getByText(/adapter limitation, not a provider tag-count limit/)).toBeVisible();
-  await mode.selectOption("destination:wordpress");
-  await expect(page.getByText(/WordPress core cannot set an external canonical URL/).first()).toBeVisible();
-  await mode.selectOption("destination:hashnode");
-  await expect(page.getByText(/Hashnode receives hosted image references only/)).toBeVisible();
-  await expect(page.getByText(/Ghost receives hosted image references only/)).toHaveCount(0);
-  await mode.selectOption("portable-text");
-  await expect(page.getByText(/receives hosted image references only/)).toHaveCount(0);
-  await page.getByRole("button", { name: "Acknowledge this warning", exact: true }).first().click();
-  await expect(page.getByText("Acknowledged for this revision.", { exact: true }).first()).toBeVisible();
-  await mode.selectOption("portable-markdown");
-  await expect(page.getByText("Acknowledged for this revision.", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Write", exact: true }).click();
-  await page.getByRole("button", { name: "Markdown", exact: true }).click();
-  const body = page.getByRole("textbox", { name: "Markdown", exact: true });
-  const unsaved = `Unsaved browser regression 😀\n\n${await body.inputValue()}\n\nLiteral example: \`<script>not executable</script>\`\n`;
-  await body.fill(unsaved);
-  await page.getByRole("button", { name: "Site preview", exact: true }).click();
-  await mode.selectOption("portable-text");
-  const output = page.getByLabel("Portable text preview", { exact: true });
-  await expect(output).toBeVisible();
-  await expect(page.getByText(/knowledge-check · Gracefully transformed/).first()).toBeVisible();
-  await expect(page.getByText(/Scoring, retries and saved attempts remain/).first()).toBeVisible();
-  const expected = await output.textContent();
-  expect(expected).toContain("Unsaved browser regression");
-  expect(expected).toContain("<script>not executable</script>");
-  const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download portable output" }).click();
-  const download = await downloadEvent;
-  expect(download.suggestedFilename()).toBe("portable-preview.txt");
-  expect(readFileSync(await download.path(), "utf8")).toBe(expected);
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.getByRole("button", { name: "Copy portable output" }).click();
-  await expect(page.getByText("Portable output copied; source unchanged.", { exact: true })).toBeVisible();
-  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
-  expect(clipboard.replace(/\r\n/g, "\n")).toBe(expected);
-  await page.getByRole("button", { name: "Acknowledge this warning", exact: true }).first().click();
-  await expect(page.getByText(/Acknowledgement failed: The source changed/)).toBeVisible();
-  await expect(page.getByText("Acknowledged for this revision.", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(/previous portability acknowledgement is stale/)).toBeVisible();
-  await page.setViewportSize({ width: 320, height: 800 });
-  const tools = page.locator(".oba-preview-tools");
-  expect(await tools.evaluateAll((elements) => elements.every((element) =>
-    element.scrollWidth <= element.clientWidth
-      && element.getBoundingClientRect().right <= window.innerWidth))).toBe(true);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.getByRole("button", { name: /Edit source at line/ }).first().click();
-  await expect(body).toBeFocused();
-  await expect(body).toHaveValue(unsaved);
-  expect(await body.evaluate((element) => element.value.slice(element.selectionStart, element.selectionEnd))).toContain("```quiz");
-  await expect(page.getByText(/Editing portability source at line.*Unsaved content is unchanged/)).toBeAttached();
-  await page.getByRole("button", { name: "Site preview", exact: true }).click();
-  await page.route("**/admin/api/preview", (route) => route.fulfill({
-    status: 422, contentType: "application/json", body: JSON.stringify({ error: "Preview regression: invalid capability" }),
-  }));
-  await page.getByRole("button", { name: "Write", exact: true }).click();
-  await body.fill(`${unsaved}\nAnother unsaved edit.`);
-  await page.getByRole("button", { name: "Site preview", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Download portable output" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Copy portable output" })).toBeDisabled();
-  await expect(page.getByText(/Preview regression: invalid capability/)).toBeVisible();
-  expect(readFileSync(join(root, "content", "posts", "portable-lesson.md"), "utf8")).toBe(source);
-});

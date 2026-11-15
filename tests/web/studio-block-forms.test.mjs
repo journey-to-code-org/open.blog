@@ -1,4 +1,4 @@
-// The block forms' rules (Studio R6), ported from tests/web/admin-block-forms.test.mjs and the client
+// The block forms' rules (Studio R6), ported from the old admin-block-forms.test.mjs and the client
 // half of admin-compare.test.mjs: a form is offered only when it writes a block back exactly, and a
 // tip with a heading is written the way the engine writes it.
 import assert from "node:assert/strict";

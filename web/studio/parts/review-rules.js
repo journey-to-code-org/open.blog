@@ -1,6 +1,6 @@
 // Research checks before a research post goes up (Studio R7, ADR 0123): which posts have them,
 // how each group and gate reads in her words, where a finding is, and what Mark as checked sends.
-// Pure. Lifted from the old Admin (web/admin/admin.js `researchReviewApplies`,
+// Pure. Lifted from the old Admin (the old Admin's admin.js `researchReviewApplies`,
 // `publicationReviewPlace`, `publicationReviewCountsText`; removed in R15): the counts sentence and
 // the place stay verbatim for the details, so they read as `openblog check` prints them.
 import { say } from "./words.js";

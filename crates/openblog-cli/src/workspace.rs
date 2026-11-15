@@ -2021,14 +2021,19 @@ Great job.
                 Duration::from_secs(60),
             )
             .unwrap();
-        let snapshot = crate::admin_preferences::load(&fixture.0, "author").unwrap();
+        // A private file the workspace keeps (the old Admin's preferences, written directly: nothing
+        // writes them through the API since R15), then any save Studio makes.
+        let kept = crate::admin_preferences::preference_path(&fixture.0, "author").unwrap();
+        std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+        std::fs::write(
+            &kept,
+            br#"{"schemaVersion":1,"voiceInvitationDismissed":true}"#,
+        )
+        .unwrap();
         let mut request = crate::http::Request {
-            method: "PUT".into(),
-            path: "/admin/api/preferences".into(),
-            body: serde_json::to_vec(&serde_json::json!({
-                "etag": snapshot.etag, "preferences": snapshot.preferences,
-            }))
-            .unwrap(),
+            method: "POST".into(),
+            path: "/admin/api/voice/invitation".into(),
+            body: serde_json::to_vec(&serde_json::json!({ "dismissed": true })).unwrap(),
             ..Default::default()
         };
         request
@@ -2052,11 +2057,7 @@ Great job.
         assert!(stored.contains("admin-preferences"));
         assert!(!stored.contains("users.json"));
         assert!(!stored.contains(&users.find("author").unwrap().hash));
-        assert!(
-            crate::admin_preferences::load(&fixture.0, "author")
-                .unwrap()
-                .stored
-        );
+        assert!(kept.is_file(), "nothing local was thrown away");
         assert_eq!(crate::admin::handle(&state, &request).status, 503);
         assert!(!fixture
             .0

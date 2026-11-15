@@ -15,7 +15,7 @@ import { removeTree } from "./teardown.mjs";
 // the hosted push function. The browser's notification permission is granted and its PushManager is
 // stubbed (headless Chrome has no push service), so the screen's own steps run for real: the worker
 // at /admin/sw.js, the sign-up, the server's list. Also: the account menu, the quiet link on
-// Comments, a tapped notification's message going through the router, the old Admin's bridge, and
+// Comments, a tapped notification's message going through the router, the old address's redirect, and
 // axe at 320 px.
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -406,19 +406,7 @@ test("the account menu, the palette, the quiet link on Comments, and a tapped no
   await page.keyboard.press("Escape");
 });
 
-test("Find's Open the old Admin stays there in the installed app", async ({ page }) => {
-  await open(page, configured, "#/");
-  await page.evaluate(() => localStorage.setItem("test:standalone", "1"));
-  await page.reload();
-  await expect(page.locator("h1")).toBeVisible();
-  await page.keyboard.press("Control+k");
-  await page.keyboard.type("Open the old Admin");
-  await page.keyboard.press("Enter");
-  await page.waitForFunction(() => Boolean(customElements.get("ob-admin")));
-  await expect(page).toHaveURL(`${configured.origin}/admin/#/`);
-});
-
-test("the old Admin's Notifications opens Studio's, keeping the Home Screen sheet", async ({ page }) => {
+test("the old Admin's Notifications opens Studio's through the redirect, keeping the Home Screen sheet (R15)", async ({ page }) => {
   await open(page, configured, "#/");
   await page.goto(`${configured.origin}/admin/#/notifications`);
   await expect(page).toHaveURL(`${configured.origin}/admin/studio/#/notifications`);

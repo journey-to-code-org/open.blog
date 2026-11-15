@@ -593,10 +593,12 @@ test("a refused microphone shows only this phone's steps, and typing still works
 test("a job the old Admin kept is on the list, sent by Studio, and Home says so first", async ({ page }) => {
   await signIn(page, trade, "#/posts");
   await page.evaluate(async () => {
-    const queue = await import("/admin/capture-queue.js");
+    // The store is the one the old Admin made (ADR 0297); each record exactly as its makeRecord wrote
+    // it (tests/web/fixtures/old-admin-capture.json): no `by`, the old Admin never said who saved it.
+    const queue = await import("/admin/studio/parts/capture-queue.js");
     const store = await queue.openIndexedStore();
     const png = new Blob([Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAACgAAAAeCAIAAADRv8uKAAAAK0lEQVR4nO3NMQ0AAAgDsAlDCYqRhQw4mvRvpvpExGKxWCwWi8VisVj8N16B+mj7BBLoxAAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0))], { type: "image/png" });
-    const make = (id, town, at) => queue.makeRecord({ id, fields: { trade: "roofing", service: "roof-repair", town, notes: "Kept by the old Admin." }, photos: [{ name: "old.png", type: "image/png", size: png.size, blob: png }], audio: null }, new Date(at));
+    const make = (id, town, at) => ({ v: 1, id, createdAt: new Date(at).toISOString(), fields: { trade: "roofing", service: "roof-repair", town, notes: "Kept by the old Admin." }, photos: [{ name: "old.png", type: "image/png", size: png.size, blob: png }], audio: null, attempts: 0, failed: false, lastError: "" });
     await store.put(make("0123456789abcdef0123456789abcdef", "Oldtown", "2026-11-12T10:00:00Z"));
     await store.put(make("0123456789abcdef0123456789abcdee", "Oldville", "2026-11-12T11:00:00Z"));
   });
@@ -669,40 +671,6 @@ test("a window sending a job tells the others: they show Sending and offer neith
   await other.close();
 });
 
-test("the old Admin sending and Studio sending on one phone make one draft each and lose nothing", async ({ page, context }) => {
-  await openNewJob(page);
-  // The old Admin's own modules, in a window of their own, keep a job and send it as they always did.
-  const old = await context.newPage();
-  await old.goto(`${trade.origin}/admin/#/posts`);
-  await page.route(/\/admin\/api\/(upload|document|capture\?)/, (route) => route.abort("connectionrefused"));
-  await fillJob(page, "Mixtown");
-  await saveButton(page).click();
-  await expect(waitingCards(page)).toHaveCount(1);
-  await page.unroute(/\/admin\/api\/(upload|document|capture\?)/);
-  await Promise.all([
-    old.evaluate(async () => {
-      const queue = await import("/admin/capture-queue.js");
-      const capture = await import("/admin/job-capture.js");
-      const { csrf } = await (await fetch("/admin/api/session")).json();
-      const api = { async call(method, path, { json, body, headers = {} } = {}) {
-        const response = await fetch(`/admin/api/${path}`, { method, headers: { "X-CSRF-Token": csrf, ...(json ? { "Content-Type": "application/json" } : {}), ...headers }, body: json ? JSON.stringify(json) : body });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) throw Object.assign(new Error(data?.error || "no"), { status: response.status });
-        return data;
-      } };
-      const store = await queue.openIndexedStore();
-      const list = queue.createCaptureQueue({ store, send: (record) => capture.sendCapture({ api, capture: record, scaffold: "", now: new Date(record.createdAt) }) });
-      return list.flush();
-    }),
-    // Studio's sender goes at the same moment, as it does when the signal comes back.
-    page.evaluate(() => dispatchEvent(new Event("online"))),
-  ]);
-  await expect.poll(() => draftsIn(trade, "mixtown").length).toBe(1);
-  await expect(waitingCards(page)).toHaveCount(0);
-  expect(await stored(page)).toEqual([]);
-  await old.close();
-});
-
 /** Another window asks for a newer version of the list: `commit` false aborts it, so it stays version 1. */
 const upgradeElsewhere = (page, commit) => page.evaluate((commit) => new Promise((done) => {
   const request = indexedDB.open("openblog-capture", 2);
@@ -757,7 +725,7 @@ test("a sign-in that lapsed while sending by itself shows Needs you and asks not
   await expect(waitingCards(page)).toHaveCount(0);
 });
 
-test("the old Admin's Capture opens New job", async ({ page }) => {
+test("the old Admin's Capture opens New job, through the old address's redirect (R15)", async ({ page }) => {
   await signIn(page, trade, "#/");
   await page.goto(`${trade.origin}/admin/#/capture`);
   await expect(page).toHaveURL(/\/admin\/studio\/#\/new-job$/);

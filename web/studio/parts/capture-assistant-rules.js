@@ -1,4 +1,4 @@
-// Moved from web/admin/capture-assistant.js (ADRs 0302 and 0304) for the old Admin's retirement: the
+// Moved from the old Admin's capture-assistant.js (ADRs 0302 and 0304) for the old Admin's retirement: the
 // pure half only. A transcript or a written-up job is untrusted text, so it is made plain before it
 // reaches her words; a write-up is bounded and fills the job's four parts. Studio R4
 // (docs/specs/studio/r4/ux.md).

@@ -1,9 +1,9 @@
 //! The one research readiness report (#194, ADR 0150), over the unified
-//! contract: Admin and the command line list the same codes in the same order;
+//! contract: Studio and the command line list the same codes in the same order;
 //! a post's review and the site's report differ only in what counts as
 //! blocking; acknowledged findings stay listed and counted; and the terminal
 //! text and the JSON are deterministic, written to the shared fixtures that the
-//! Admin tests (`tests/web/admin-readiness-report.test.mjs`) read too.
+//! Studio's tests (`tests/web/studio-review-rules.test.mjs`, `studio-review-site.test.mjs`) read too.
 //!
 //! Set `OPENBLOG_UPDATE_FIXTURES=1` to rewrite the fixtures after an
 //! intentional change.

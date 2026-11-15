@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-business.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-business.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 // The Business facts screen (ADR 0307, #508): the pure contract (phone, hours, validation, the stored
 // shape) and the screen against a fake server, so every rule here is the rule the server applies.

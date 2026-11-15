@@ -2,7 +2,7 @@
 // steps, the address suggested from a title, what a step may be related by, the problems found
 // before a save is sent and the ones the server sent, and what the list says about a path. The
 // server owns every rule; these only shape what it sent and refuse what is certain to be refused.
-// DOM-free, tested. Lifted from the old Admin's reading-path helpers (web/admin/admin.js, "Reading
+// DOM-free, tested. Lifted from the old Admin's reading-path helpers (the old Admin's admin.js, "Reading
 // paths"); `readingPathOrder` is not lifted (the order is saved by saving the whole path).
 // Studio R13; docs/specs/studio/r13/ux.md.
 import { say } from "./words.js";

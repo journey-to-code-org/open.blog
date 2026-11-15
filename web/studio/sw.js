@@ -4,8 +4,7 @@
 // Studio's own files, so New job opens on a roof with no signal:
 //
 // - Only Studio's static files: the list the server put on the first line (`self.STUDIO_RELEASE`,
-//   every file under /admin/studio/), never an /admin/api/ reply, never anything of the session,
-//   never the old Admin's pages.
+//   every file under /admin/studio/), never an /admin/api/ reply, never anything of the session.
 // - Network first, for 3 seconds: a file comes from the server as before (and the copy is
 //   refreshed); when the server can't be reached, or hasn't answered in 3 s (one bar on a roof), the
 //   kept copy opens and the server's answer still refreshes it when it comes. After such a wait the
@@ -14,7 +13,10 @@
 //   every file came, so the old worker and its whole copy stay; the old copy is deleted only once
 //   the new one is complete.
 //
-// A classic script (no imports). studioAddress() and keeps() are copied in
+// Since R15 the old Admin is gone: a page opened at /admin/ is sent to /admin/studio/, by the server
+// and, with no signal, by this worker (adminRedirect), keeping the #… for Studio's legacyRoute.
+//
+// A classic script (no imports). studioAddress(), keeps() and adminRedirect() are copied in
 // parts/notification-rules.js and parts/worker-rules.js, where they are tested; a test keeps the
 // copies the same.
 const RELEASE = self.STUDIO_RELEASE || { version: "dev", files: [] };
@@ -37,13 +39,35 @@ function keeps(url, method, origin) {
   return parsed.origin === origin && parsed.pathname.startsWith("/admin/studio/") && !parsed.pathname.includes("/api/") && !parsed.search;
 }
 
+/**
+ * Whether the worker answers this request with a redirect to Studio (R15): a page opened at exactly
+ * /admin or /admin/ on this origin (an iPhone app installed before R3 still starts there), with any
+ * query. The server says the same with a 302; the worker says it with no signal too, so the app
+ * opens Studio from the kept copy. Only page loads, never a script's request.
+ */
+function adminRedirect(url, mode, origin) {
+  if (mode !== "navigate") return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.origin === origin && (parsed.pathname === "/admin" || parsed.pathname === "/admin/");
+}
+
 self.addEventListener("install", (event) => {
-  // Everything but Studio's own files (the API, the old Admin, the icons) goes straight to the
-  // network without waking the worker, where the browser can say so (Chrome's static routes).
+  // Everything but Studio's own files (the API, the icons) goes straight to the network without
+  // waking the worker, where the browser can say so (Chrome's static routes). A page opened at
+  // /admin or /admin/ comes to the worker first (adminRedirect), so it opens Studio with no signal.
   if (typeof event.addRoutes === "function" && typeof URLPattern === "function") {
     const studio = new URLPattern({ pathname: "/admin/studio/*" });
+    const admin = new URLPattern({ pathname: "/admin{/}?" });
     event.waitUntil(Promise.resolve()
-      .then(() => event.addRoutes([{ condition: { not: { urlPattern: studio } }, source: "network" }]))
+      .then(() => event.addRoutes([
+        { condition: { urlPattern: admin, requestMode: "navigate" }, source: "fetch-event" },
+        { condition: { not: { urlPattern: studio } }, source: "network" },
+      ]))
       .catch(() => event.addRoutes([{ condition: { urlPattern: new URLPattern({ pathname: "/admin/api/*" }) }, source: "network" }]))
       .catch(() => {}));
   }
@@ -93,6 +117,10 @@ self.addEventListener("activate", (event) => event.waitUntil((async () => {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+  if (adminRedirect(request.url, request.mode, self.location.origin)) {
+    event.respondWith(Response.redirect(`${self.location.origin}/admin/studio/`, 302));
+    return;
+  }
   if (!keeps(request.url, request.method, self.location.origin)) return;
   const key = new URL(request.url).pathname === "/admin/studio/index.html" ? "/admin/studio/" : new URL(request.url).pathname;
   // The server's answer refreshes the copy whenever it comes, even after the kept one was shown.

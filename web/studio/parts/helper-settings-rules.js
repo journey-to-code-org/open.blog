@@ -1,5 +1,5 @@
 // Setting the writing helper up (Studio R8): the companies, what the screen says about the key,
-// and the one request that carries a key. Lifted from web/admin/admin.js (`ASSISTANT_PROVIDERS`,
+// and the one request that carries a key. Lifted from the old Admin's admin.js (`ASSISTANT_PROVIDERS`,
 // ADR 0286). Pure: no page, no network.
 //
 // The key is write-only. Nothing here ever receives one from the server; `settingsRequest` is the

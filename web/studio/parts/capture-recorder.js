@@ -1,4 +1,4 @@
-// Moved whole from web/admin/capture-recorder.js for the old Admin's retirement (Studio R4,
+// Moved whole from the old Admin's capture-recorder.js for the old Admin's retirement (Studio R4,
 // docs/specs/studio/r4/ux.md); Studio's words for each state are in parts/job-words.js.
 //
 // The Capture view's voice note (ADR 0298): the browser's MediaRecorder, feature-detected, permission-gated and

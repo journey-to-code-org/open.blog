@@ -1,4 +1,4 @@
-// Moved from web/admin/announcements.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's announcements.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // Admin "Social" screen (epic #353, story #356, ADR 0307): compose an announcement of a published
 // post for a connected account, see how it will look, choose a time in the author's own zone, and

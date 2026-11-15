@@ -807,84 +807,6 @@ fn the_status_reports_an_open_session_and_the_number_of_samples_without_changing
 }
 
 #[test]
-fn the_voice_scripts_are_served_to_the_admin_page_and_are_the_embedded_ones() {
-    let f = fixture("voice-assets");
-    for (path, marker) in [
-        ("/admin/voice.js", "createCountdown"),
-        ("/admin/voice-session.js", "ROUGH_ATTRIBUTES"),
-        ("/admin/voice-polished.js", "createPolishedEditor"),
-        ("/admin/voice-library.js", "createVoiceLibrary"),
-    ] {
-        let response = handle(&f.state, &req("GET", path));
-        assert_eq!(response.status, 200, "{path}");
-        assert!(
-            String::from_utf8_lossy(&response.body).contains(marker),
-            "{path}"
-        );
-        assert!(response
-            .headers
-            .iter()
-            .any(|(k, v)| k == "Content-Type" && v.starts_with("text/javascript")));
-    }
-}
-
-#[test]
-fn dismissing_the_voice_invitation_is_a_saved_preference_that_changes_nothing_else() {
-    let f = fixture("voice-invitation");
-    let s = login_ok(&f);
-    let (_, initial) = get(&f, &s, "/admin/api/preferences");
-    // An admin that never dismissed it has no such key: the stored shape is unchanged.
-    assert!(initial["preferences"]
-        .get("voiceInvitationDismissed")
-        .is_none());
-    let mut preferences = initial["preferences"].clone();
-    preferences["voiceInvitationDismissed"] = json!(true);
-    let (status, saved) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": initial["etag"], "preferences": preferences }),
-    );
-    assert_eq!(status, 200, "{saved}");
-    assert_eq!(saved["preferences"]["voiceInvitationDismissed"], true);
-    assert_eq!(
-        saved["preferences"]["preset"],
-        initial["preferences"]["preset"]
-    );
-    // It comes back on the next read, and it is in the admin's own private file only.
-    let (_, again) = get(&f, &s, "/admin/api/preferences");
-    assert_eq!(again["preferences"]["voiceInvitationDismissed"], true);
-    let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
-    assert!(!config.contains("voiceInvitation"));
-    // Saving it as false removes the key again, and the other preferences stay as they were.
-    let mut undone = again["preferences"].clone();
-    undone["voiceInvitationDismissed"] = json!(false);
-    let (status, back) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": again["etag"], "preferences": undone }),
-    );
-    assert_eq!(status, 200);
-    assert!(back["preferences"]
-        .get("voiceInvitationDismissed")
-        .is_none());
-    // The file still refuses keys it does not know.
-    let mut bad = back["preferences"].clone();
-    bad["voiceInvitationDismisse"] = json!(true);
-    let (status, _) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": back["etag"], "preferences": bad }),
-    );
-    assert_eq!(status, 400);
-}
-
-#[test]
 fn a_polished_draft_becomes_a_post_draft_and_a_rough_draft_or_a_taken_slug_is_refused() {
     let f = fixture("voice-promote");
     let s = login_ok(&f);
@@ -1419,18 +1341,15 @@ fn the_invitation_s_answer_is_kept_per_account_and_an_old_dismissal_carries_over
     );
     assert_eq!(dismissed(&mikey), false);
 
-    // "No thanks" said in the old Admin still counts, until she answers here.
-    let (_, initial) = get(&f, &grammi, "/admin/api/preferences");
-    let mut preferences = initial["preferences"].clone();
-    preferences["voiceInvitationDismissed"] = json!(true);
-    let (status, _) = call(
-        &f,
-        &grammi,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": initial["etag"], "preferences": preferences }),
-    );
-    assert_eq!(status, 200);
+    // "No thanks" said in the old Admin still counts, until she answers here (G64, kept after R15:
+    // the old Admin's preferences file is still read, though nothing writes it).
+    let kept = crate::admin_preferences::preference_path(&f.dir, "grammi").unwrap();
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(
+        &kept,
+        r#"{"schemaVersion":1,"preset":"simple","density":"comfortable","editorMode":"visual","moduleOrder":[],"hiddenModules":[],"voiceInvitationDismissed":true}"#,
+    )
+    .unwrap();
     assert_eq!(dismissed(&grammi), true);
     call(
         &f,

@@ -148,7 +148,7 @@ Photos are kept in a private bucket. Tell visitors what you do with their detail
 ## Checks
 
 `node --test tests/web/netlify-quote.test.mjs tests/web/netlify-quote-notify.test.mjs tests/web/quote-form.test.mjs`
-`tests/web/netlify-quote-admin.test.mjs`, `tests/web/admin-quotes.test.mjs`, `tests/web/quote-service.test.mjs`,
+`tests/web/netlify-quote-admin.test.mjs`, `tests/web/studio-quotes-sharing.test.mjs`, `tests/web/quote-service.test.mjs`,
 `cargo test -p openblog-cli --bin openblog quote_routes`, `cargo test -p openblog-cli --bin openblog quote_relay`
 and `cargo test -p openblog-core --test quote_form` run against fakes; no real provider is called.
 `tests/browser/quote-form.spec.mjs` also runs axe-core (WCAG 2.1 A and AA) on the form, its errors and its

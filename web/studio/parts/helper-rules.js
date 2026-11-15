@@ -1,7 +1,7 @@
 // The writing helper's rules (Studio R8, docs/specs/studio/r8/ux.md): its state in her words, what
 // goes to the company before anything is sent, which part of her post is read, what it looks for,
 // and how one suggestion is put into one box of her words and taken out again. The review rules
-// are lifted from web/admin/admin.js (ADRs 0286 and 0290) with their behaviour and tests. Pure:
+// are lifted from the old Admin's admin.js (ADRs 0286 and 0290) with their behaviour and tests. Pure:
 // no page, no network.
 //
 // What a helper returns is untrusted text. Nothing here acts on it: `applyFinding` can only swap

@@ -1,5 +1,5 @@
 // Compare (Studio R12): aligned passages read side by side, as the old Admin's comparison helpers
-// (web/admin/admin.js l.5506–6300), lifted. Words are passed through exactly; nothing here
+// (the old Admin's admin.js l.5506–6300), lifted. Words are passed through exactly; nothing here
 // normalizes or rewrites them. Checks return {field, id, vars}; names and keys are composed in code.
 import { say } from "./words.js";
 import { sourceKindWords, sourceLabel, rightsOf, rightsText, RIGHTS_NEEDING_CONFIRMATION } from "./source-rules.js";

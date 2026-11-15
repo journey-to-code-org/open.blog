@@ -1,4 +1,4 @@
-// Moved from web/admin/services.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's services.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // The Services screen (ADR 0313, #511): each thing the business sells, written once. A list of the
 // services under `#/services`, and a form for one (`#/services/new`, `#/services/edit/<path>`) with a name,

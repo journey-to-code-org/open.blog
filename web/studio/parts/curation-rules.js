@@ -1,5 +1,5 @@
 // For readers (Studio R12): research she chooses to show beside a post, as the old Admin's "Selected
-// for readers" helpers (web/admin/admin.js l.2930–3540), lifted. Choosing never makes anything public
+// for readers" helpers (the old Admin's admin.js l.2930–3540), lifted. Choosing never makes anything public
 // that isn't already; why something stays private is said as a rule, never as a judgement.
 import { say } from "./words.js";
 import { sayId } from "./research-says.js";

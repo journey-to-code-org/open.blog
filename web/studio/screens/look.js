@@ -10,6 +10,7 @@ import { showPreview } from "../parts/preview.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
 import * as M from "../parts/look-rules.js";
 import { say as word } from "../parts/words.js";
+import { offerOldDraft } from "../parts/old-draft.js";
 
 const OWN = "";
 
@@ -179,6 +180,12 @@ export async function createLook({ api, meta }) {
       dark = appearance;
       if (!keep) darkDraft = appearance ? appearance.colorSchemeToggle ?? null : null;
       draw();
+      // R15: choices the old Admin kept unsaved on this phone, offered back once.
+      if (!keep) {
+        offerOldDraft({ host: banner, screen: "look", user: api.user, saved, same: M.lookSame,
+          isContent: (value) => typeof value === "object" && !Array.isArray(value),
+          restore: (look) => { draft = M.lookFrom(look); draw(); } });
+      }
       return true;
     } catch (error) {
       controls.replaceChildren(h("alert-banner", { variant: "danger", heading: "How your site looks didn't load" }, "Check your connection and try again.", h("action-button", { variant: "secondary", onClick: () => load() }, "Try again")));

@@ -294,8 +294,7 @@ export async function createCards({ api, go }) {
         ...(o.problems || []).map((p) => `problem: ${p}`),
         o.enabled ? `designs ${(o.designs || []).map((d) => d.id).join(", ")}` : null,
         o.enabled ? `cards: ${["scheduled", "sending", "sent", "failed", "cancelled"].map((s) => `${s} ${count(s)}`).join(", ")}` : null,
-      ].filter(Boolean).map((t) => h("li", { text: t }))),
-      h("p", {}, h("a", { href: "/admin/#/greetings", target: "_blank", rel: "noopener" }, "Greeting cards in the old Admin")));
+      ].filter(Boolean).map((t) => h("li", { text: t }))));
   }
 
   return {

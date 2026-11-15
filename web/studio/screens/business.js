@@ -146,8 +146,7 @@ export async function createBusiness(context) {
   function drawDetails(serverText = "") {
     details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("pre", { class: "studio-mono", text: JSON.stringify(reply?.business || {}, null, 2) }),
-      h("p", { class: "studio-mono", text: `etag ${reply?.etag || ""}${reply?.buildError ? `; build: ${reply.buildError}` : ""}${serverText ? `; server: ${serverText}` : ""}` }),
-      h("p", {}, h("a", { href: "/admin/#/business", target: "_blank", rel: "noopener" }, "Business facts in the old Admin")));
+      h("p", { class: "studio-mono", text: `etag ${reply?.etag || ""}${reply?.buildError ? `; build: ${reply.buildError}` : ""}${serverText ? `; server: ${serverText}` : ""}` }));
   }
 
   // The server's problems are the engine's words: say the model's own sentence for that field, or a

@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { BOUNDARY_KINDS, BOUNDARY_PROJECTIONS, BOUNDARY_REASONS, boundaryCountsText, createBoundaryPreview } from "../../web/admin/admin.js";
-import { withDom } from "./dom-shim.mjs";
 
 // The curated research-context projection (#197, ADR 0197 to ADR 0201): the public data file and the
 // static section of a post's page, read here from the fixtures the Rust tests pin byte for byte
@@ -109,46 +107,3 @@ test("the page section reads in order without JavaScript and every anchor the fi
   for (const [, href] of SECTION.matchAll(/href="([^"#][^"]*)"/g)) assert.match(href, /^(\/(?!\/)|https:\/\/)/);
 });
 
-test("Admin names the projection and its file, and never counts the file twice", () => {
-  assert.equal(BOUNDARY_PROJECTIONS["curated-context"], "Curated context data");
-  assert.equal(BOUNDARY_KINDS["curated-context"], "Curated context file");
-  for (const reason of ["over-limit", "inconsistent"]) assert.ok(BOUNDARY_REASONS[reason], `${reason} has words`);
-  const manifest = {
-    projections: [
-      { projection: "curated", published: [{ kind: "selection", id: "a" }, { kind: "selection", id: "b" }], withheld: [] },
-      { projection: "curated-context", published: [{ kind: "curated-context", id: "curated-context" }], withheld: [] },
-    ],
-  };
-  assert.equal(boundaryCountsText(manifest), "2 published, 0 withheld.");
-  manifest.projections[1] = { projection: "curated-context", published: [], withheld: [{ kind: "curated-context", id: "curated-context", reason: "over-limit" }] };
-  assert.equal(boundaryCountsText(manifest), "2 published, 1 withheld.");
-});
-
-test("the preview lists the file with its address and says why a refused one is left out", withDom(async () => {
-  const manifest = (curatedContext) => ({
-    scope: { kind: "site" },
-    projections: [{ projection: "curated-context", switch: "curatedContext.publish", enabled: true, ...curatedContext }],
-    never: [],
-  });
-  const listed = createBoundaryPreview({
-    manifest: manifest({ published: [{ kind: "curated-context", id: "curated-context", label: "curated-context.json", url: "/curated-context.json", fields: ["items", "context", "posts"], posts: ["cave"] }], withheld: [] }),
-    idPrefix: "listed",
-    level: 4,
-    scope: "site",
-  });
-  document.body.append(listed);
-  const text = listed.textContent.replace(/\s+/g, " ");
-  assert.match(text, /Curated context data/);
-  assert.match(text, /Curated context file/);
-  assert.match(text, /curated-context\.json/);
-  const refused = createBoundaryPreview({
-    manifest: manifest({ published: [], withheld: [{ kind: "curated-context", id: "curated-context", reason: "over-limit", message: "The curated context file curated-context.json is not written: the curated context projection is 2000000 bytes as published, over the limit of 1048576." }] }),
-    idPrefix: "refused",
-    level: 4,
-    scope: "site",
-  });
-  document.body.append(refused);
-  const said = refused.textContent.replace(/\s+/g, " ");
-  assert.match(said, /Over a size or count limit, so the file is left out/);
-  assert.match(said, /over the limit of 1048576/);
-}));

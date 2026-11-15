@@ -9,7 +9,6 @@ import { createDecorations } from "./decorations.js";
 import { createGifts } from "./gifts.js";
 import { createDocuments } from "./documents.js";
 import { createPageEdit } from "./page-edit.js";
-import { createTools } from "./tools.js";
 import { createLanding } from "./landing.js";
 import { createLook } from "./look.js";
 import { createReadersArea } from "./readers-area.js";
@@ -24,7 +23,6 @@ import { createSharing } from "./sharing.js";
 import { createShareNew } from "./share-new.js";
 import { createJobShare } from "./job-share.js";
 import { createAccounts } from "./accounts.js";
-import { createNotYet } from "./not-yet.js";
 import { createNotifications } from "./notifications.js";
 import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
@@ -94,7 +92,7 @@ export const SCREENS = [
   { name: "service", area: "services", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.services, route.arg) },
   { name: "reviews", nav: "Reviews", area: "reviews", when: tradeSite, create: (context) => createDocuments(context, RECORDS.proof) },
   { name: "review", area: "reviews", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.proof, route.arg) },
-  // Business facts open on any site (More tools and Find), so a trade site can be started; the nav
+  // Business facts open on any site (the account menu and Find), so a trade site can be started; the nav
   // shows them only on a trade site.
   { name: "business", nav: "Business", area: "business", navWhen: tradeSite, create: (context) => createBusiness(context) },
   // Each only when it applies: the quote form is set up, reminders are for this trade, sharing is set up.
@@ -137,15 +135,12 @@ export const SCREENS = [
   { name: "together", nav: (meta) => togetherNav(meta), area: "together", coWriter: true,
     navWhen: (meta) => meta.account === "co-writer" || meta.together?.takingPart > 0, create: (context, route) => createTogetherScreen(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
-  { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
   // R9: #/look/design is Describe a new look (Look's navigation item stays current).
   { name: "look", nav: "Look", area: "look", create: (context, route) => (route.arg === "design" ? createDesign(context) : createLook(context)) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },
   // Only when gifts are set up where Admin runs (OPENBLOG_GIFTS_*).
   { name: "gifts", nav: "Gifts", area: "gifts", when: (meta) => meta.gifts === true, create: (context) => createGifts(context) },
-  // The old Admin's other tools, by link (account menu and Find).
-  { name: "tools", area: "tools", create: () => createTools() },
   // #/write asks "a recipe or a story?" (when the site has recipes); #/write/new/recipe|story starts
   // one; #/write/<path> opens a post.
   // #/write asks what she's writing (recipes on, or a trade site with jobs: R4); #/write/new/job

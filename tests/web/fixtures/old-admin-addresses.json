@@ -1,5 +1,5 @@
 {
-  "note": "Every address the old Admin answered (web/admin/admin.js dispatch, canonicalAdminHash, RESEARCH_PANELS, KINDS, the queries it read), written in R15 before admin.js was deleted. Each lands on `studio` (what legacyRoute gives, or the address itself when it is already Studio's) and shows `screen`.",
+  "note": "Every address the old Admin answered (the old Admin's admin.js dispatch, canonicalAdminHash, RESEARCH_PANELS, KINDS, the queries it read), written in R15 before admin.js was deleted. Each lands on `studio` (what legacyRoute gives, or the address itself when it is already Studio's) and shows `screen`.",
   "heads": [
     "edit",
     "new",

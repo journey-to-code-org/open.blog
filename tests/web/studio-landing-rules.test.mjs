@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-landing.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-landing.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

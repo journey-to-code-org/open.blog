@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-announcements.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-announcements.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 // The Admin "Social" screen (epic #353, story #356, ADR 0310): the time in the author's own zone as
 // a UTC instant (with the days the clocks change), the caption count, the words for statuses and

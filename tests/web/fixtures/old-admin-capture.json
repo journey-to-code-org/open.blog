@@ -1,5 +1,5 @@
 {
-  "note": "What the old Admin's capture modules (web/admin/capture-queue.js, capture-assistant.js) were and wrote, frozen in R15 before they were deleted. Studio reads the same IndexedDB forever (ADR 0297). A photo's blob is { blobBytes }.",
+  "note": "What the old Admin's capture modules (the old Admin's capture-queue.js, capture-assistant.js) were and wrote, frozen in R15 before they were deleted. Studio reads the same IndexedDB forever (ADR 0297). A photo's blob is { blobBytes }.",
   "constants": {
     "DB_NAME": "openblog-capture",
     "STORE_NAME": "captures",

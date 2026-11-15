@@ -109,7 +109,7 @@ export function creditNames(credits, registry = {}, author = {}) {
   return normalizeCreditDraft(credits).map((credit) => registry[credit.contributor]?.name || credit.contributor);
 }
 
-/** "By Grammi", "By Grammi and Ruth", "By Grammi, Ruth and Ann", or "No one named". */
+/** "By Ada", "By Ada and Ruth", "By Ada, Ruth and Ann", or "No one named". */
 export function byLine(names) {
   const list = (names || []).filter(Boolean);
   if (!list.length) return "No one named";

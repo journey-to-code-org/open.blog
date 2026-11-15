@@ -97,7 +97,7 @@ test.beforeAll(async () => {
   server.stderr.on("data", (data) => { output += data; });
   await expect(async () => {
     if (server.exitCode !== null) throw new Error(`Test server exited: ${output}`);
-    expect((await fetch(`${origin}/admin/`)).ok).toBe(true);
+    expect((await fetch(`${origin}/admin/studio/`)).ok).toBe(true);
   }).toPass({ timeout: 30000 });
 });
 
@@ -108,72 +108,6 @@ test.afterAll(async () => {
     await stopped;
   }
   removeTree(root);
-});
-
-async function signIn(page) {
-  await page.goto(`${origin}/admin/`);
-  const username = page.getByLabel("Username", { exact: true });
-  if (await username.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
-    await username.fill("writer");
-    await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page.locator('[data-action="logout"]')).toBeVisible();
-  }
-}
-
-test("the author's response and revision note are saved to the site's files and shown on the canonical page", async ({ page }) => {
-  const dialogs = [];
-  page.on("dialog", (dialog) => { dialogs.push(dialog.message()); dialog.dismiss(); });
-  await signIn(page);
-  // B5's address opens the one moderation inbox (ADR 0105).
-  await page.goto(`${origin}/admin/#/feedback`);
-  await expect(page.getByRole("link", { name: "Moderation inbox", exact: true })).toHaveAttribute("aria-current", "page");
-  // No hosted token is saved, so the inbox explains itself; what the site publishes still works.
-  await expect(page.getByText("The inbox could not be loaded. Hosted engagement admin credential is not configured")).toBeVisible();
-  await expect(page.getByText("2 notes published on your posts.")).toBeVisible();
-
-  const card = page.locator(`#oba-published-${QUESTION_ID}`);
-  await expect(card.getByRole("heading", { name: "Question on “Tides”", level: 3 })).toBeVisible();
-  await expect(card.getByText("quoting “twice a day”", { exact: false })).toBeVisible();
-  const response = card.getByLabel("Your public response");
-  await response.focus();
-  await page.keyboard.type("We measured twice; see the methods note. <b>bold</b>");
-  await card.getByRole("button", { name: "Save response", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  await expect(card.getByText("Response saved.", { exact: false })).toBeVisible();
-  expect(JSON.parse(readFileSync(feedbackFile(), "utf8")).items.find((item) => item.id === QUESTION_ID).response.text)
-    .toBe("We measured twice; see the methods note. <b>bold</b>");
-
-  // A file changed elsewhere since the page loaded is a conflict, and nothing is written.
-  const changed = JSON.parse(readFileSync(feedbackFile(), "utf8"));
-  changed.items[1].body = "Edited by hand.";
-  writeFileSync(feedbackFile(), `${JSON.stringify(changed, null, 2)}\n`);
-  const before = readFileSync(feedbackFile(), "utf8");
-  await response.fill("A second answer.");
-  await card.getByRole("button", { name: "Save response", exact: true }).click();
-  await expect(card.getByText("The published feedback changed since you loaded it.", { exact: false })).toBeVisible();
-  expect(readFileSync(feedbackFile(), "utf8")).toBe(before);
-
-  await page.reload();
-  const fresh = page.locator(`#oba-published-${QUESTION_ID}`);
-  await fresh.locator("summary").focus();
-  await page.keyboard.press("Enter");
-  await fresh.getByLabel("What changed").fill("Clarified how often the tides were measured.");
-  await fresh.getByLabel("Date of the change").fill("2026-10-28");
-  await fresh.getByRole("button", { name: "Add revision note", exact: true }).click();
-  await expect(fresh.getByText("Revision note added", { exact: false })).toBeVisible();
-  expect(readFileSync(postFile(), "utf8")).toContain("2026-10-28: Clarified how often the tides were measured.");
-
-  await page.goto(`${origin}/tides/`);
-  const notes = page.locator("#ob-reader-feedback");
-  await expect(notes.getByRole("heading", { name: "Reader questions and responses", level: 2 })).toBeVisible();
-  await expect(notes.getByRole("heading", { name: "Question about Methods", level: 3 })).toBeVisible();
-  await expect(notes.locator("blockquote").first()).toHaveText("twice a day");
-  await expect(notes.getByText(`Why twice? ${HOSTILE}`)).toBeVisible();
-  await expect(notes.getByText("We measured twice; see the methods note. <b>bold</b>")).toBeVisible();
-  await expect(notes.locator("img, b")).toHaveCount(0);
-  await expect(page.getByText("Clarified how often the tides were measured.")).toBeVisible();
-  expect(dialogs).toEqual([]);
 });
 
 test("the canonical page lists approved notes without JavaScript and at 320px", async ({ browser }) => {

@@ -46,7 +46,8 @@ function accountMenu(meta, jobs) {
     ...(install ? [{ value: "home-screen", label: install }] : []),
     { value: "helper", label: say("helper.name") },
     { value: "start", label: say("start.menu") },
-    { value: "tools", label: "More tools" },
+    // Business facts are in the navigation on a trade site; here otherwise, so a trade site can be started.
+    ...(tradeSite(meta) ? [] : [{ value: "business", label: "Business facts" }]),
     { value: "signout", label: "Sign out" },
   ];
 }
@@ -118,7 +119,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
 
   function account(choice) {
     if (choice === "site") open(meta.siteUrl || "/", "_blank", "noopener");
-    if (choice === "tools") router.go("#/tools");
+    if (choice === "business") router.go("#/business");
     if (choice === "notifications") router.go("#/notifications");
     if (choice === "helper") router.go("#/helper");
     if (choice === "start") router.go("#/start");
@@ -163,6 +164,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "go-people", label: "People", group: "Go to", href: "#/people" },
+    { id: "go-business", label: "Business facts", group: "Go to", href: "#/business" },
     // R8: on a post, Write lists its own "Writing helper" (the sheet) first; anywhere else, the screen.
     { id: "go-helper", label: say("helper.name"), group: "Go to", href: "#/helper" },
     { id: "go-helper-setup", label: say("helper.findSetup"), group: "Do", href: "#/helper?setup=1" },
@@ -186,8 +188,6 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
       { id: "notifications-test", label: "Send a test notification", group: "Do", href: "#/notifications" },
     ] : []),
     { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
-    // "#/", not a bare /admin: the old Admin's bridge (G25) sends an installed app's bare launch back here.
-    { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin/#/" },
     { id: "signout", label: "Sign out", group: "Do" },
   ];
   // The screen's own items first; a shell item with the same words isn't listed twice.

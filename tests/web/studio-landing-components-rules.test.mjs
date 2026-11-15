@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-landing-components.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-landing-components.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 // Theme components in the Landing page builder (ADR 0408): the picker lists what the theme offers,
 // a placed component gets a form built from its declared settings, and a component the theme no

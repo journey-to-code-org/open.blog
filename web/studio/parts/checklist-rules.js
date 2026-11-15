@@ -1,4 +1,4 @@
-// Moved from web/admin/trade-checklist.js (the old Admin's ten-minute checklist, ADR 0401, #529)
+// Moved from the old Admin's trade-checklist.js (the old Admin's ten-minute checklist, ADR 0401, #529)
 // for the old Admin's retirement: the pure half only, so Studio loads nothing from /admin/. Home
 // shows it on a trade site until the owner hides it or every step is done; each step comes from
 // `GET trade-checklist`, worked out from the files, so a step ticks only when the site really has
@@ -47,10 +47,11 @@ export function checklistDone(data) {
  */
 export function stepHref(step) {
   if (!step?.href) return null;
-  const share = /^#\/edit\/(.+)$/.exec(step.href);
+  // The server names Studio's addresses (#/write/<path>, #/new-job; R15 G124); an answer kept from
+  // before names the old Admin's (#/edit/<path>, #/capture), which still work.
+  const share = /^#\/(?:edit|write)\/(.+)$/.exec(step.href);
   if (step.id === "destination" && share) return `#/sharing/job/${share[1]}`;
-  const studio = legacyRoute(step.href) || step.href;
-  return studio.startsWith("#/not-yet/") ? null : studio;
+  return legacyRoute(step.href) || step.href;
 }
 
 /** "3 of 5 done". */

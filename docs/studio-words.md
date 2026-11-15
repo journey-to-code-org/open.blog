@@ -3427,6 +3427,16 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `research.whatNotebook` | her | notebook | none | 40 |
 | `research.whatPassage` | her | passage | none | 40 |
 | `research.whatSource` | her | source | none | 40 |
+| `restore.bringBack` | her | Bring them back | none | 40 |
+| `restore.broughtBack` | her | Brought back. They aren't saved yet: look them over, then Save. | none | 126 |
+| `restore.details` | details | Kept as {key}, last changed {when}. | `{key}` `{when}` | 70 |
+| `restore.keep` | her | Keep them | none | 40 |
+| `restore.oldHeading` | her | Bring back changes you didn't save? | none | 70 |
+| `restore.oldText` | her | They were kept on this {noun} before {product}'s screens changed. | `{noun}` `{product}` | 130 |
+| `restore.throwAsk` | her | Throw away the changes you didn't save? | none | 78 |
+| `restore.throwAway` | her | Throw them away | none | 40 |
+| `restore.throwText` | her | What's saved stays as it is. The changes can't come back after this. | none | 136 |
+| `restore.thrown` | her | Thrown away. What's saved is unchanged. | none | 78 |
 | `review.blocking` | her | Needs fixing before it can go up ({count}) | `{count}` | 84 |
 | `review.blockingHelp` | her | {product} won't publish the post with these. They can't be marked as checked. | `{product}` | 154 |
 | `review.cantRead` | her | {product} couldn't read this post to check it. Tell {helper}. | `{product}` `{helper}` | 122 |

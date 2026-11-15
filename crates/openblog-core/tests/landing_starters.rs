@@ -1,6 +1,6 @@
 //! Every starter layout of the landing builder renders cleanly on every bundled theme (ADR 0258, #338).
 //!
-//! The starters are data in `web/admin/landing.js`; `tests/web/admin-landing.test.mjs`
+//! The starters are data in `web/studio/parts/landing-rules.js`; `tests/web/studio-landing-rules.test.mjs`
 //! keeps `fixtures/landing-starters.json` equal to them, and this test builds a site from each
 //! one with each bundled theme.
 

@@ -1,6 +1,6 @@
 // Your research beside the words (Studio R11): what it lists, and the exact text a quotation or a
 // note she turns into her own words becomes. Pure, DOM-free. Lifted from the old Admin
-// (web/admin/admin.js "draft-side research panel", ADR 0122; removed in R15): someone else's words
+// (the old Admin's admin.js "draft-side research panel", ADR 0122; removed in R15): someone else's words
 // go in exactly as kept, never trimmed, normalised or dropped, and every character Markdown would
 // read as markup is written so it shows as itself.
 import { say } from "./words.js";

@@ -14,7 +14,7 @@ import {
 import { catalog, say } from "../../web/studio/parts/words.js";
 import { bannedExcept } from "../../web/studio/parts/plain-words.js";
 
-// Shaping what you write together (Studio R14b), ported from tests/web/admin-shared-drafts (the
+// Shaping what you write together (Studio R14b), ported from the old admin-shared-drafts (the
 // arrangement, approval rule, continuing conversation and moment cases) and admin-shared-series;
 // the old panels' chrome is tests/browser/studio-together-shape.spec.mjs.
 

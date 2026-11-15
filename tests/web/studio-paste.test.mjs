@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-paste.test.mjs for Studio R6 (parts/paste.js is the old Admin's,
+// Ported from the old admin-paste.test.mjs for Studio R6 (parts/paste.js is the old Admin's,
 // copied whole); the old Admin's copy and its test go in R15.
 import assert from "node:assert/strict";
 import test from "node:test";

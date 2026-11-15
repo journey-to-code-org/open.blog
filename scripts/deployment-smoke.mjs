@@ -59,10 +59,15 @@ export async function smoke({
     const response = await get(new URL(path, site), 302);
     assert.equal(response.headers.get("location"), new URL(destination, admin).href, "Unexpected Admin redirect");
   }
-  await get(new URL("/admin/", admin), 200, /text\/html/i, { timeoutMs: 120_000 });
-  await get(new URL("/admin/admin.css", admin), 200, /text\/css/i);
-  await get(new URL("/admin/admin.js", admin), 200, /javascript/i);
-  log("PASS Admin redirect, login page, and assets (no authentication attempted)");
+  // The old Admin was retired (R15): its pages and files open Studio, which signs in the same way.
+  for (const path of ["/admin", "/admin/", "/admin/admin.js", "/admin/admin.css"]) {
+    const response = await get(new URL(path, admin), 302, null, path === "/admin" ? { timeoutMs: 120_000 } : {});
+    assert.equal(new URL(response.headers.get("location") || "", admin).href, new URL("/admin/studio/", admin).href, `${path} must open Studio`);
+  }
+  await get(new URL("/admin/studio/", admin), 200, /text\/html/i);
+  await get(new URL("/admin/sw.js", admin), 200, /javascript/i);
+  await get(new URL("/admin/manifest.webmanifest", admin), 200, /manifest\+json|application\/json/i);
+  log("PASS Admin redirect, Studio's sign-in page, worker and manifest (no authentication attempted)");
 
   const views = await get(new URL(`/api/views?path=${encodeURIComponent(post.pathname)}`, site), 200, /application\/json/i);
   assert.ok(Number.isFinite((await views.json()).views), "Expected numeric view count");

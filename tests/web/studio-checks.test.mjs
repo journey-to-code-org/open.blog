@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-checks.test.mjs for Studio R6 (parts/checks.js is the old Admin's,
+// Ported from the old admin-checks.test.mjs for Studio R6 (parts/checks.js is the old Admin's,
 // copied whole); the old Admin's copy and its test go in R15.
 import assert from "node:assert/strict";
 import test from "node:test";

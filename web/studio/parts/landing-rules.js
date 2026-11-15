@@ -1,4 +1,4 @@
-// Moved from web/admin/landing.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's landing.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // The Landing page builder's model (ADR 0249, #326). Plain data and pure functions with no DOM, so
 // the rules can be tested without a browser. The server owns every rule and the canonical form

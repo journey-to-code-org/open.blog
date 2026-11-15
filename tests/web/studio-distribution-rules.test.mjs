@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-distribution.test.mjs for the old Admin's retirement (R1): the same
+// Ported from the old admin-distribution.test.mjs for the old Admin's retirement (R1): the same
 // checks of the pure rules, against Studio's copy; the old screen's tests stay with the old Admin
 // until R15. "Where it went" keeps unknowns out of what was reached, says what each status rests
 // on, and normalizes the hosted social queue by the same rules as the server.

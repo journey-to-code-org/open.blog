@@ -113,7 +113,7 @@ fn each_step_ticks_from_the_files_and_unticks_when_they_go() {
         .iter()
         .find(|step| step["id"] == "destination")
         .unwrap();
-    assert_eq!(destination["href"], "#/edit/posts%2Foak.md");
+    assert_eq!(destination["href"], "#/write/posts%2Foak.md");
 
     // A first review.
     fs::write(

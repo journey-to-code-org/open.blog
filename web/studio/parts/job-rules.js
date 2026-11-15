@@ -1,4 +1,4 @@
-// Moved from web/admin/job-form.js (ADR 0287) for the old Admin's retirement: the pure half, which
+// Moved from the old Admin's job-form.js (ADR 0287) for the old Admin's retirement: the pure half, which
 // reads and writes a job post's flattened `job.*` keys exactly as the old Job form did, plus what
 // Write's About this job needs: trade names in words and the job's four parts. Studio R4
 // (docs/specs/studio/r4/ux.md).

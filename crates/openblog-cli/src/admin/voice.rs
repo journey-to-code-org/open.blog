@@ -456,8 +456,7 @@ pub(super) fn invitation_dismissed(root: &std::path::Path, user: &str) -> bool {
         .and_then(|record| record["dismissed"].as_bool());
     match own {
         Some(answer) => answer,
-        None => crate::admin_preferences::load(root, user)
-            .is_ok_and(|kept| kept.preferences.voice_invitation_dismissed),
+        None => crate::admin_preferences::voice_invitation_dismissed(root, user),
     }
 }
 

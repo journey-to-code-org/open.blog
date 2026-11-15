@@ -56,9 +56,9 @@ pub(crate) fn steps(facts: &Facts) -> Vec<Step> {
             facts
                 .newest_job
                 .as_ref()
-                .map(|path| format!("#/edit/{}", url_component(path)))
+                .map(|path| format!("#/write/{}", url_component(path)))
         } else {
-            Some("#/capture".to_string())
+            Some("#/new-job".to_string())
         }
     };
     vec![
@@ -85,11 +85,13 @@ pub(crate) fn steps(facts: &Facts) -> Vec<Step> {
         Step {
             id: "destination",
             done: facts.google_on || facts.job_shared,
-            // Sharing starts from a published job, in Write; there is nothing to open before one.
+            // Sharing starts from a published job (Studio sends it to Share this job); there is
+            // nothing to open before one. Studio addresses since R15 (G124); Studio still reads the
+            // old `#/edit/…` and `#/capture` a kept answer may hold.
             href: facts
                 .newest_job
                 .as_ref()
-                .map(|path| format!("#/edit/{}", url_component(path))),
+                .map(|path| format!("#/write/{}", url_component(path))),
         },
     ]
 }
@@ -235,7 +237,7 @@ mod tests {
         let ids: Vec<&str> = steps.iter().map(|step| step.id).collect();
         assert_eq!(ids, ["business", "service", "job", "review", "destination"]);
         assert!(steps.iter().all(|step| !step.done));
-        assert_eq!(by_id(&steps, "job").1.as_deref(), Some("#/capture"));
+        assert_eq!(by_id(&steps, "job").1.as_deref(), Some("#/new-job"));
         assert_eq!(by_id(&steps, "destination").1, None);
     }
 
@@ -251,11 +253,11 @@ mod tests {
         assert!(!by_id(&steps, "service").0);
         assert_eq!(
             by_id(&steps, "job"),
-            (true, Some("#/edit/posts%2Fnew%20oak.md".into()))
+            (true, Some("#/write/posts%2Fnew%20oak.md".into()))
         );
         assert_eq!(
             by_id(&steps, "destination"),
-            (false, Some("#/edit/posts%2Fnew%20oak.md".into()))
+            (false, Some("#/write/posts%2Fnew%20oak.md".into()))
         );
         for facts in [
             Facts {

@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-job-share.test.mjs for the old Admin's retirement (R1): the pure
+// Ported from the old admin-job-share.test.mjs for the old Admin's retirement (R1): the pure
 // rules of Share this job against Studio's copy, and Studio's new words for where a place stands
 // and what to fix first. The old screen's tests stay with the old Admin until R15.
 import assert from "node:assert/strict";

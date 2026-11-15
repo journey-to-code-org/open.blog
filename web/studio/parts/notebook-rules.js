@@ -1,6 +1,6 @@
 // The notebook's rules (Studio R11, Notebook): passages (the exact words she read, with where they
 // are) and notes (her own observations and questions), search, and what a notebook copy would
-// bring in. Pure, DOM-free. Lifted from the old Admin (web/admin/admin.js "research notebook
+// bring in. Pure, DOM-free. Lifted from the old Admin (the old Admin's admin.js "research notebook
 // capture", removed in R15) with places as rows rather than typed lines, and every sentence a word
 // id. Quoted words are kept exactly: never trimmed, normalised or reflowed.
 import { say } from "./words.js";

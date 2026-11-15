@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-seasonal.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-seasonal.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 // The Reminders screen (ADR 0356, #526): the pure contract and the screen against a fake server. A
 // reminder only starts a draft, snoozes or turns a topic off; the Assistant is mentioned, never started.

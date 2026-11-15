@@ -1,7 +1,7 @@
 // Before you publish (Studio R7): what the checks found, in one list, and when it opens by
 // itself. Pure: given what the checks answered, the state and the words. Checks suggest; only what
 // the build would refuse blocks. Needs-review items can't be "fixed", so they never count and never
-// open the sheet. `searchHints` is the old Admin's `analyzeReadiness` (web/admin/admin.js, removed
+// open the sheet. `searchHints` is the old Admin's `analyzeReadiness` (the old Admin's admin.js, removed
 // in R15) split in two, her suggestions and the hints for the person who set up the site, with no
 // score.
 import { say } from "./words.js";

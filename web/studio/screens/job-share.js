@@ -3,7 +3,7 @@
 // (the words, the photo), anything to fix first, and where it stands. A connected Facebook Page is
 // posted to through her shares; everything else she posts herself: copy the words, open the place,
 // then say "I posted it" (with Undo, G17). Google is never sent from here. The job's words are only
-// ever text. docs/specs/studio/r1/ux.md; old Admin's web/admin/job-share.js.
+// ever text. docs/specs/studio/r1/ux.md; old Admin's the old Admin's job-share.js.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, offersPosting, pageOpen, problemWords, soon, standing, standingText, troubleAction, wayFor } from "../parts/job-share-rules.js";

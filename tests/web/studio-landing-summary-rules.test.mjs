@@ -1,4 +1,4 @@
-// Ported from tests/web/admin-landing-summary.test.mjs for the old Admin's retirement: the same checks,
+// Ported from the old admin-landing-summary.test.mjs for the old Admin's retirement: the same checks,
 // against Studio's copy of the rules. Tests of the old screens stay with the old Admin until R15.
 import { test } from "node:test";
 import assert from "node:assert/strict";

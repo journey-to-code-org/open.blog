@@ -12,7 +12,7 @@ import {
 import { catalog, configureWords, say } from "../../web/studio/parts/words.js";
 import { HER_BANNED, bannedExcept } from "../../web/studio/parts/plain-words.js";
 
-// Ported from tests/web/admin-shared-reflection, -invitations and -members (Studio R14a, the rules
+// Ported from the old admin-shared-reflection, -invitations and -members (Studio R14a, the rules
 // half; the old panels' chrome is covered by tests/browser/studio-together.spec.mjs), then the
 // states, rows and refusals the old Admin never had.
 

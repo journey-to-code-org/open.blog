@@ -103,7 +103,7 @@ export const commentsChoice = (value) => (["locked", "hidden"].includes(text(val
 
 /**
  * The line on the About this post button: up to three facts, " · " between.
- * "A recipe · Summary set · By Grammi", "Summary set · Comments open · By Grammi and Ruth".
+ * "A recipe · Summary set · By Ada", "Summary set · Comments open · By Ada and Ruth".
  * With changes kept on this device for a published post, it starts with "Changes not on your site yet".
  */
 export function aboutLine({ about = {}, commentsSetUp = false, names = [], unsent = false } = {}) {
@@ -148,7 +148,7 @@ export function slugHelp({ state, wasPublished, hasHistory } = {}) {
 }
 
 /**
- * "grammishouse.com/pumpkin-bread/": what the address will be. `slug` is what she typed; empty
+ * "example.com/apple-cake/": what the address will be. `slug` is what she typed; empty
  * means the file's own name (an existing post) or the title (a new one).
  */
 export function slugPreview({ siteUrl = "", postPath = "/posts/{slug}/", slug = "", title = "", path = "" } = {}) {

@@ -1,6 +1,6 @@
 // What readers see (Studio R12): the server's preview of what the next build publishes from her
 // research and what stays private, with why, as the old Admin's boundary helpers
-// (web/admin/admin.js l.8412–8520), lifted into her words. Never a score.
+// (the old Admin's admin.js l.8412–8520), lifted into her words. Never a score.
 import { say } from "./words.js";
 import { sayId } from "./research-says.js";
 import { atlasLinkHash, researchHash } from "./research-rules.js";

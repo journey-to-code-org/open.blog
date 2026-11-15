@@ -1,6 +1,6 @@
-// What the worker keeps (Studio R4 G35), copied from web/studio/sw.js (a classic script, which can't
-// import) so it can be tested; tests/web/studio-sw.test.mjs keeps the two copies the same. Also the
-// plain half of Details' release line (parts/releases.js reads the three versions).
+// What the worker keeps (Studio R4 G35) and the pages it sends to Studio (R15), copied from
+// web/studio/sw.js (a classic script, which can't import) so they can be tested;
+// tests/web/studio-sw.test.mjs keeps the copies the same. Also the plain half of Details' release line (parts/releases.js reads the three versions).
 
 /** Whether a request is one of Studio's own files the worker keeps: a GET under /admin/studio/ on this origin. */
 export function keeps(url, method, origin) {
@@ -12,6 +12,23 @@ export function keeps(url, method, origin) {
     return false;
   }
   return parsed.origin === origin && parsed.pathname.startsWith("/admin/studio/") && !parsed.pathname.includes("/api/") && !parsed.search;
+}
+
+/**
+ * Whether the worker answers this request with a redirect to Studio (R15): a page opened at exactly
+ * /admin or /admin/ on this origin (an iPhone app installed before R3 still starts there), with any
+ * query. The server says the same with a 302; the worker says it with no signal too, so the app
+ * opens Studio from the kept copy. Only page loads, never a script's request.
+ */
+export function adminRedirect(url, mode, origin) {
+  if (mode !== "navigate") return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.origin === origin && (parsed.pathname === "/admin" || parsed.pathname === "/admin/");
 }
 
 /** The release named on the served worker's first line, or "" when it can't be read. */

@@ -149,13 +149,11 @@ test("a collection keeps its file as written, and a post goes into it from Write
   await expect.poll(() => { try { return readFileSync(join(root, "content", "posts", readdirSync(join(root, "content", "posts")).find((f) => readFileSync(join(root, "content", "posts", f), "utf8").includes("series: thanksgiving")) || "x"), "utf8"); } catch { return ""; } }).toContain("series: thanksgiving");
 });
 
-test("More tools opens from the account menu, and Pages passes axe at 320 px", async ({ page }) => {
+test("More tools is gone (R15): its old address opens Home, and Pages passes axe at 320 px", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await signIn(page, "#/tools");
-  await expect(page.locator("#studio-tools-h")).toHaveText("More tools");
-  await expect(page.getByRole("link", { name: /Design a theme/ })).toHaveAttribute("href", "/admin/#/design");
-  // Look and Front page live in Studio now, so they are not in the old-Admin list.
-  await expect(page.getByRole("link", { name: /Customize look/ })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/admin\/studio\/#\/$/);
+  await expect(page.locator("#studio-tools-h")).toHaveCount(0);
   for (const hash of ["#/pages", "#/page/new"]) {
     await page.goto(`${origin}/admin/studio/${hash}`);
     await expect(page.locator(".studio-page").first()).toBeVisible();

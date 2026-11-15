@@ -1,5 +1,5 @@
 // Claims and evidence (Studio R12): her statements in a post and how her sources bear on them, as
-// the old Admin's claims helpers (web/admin/admin.js l.6310–7110), lifted; the Visual-editor
+// the old Admin's claims helpers (the old Admin's admin.js l.6310–7110), lifted; the Visual-editor
 // selection mapping is gone with Visual mode (Studio's boxes are the Markdown). Nothing here scores
 // evidence or decides what's true, and a citation alone links nothing.
 import { say } from "./words.js";

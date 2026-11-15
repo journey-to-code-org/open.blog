@@ -21595,6 +21595,72 @@
       "max": 40,
       "vars": []
     },
+    "restore.bringBack": {
+      "text": "Bring them back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "restore.broughtBack": {
+      "text": "Brought back. They aren't saved yet: look them over, then Save.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "restore.details": {
+      "text": "Kept as {key}, last changed {when}.",
+      "layer": "details",
+      "max": 70,
+      "vars": [
+        "key",
+        "when"
+      ]
+    },
+    "restore.keep": {
+      "text": "Keep them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "restore.oldHeading": {
+      "text": "Bring back changes you didn't save?",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "restore.oldText": {
+      "text": "They were kept on this {noun} before {product}'s screens changed.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "restore.throwAsk": {
+      "text": "Throw away the changes you didn't save?",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "restore.throwAway": {
+      "text": "Throw them away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "restore.throwText": {
+      "text": "What's saved stays as it is. The changes can't come back after this.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "restore.thrown": {
+      "text": "Thrown away. What's saved is unchanged.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
     "review.blocking": {
       "text": "Needs fixing before it can go up ({count})",
       "layer": "her",

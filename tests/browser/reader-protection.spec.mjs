@@ -62,7 +62,7 @@ test.beforeAll(async () => {
   server.stderr.on("data", (data) => { output += data; });
   await expect(async () => {
     if (server.exitCode !== null) throw new Error(`Test server exited: ${output}`);
-    expect((await fetch(`${origin}/admin/`)).ok).toBe(true);
+    expect((await fetch(`${origin}/admin/studio/`)).ok).toBe(true);
   }).toPass({ timeout: 30000 });
 });
 
@@ -364,18 +364,6 @@ test("without JavaScript the page says how to report and to send a note, and fit
 
 // ---- Admin
 
-async function signIn(page) {
-  await page.goto(`${origin}/admin/`);
-  const username = page.getByLabel("Username", { exact: true });
-  if (await username.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
-    await username.fill("writer");
-    await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page.locator('[data-action="logout"]')).toBeVisible();
-  }
-}
-
-const UPHOLD = [{ id: "abusive", label: "Abusive" }, { id: "spam", label: "Spam" }];
 function reportItem(extra = {}) {
   return {
     id: ID(7), source: "report", kind: "abuse-report", kindLabel: "Abuse report", status: "pending", statusLabel: "Pending", version: 1, revision: 1,
@@ -393,84 +381,3 @@ function reportItem(extra = {}) {
 }
 const page_ = (items) => ({ state: "pending", kind: "", protocol: "protected", items, invalid: 0, next: null });
 
-test("a report is upheld from the keyboard, and a closed item's text is deleted only once confirmed", async ({ page }) => {
-  let items = [reportItem()];
-  const changes = [];
-  await page.route("**/admin/api/engagement/moderation?**", (route) => json(route, 200, page_(items)));
-  await page.route("**/admin/api/engagement/moderation", async (route) => {
-    const body = JSON.parse(route.request().postData());
-    changes.push(body);
-    if (body.action === "uphold-report") {
-      items = [reportItem({
-        status: "rejected", statusLabel: "Rejected", version: 2, actions: [
-          { action: "erase", label: "Delete its text and name", reasons: [], guidance: "For a reader who asked you to delete what they sent.", confirm: "I understand that the text and name are deleted for good." },
-        ],
-      })];
-      return json(route, 200, { item: items[0], published: false, removedTarget: true });
-    }
-    items = [reportItem({ status: "rejected", statusLabel: "Rejected", version: 3, purged: true, body: null, actions: [] })];
-    return json(route, 200, { item: items[0], published: false });
-  });
-  await page.route("**/admin/api/engagement/feedback/published", (route) => json(route, 200, { etag: "absent", items: [] }));
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/pending?kind=abuse-report`);
-  const card = page.locator(`[data-moderation-id="${ID(7)}"]`);
-  await expect(card.getByRole("heading", { name: "Abuse report on “Tides”", level: 3 })).toBeVisible();
-  await expect(card.getByText("Reports are anonymous", { exact: false })).toBeVisible();
-  await expect(card.getByText(`Rude ${HOSTILE}`)).toBeVisible();
-  await expect(card.locator("img")).toHaveCount(0);
-  const uphold = card.getByRole("button", { name: "Uphold the report" });
-  await uphold.focus();
-  await page.keyboard.press("Enter");
-  await expect(card.getByLabel("Reason to uphold the report")).toBeFocused();
-  await card.getByLabel("Reason to uphold the report").selectOption("abusive");
-  await uphold.click();
-  await expect(page.getByText("Report upheld. The reported item was removed from “Tides”.")).toBeVisible();
-  expect(changes[0]).toEqual({ source: "report", id: ID(7), action: "uphold-report", from: "pending", version: 1, reason: "abusive" });
-
-  const erase = page.locator(`[data-moderation-id="${ID(7)}"]`).getByRole("button", { name: "Delete its text and name" });
-  await erase.click();
-  await expect(page.getByLabel("I understand that the text and name are deleted for good.")).toBeFocused();
-  expect(changes).toHaveLength(1);
-  await page.keyboard.press("Space");
-  await erase.click();
-  await expect(page.getByText("Its text and name were deleted. Only the private record of decisions remains.")).toBeVisible();
-  expect(changes[1]).toEqual({ source: "report", id: ID(7), action: "erase", from: "rejected", version: 2 });
-  await expect(page.getByText("Its text, details and any name were deleted.", { exact: false })).toBeVisible();
-});
-
-test("retention shows a dry run first and runs only once confirmed", async ({ page }) => {
-  let ran = null;
-  await page.route("**/admin/api/engagement/moderation?**", (route) => json(route, 200, page_([])));
-  await page.route("**/admin/api/engagement/feedback/published", (route) => json(route, 200, { etag: "absent", items: [] }));
-  await page.route("**/admin/api/engagement/retention", async (route) => {
-    if (route.request().method() === "GET") {
-      return json(route, 200, {
-        asOf: "2026-10-27T10:00:00Z",
-        periods: { pendingDays: 90, clarificationDays: 30, closedDays: 30, auditDays: 365, comments: false },
-        summary: [{ step: "purge-content", kind: "question", kindLabel: "Question", count: 1 }],
-        items: [{ source: "feedback", id: ID(9), kind: "question", kindLabel: "Question", status: "rejected", statusLabel: "Rejected", since: "2026-08-01T00:00:00Z", step: "purge-content", work: "/tides/" }],
-        audit: { comment: 0, feedback: 2, report: 0 }, truncated: false, skipped: 0,
-      });
-    }
-    ran = JSON.parse(route.request().postData());
-    return json(route, 200, { expired: 0, purged: 1, skipped: 0, auditDeleted: 2, more: false });
-  });
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/pending`);
-  const section = page.getByRole("region", { name: "Retention" });
-  await section.getByRole("button", { name: "Check what retention would do" }).click();
-  await expect(section.getByText("1 question item would have their text, details and names deleted.")).toBeVisible();
-  await expect(section.getByText("2 private records of decisions older than 365 days would be deleted.")).toBeVisible();
-  await expect(section.getByText("Comments are kept until you act", { exact: false })).toBeVisible();
-  await expect(section.getByRole("status")).toBeFocused();
-  const run = section.getByRole("button", { name: "Run retention now" });
-  await run.click();
-  await expect(section.getByLabel("I understand that purged text, details and names cannot be recovered.")).toBeFocused();
-  expect(ran).toBeNull();
-  await page.keyboard.press("Space");
-  await section.getByLabel(/Also delete private records of decisions older than 365 days/).uncheck();
-  await run.click();
-  await expect(section.getByRole("status")).toHaveText("Retention ran: 0 expired, 1 purged, 2 old records deleted.");
-  expect(ran).toEqual({ asOf: "2026-10-27T10:00:00Z", audit: false });
-});

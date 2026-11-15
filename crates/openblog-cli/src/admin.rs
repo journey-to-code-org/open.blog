@@ -74,7 +74,6 @@ use openblog_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as Json};
 
-use crate::admin_preferences::{self, Preferences, SaveError};
 use crate::alignment_store;
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
@@ -703,55 +702,16 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
-    let file = match path {
-        "/admin" | "/admin/" => "index.html",
-        "/admin/admin.js" => "admin.js",
-        "/admin/block-forms.js" => "block-forms.js",
-        "/admin/admin.css" => "admin.css",
-        "/admin/landing.js" => "landing.js",
-        "/admin/look.js" => "look.js",
-        "/admin/business.js" => "business.js",
-        "/admin/seasons.js" => "seasons.js",
-        "/admin/theme-designer.js" => "theme-designer.js",
-        "/admin/seasonal.js" => "seasonal.js",
-        "/admin/trade-checklist.js" => "trade-checklist.js",
-        "/admin/distribution.js" => "distribution.js",
-        "/admin/services.js" => "services.js",
-        "/admin/proof.js" => "proof.js",
-        "/admin/paste.js" => "paste.js",
-        "/admin/landing-history.js" => "landing-history.js",
-        "/admin/lasting.js" => "lasting.js",
-        "/admin/checks.js" => "checks.js",
-        "/admin/checks-panel.js" => "checks-panel.js",
-        "/admin/job-form.js" => "job-form.js",
-        "/admin/job-capture.js" => "job-capture.js",
-        "/admin/capture-queue.js" => "capture-queue.js",
-        "/admin/capture-recorder.js" => "capture-recorder.js",
-        "/admin/capture-assistant.js" => "capture-assistant.js",
-        "/admin/voice.js" => "voice.js",
-        "/admin/voice-session.js" => "voice-session.js",
-        "/admin/voice-polished.js" => "voice-polished.js",
-        "/admin/social.js" => "social.js",
-        "/admin/quotes.js" => "quotes.js",
-        "/admin/greetings.js" => "greetings.js",
-        "/admin/announcements.js" => "announcements.js",
-        "/admin/job-share.js" => "job-share.js",
-        "/admin/voice-library.js" => "voice-library.js",
-        _ => return Response::error(404, "Not found"),
-    };
-    let config = site::load_config(&state.root).unwrap_or_default();
-    match site::admin_file(&state.root, &config, file) {
-        Some(bytes) => {
-            let ctype = match file {
-                name if name.ends_with(".js") => "text/javascript; charset=utf-8",
-                "admin.css" => "text/css; charset=utf-8",
-                _ => "text/html; charset=utf-8",
-            };
-            Response::new(200, ctype, bytes)
-        }
-        None => Response::error(404, "Not found"),
-    }
+    // The old Admin was retired (R15, ADR 0415): its address opens Studio. A 302, never cached
+    // (`no-store` from `secured`), so a rollback works at once; the query goes (Studio's kept copy
+    // opens only a query-less address) and the browser keeps the `#…`, which Studio's
+    // `legacyRoute` maps. Any other address under /admin/ that isn't Studio's, the worker, the
+    // manifest or the icons was one of the old Admin's files or pages, and opens Studio too.
+    Response::new(302, "text/plain; charset=utf-8", Vec::new()).with_header("Location", STUDIO_HOME)
 }
+
+/// Studio's address: where `/admin/` and every old Admin page now go.
+pub(crate) const STUDIO_HOME: &str = "/admin/studio/";
 
 /// Headers every admin response carries.
 fn header_default(mut response: Response, name: &str, value: &str) -> Response {
@@ -1154,8 +1114,6 @@ fn authenticated_api_routes(
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
-        ("GET", "preferences") => admin_preferences(state, &session.user),
-        ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
         ("POST", "sources") => save_source(state, req, true),
         ("PUT", "sources") => save_source(state, req, false),
@@ -1542,48 +1500,6 @@ fn require_json(req: &Request) -> Result<(), Response> {
             415,
             "Content-Type must be application/json",
         )),
-    }
-}
-
-fn admin_preferences(state: &AppState, user: &str) -> Response {
-    match admin_preferences::load(&state.root, user) {
-        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
-        Err(error) => Response::error(500, &error),
-    }
-}
-
-fn save_admin_preferences(state: &AppState, req: &Request, user: &str) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    if req.body.len() > admin_preferences::MAX_REQUEST_BYTES {
-        return Response::error(413, "Workspace preferences are limited to 16 KiB");
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid JSON"),
-    };
-    let Some(expected_etag) = body["etag"].as_str() else {
-        return Response::error(400, "Missing preferences ETag");
-    };
-    let preferences: Preferences = match serde_json::from_value(body["preferences"].clone()) {
-        Ok(preferences) => preferences,
-        Err(error) => return Response::error(400, &format!("Invalid preferences: {error}")),
-    };
-
-    let _content_transaction = lock(&state.build);
-    let _filesystem_transaction = match content_transaction(state) {
-        Ok(lock) => lock,
-        Err(response) => return response,
-    };
-    match admin_preferences::save(&state.root, user, expected_etag, preferences) {
-        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
-        Err(SaveError::Conflict) => Response::error(
-            409,
-            "Workspace preferences changed in another session. Reload and try again.",
-        ),
-        Err(SaveError::Invalid(error)) => Response::error(400, &error),
-        Err(SaveError::Storage(error)) => Response::error(500, &error),
     }
 }
 
@@ -24738,7 +24654,7 @@ What I read:
         }
 
         // Other Admin views are not a back door to the notebook.
-        for path in ["meta", "sources", "preferences", "contributors", "session"] {
+        for path in ["meta", "sources", "contributors", "session"] {
             let response = handle(
                 &f.state,
                 &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
@@ -25154,7 +25070,6 @@ What I read:
         for path in [
             "meta",
             "sources",
-            "preferences",
             "contributors",
             "session",
             "research/notebook",
@@ -27912,204 +27827,92 @@ What I read:
     }
 
     #[test]
-    fn workspace_preferences_are_authenticated_csrf_protected_and_conflict_safe() {
-        let f = fixture("workspace-preferences");
-        assert_eq!(
-            handle(&f.state, &req("GET", "/admin/api/preferences")).status,
-            401
-        );
-        let session = login_ok(&f);
-        let initial = handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &session, false),
-        );
-        assert_eq!(initial.status, 200);
-        let initial = body_json(&initial);
-        assert_eq!(initial["preferences"]["preset"], "simple");
-        assert_eq!(initial["preferences"]["editorMode"], "visual");
-        assert!(!initial.to_string().contains("correct horse battery"));
-
-        let mut preferences = initial["preferences"].clone();
-        preferences["preset"] = json!("custom");
-        preferences["density"] = json!("compact");
-        preferences["hiddenModules"] = json!(["assistant"]);
-        let payload = json!({ "etag": initial["etag"], "preferences": preferences });
-        let without_csrf = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload.clone()),
-                &session,
-                false,
-            ),
-        );
-        assert_eq!(without_csrf.status, 403);
-
-        let saved = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload.clone()),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(
-            saved.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&saved.body)
-        );
-        let saved = body_json(&saved);
-        assert_eq!(saved["preferences"]["preset"], "custom");
-        assert_eq!(saved["preferences"]["density"], "compact");
-        assert_ne!(saved["etag"], initial["etag"]);
-
-        let conflict = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(conflict.status, 409);
-        assert!(body_json(&conflict)["error"]
-            .as_str()
-            .unwrap()
-            .contains("another session"));
-        let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
-        assert!(!config.contains("hiddenModules"));
-        assert!(f.dir.join(".openblog/private/admin-preferences").is_dir());
-    }
-
-    #[test]
-    fn workspace_preferences_are_private_bounded_and_never_built() {
-        let f = fixture("workspace-preferences-private");
-        let users_path = f.dir.join(".openblog/users.json");
-        let mut users = Users::load(&users_path).unwrap();
-        users.set("ada", "another long passphrase").unwrap();
-        users.save(&users_path).unwrap();
-        let mikey = login_ok(&f);
-        let initial = body_json(&handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &mikey, false),
-        ));
-        assert_eq!(initial["stored"], false);
-        let canonical = || {
-            let mut files = crate::fsutil::walk(&f.dir.join("content"));
-            files.push(f.dir.join("openblog.json"));
-            files
-                .into_iter()
-                .map(|file| (file.clone(), fs::read(file).unwrap()))
-                .collect::<Vec<_>>()
-        };
-        let before = canonical();
-
-        let mut preferences = initial["preferences"].clone();
-        preferences["preset"] = json!("custom");
-        preferences["hiddenModules"] = json!(["analytics", "assistant"]);
-        let saved = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "PUT",
-                    "/admin/api/preferences",
-                    json!({ "etag": initial["etag"], "preferences": preferences }),
-                ),
-                &mikey,
-                true,
-            ),
-        );
-        assert_eq!(saved.status, 200);
-        assert_eq!(body_json(&saved)["stored"], true);
-        assert!(
-            before == canonical(),
-            "presentation changed canonical content"
-        );
-
-        let login = handle(
-            &f.state,
-            &json_req(
-                "POST",
-                "/admin/api/login",
-                json!({ "username": "ada", "password": "another long passphrase" }),
-            ),
-        );
-        assert_eq!(login.status, 200);
-        let cookie = login
-            .headers
-            .iter()
-            .find(|(name, _)| name == "Set-Cookie")
-            .unwrap()
-            .1
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string();
-        let ada = (
-            cookie,
-            body_json(&login)["csrf"].as_str().unwrap().to_string(),
-        );
-        let theirs = body_json(&handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &ada, false),
-        ));
-        assert_eq!(theirs["preferences"]["preset"], "simple");
-        assert_eq!(theirs["stored"], false);
-
-        for (label, preferences) in [
-            ("essential control", json!({ "hiddenModules": ["write"] })),
-            ("publish control", json!({ "hiddenModules": ["publish"] })),
-            ("preset", json!({ "preset": "<script>" })),
-            ("field", json!({ "theme": "dark" })),
-        ] {
-            let mut invalid = theirs["preferences"].clone();
-            for (key, value) in preferences.as_object().unwrap() {
-                invalid[key] = value.clone();
-            }
-            let response = handle(
-                &f.state,
-                &authed(
-                    json_req(
-                        "PUT",
-                        "/admin/api/preferences",
-                        json!({ "etag": theirs["etag"], "preferences": invalid }),
-                    ),
-                    &ada,
-                    true,
-                ),
-            );
-            assert_eq!(response.status, 400, "{label}");
-        }
-        let oversized = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "PUT",
-                    "/admin/api/preferences",
-                    json!({
-                        "etag": theirs["etag"],
-                        "preferences": theirs["preferences"],
-                        "padding": "x".repeat(admin_preferences::MAX_REQUEST_BYTES),
-                    }),
-                ),
-                &ada,
-                true,
-            ),
-        );
-        assert_eq!(oversized.status, 413);
-
+    fn old_preference_files_stay_private_and_are_never_built() {
+        // The old Admin's Personalize files stay on disk after R15 (nothing of the owner's is
+        // deleted); nothing writes them, and a build never publishes them.
+        let f = fixture("old-preferences-private");
+        let path = crate::admin_preferences::preference_path(&f.dir, "mikey").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"compact","editorMode":"visual","moduleOrder":[],"hiddenModules":["analytics"],"voiceInvitationDismissed":true}"#,
+        )
+        .unwrap();
         f.state.rebuild().unwrap();
         for file in crate::fsutil::walk(&f.dir.join("dist")) {
             let bytes = fs::read(&file).unwrap();
             let text = String::from_utf8_lossy(&bytes);
             assert!(
                 !text.contains("hiddenModules") && !text.contains("admin-preferences"),
-                "{} exposes workspace preferences",
+                "{} exposes old preferences",
                 file.display()
             );
         }
         let ignored = fs::read_to_string(f.dir.join(".gitignore")).unwrap();
         assert!(ignored.lines().any(|line| line == "/.openblog/private/"));
+        assert!(path.is_file(), "the file is left where it was");
+        assert!(crate::admin_preferences::voice_invitation_dismissed(
+            &f.dir, "mikey"
+        ));
+    }
+
+    #[test]
+    fn removed_routes_answer_404() {
+        // R15 G123 (and R6, R9, R13 before it): routes only the old Admin used, or nothing used,
+        // answer the same 404 as any unknown route.
+        let f = fixture("removed-routes");
+        let mikey = login_ok(&f);
+        let unknown = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/no-such-route", json!({})),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(unknown.status, 404);
+        for (method, path) in [
+            ("GET", "/admin/api/preferences"),
+            ("PUT", "/admin/api/preferences"),
+            ("POST", "/admin/api/reading-paths/reorder"),
+            ("POST", "/admin/api/decorations/preview"),
+            ("GET", "/admin/api/voice/catalog"),
+            ("POST", "/admin/api/document/rename"),
+        ] {
+            let request = if method == "GET" {
+                authed(req(method, path), &mikey, false)
+            } else {
+                authed(json_req(method, path, json!({})), &mikey, true)
+            };
+            let response = handle(&f.state, &request);
+            assert_eq!(response.status, 404, "{method} {path}");
+            assert_eq!(
+                body_json(&response)["error"],
+                body_json(&unknown)["error"],
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn kept_routes_still_answer() {
+        // Decided 6: kept although the old Admin is gone, because Studio uses them.
+        let f = fixture("kept-routes");
+        let mikey = login_ok(&f);
+        for path in [
+            "/admin/api/engagement/feedback/publish-decision",
+            "/admin/api/collaboration/approve",
+            "/admin/api/collaboration/approve/withdraw",
+            "/admin/api/collaboration/schedule",
+            "/admin/api/collaboration/publish",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(json_req("POST", path, json!({})), &mikey, true),
+            );
+            assert_ne!(response.status, 404, "{path} is routed");
+            assert_ne!(response.status, 405, "{path} takes POST");
+        }
     }
 
     #[test]
@@ -35911,8 +35714,8 @@ What I read:
             .iter()
             .any(|(name, value)| name == "Access-Control-Allow-Origin" && value == "*"));
         assert!(String::from_utf8_lossy(&module.body).contains("class ObCitationPreviews"));
-        // The Admin application itself keeps its strict policy.
-        let admin = handle(&f.state, &req("GET", "/admin"));
+        // Studio keeps its strict policy.
+        let admin = handle(&f.state, &req("GET", "/admin/studio/"));
         let strict = admin
             .headers
             .iter()
@@ -39705,34 +39508,39 @@ series: letters
         );
     }
 
-    #[test]
-    fn serves_the_admin_page_with_a_strict_policy() {
-        let f = fixture("page");
-        let resp = handle(&f.state, &req("GET", "/admin"));
-        assert_eq!(resp.status, 200);
-        let csp = resp
+    /// The policy a response carries.
+    fn csp_of(response: &Response) -> String {
+        response
             .headers
             .iter()
             .find(|(k, _)| k == "Content-Security-Policy")
-            .unwrap()
-            .1
-            .clone();
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
+
+    fn header_of(response: &Response, name: &str) -> Option<String> {
+        response
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn serves_studio_with_a_strict_policy() {
+        let f = fixture("page");
+        let resp = handle(&f.state, &req("GET", "/admin/studio/"));
+        assert_eq!(resp.status, 200);
+        let csp = csp_of(&resp);
         assert!(
             csp.contains("default-src 'self'")
                 && csp.contains("frame-ancestors 'none'")
                 && !csp.contains("unsafe-inline")
+                && !csp.contains("wasm-unsafe-eval")
+                && !csp.contains("codepen.io"),
+            "{csp}"
         );
-        assert!(resp
-            .headers
-            .iter()
-            .any(|(k, v)| k == "X-Frame-Options" && v == "DENY"));
-        assert!(String::from_utf8_lossy(&resp.body)
-            .contains("<meta name=\"color-scheme\" content=\"light dark\">"));
-        let script = handle(&f.state, &req("GET", "/admin/admin.js"));
-        assert_eq!(script.status, 200);
-        let script = String::from_utf8_lossy(&script.body);
-        assert!(script.contains("ob-admin-scheme"));
-        assert!(script.contains("Dark mode"));
+        assert_eq!(header_of(&resp, "X-Frame-Options").as_deref(), Some("DENY"));
         let language_contract = crate::serve::route(
             &f.state,
             &req("GET", CODE_RUNNER_LANGUAGE_PATH),
@@ -39741,53 +39549,150 @@ series: letters
         assert_eq!(language_contract.status, 200);
         assert!(String::from_utf8_lossy(&language_contract.body)
             .contains("normalizeCodeRunnerLanguage"));
-        let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
-        assert_eq!(styles.status, 200);
-        assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
-        // The landing page builder's model is its own module beside the Admin script.
-        let landing = handle(&f.state, &req("GET", "/admin/landing.js"));
-        assert_eq!(landing.status, 200);
-        assert!(landing
-            .headers
-            .iter()
-            .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
-                && value.starts_with("text/javascript")));
-        assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
-        let look = handle(&f.state, &req("GET", "/admin/look.js"));
-        assert_eq!(look.status, 200);
-        assert!(String::from_utf8_lossy(&look.body).contains("CONTROL_ORDER"));
-        let paste = handle(&f.state, &req("GET", "/admin/paste.js"));
-        assert_eq!(paste.status, 200);
-        assert!(String::from_utf8_lossy(&paste.body).contains("pasteToMarkdown"));
+    }
+
+    #[test]
+    fn admin_redirects_to_studio() {
+        // R15 G121: the old Admin's address opens Studio. A 302 (never cached, so a rollback works
+        // at once) with the query dropped; the browser keeps the #… and Studio maps it.
+        let f = fixture("redirect");
+        for (method, path) in [
+            ("GET", "/admin"),
+            ("GET", "/admin/"),
+            ("GET", "/admin/?x=1"),
+            ("HEAD", "/admin"),
+            ("HEAD", "/admin/?x=1"),
+        ] {
+            let resp = crate::serve::route(&f.state, &req(method, path), &f.dir.join("dist"));
+            assert_eq!(resp.status, 302, "{method} {path}");
+            assert_eq!(
+                header_of(&resp, "Location").as_deref(),
+                Some("/admin/studio/"),
+                "{method} {path}"
+            );
+            assert!(resp.body.is_empty(), "{method} {path}");
+            assert_eq!(
+                header_of(&resp, "Cache-Control").as_deref(),
+                Some("no-store")
+            );
+            assert!(
+                csp_of(&resp).contains("default-src 'self'"),
+                "the 302 carries the policy too"
+            );
+            assert_eq!(header_of(&resp, "X-Frame-Options").as_deref(), Some("DENY"));
+        }
+        assert_eq!(handle(&f.state, &req("POST", "/admin")).status, 405);
+        assert_eq!(handle(&f.state, &req("POST", "/admin/")).status, 405);
+    }
+
+    #[test]
+    fn old_admin_files_are_gone() {
+        // R15 G122: none of the old Admin's 33 files is served. Each of their addresses, and any
+        // other old page, opens Studio instead; Studio's own files, the worker, the manifest and the
+        // icons are unchanged.
+        let f = fixture("old-files");
+        for file in [
+            "index.html",
+            "admin.js",
+            "block-forms.js",
+            "admin.css",
+            "landing.js",
+            "look.js",
+            "business.js",
+            "seasons.js",
+            "theme-designer.js",
+            "seasonal.js",
+            "trade-checklist.js",
+            "distribution.js",
+            "services.js",
+            "proof.js",
+            "paste.js",
+            "landing-history.js",
+            "lasting.js",
+            "checks.js",
+            "checks-panel.js",
+            "job-form.js",
+            "job-capture.js",
+            "capture-queue.js",
+            "capture-recorder.js",
+            "capture-assistant.js",
+            "voice.js",
+            "voice-session.js",
+            "voice-polished.js",
+            "social.js",
+            "quotes.js",
+            "greetings.js",
+            "announcements.js",
+            "job-share.js",
+            "voice-library.js",
+            "secrets.txt",
+        ] {
+            let resp = handle(&f.state, &req("GET", &format!("/admin/{file}")));
+            assert_eq!(resp.status, 302, "{file}");
+            assert_eq!(
+                header_of(&resp, "Location").as_deref(),
+                Some("/admin/studio/"),
+                "{file}"
+            );
+            assert!(resp.body.is_empty(), "{file}");
+        }
+        assert_eq!(handle(&f.state, &req("GET", "/admin/studio/")).status, 200);
         assert_eq!(
-            handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
+            handle(&f.state, &req("GET", "/admin/studio/no-such.js")).status,
             404
+        );
+        let worker = handle(&f.state, &req("GET", "/admin/sw.js"));
+        assert_eq!(worker.status, 200);
+        assert!(String::from_utf8_lossy(&worker.body).starts_with("self.STUDIO_RELEASE = "));
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/manifest.webmanifest")).status,
+            200
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/icon-192.png")).status,
+            200
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/nope.png")).status,
+            404
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/no-such-route")).status,
+            401
         );
     }
 
     #[test]
-    fn admin_page_serves_public_styles_when_the_site_has_a_base_path() {
-        let f = fixture("page-base-path");
-        let config_path = f.dir.join("openblog.json");
-        let mut config: Json =
-            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
-        config["url"] = json!("https://example.com/blog/");
-        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
-
-        let state = AppState::new(f.dir.clone(), None, false, true);
-        let response = handle(&state, &req("GET", "/admin"));
-        assert_eq!(response.status, 200);
-        let body = String::from_utf8(response.body).unwrap();
-        assert!(body.contains("href=\"/assets/base.css\""), "{body}");
-        assert!(body.contains("href=\"/themes/base/tokens.css\""), "{body}");
-
-        for path in ["/assets/base.css", "/themes/base/tokens.css"] {
-            let stylesheet = crate::serve::route(&state, &req("GET", path), &f.dir.join("dist"));
-            assert_eq!(stylesheet.status, 200, "{path}");
-            assert!(stylesheet
-                .headers
-                .iter()
-                .any(|(name, value)| name == "Content-Type" && value.starts_with("text/css")));
+    fn web_dir_admin_overrides_are_ignored_but_never_published() {
+        // Decided 3: files under `<paths.web>/admin/` no longer replace Admin's (icons still do), and a
+        // build never publishes the folder.
+        let f = fixture("old-overrides");
+        let web = f.dir.join("the old Admin");
+        fs::create_dir_all(web.join("icons")).unwrap();
+        fs::write(web.join("admin.js"), "window.OVERRIDE_SENTINEL = 1;").unwrap();
+        fs::write(web.join("index.html"), "<p>OVERRIDE_SENTINEL</p>").unwrap();
+        let own_icon = b"\x89PNG own icon".to_vec();
+        fs::write(web.join("icons/icon-192.png"), &own_icon).unwrap();
+        for path in ["/admin/", "/admin/admin.js", "/admin/index.html"] {
+            let resp = handle(&f.state, &req("GET", path));
+            assert_eq!(resp.status, 302, "{path}");
+            assert!(
+                !String::from_utf8_lossy(&resp.body).contains("OVERRIDE_SENTINEL"),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/icon-192.png")).body,
+            own_icon
+        );
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("OVERRIDE_SENTINEL"),
+                "{} publishes the old override folder",
+                file.display()
+            );
         }
     }
 

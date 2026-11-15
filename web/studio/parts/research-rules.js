@@ -1,7 +1,7 @@
 // Research's own rules (Studio R11–R12): whether this site uses research at all (G92), its screens
 // and addresses, the steps on Research home, the forms kept while she moves between research
 // screens, and what every answer from the server means in her words. Pure, DOM-free. The address
-// map is lifted from the old Admin's `canonicalAdminHash` research map (web/admin/admin.js,
+// map is lifted from the old Admin's `canonicalAdminHash` research map (the old Admin's admin.js,
 // removed in R15).
 import { say } from "./words.js";
 import { diagnosticRow, sourceDiagnosticControl } from "./source-rules.js";

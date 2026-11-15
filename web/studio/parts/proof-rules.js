@@ -1,4 +1,4 @@
-// Moved from web/admin/proof.js (the old Admin's model) for the old Admin's retirement: the
+// Moved from the old Admin's proof.js (the old Admin's model) for the old Admin's retirement: the
 // pure rules only, so Studio loads nothing from /admin/. Studio draws its own screen.
 // The Reviews screen (ADR 0389, #520): a customer's real review, saved with where it came from. A list under
 // `#/reviews`, and a form for one (`#/reviews/new`, `#/reviews/edit/<path>`) with the reviewer's name, the day

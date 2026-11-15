@@ -24,8 +24,8 @@ export function parseRoute(hash) {
 }
 
 // The old Admin's addresses (bookmarks, links in notifications and invitations), and the Studio
-// screen each now opens. A route Studio doesn't have yet opens "not-yet" with the old name, never a
-// blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
+// screen each now opens. Kept forever (R15): the old Admin is gone, but bookmarks, notices queued on
+// other phones and old invitation links still carry its addresses (docs/admin.md, Old addresses).
 const OLD_RENAMED = {
   overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations", social: "sharing/accounts",
   announcements: "sharing", greetings: "cards",
@@ -36,12 +36,13 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence is Your research (R11).
  */
+/** Old names that are also Studio's own screens, so a not-yet page for one opens it as it is. */
+const STUDIO_OWN = new Set(["research", "paths", "reminders", "business", "quotes", "look", "voice", "services", "reviews", "notifications"]);
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "claims" });
-const NOT_YET = new Set([]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
- * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/shared" → "#/not-yet/shared".
+ * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/shared" → "#/together".
  */
 export function legacyRoute(hash) {
   const raw = String(hash || "").replace(/^#\/?/, "");
@@ -56,7 +57,20 @@ export function legacyRoute(hash) {
     const sheet = screen === "write" && PANE_SHEETS[new URLSearchParams(search).get("pane")] ? `?sheet=${PANE_SHEETS[new URLSearchParams(search).get("pane")]}` : "";
     return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
-  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  // The old Admin's kinds were "posts", "pages" and "series" (its KINDS); "page" is kept as R0 had it.
+  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" || rest[0] === "pages" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  // A trade site's services and reviews: #/services and #/reviews are Studio's own lists; the old
+  // form addresses open Studio's editor for one (#/service/new, #/service/<path>).
+  if ((name === "services" || name === "reviews") && rest.length) {
+    const one = name === "services" ? "service" : "review";
+    if (rest[0] === "new") return `#/${one}/new${tail}`;
+    if (rest[0] === "edit" && rest[1]) {
+      let file = rest.slice(1).join("/");
+      try { file = decodeURIComponent(file); } catch { /* as typed */ }
+      return `#/${one}/${encodeURIComponent(file)}${tail}`;
+    }
+    return `#/${name}${tail}`;
+  }
   // R10: Readers. The old inbox, feedback, analytics and Studio's own Comments and Visitors open it.
   const readers = readersRoute(name, rest, search);
   if (readers) return readers;
@@ -102,7 +116,13 @@ export function legacyRoute(hash) {
     return `#/together${tail}`;
   }
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
-  if (NOT_YET.has(name)) return `#/not-yet/${name}`;
+  // R15: More tools and the not-yet screen are gone. A bookmarked not-yet page opens the screen that
+  // replaced the part it named, and Home when there is none.
+  if (name === "tools") return "#/";
+  if (name === "not-yet") {
+    const named = rest[0] ? `#/${rest[0]}` : "";
+    return (named && legacyRoute(named)) || (named && STUDIO_OWN.has(rest[0]) ? named : "#/");
+  }
   return null;
 }
 

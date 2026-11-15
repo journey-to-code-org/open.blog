@@ -14,6 +14,7 @@ import { choosePicture } from "../parts/picture-picker.js";
 import { landingVersions } from "../parts/landing-versions.js";
 import * as L from "../parts/landing-rules.js";
 import { say as word } from "../parts/words.js";
+import { offerOldDraft } from "../parts/old-draft.js";
 
 
 export async function createLanding(context) {
@@ -244,6 +245,9 @@ export async function createLanding(context) {
       postList = all.filter((p) => p.status === "published");
       adopt(reply);
       versions.refresh();
+      // R15: changes the old Admin kept unsaved on this phone, offered back once.
+      offerOldDraft({ host: banner, screen: "landing", user: api.user, saved, same: L.pageSame,
+        restore: (page) => { draft = L.pageFrom(page); paint(); } });
     } catch (error) {
       list.removeAttribute("aria-busy");
       list.replaceChildren();

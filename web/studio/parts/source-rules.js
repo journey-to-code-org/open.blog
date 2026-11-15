@@ -1,6 +1,6 @@
 // The source library's rules (Studio R11, Sources): what each kind of source has, how a record
 // becomes a form and goes back to the server, and what an import or export says. Pure, DOM-free.
-// Lifted from the old Admin (web/admin/admin.js "research source library", removed in R15) with
+// Lifted from the old Admin (the old Admin's admin.js "research source library", removed in R15) with
 // two changes: people and identifiers are rows, not typed lines, and every sentence is a word id
 // (`{ field, id, vars }`) for the screen to say. An untouched record goes back exactly as it came:
 // unknown fields, structured name parts and the order of everything are kept.

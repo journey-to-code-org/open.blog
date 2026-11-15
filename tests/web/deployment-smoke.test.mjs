@@ -8,9 +8,13 @@ function fixture(overrides = {}) {
     "https://blog.example/": [200, "text/html", '<link rel="stylesheet" href="/assets/base.css?v=1">'],
     "https://blog.example/assets/base.css?v=1": [200, "text/css", "body {}"],
     "https://blog.example/posts/test/": [200, "text/html", "<article>Post</article>"],
-    "https://admin.example/admin/": [200, "text/html", "Admin"],
-    "https://admin.example/admin/admin.css": [200, "text/css", ""],
-    "https://admin.example/admin/admin.js": [200, "text/javascript", ""],
+    // The old Admin was retired (R15): its address and files open Studio.
+    ...Object.fromEntries(["/admin", "/admin/", "/admin/admin.js", "/admin/admin.css"].map((path) => [
+      `https://admin.example${path}`, [302, "text/plain", "", "/admin/studio/"],
+    ])),
+    "https://admin.example/admin/studio/": [200, "text/html", "Studio"],
+    "https://admin.example/admin/sw.js": [200, "text/javascript", "self.STUDIO_RELEASE = {};"],
+    "https://admin.example/admin/manifest.webmanifest": [200, "application/manifest+json; charset=utf-8", "{}"],
     "https://blog.example/api/views?path=%2Fposts%2Ftest%2F": [200, "application/json", '{"views":0}'],
     "https://blog.example/api/comments?path=%2Fposts%2Ftest%2F": [200, "application/json", '{"comments":[]}'],
     "https://blog.example/api/admin/analytics?days=7": [401, "application/json", "{}"],
@@ -43,7 +47,7 @@ function fixture(overrides = {}) {
 test("deployment smoke checks assets, posts, routing and auth without writes or credentials", async () => {
   const { options, calls } = fixture();
   await smoke(options);
-  assert.equal(calls.length, 13);
+  assert.equal(calls.length, 17);
   for (const [, request] of calls) {
     assert.equal(request.redirect, "manual");
     assert.equal(request.method, undefined);
@@ -58,10 +62,10 @@ test("deployment smoke gives the first Admin read one 120 second cold-start wind
 
   await smoke({ ...options, timeoutSignal });
 
-  const adminCalls = calls.filter(([url]) => url === "https://admin.example/admin/");
+  const adminCalls = calls.filter(([url]) => url === "https://admin.example/admin");
   assert.equal(adminCalls.length, 1);
   assert.equal(adminCalls[0][1].signal.timeoutMs, 120_000);
-  assert.ok(calls.filter(([url]) => url !== "https://admin.example/admin/")
+  assert.ok(calls.filter(([url]) => url !== "https://admin.example/admin")
     .every(([, request]) => request.signal.timeoutMs === 30_000));
 });
 

@@ -1,6 +1,6 @@
 // Citations in her words (Studio R11): where `[@key, page 514]` markers are, whether one can go at
 // the caret, reading and writing one, and what a chip under the words says. Pure, DOM-free.
-// Lifted from the old Admin (web/admin/admin.js "citations", removed in R15). The core scanner
+// Lifted from the old Admin (the old Admin's admin.js "citations", removed in R15). The core scanner
 // (`openblog_core::citations`) is authoritative: this only finds the text Studio shows as a chip,
 // and every citation that goes in comes back checked from `citations/check`. A citation stays in
 // her words exactly as she or Studio typed it; nothing here reflows or rewrites one.

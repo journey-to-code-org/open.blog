@@ -1,4 +1,4 @@
-// Moved from web/admin/job-share.js (the old Admin's Share this job, story #488, ADRs 0393 to 0397)
+// Moved from the old Admin's job-share.js (the old Admin's Share this job, story #488, ADRs 0393 to 0397)
 // for the old Admin's retirement: the pure half only, so Studio loads nothing from /admin/. One
 // finished job for Google Business Profile, a Facebook Page and Nextdoor; a connected Facebook Page
 // is posted to through the announcements, everything else by hand. Where a place stands is said

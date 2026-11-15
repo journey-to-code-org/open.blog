@@ -308,104 +308,6 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ),
 ];
 
-/// The admin editor. Served only by `serve --admin`, never copied into the
-/// public site. A copy under `web/admin/` overrides the embedded one.
-pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
-    ("index.html", include_str!("../../../web/admin/index.html")),
-    ("admin.js", include_str!("../../../web/admin/admin.js")),
-    (
-        "block-forms.js",
-        include_str!("../../../web/admin/block-forms.js"),
-    ),
-    ("admin.css", include_str!("../../../web/admin/admin.css")),
-    ("landing.js", include_str!("../../../web/admin/landing.js")),
-    ("look.js", include_str!("../../../web/admin/look.js")),
-    (
-        "business.js",
-        include_str!("../../../web/admin/business.js"),
-    ),
-    ("seasons.js", include_str!("../../../web/admin/seasons.js")),
-    (
-        "theme-designer.js",
-        include_str!("../../../web/admin/theme-designer.js"),
-    ),
-    (
-        "seasonal.js",
-        include_str!("../../../web/admin/seasonal.js"),
-    ),
-    (
-        "trade-checklist.js",
-        include_str!("../../../web/admin/trade-checklist.js"),
-    ),
-    (
-        "distribution.js",
-        include_str!("../../../web/admin/distribution.js"),
-    ),
-    (
-        "services.js",
-        include_str!("../../../web/admin/services.js"),
-    ),
-    ("proof.js", include_str!("../../../web/admin/proof.js")),
-    ("paste.js", include_str!("../../../web/admin/paste.js")),
-    (
-        "landing-history.js",
-        include_str!("../../../web/admin/landing-history.js"),
-    ),
-    ("lasting.js", include_str!("../../../web/admin/lasting.js")),
-    ("checks.js", include_str!("../../../web/admin/checks.js")),
-    ("voice.js", include_str!("../../../web/admin/voice.js")),
-    (
-        "voice-session.js",
-        include_str!("../../../web/admin/voice-session.js"),
-    ),
-    ("social.js", include_str!("../../../web/admin/social.js")),
-    ("quotes.js", include_str!("../../../web/admin/quotes.js")),
-    (
-        "greetings.js",
-        include_str!("../../../web/admin/greetings.js"),
-    ),
-    (
-        "voice-library.js",
-        include_str!("../../../web/admin/voice-library.js"),
-    ),
-    (
-        "announcements.js",
-        include_str!("../../../web/admin/announcements.js"),
-    ),
-    (
-        "job-share.js",
-        include_str!("../../../web/admin/job-share.js"),
-    ),
-    (
-        "voice-polished.js",
-        include_str!("../../../web/admin/voice-polished.js"),
-    ),
-    (
-        "checks-panel.js",
-        include_str!("../../../web/admin/checks-panel.js"),
-    ),
-    (
-        "job-form.js",
-        include_str!("../../../web/admin/job-form.js"),
-    ),
-    (
-        "job-capture.js",
-        include_str!("../../../web/admin/job-capture.js"),
-    ),
-    (
-        "capture-queue.js",
-        include_str!("../../../web/admin/capture-queue.js"),
-    ),
-    (
-        "capture-recorder.js",
-        include_str!("../../../web/admin/capture-recorder.js"),
-    ),
-    (
-        "capture-assistant.js",
-        include_str!("../../../web/admin/capture-assistant.js"),
-    ),
-];
-
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");
 
 /// The search engine compiled to WebAssembly, so a blog created with
@@ -1045,20 +947,10 @@ pub fn admin_icon(root: &Path, config: &SiteConfig, name: &str) -> Option<Vec<u8
         .or_else(|| Some(known.to_vec()))
 }
 
-/// An admin UI file: from `web/admin/` if present, else the embedded copy.
-pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
-    if let Ok(bytes) = fs::read(root.join(&config.paths.web).join("admin").join(rel)) {
-        return Some(bytes);
-    }
-    EMBEDDED_ADMIN
-        .iter()
-        .find(|(p, _)| *p == rel)
-        .map(|(_, c)| c.as_bytes().to_vec())
-}
-
 /// The front-end assets the site's own `paths.web` folder adds to (or
 /// overrides in) the embedded ones, as paths under `assets/`: stylesheets,
-/// scripts and the WebAssembly build, never the Admin's.
+/// scripts and the WebAssembly build, never the Admin's: `admin/` (the installed app's icons, and
+/// any folder left from before the old Admin was retired) and `studio/` are never published.
 pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
     let web_dir = root.join(&config.paths.web);
     let mut found = Vec::new();
