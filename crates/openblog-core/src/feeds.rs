@@ -802,7 +802,11 @@ mod tests {
         )
         .unwrap();
         let index: crate::search::Index = serde_json::from_str(&search_index(&site)).unwrap();
-        let entry = index.entries.iter().find(|e| e.title == "The server").expect("the docs page is in the index");
+        let entry = index
+            .entries
+            .iter()
+            .find(|e| e.title == "The server")
+            .expect("the docs page is in the index");
         assert_eq!(entry.url, "/docs/server/");
         assert_eq!(entry.date, "");
         assert_eq!(entry.series.as_deref(), Some("Journey docs"));
@@ -818,7 +822,10 @@ mod tests {
         let site = Site::load(
             config,
             Sources {
-                docs: vec![SourceFile { path: "docs/server.md".into(), contents: "---\ntitle: The server\n---\nBody".into() }],
+                docs: vec![SourceFile {
+                    path: "docs/server.md".into(),
+                    contents: "---\ntitle: The server\n---\nBody".into(),
+                }],
                 ..Default::default()
             },
             LoadOptions::default(),
