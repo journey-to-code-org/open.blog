@@ -13,6 +13,8 @@ import { createDidLine } from "../parts/did-line.js";
 import { createKept } from "../parts/kept.js";
 import { sayWhen } from "../parts/dates.js";
 import { joinNames, togetherProblem } from "../parts/together-rules.js";
+import { offeredMomentsText } from "../parts/moment-rules.js";
+import { createMomentsSheet } from "../parts/together-moments.js";
 import {
   draftStateText, insertAtSelection, joinParts, movePartBreak, partBlocks, partBreakInsertion, promptInsertion,
   reflectionPrompts, removePartBreak, savesLeftText,
@@ -40,6 +42,9 @@ export async function createTogetherPart(context, id, route = {}) {
   const saveButton = h("action-button", { variant: "secondary", "aria-keyshortcuts": "Control+S Meta+S", onClick: () => save() }, say("part.save"));
   const breakButton = h("action-button", { variant: "secondary", onClick: () => addBreak() }, say("part.newPart"));
   const raw = h("toggle-switch", { label: say("part.asWritten"), onCheckedchange: () => drawEditor(true) });
+  // R14b: the moments her part points to.
+  const moments = await createMomentsSheet({ api, id });
+  const momentsButton = h("action-button", { variant: "secondary", onClick: (e) => moments.open(e.currentTarget) }, say("moments.button"));
   const bar = h("div", { class: "studio-write-bar studio-together-bar" });
   const details = h("details", { class: "studio-help" });
   const body = h("div", { class: "studio-part-body", "aria-busy": "true" }, h("skeleton-block", { lines: 6 }));
@@ -132,9 +137,13 @@ export async function createTogetherPart(context, id, route = {}) {
     body.removeAttribute("aria-busy");
     drawIdeas();
     drawEditor();
-    fill(body, question, status, left, banner, ideas, editor, h("div", { class: "studio-row" }, saveButton, breakButton), raw,
+    fill(body, question, status, left, banner, ideas, editor, h("div", { class: "studio-row" }, saveButton, breakButton, momentsButton), raw,
       h("p", { class: "studio-help", text: say("part.newPartHelp") }), did.element, bar, details);
     paint();
+    if (route.query?.sheet === "moments" && !moments.sheet.isOpen) {
+      route.query.sheet = "";
+      moments.open(momentsButton);
+    }
   }
 
   function drawIdeas() {
@@ -334,7 +343,8 @@ export async function createTogetherPart(context, id, route = {}) {
       const reply = await api.put("collaboration/reveal/ready", { publicationId: id, revision: saved.number });
       const read = { label: say("part.readThem"), href: `#/together/${encodeURIComponent(id)}/read` };
       const words = reply?.revealed ? say("part.sharedNow") : say("part.sharedWaiting");
-      did.tell(words, { link: reply?.revealed ? read : null });
+      const about = offeredMomentsText(reply);
+      did.tell(about ? `${words} ${about}` : words, { link: reply?.revealed ? read : null });
       toast(words);
       await refresh();
     } catch (error) {
@@ -376,9 +386,10 @@ export async function createTogetherPart(context, id, route = {}) {
     palette: [{ id: "save", label: say("part.save"), group: "Do" }, { id: "share", label: say("part.share"), group: "Do" }],
     keys: ["save", "publish"],
     command: (which) => { if (which === "save") save(); if (which === "publish" || which === "share") share(); },
-    isDirty: () => dirty(),
+    isDirty: () => dirty() || moments.sheet.isDirty(),
     focus: () => heading.focus(),
     async leave() {
+      if (!(await moments.sheet.leave())) return false;
       if (!dirty() || !summary?.you?.drafter) { removeEventListener("online", online); return true; }
       const choice = await ask({ heading: say("part.leaveAsk"), text: say("part.leaveText"),
         choices: [{ label: say("part.leaveSave"), value: "save" }, { label: say("part.leaveGo"), value: "go", variant: "secondary" }] });

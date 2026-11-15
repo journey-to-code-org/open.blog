@@ -13,6 +13,9 @@ import { REVEAL_POLICIES, roleWords, sharedSourceHref, sourceWords, stepButtonWo
 import { reflectionPalette, stepHref } from "./together.js";
 import { createPublishing } from "../parts/together-publish.js";
 import { createPeopleSheet } from "../parts/together-people.js";
+import { createLayoutSheet } from "../parts/together-layout.js";
+import { createRulesSheet } from "../parts/together-rules-sheet.js";
+import { createCollectionSheet } from "../parts/together-collection.js";
 
 export async function createTogetherOne(context, id, route = {}) {
   const { api } = context;
@@ -40,7 +43,14 @@ export async function createTogetherOne(context, id, route = {}) {
   let summary = null;
   const people = await createPeopleSheet({ api, context, id, onChange: () => load() });
   const publishing = createPublishing({ api, context, id, did, reload: () => load() });
-  const screen = { title: say("together.nav"), element, load, palette: [], focus: () => heading.focus(), leave: () => guardedLeave(people.sheet), isDirty: () => people.sheet.isDirty() };
+  // R14b: shaping it. Each sheet saves its own shared record, with Undo.
+  const layout = await createLayoutSheet({ api, id, onChange: () => load() });
+  const rules = await createRulesSheet({ api, id, onChange: () => load() });
+  const collection = await createCollectionSheet({ api, id, onChange: () => load() });
+  const sheets = { people, layout, rules, collection };
+  const screen = { title: say("together.nav"), element, load, palette: [], focus: () => heading.focus(),
+    leave: () => guardedLeave(people.sheet, layout.sheet, rules.sheet, collection.sheet),
+    isDirty: () => [people, layout, rules, collection].some((s) => s.sheet.isDirty()) };
 
   async function load() {
     body.setAttribute("aria-busy", "true");
@@ -66,9 +76,11 @@ export async function createTogetherOne(context, id, route = {}) {
     }
     summary = found;
     draw();
-    if (route.query?.sheet === "people" && summary.you?.canInvite && !people.sheet.isOpen) {
+    const asked = route.query?.sheet;
+    const allowed = { people: summary.you?.canInvite, layout: summary.you?.drafter || summary.you?.runsIt, rules: summary.you?.runsIt, collection: true };
+    if (asked && allowed[asked] && sheets[asked] && !sheets[asked].sheet.isOpen) {
       route.query.sheet = "";
-      people.open(summary, peopleButton);
+      sheets[asked].open(summary, more);
     }
   }
 
@@ -150,6 +162,10 @@ export async function createTogetherOne(context, id, route = {}) {
       summary.you?.drafter ? { value: "read", label: say("together.doRead") } : null,
       summary.you?.drafter ? { value: "preview", label: say("read.seeAsReaders") } : null,
       summary.you?.canInvite ? { value: "people", label: say("together.peopleButton") } : null,
+      { value: "layout", label: say("layout.title") },
+      summary.you?.runsIt ? { value: "rules", label: say("rules.title") } : null,
+      { value: "collection", label: say("collection.title") },
+      summary.you?.drafter ? { value: "talk", label: say("talk.title") } : null,
       summary.you?.inCharge && !coWriter && summary.state !== "published" && !summary.archived ? { value: "away", label: say("together.putAwayItem") } : null,
     ].filter(Boolean);
     const menu = h("dropdown-menu", { class: "studio-row-menu", items, onItemselect: (e) => choose(e.detail, menu) },
@@ -162,6 +178,10 @@ export async function createTogetherOne(context, id, route = {}) {
     if (value === "read") context.go(`#/together/${enc}/read`);
     if (value === "preview") context.go(`#/together/${enc}/read?preview=1`);
     if (value === "people") people.open(summary, opener);
+    if (value === "layout") layout.open(summary, opener);
+    if (value === "rules") rules.open(summary, opener);
+    if (value === "collection") collection.open(summary, opener);
+    if (value === "talk") context.go(`#/together/${enc}/together`);
     if (value === "away") publishing.putAway(summary, true, opener);
   }
 

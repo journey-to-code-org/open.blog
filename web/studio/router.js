@@ -36,8 +36,6 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  */
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
 const NOT_YET = new Set(["comparisons", "paths", "research"]);
-/** R14a: Writing together's shaping sheets wait for R14b; until then Find opens a not-yet page for them. */
-export const TOGETHER_NOT_YET = Object.freeze(["layout", "rules", "collection", "talk", "moments"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.

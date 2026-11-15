@@ -1071,6 +1071,22 @@ from Posts (**Write something with others**) or Find.
    agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
    unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
 
+**Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
+after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
+(whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
+whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
+agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
+you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
+together** holds what you say after everyone's parts (an agreement, a difference, a question, something
+to try, or what you're not sure about), each speaking for the people named on it and agreed by each of
+them. **Moments** (from Your part) are places in what started it, with the words said there or what you
+noticed, kept private or put with your part; words said there need their rights and where they came
+from. Each of these is saved on its own, asks everyone to agree again where it changes what they agreed
+to, and can be undone. **Fill in from the link**, on Start, asks the link's own site for a title and who
+made it, and fills only empty boxes. Under People's details, an owner sees **Sign-ins for people writing
+with you** and can remove one: the sign-in goes, and so does every reflection it was in; names stay on
+what they wrote.
+
 People you invite get a **co-writer** sign-in: it opens only Writing together, only the reflections
 they're in, and the server refuses everything else. The design is recorded in
 [ADR 0413](adr/0413-co-writer-accounts-reach-only-the-collaboration-routes.md) and

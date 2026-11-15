@@ -175,6 +175,8 @@
     ("PUT", "contributors"),
     ("POST", "collaboration/publications"),
     ("POST", "collaboration/publications/archive"),
+    ("GET", "collaboration/co-writers"),
+    ("POST", "collaboration/co-writers/remove"),
     ("POST", "collaboration/publications/source-metadata"),
     ("POST", "collaboration/series/create"),
     ("POST", "collaboration/schedule"),

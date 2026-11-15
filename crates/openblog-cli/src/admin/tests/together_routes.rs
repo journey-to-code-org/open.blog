@@ -990,3 +990,79 @@ fn invitation_tokens_are_never_written_to_the_log() {
         }
     }
 }
+
+#[test]
+fn an_owner_lists_and_removes_co_writer_sign_ins_and_nothing_of_them_stays_bound() {
+    let (f, mikey, lee, id) = together_fixture("together-co-writers");
+    let issued = post_api(
+        &f,
+        &mikey,
+        "invitations",
+        invite_body(&id, "lee", "lee", json!(["contributor"])),
+    );
+    let accepted = post_api(
+        &f,
+        &lee,
+        "invitations/accept",
+        json!({ "token": token_of(&issued), "contributorId": "lee" }),
+    );
+    assert_eq!(accepted.status, 200);
+    let waiting = invite_new(&f, &mikey, &id, "sam", "sam");
+    assert_eq!(waiting.status, 201);
+    let listed = body_json(&get_collab(&f, &mikey, "co-writers", &id));
+    let names = listed["coWriters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|one| {
+            (
+                one["name"].as_str().unwrap().to_string(),
+                one["waiting"] == true,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec![("lee".into(), false), ("sam".into(), true)]);
+    assert_eq!(
+        listed["coWriters"][0]["reflections"][0]["publicationId"],
+        json!(id)
+    );
+    assert!(!listed.to_string().contains("argon2"), "never a hash");
+    // A co-writer can neither list nor remove sign-ins.
+    assert_eq!(get_collab(&f, &lee, "co-writers", &id).status, 403);
+    assert_eq!(
+        post_api(&f, &lee, "co-writers/remove", json!({ "name": "sam" })).status,
+        403
+    );
+    // An owner account is never removed here.
+    let owner = post_api(&f, &mikey, "co-writers/remove", json!({ "name": "mikey" }));
+    assert_eq!(owner.status, 404);
+    assert!(users_of(&f).find("mikey").is_some());
+    // Removing Lee ends the sign-in at once and every binding with it; the credit stays.
+    let removed = post_api(&f, &mikey, "co-writers/remove", json!({ "name": "lee" }));
+    assert_eq!(
+        removed.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&removed.body)
+    );
+    assert!(users_of(&f).find("lee").is_none());
+    assert_eq!(
+        handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/session"), &lee, false)
+        )
+        .status,
+        401
+    );
+    let record = stored_record(&f, &id);
+    assert!(record
+        .authorization
+        .bindings
+        .iter()
+        .all(|binding| binding.admin_user != "lee"));
+    assert!(record
+        .collaboration
+        .participants
+        .iter()
+        .any(|participant| participant.display_name == "Lee Park"));
+}

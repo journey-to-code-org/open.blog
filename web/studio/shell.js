@@ -164,7 +164,6 @@ export async function startShell(root, api, meta) {
     // R14a: Writing together by name, whether or not it is in the navigation yet.
     { id: "go-together", label: say("together.nav"), group: "Go to", href: "#/together" },
     ...(meta.together?.canStart ? [{ id: "together-new", label: say("together.startButton"), group: "Do", href: "#/together/new" }] : []),
-    { id: "together-shape", label: say("together.findShape"), group: "Go to", href: "#/not-yet/together-shape" },
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },

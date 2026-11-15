@@ -13,7 +13,6 @@ export const WORDS = {
   "together.findRead": { text: "Everyone's parts: {title}", layer: "her" },
   "together.findPeople": { text: "People in {title}", layer: "her" },
   "together.findInvite": { text: "Invite someone to {title}", layer: "her" },
-  "together.findShape": { text: "Layout, rules and collections of what you write together", layer: "her" },
   "together.findDetails": { text: "Details of writing together", layer: "details" },
 
   "together.home": { text: "Home", layer: "her" },

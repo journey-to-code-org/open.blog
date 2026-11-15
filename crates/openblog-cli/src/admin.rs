@@ -1177,6 +1177,10 @@ fn authenticated_api(
         ("GET", "collaboration/publications") => together::list(state, req, session),
         ("POST", "collaboration/publications") => together::create(state, req, session),
         ("POST", "collaboration/publications/archive") => together::put_away(state, req, session),
+        ("GET", "collaboration/co-writers") => together::co_writers(state, session),
+        ("POST", "collaboration/co-writers/remove") => {
+            together::remove_co_writer(state, req, session)
+        }
         ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
         ("GET", "collaboration/invitations") => list_invitations(state, req, session),
         ("POST", "collaboration/invitations") => together::invite(state, req, session),

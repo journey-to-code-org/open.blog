@@ -694,6 +694,207 @@
         "helper"
       ]
     },
+    "collection.badPlace": {
+      "text": "Use a whole number of 0 or more, or leave it empty.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "collection.clearsAgreement": {
+      "text": "Changing it means everyone agrees again.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "collection.lede": {
+      "text": "Put it in a collection with other posts, at a place you choose.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "collection.made": {
+      "text": "Made. It shows on {product} once something in it is published.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "product"
+      ]
+    },
+    "collection.make": {
+      "text": "Make a new collection",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "collection.makeName": {
+      "text": "Its name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.makePremise": {
+      "text": "What it's about, in one line",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "collection.needName": {
+      "text": "Type the new collection's name, or choose one.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "collection.new": {
+      "text": "A new collection…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.newName": {
+      "text": "Name of the new collection",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "collection.none": {
+      "text": "Not in a collection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.orderNoNumber": {
+      "text": "no number",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.orderNumber": {
+      "text": "number {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "collection.orderPart": {
+      "text": "{n}. {title} ({place})",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "n",
+        "title",
+        "place"
+      ]
+    },
+    "collection.orderThis": {
+      "text": "{n}. This one (not on {product} yet, {place})",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "n",
+        "product",
+        "place"
+      ]
+    },
+    "collection.place": {
+      "text": "Its place in the collection",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "collection.placeHelp": {
+      "text": "A whole number, or leave it empty to go after the numbered ones, by date.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "collection.placementAt": {
+      "text": "{name}, number {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name",
+        "n"
+      ]
+    },
+    "collection.placementEnd": {
+      "text": "{name}, after the numbered ones, by date",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "name"
+      ]
+    },
+    "collection.placementNone": {
+      "text": "Not in a collection.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.preview": {
+      "text": "See the order",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.published": {
+      "text": "It's on {product}; change its collection from the post.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product"
+      ]
+    },
+    "collection.readOnly": {
+      "text": "Whoever runs it chooses the collection.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "collection.removed": {
+      "text": "Taken out of the collection.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "collection.save": {
+      "text": "Save the collection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.saved": {
+      "text": "Saved. Everyone agrees again to where it goes.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "collection.sheetTitle": {
+      "text": "Collection for {title}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "title"
+      ]
+    },
+    "collection.title": {
+      "text": "Collection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.untitledPart": {
+      "text": "Untitled",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "collection.which": {
+      "text": "Which collection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "common.ask": {
       "text": "Ask {helper}.",
       "layer": "her",
@@ -5775,6 +5976,277 @@
       "max": 130,
       "vars": []
     },
+    "layout.addRound": {
+      "text": "Add a round",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.addTurn": {
+      "text": "Add a turn",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.alternatingDialogue": {
+      "text": "Back and forth",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.alternatingDialogueHelp": {
+      "text": "Turns alternate like a conversation, each under its writer's name.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "layout.badPart": {
+      "text": "Round {n}: a part is a number from 1 up.",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.choose": {
+      "text": "Layout",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.clearsAgreement": {
+      "text": "Saving a new layout means everyone agrees again.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "layout.emptyRound": {
+      "text": "Round {n} has no turns. Add one or take the round out.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.labelLong": {
+      "text": "Round {n}: a label is a few words at most.",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.labelOneLine": {
+      "text": "Round {n}: keep a label on one line.",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.lede": {
+      "text": "How everyone's parts sit on the page, and in what order. Changing it means everyone agrees again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.moveTurnDown": {
+      "text": "Move {name}, part {part} down",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "name",
+        "part"
+      ]
+    },
+    "layout.moveTurnUp": {
+      "text": "Move {name}, part {part} up",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "name",
+        "part"
+      ]
+    },
+    "layout.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.noRounds": {
+      "text": "Add a round.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.pointCounterpoint": {
+      "text": "Two sides",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.pointCounterpointHelp": {
+      "text": "Two columns when two people write; with more, one column. Labels are yours; nothing says who agrees.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.promptOneLine": {
+      "text": "Round {n}: keep what it asks on one line.",
+      "layer": "her",
+      "max": 82,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.readOnly": {
+      "text": "Whoever runs it chooses the layout.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "layout.removeRound": {
+      "text": "Take this round out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.removeTurn": {
+      "text": "Take this turn out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.round": {
+      "text": "Round {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "layout.roundPrompt": {
+      "text": "What this round asks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.roundPromptHelp": {
+      "text": "Optional, one line.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.roundtable": {
+      "text": "Around a table",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.roundtableHelp": {
+      "text": "Turns sit in a grid that fits any number of people, read in the same order.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.save": {
+      "text": "Save the layout",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.saved": {
+      "text": "Layout saved. Everyone agrees again to the new layout.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.sequential": {
+      "text": "One after another",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.sequentialHelp": {
+      "text": "Each part follows the one before, in reading order.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "layout.sheetTitle": {
+      "text": "Layout of {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "layout.sideBySide": {
+      "text": "Side by side",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.sideBySideHelp": {
+      "text": "Parts sit in columns on a wide screen and one after another on a phone.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.title": {
+      "text": "Layout",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.turn": {
+      "text": "{name}, part {part}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name",
+        "part"
+      ]
+    },
+    "layout.turnLabel": {
+      "text": "Label",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.turnLabelHelp": {
+      "text": "Optional, a few words above the turn.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "layout.turnPart": {
+      "text": "Which part of theirs",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.turnPerson": {
+      "text": "Whose part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.twice": {
+      "text": "Round {n}: each part of each person's words can appear only once.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "n"
+      ]
+    },
     "look.designHeading": {
       "text": "Make a new look from your words",
       "layer": "her",
@@ -5800,6 +6272,503 @@
       "vars": [
         "helper"
       ]
+    },
+    "moments.add": {
+      "text": "Add a moment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.badTime": {
+      "text": "Write the time as seconds or h:mm:ss, like 75 or 1:02:03.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "moments.badWhere": {
+      "text": "Write where it is without spaces around it, brackets or semicolons, in a few words.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.button": {
+      "text": "Moments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.cantUse": {
+      "text": "This moment no longer fits what started it. Change it or keep it private.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "moments.cantWrite": {
+      "text": "Only people who write a part add moments.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "moments.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.changeLabel": {
+      "text": "Change the moment at {where}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "where"
+      ]
+    },
+    "moments.changedAfter": {
+      "text": "Your moments changed after you shared this version, so those changes stay private until you share again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.endBefore": {
+      "text": "The end has to come after the start.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "moments.fieldCreator": {
+      "text": "who made it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.fieldPublisher": {
+      "text": "who published it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.fieldTitle": {
+      "text": "the name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.fillDone": {
+      "text": "Filled in from {provider}: {fields}. Check them; they're yours to change.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "provider",
+        "fields"
+      ]
+    },
+    "moments.fillFailed": {
+      "text": "The details couldn't be found. Type them yourself; nothing is lost.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "moments.fillIn": {
+      "text": "Fill in from the link",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "moments.fillInHelp": {
+      "text": "Asks the site the link is on for the title and who made it. Only empty boxes are filled.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.fillNothing": {
+      "text": "{provider} had nothing to add.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "provider"
+      ]
+    },
+    "moments.fillPasteFirst": {
+      "text": "Put the link in first. The details are optional.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "moments.fillStale": {
+      "text": "The link changed while asking, so nothing was filled in.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "moments.fillUnsupported": {
+      "text": "Details can only be found for some video and code sites. Type them yourself.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.from": {
+      "text": "From",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindCanonical": {
+      "text": "A standard reference",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindCanonicalHint": {
+      "text": "Like Republic 514a.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindChapter": {
+      "text": "A chapter",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindChapterHint": {
+      "text": "A chapter number or name.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.kindLine": {
+      "text": "A line",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindLineHint": {
+      "text": "A line number.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindPage": {
+      "text": "A page",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindPageHint": {
+      "text": "A page number, like 12 or xiv.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "moments.kindSection": {
+      "text": "A section",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindSectionHint": {
+      "text": "A section number or name.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.kindTime": {
+      "text": "A time",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.kindTimeHint": {
+      "text": "Seconds or h:mm:ss, like 75 or 1:02:03.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "moments.lede": {
+      "text": "A moment is a place in what started it: a time in a video, a page of a book. Keep it private, or put it with your part for the others to read.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "moments.line": {
+      "text": "{source}, {where}. {who}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "source",
+        "where",
+        "who"
+      ]
+    },
+    "moments.needProvenance": {
+      "text": "Say where the words came from.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "moments.needRights": {
+      "text": "Say what rights apply to the words. Choose “Not checked yet” if nobody has checked.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.needSomething": {
+      "text": "Add the words said there, what you noticed, or both.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "moments.needSource": {
+      "text": "Choose what it's in.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.needWhere": {
+      "text": "Say where it is.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.none": {
+      "text": "No moments yet.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.notShared": {
+      "text": "Your moments couldn't go with this version, so they stay private. Share again to send them.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.observation": {
+      "text": "What you noticed (optional)",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "moments.openAt": {
+      "text": "Open it at {at}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "at"
+      ]
+    },
+    "moments.openSource": {
+      "text": "Open it (find the place yourself)",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "moments.private": {
+      "text": "Only you can see it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.proposed": {
+      "text": "Goes with your part.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.provenance": {
+      "text": "Where the words came from",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.provenanceCopied": {
+      "text": "Copied from its published words or captions",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "moments.provenanceSupplied": {
+      "text": "From whoever said them or owns them",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "moments.provenanceTranscribed": {
+      "text": "I wrote them down from it",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.publish": {
+      "text": "Put it with my part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.publishHelp": {
+      "text": "The others read it with your part, and everyone agrees to it. Otherwise only you see it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.quote": {
+      "text": "The words said there (optional)",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "moments.remove": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.removeLabel": {
+      "text": "Take out the moment at {where}",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "where"
+      ]
+    },
+    "moments.removed": {
+      "text": "Taken out.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.rights": {
+      "text": "Rights",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.rightsBrief": {
+      "text": "A short quotation for comment or review",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "moments.rightsNote": {
+      "text": "A note about the rights (optional)",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "moments.rightsOpen": {
+      "text": "It's under an open licence",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "moments.rightsOwn": {
+      "text": "These are my own words",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "moments.rightsPermission": {
+      "text": "Whoever owns it said yes",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "moments.rightsPublicDomain": {
+      "text": "It's in the public domain",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.rightsUnknown": {
+      "text": "Not checked yet (keeps it private)",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "moments.save": {
+      "text": "Save the moment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.savedProposed": {
+      "text": "Saved. It goes with your part when you let the others read it, and everyone agrees to it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.sheetTitle": {
+      "text": "Moments in what started it",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "moments.source": {
+      "text": "In what",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.speaker": {
+      "text": "Who said it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.statement": {
+      "text": "What you choose here is your own statement; {product} doesn't check it.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "moments.theirs": {
+      "text": "Moments the others shared",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "moments.title": {
+      "text": "Moments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.to": {
+      "text": "To (optional)",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.uncheckedPrivate": {
+      "text": "Words whose rights aren't checked stay private. Choose the rights, or keep the moment to yourself.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "moments.unlisted": {
+      "text": "Something no longer listed",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "moments.whereKind": {
+      "text": "Where in it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "moments.yours": {
+      "text": "Your moments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "notify.appSwitch": {
       "text": "News from your other apps",
@@ -6396,6 +7365,77 @@
       "vars": [
         "product"
       ]
+    },
+    "people.coWriterRemove": {
+      "text": "Remove {name}'s sign-in",
+      "layer": "details",
+      "max": 46,
+      "vars": [
+        "name"
+      ]
+    },
+    "people.coWriterRemoveAsk": {
+      "text": "Remove {name}'s sign-in?",
+      "layer": "details",
+      "max": 48,
+      "vars": [
+        "name"
+      ]
+    },
+    "people.coWriterRemoveGo": {
+      "text": "Remove it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "people.coWriterRemoveKeep": {
+      "text": "Keep it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "people.coWriterRemoveText": {
+      "text": "They can't sign in any more and leave every reflection they're in. Their names stay on what they wrote.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "people.coWriterRemoved": {
+      "text": "Removed the sign-in {name}.",
+      "layer": "details",
+      "max": 54,
+      "vars": [
+        "name"
+      ]
+    },
+    "people.coWriterRow": {
+      "text": "{name}: in {count}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "name",
+        "count"
+      ]
+    },
+    "people.coWriterWaiting": {
+      "text": "{name}: invited, hasn't chosen a password yet",
+      "layer": "details",
+      "max": 90,
+      "vars": [
+        "name"
+      ]
+    },
+    "people.coWriters": {
+      "text": "Sign-ins for people writing with you",
+      "layer": "details",
+      "max": 72,
+      "vars": []
+    },
+    "people.coWritersNone": {
+      "text": "No one writing with you has a sign-in of their own yet.",
+      "layer": "details",
+      "max": 110,
+      "vars": []
     },
     "people.copied": {
       "text": "Copied.",
@@ -8527,6 +9567,262 @@
       "max": 40,
       "vars": []
     },
+    "rules.allAuthors": {
+      "text": "Everyone writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.allAuthorsHelp": {
+      "text": "Everyone who writes a part agrees, whether or not they've written yet.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.askChange": {
+      "text": "Change whose agreement counts?",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "rules.askChangeText": {
+      "text": "Everyone who agreed will need to agree again. Nothing is shared or published by the change.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.askGo": {
+      "text": "Change it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.askKeep": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.authorsWithRoles": {
+      "text": "Everyone who wrote, and whoever does a job you choose",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "rules.authorsWithRolesHelp": {
+      "text": "Everyone doing what you choose below agrees too.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "rules.cantMeet": {
+      "text": "It can't be met as things stand: {names} can't agree any more.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "names"
+      ]
+    },
+    "rules.cantMeetRole": {
+      "text": "It can't be met as things stand: nobody in it does a job it names.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.choosePeople": {
+      "text": "Who else agrees",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.chooseRoles": {
+      "text": "Which jobs agree",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.contributingAuthors": {
+      "text": "Everyone who wrote",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.contributingAuthorsHelp": {
+      "text": "Only people who wrote something, or are named on something you say together, agree.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.details": {
+      "text": "The rule as stored: {rule}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "rule"
+      ]
+    },
+    "rules.fixNamed": {
+      "text": "Whoever is in charge can take them off the rule, or bring them back.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "rules.fixRole": {
+      "text": "Whoever runs it can change the rule, or give someone that job.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "rules.left": {
+      "text": "{name} (isn't in it any more)",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "name"
+      ]
+    },
+    "rules.namedAuthors": {
+      "text": "Everyone who wrote, and people you choose",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "rules.namedAuthorsHelp": {
+      "text": "The people you choose below agree too, even if they later leave.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.needPeople": {
+      "text": "Choose at least one person who agrees.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "rules.needRoles": {
+      "text": "Choose at least one job whose people agree.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "rules.never": {
+      "text": "Never: each part stays private",
+      "layer": "details",
+      "max": 60,
+      "vars": []
+    },
+    "rules.neverHelp": {
+      "text": "Nothing can be published together while this is chosen.",
+      "layer": "details",
+      "max": 110,
+      "vars": []
+    },
+    "rules.ownParts": {
+      "text": "Their own part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.ownPartsHelp": {
+      "text": "Each person agrees to their own part and how it's all put together.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "rules.ownerOnlyDrop": {
+      "text": "Only whoever is in charge can stop someone from having to agree. Nothing changed.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.published": {
+      "text": "It's on {product}, so its rules stay as they were.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "product"
+      ]
+    },
+    "rules.readOnly": {
+      "text": "Whoever runs it chooses the rules.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "rules.roleInCharge": {
+      "text": "In charge",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.roleRuns": {
+      "text": "Helps run it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.roleWrites": {
+      "text": "Writes a part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.save": {
+      "text": "Save the rules",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.saved": {
+      "text": "Rules saved. Agreements given before need giving again.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "rules.scope": {
+      "text": "What each agreement covers",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "rules.sharingTitle": {
+      "text": "When you read each other's parts",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "rules.sheetTitle": {
+      "text": "Rules for {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "rules.title": {
+      "text": "Rules",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.whole": {
+      "text": "The whole thing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.wholeHelp": {
+      "text": "Each person agrees to everyone's parts, so any change asks everyone again.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "rules.whoseAgreement": {
+      "text": "Whose agreement counts",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
     "share.tellOrSkip": {
       "text": "Tell {helper}, or choose Don't share it.",
       "layer": "her",
@@ -8705,6 +10001,279 @@
       "vars": [
         "list"
       ]
+    },
+    "talk.add": {
+      "text": "Say something together",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "talk.added": {
+      "text": "Added. Everyone it speaks for agrees to it.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "talk.agree": {
+      "text": "Agree to this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.agreeLabel": {
+      "text": "Agree to “{words}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "words"
+      ]
+    },
+    "talk.agreed": {
+      "text": "Agreed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.cancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.cantWrite": {
+      "text": "Only people who write a part say things together here.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "talk.clearsAgreement": {
+      "text": "Anything added or changed here asks the people it speaks for to agree again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "talk.edit": {
+      "text": "Change the words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.editSave": {
+      "text": "Save the change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.edited": {
+      "text": "Changed. Everyone it speaks for agrees again.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "talk.empty": {
+      "text": "Nothing said together yet. It's optional.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "talk.find": {
+      "text": "What we say together: {title}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "title"
+      ]
+    },
+    "talk.hideIdeas": {
+      "text": "Hide the questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.itemLine": {
+      "text": "{kind}, for {speaking}. Agreed by {agreed}. Waiting for {waiting}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "kind",
+        "speaking",
+        "agreed",
+        "waiting"
+      ]
+    },
+    "talk.kindAgreement": {
+      "text": "Agreement",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.kindApplication": {
+      "text": "Something to try",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.kindDifference": {
+      "text": "Difference",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.kindOther": {
+      "text": "Something said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.kindQuestion": {
+      "text": "Question",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.kindUncertainty": {
+      "text": "Not sure",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.lede": {
+      "text": "After everyone's parts, what you say together: where you agree, where you differ, what you still wonder. Each one speaks for the people named on it, and each of them agrees to it.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "talk.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.moved": {
+      "text": "Moved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.needWords": {
+      "text": "Write what you say together.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "talk.noOne": {
+      "text": "no one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.noOneYet": {
+      "text": "no one yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.promptAgreement": {
+      "text": "Where did we land in the same place?",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "talk.promptApplication": {
+      "text": "What could a reader try or do with this?",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "talk.promptDifference": {
+      "text": "Where do we see it differently, and why?",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "talk.promptQuestion": {
+      "text": "What are we still wondering about?",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "talk.promptUncertainty": {
+      "text": "What are we not sure about?",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "talk.save": {
+      "text": "Add it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.showIdeas": {
+      "text": "Show the questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.speaksFor": {
+      "text": "Who it speaks for, besides you",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "talk.takeMyName": {
+      "text": "Take my name off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.title": {
+      "text": "What we say together",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.tookMyName": {
+      "text": "Your name is off it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.useIdea": {
+      "text": "Use this question",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.what": {
+      "text": "What kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.words": {
+      "text": "The words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "talk.wordsHelp": {
+      "text": "Any length. Plain words; it's shown as you write it.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "talk.youAgreed": {
+      "text": "You agreed to this.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "thing.abstract": {
       "text": "Abstract",
@@ -9174,12 +10743,6 @@
       "vars": [
         "title"
       ]
-    },
-    "together.findShape": {
-      "text": "Layout, rules and collections of what you write together",
-      "layer": "her",
-      "max": 112,
-      "vars": []
     },
     "together.footer": {
       "text": "Nothing goes on {product} until everyone agrees.",
