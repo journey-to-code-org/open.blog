@@ -394,3 +394,66 @@ fn a_look_preview_is_built_from_the_unsaved_look_and_writes_nothing() {
     );
     assert!(read_config(&f).get("appearance").is_none());
 }
+
+#[test]
+fn a_look_save_leaves_the_rest_of_the_file_as_written_and_back_again_byte_for_byte() {
+    let f = fixture("look-as-written");
+    let session = login_ok(&f);
+    // The owner's own layout: four-space indent and her key order.
+    let config = read_config(&f);
+    let mut text = String::from("{\n");
+    let entries: Vec<_> = config.as_object().unwrap().iter().collect();
+    for (index, (key, value)) in entries.iter().enumerate() {
+        let comma = if index + 1 < entries.len() { "," } else { "" };
+        text.push_str(&format!(
+            "    {}: {}{comma}\n",
+            json!(key),
+            serde_json::to_string(value).unwrap()
+        ));
+    }
+    text.push_str("}\n");
+    fs::write(f.dir.join(site::CONFIG_FILE), &text).unwrap();
+
+    let current = get(&f, &session);
+    let saved = put(
+        &f,
+        &session,
+        json!({ "etag": current["etag"], "look": {"version": 1, "roundness": "square"} }),
+    );
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
+    let after = fs::read_to_string(f.dir.join(site::CONFIG_FILE)).unwrap();
+    // Every line she wrote is still there as she wrote it (the last one gains the comma before
+    // the new member).
+    for line in text.lines() {
+        assert!(
+            after.lines().any(|l| l == line || l == format!("{line},")),
+            "{line} kept:\n{after}"
+        );
+    }
+    assert!(
+        after.contains("    \"appearance\": {\n        "),
+        "in the file's own indent:\n{after}"
+    );
+
+    let again = get(&f, &session);
+    let cleared = put(
+        &f,
+        &session,
+        json!({ "etag": again["etag"], "look": {"version": 1} }),
+    );
+    assert_eq!(
+        cleared.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&cleared.body)
+    );
+    assert_eq!(
+        fs::read_to_string(f.dir.join(site::CONFIG_FILE)).unwrap(),
+        text
+    );
+}

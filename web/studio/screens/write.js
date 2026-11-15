@@ -18,7 +18,7 @@ import { createBodyHost } from "../parts/body-host.js";
 import { adviceFor } from "../parts/recipe-advice.js";
 import { showPreview } from "../parts/preview.js";
 import { createTrouble } from "../parts/write-trouble.js";
-import { crumbs, isMacLike, writeCommands, writePage } from "../parts/write-page.js";
+import { collectionOptions, crumbs, isMacLike, writeCommands, writePage } from "../parts/write-page.js";
 import { postActions } from "../parts/write-actions.js";
 
 const AUTOSAVE_MS = 3000;
@@ -26,7 +26,7 @@ const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
 
 export async function createWrite(context, arg) {
   const { api, meta } = context;
-  await use("text-field", "date-field", "tag-input", "action-button", "dropdown-menu", "side-sheet", "breadcrumb-trail", "alert-banner", "cluster-layout", "loading-spinner");
+  await use("text-field", "date-field", "tag-input", "select-field", "action-button", "dropdown-menu", "side-sheet", "breadcrumb-trail", "alert-banner", "cluster-layout", "loading-spinner");
   const starting = /^new\/(recipe|story)$/.exec(arg || "")?.[1] || (arg ? "" : "story");
   const path = starting ? "" : arg;
   const keptKey = starting ? `new-${starting}` : path;
@@ -48,7 +48,7 @@ export async function createWrite(context, arg) {
 
   // ---- the page
   const body = await createBodyHost({ api, maxBytes: meta.capture?.maxPhotoBytes || 0, onChange: () => changed() });
-  const { trail, status, banner, title, numbersHost, day, time, tags, cover, saveLabel, save, primaryLabel, primary, look, more, details, element } = writePage({
+  const { trail, status, banner, title, numbersHost, day, time, tags, cover, collection, saveLabel, save, primaryLabel, primary, look, more, details, element } = writePage({
     meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id) },
   });
 
@@ -60,7 +60,7 @@ export async function createWrite(context, arg) {
     body: bodyText(),
     date: safeJoin(day.value || "", time.value || ""),
     tags: [...(tags.value || [])],
-    extra: numbers ? numbers.values() : {},
+    extra: { ...(numbers ? numbers.values() : {}), ...(collection.hidden ? {} : { series: String(collection.value || "") }) },
   });
   const snapshot = () => JSON.stringify({ ...read(), draft: undefined });
   const now = () => new Date();
@@ -99,6 +99,7 @@ export async function createWrite(context, arg) {
     day.value = parts.date;
     time.value = parts.time;
     tags.value = [...values.tags];
+
     if (numbers && values.extra) numbers.set(values.extra);
     await body.set(values.body, { boxes: isRecipePost() });
   }
@@ -352,6 +353,12 @@ export async function createWrite(context, arg) {
       numbersHost.replaceChildren(numbers.element);
       form.extra = numbers.values();
     }
+    // The collections as they are now (one added a minute ago is there), and this post's own.
+    const series = (await api.get("documents?kind=series").catch(() => null))?.items || [];
+    const offer = collectionOptions(series, Array.isArray(doc.fields.series) ? doc.fields.series[0] : doc.fields.series);
+    collection.options = offer.options;
+    collection.value = offer.value;
+    collection.hidden = offer.options.length < 2;
     await fill(form);
     await buildCover();
     settle();
@@ -370,7 +377,7 @@ export async function createWrite(context, arg) {
         drop: () => { kept.clear(keptKey); banner.replaceChildren(); },
       }));
     }
-    for (const field of [title, time, day, tags]) field.addEventListener("valuechange", changed);
+    for (const field of [title, time, day, tags, collection]) field.addEventListener("valuechange", changed);
     title.addEventListener("focusout", () => {
       titleLeft = true;
       if (doc.state === "new" && dirty && ready() && !timer) changed();

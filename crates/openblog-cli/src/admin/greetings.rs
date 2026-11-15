@@ -86,7 +86,12 @@ fn bad_reply() -> Response {
 /// field it names (so the form can point at it).
 fn refusal(status: u16, body: &Json) -> Response {
     let code = body.get("error").and_then(slug);
-    let field = body.get("field").and_then(slug);
+    // Only a field the forms have: card and contact fields are camelCase, which `slug` would refuse.
+    let field = body
+        .get("field")
+        .and_then(Json::as_str)
+        .filter(|name| CARD_FIELDS.contains(name) || CONTACT_FIELDS.contains(name))
+        .map(str::to_string);
     let message = match (status, code.as_deref()) {
         (401, _) => {
             "The greetings function did not accept Admin's key; check OPENBLOG_GREETINGS_ADMIN_KEY"

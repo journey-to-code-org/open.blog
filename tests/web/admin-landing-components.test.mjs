@@ -85,7 +85,7 @@ test("a date setting is a date picker that takes only a real day", () => {
   for (const bad of ["2026-02-30", "June 14", "2026-6-14"]) {
     assert.match(sectionProblems(sign(bad))[0].message, /must be a day/, bad);
   }
-  assert.equal(sectionSummary(sign("1986-06-14")), "Christmas, 1986-06-14");
+  assert.equal(sectionSummary(sign("1986-06-14")), "Christmas, June 14, 1986");
 });
 
 test("a post setting is a list of the site's posts, and may be left empty", () => {

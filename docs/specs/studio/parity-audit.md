@@ -3,18 +3,22 @@
 By `studio-architect`, against the old Admin (`web/admin/admin.js` and every `/admin/api/*` route in
 `crates/openblog-cli/src/admin.rs` and `admin/*.rs`).
 
-## Where Studio stands
+## Where Studio stands (updated after slice 10c)
 
-Studio covers about 25 of the server's roughly 330 routes. That is all of Grammi's routine:
-- sign in;
-- posts and recipes, pictures, preview;
-- publish, and delete with undo;
-- seasons, decoration pieces and gifts.
+Studio now covers Grammi's whole routine and a trade site's:
+- sign in, posts and recipes, pictures, preview, publish, and delete with undo;
+- seasons, decoration pieces and gifts;
+- Pages and Collections, the Front page, and Look;
+- Home's site health (with Rebuild in Find on every screen);
+- Comments and reports;
+- greeting cards and Visitors;
+- for a trade site: Business facts, Services, Reviews, quote Requests, Reminders, and Sharing (with her accounts).
 
-It has none of these yet:
-- Pages, Series, the Landing page, Look;
-- comments;
-- business, research and hosted-service tools.
+These are still in the old Admin, linked from the Studio screen where they come up or from More tools:
+- connecting or reconnecting a social account (G6 in slice 10bc), changing a scheduled share, and checking an unclear one;
+- reminder topics and dates, the quote auto-erase setting, and exporting a date range;
+- Jobs (job capture) and the full post editor's advanced panes (writing assistant, evidence, accessibility, release);
+- research, comparisons, reading paths, collaboration, contributors, voice and Design a theme.
 
 ## Decision taken (to confirm at sign-off)
 
@@ -28,7 +32,7 @@ It has none of these yet:
 Deleting `web/admin` entirely would mean rebuilding or retiring well over a hundred mostly-research
 routes. That is a separate decision for later.
 
-## Remaining slices, in order
+## Slices, in order (all built)
 
 All reuse existing routes. The one exception is slice 7.
 

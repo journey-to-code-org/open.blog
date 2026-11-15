@@ -240,6 +240,29 @@ fn the_functions_refusal_names_the_field_in_plain_words() {
 }
 
 #[test]
+fn a_camel_case_field_is_named_and_an_unknown_one_is_not() {
+    for (field, named) in [
+        ("sendOn", json!("sendOn")),
+        ("contactId", json!("contactId")),
+        ("password", Json::Null),
+    ] {
+        let (endpoint, _server) = hosted(vec![(
+            400,
+            json!({ "error": "invalid-day", "field": field }).to_string(),
+        )]);
+        let request = json!({ "contactId": PERSON, "design": "birthday", "subject": "", "message": "Hi", "signOff": "", "sendOn": "nope", "hour": 8, "timeZone": "America/New_York", "yearly": false });
+        let r = route_with(
+            &env_for(&endpoint),
+            &json_req("POST", "/x", request),
+            "grammi",
+            "cards",
+        );
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["field"], named, "{field}");
+    }
+}
+
+#[test]
 fn a_preview_is_served_as_its_own_document_under_a_policy_that_runs_nothing() {
     let f = fixture("greetings-preview");
     let session = login_ok(&f);

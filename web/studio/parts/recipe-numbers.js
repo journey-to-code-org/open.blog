@@ -1,5 +1,5 @@
 // A recipe's numbers (Serves, Time to get ready, Time to cook) on her layer, and Course, Cuisine and
-// Part of a set behind "More about this recipe". Each is written under whichever name the post
+// behind "More about this recipe" (which collection it's in is Write's Collection choice). Each is written under whichever name the post
 // already uses (her `prep:` stays `prep:`), so nothing is duplicated or shadowed.
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
@@ -13,7 +13,6 @@ const NUMBERS = [
 const ABOUT = [
   { name: "course", label: "Course", help: "Like Dessert or Dinner. Readers can find recipes by it." },
   { name: "cuisine", label: "Cuisine", help: "Where the dish comes from, like Southern or Italian." },
-  { name: "series", label: "Part of a set", help: "A name shared by recipes that go together, like thanksgiving." },
 ];
 
 const text = (value) => (Array.isArray(value) ? value.join(", ") : value == null ? "" : String(value));

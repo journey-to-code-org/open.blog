@@ -120,6 +120,9 @@ use crate::source_store::{self, StoreError};
 
 pub const SESSION_COOKIE: &str = "ob_session";
 pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
+/// How long a write waits for the content lock (held by a send-out or another save) before it is
+/// refused as `busy`.
+const CONTENT_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
 /// The largest request to `pieces`: one piece's form values, never a page (ADR 0263).
 const MAX_PIECE_REQUEST_BYTES: usize = 64 * 1024;
@@ -752,9 +755,15 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         && !name.starts_with("gifts/")
         && !name.starts_with("push/");
     let _filesystem_transaction = if workspace.is_some() && local_write {
-        match crate::transaction::ContentTransactionLock::acquire(&state.root) {
+        // Wait a moment for a send-out or another save to finish, rather than refusing at once.
+        // A refusal here happens before anything is read or written, so it is marked `busy`:
+        // trying again is always safe, unlike a 409 for a change made elsewhere.
+        match crate::transaction::ContentTransactionLock::acquire_with_wait(
+            &state.root,
+            CONTENT_LOCK_WAIT,
+        ) {
             Ok(transaction) => Some(transaction),
-            Err(error) => return Response::error(409, &error),
+            Err(error) => return Response::json(409, &json!({ "error": error, "code": "busy" })),
         }
     } else {
         None
@@ -4226,6 +4235,18 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
+    let trade_site = config.business != openblog_core::business::BusinessConfig::default()
+        || !sources.services.is_empty()
+        || !sources.proof.is_empty()
+        || !config.business.trade.is_empty()
+        || config.seasonal_prompts.enabled
+        || sources.posts.iter().any(|file| {
+            frontmatter::parse(&file.contents)
+                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+        });
+    let engagement_ready = config.engagement.enabled
+        && engagement_credential_summary(&state.root, &config.engagement.endpoint)
+            .is_ok_and(|summary| summary["configured"] == json!(true));
     Response::json(
         200,
         &json!({
@@ -4250,6 +4271,8 @@ fn meta(state: &AppState) -> Response {
                 "business": config.business != openblog_core::business::BusinessConfig::default(),
                 // Reminders are for a trade site: shown once a trade is named or they are on.
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
+                // A trade site: Studio's Business, Services and Reviews show for it, and only for it.
+                "trade": trade_site,
             },
             "job": job_form,
             "capture": openblog_core::capture::limits_json(
@@ -4270,6 +4293,19 @@ fn meta(state: &AppState) -> Response {
             "greetings": greetings::is_configured(),
             "gifts": gifts::is_configured(),
             "push": push::is_configured(),
+            // Comments are moderated in Studio once they are on and the hosted key is in place.
+            "engagement": engagement_ready,
+            // Set up, working or not: Studio shows Comments, and says when it isn't ready.
+            "engagementSetUp": config.engagement.enabled && !config.engagement.endpoint.is_empty(),
+            // Where visitor numbers come from, as the old Admin's Analytics chooses: the hosted
+            // counter, the built-in one, or none.
+            "visitors": if engagement_ready && config.engagement.analytics {
+                json!("hosted")
+            } else if state.analytics_enabled {
+                json!("counter")
+            } else {
+                json!(false)
+            },
             "now": clock::now().rfc3339(),
         }),
     )
@@ -5013,16 +5049,21 @@ fn save_appearance_settings(state: &AppState, req: &Request) -> Response {
     if body["etag"].as_str() != Some(etag_bytes(&current).as_str()) {
         return Response::error(409, "Site settings changed on disk; reload before saving");
     }
-    let mut config: Json = match serde_json::from_slice(&current) {
-        Ok(Json::Object(object)) => Json::Object(object),
-        _ => return Response::error(500, "openblog.json must contain a valid JSON object"),
+    let Ok(current_text) = String::from_utf8(current.clone()) else {
+        return Response::error(500, "openblog.json must be UTF-8 text");
     };
-    config["colorSchemeToggle"] = choice;
-    let candidate = match serde_json::to_string_pretty(&config) {
-        Ok(json) => format!("{json}\n"),
-        Err(error) => {
-            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
-        }
+    // Only `colorSchemeToggle` changes, in the file's own layout. "The theme decides" (null) keeps a
+    // key the owner wrote (as null) and adds none.
+    let written = serde_json::from_str::<Json>(&current_text)
+        .ok()
+        .is_some_and(|config| config.get("colorSchemeToggle").is_some());
+    let candidate = match crate::config_text::set_member(
+        &current_text,
+        "colorSchemeToggle",
+        (!choice.is_null() || written).then_some(&choice),
+    ) {
+        Ok(text) => text,
+        Err(error) => return Response::error(500, &error),
     };
     let mut settings = match appearance_json(&state.root, candidate.as_bytes()) {
         Ok(settings) => settings,
@@ -5157,7 +5198,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             "Hosted engagement settings changed on disk; reload before saving",
         );
     }
-    let mut value: Json = match serde_json::from_slice(&current) {
+    let value: Json = match serde_json::from_slice(&current) {
         Ok(Json::Object(object)) => Json::Object(object),
         Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
@@ -5195,11 +5236,19 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             engagement.insert("captcha".into(), json!(parsed));
         }
     }
-    value["engagement"] = Json::Object(engagement);
-    let candidate = match serde_json::to_string_pretty(&value) {
-        Ok(value) => format!("{value}\n"),
+    // Only the engagement member is rewritten: the rest of openblog.json stays as written.
+    let current_text = match std::str::from_utf8(&current) {
+        Ok(text) => text,
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    let candidate = match crate::config_text::set_member(
+        current_text,
+        "engagement",
+        Some(&Json::Object(engagement)),
+    ) {
+        Ok(text) => text,
         Err(error) => {
-            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+            return Response::error(500, &format!("cannot update openblog.json: {error}"))
         }
     };
     let validated = match SiteConfig::from_json(&candidate) {
@@ -26723,6 +26772,7 @@ What I read:
             .status,
             409
         );
+        let as_written = fs::read_to_string(&config_path).unwrap();
         let mut settings = body_json(&handle(
             &f.state,
             &authed(req("GET", path), &session, false),
@@ -26761,6 +26811,8 @@ What I read:
                 choice != false
             );
         }
+        // Off, on and back to "the theme decides" leaves the file exactly as it was written.
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), as_written);
         // Report that the setting was saved even if unrelated content prevents rebuilding.
         fs::write(
             f.dir.join("content/posts/broken.md"),
@@ -26795,6 +26847,88 @@ What I read:
             &authed(req("GET", path), &session, false),
         ));
         assert_eq!(result["etag"], reloaded["etag"]);
+    }
+
+    #[test]
+    fn engagement_settings_keep_the_rest_of_openblog_json_and_tell_studio_when_comments_are_ready()
+    {
+        let _env = quiz_env();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-keeps-file");
+        let path = f.dir.join(site::CONFIG_FILE);
+        let mut written: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        written["engagement"] = json!({ "enabled": false });
+        // Four-space indent, as an owner might keep it by hand.
+        let mut text = Vec::new();
+        let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+        let mut serializer = serde_json::Serializer::with_formatter(&mut text, formatter);
+        serde::Serialize::serialize(&written, &mut serializer).unwrap();
+        let before = format!("{}\n", String::from_utf8(text).unwrap());
+        fs::write(&path, &before).unwrap();
+        let session = login_ok(&f);
+        let meta = |session: &(String, String)| {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/meta"), session, false),
+            ))
+        };
+        assert_eq!(meta(&session)["engagement"], false);
+        // The built-in counter until the hosted one is set up.
+        let counted = if f.state.analytics_enabled {
+            json!("counter")
+        } else {
+            json!(false)
+        };
+        assert_eq!(meta(&session)["visitors"], counted);
+        let loaded = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        ));
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true, "comments": true, "analytics": true,
+                        "endpoint": "https://blog.example/api", "etag": loaded["etag"],
+                        "credentialAction": "replace", "credential": "moderation-secret",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        let after = fs::read_to_string(&path).unwrap();
+        let outside = |text: &str| {
+            let mut kept = Vec::new();
+            let mut inside = false;
+            for line in text.lines() {
+                if line.starts_with("    \"engagement\"") {
+                    inside = !line.trim_end().ends_with("},") && !line.trim_end().ends_with('}');
+                    continue;
+                }
+                if inside {
+                    inside = !line.starts_with("    }");
+                    continue;
+                }
+                kept.push(line.trim_end_matches(',').to_string());
+            }
+            kept
+        };
+        assert_eq!(outside(&after), outside(&before));
+        assert!(after.contains("\n        \"endpoint\": \"https://blog.example/api\""));
+        assert_eq!(meta(&session)["engagement"], true);
+        assert_eq!(meta(&session)["visitors"], "hosted");
     }
 
     #[test]

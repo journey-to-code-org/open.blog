@@ -11,7 +11,7 @@ import { createUndo } from "./parts/undo.js";
 import { ApiError } from "./api.js";
 import { sayListDate } from "./parts/post-list.js";
 
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -22,6 +22,15 @@ export async function startShell(root, api, meta) {
   rememberSiteName(siteName);
   const posts = createPostsStore(api);
   const context = { api, meta, siteName, posts, go: (hash) => router.go(hash) };
+  // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
+  context.refreshMeta = async () => {
+    try {
+      Object.assign(meta, await api.get("meta"));
+      shell.nav = navFor(meta);
+    } catch {
+      // The next start reads it again.
+    }
+  };
 
   const undoSlot = h("div", { class: "studio-undo", "aria-live": "polite" });
   const screenHost = h("div");
@@ -36,7 +45,7 @@ export async function startShell(root, api, meta) {
     nav: NAV,
     current: "home",
     user: api.user,
-    menu: [{ value: "site", label: "View my site" }, { value: "signout", label: "Sign out" }],
+    menu: [{ value: "site", label: "View my site" }, { value: "tools", label: "More tools" }, { value: "signout", label: "Sign out" }],
     onMenuselect: (event) => account(event.detail),
   }, h("div", { slot: "actions", class: "studio-actions-wrap" }, actions, find), content);
 
@@ -65,6 +74,7 @@ export async function startShell(root, api, meta) {
 
   function account(choice) {
     if (choice === "site") open(meta.siteUrl || "/", "_blank", "noopener");
+    if (choice === "tools") router.go("#/tools");
     if (choice === "signout") signOut();
   }
 
@@ -83,6 +93,7 @@ export async function startShell(root, api, meta) {
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "site", label: "View my site", group: "Do" },
+    { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
     { id: "old-admin", label: "Open the old Admin", group: "Do", hint: "Everything not in Studio yet", href: "/admin" },
     { id: "signout", label: "Sign out", group: "Do" },
   ];
@@ -124,11 +135,18 @@ export async function startShell(root, api, meta) {
     if (id === "site") account("site");
     else if (id === "signout") signOut();
     else if (id === "undo") context.undo?.restore();
+    else if (id === "rebuild-all") {
+      api.post("rebuild", {}).then(
+        () => toast("Your site is up to date."),
+        (error) => toast(`Your site couldn't be updated. Your work is saved. (${error.status || "no connection"}: ${error.message || ""})`, { variant: "warning", duration: 0 }),
+      );
+    }
     else router.current()?.command?.(id);
   }
 
   const router = createRouter({
-    screens: Object.fromEntries(SCREENS.filter((s) => !s.when || s.when(meta)).map((s) => [s.name, (route) => s.create(context, route)])),
+    // Whether a screen applies is asked as it opens, so a refreshed meta counts at once.
+    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (!s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
       shell.current = AREA[route.name] || "home";
       shell.heading = screen.title;
