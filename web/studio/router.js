@@ -1,5 +1,6 @@
 // Hash routes → screens. `#/`, `#/posts`, `#/write`, `#/write/<path>`, `#/sign-in`.
 // Before leaving a screen the router asks it (`leave()`), so unsaved work is never lost on the way.
+import { readersRoute } from "./parts/reader-rules.js";
 
 /**
  * "#/write/posts/x.md" → { name: "write", arg: "posts/x.md", query: {} };
@@ -24,8 +25,7 @@ export function parseRoute(hash) {
 // screen each now opens. A route Studio doesn't have yet opens "not-yet" with the old name, never a
 // blank Home. Retirement plan R0; each later slice moves its names out of NOT_YET.
 const OLD_RENAMED = {
-  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations",
-  moderation: "comments", feedback: "comments", analytics: "visitors", social: "sharing/accounts",
+  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations", social: "sharing/accounts",
   announcements: "sharing", greetings: "cards",
 };
 const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
@@ -55,11 +55,9 @@ export function legacyRoute(hash) {
     return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
   if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
-  // The old inbox named the server's states; Studio's Comments names its own views.
-  if ((name === "moderation" || name === "feedback") && rest.length) {
-    const view = { pending: "", approved: "shown", rejected: "not-shown", removed: "taken-down" }[rest[0]] ?? "";
-    return `#/comments${view ? `/${view}` : ""}${tail}`;
-  }
+  // R10: Readers. The old inbox, feedback, analytics and Studio's own Comments and Visitors open it.
+  const readers = readersRoute(name, rest, search);
+  if (readers) return readers;
   // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
   if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
   // R2: the old accounts page, whatever was after it, is Your accounts.

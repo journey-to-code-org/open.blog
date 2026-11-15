@@ -12,10 +12,9 @@ import { createPageEdit } from "./page-edit.js";
 import { createTools } from "./tools.js";
 import { createLanding } from "./landing.js";
 import { createLook } from "./look.js";
-import { createComments } from "./comments.js";
+import { createReadersArea } from "./readers-area.js";
 import { createCards } from "./cards.js";
 import { createCardEdit } from "./card-edit.js";
-import { createVisitors } from "./visitors.js";
 import { createBusiness } from "./business.js";
 import { createRecordEdit } from "./record-edit.js";
 import { RECORDS, tradeSite } from "../parts/record-kinds.js";
@@ -44,13 +43,12 @@ export const SCREENS = [
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
-  // Only when comments are on and the hosted key is in place where Admin runs.
-  { name: "comments", nav: "Comments", area: "comments", when: (meta) => meta.engagement === true || meta.engagementSetUp === true, create: (context, route) => createComments(context, route) },
+  // R10: Readers (what readers sent, Visitors, How readers reach you). In the navigation when comments are
+  // set up or there are visitor numbers; always routable, so an old address and Find reach How readers reach you.
+  { name: "readers", nav: "Readers", area: "readers", navWhen: (meta) => meta.engagementSetUp === true || meta.engagement === true || Boolean(meta.visitors), create: (context, route) => createReadersArea(context, route) },
   // Only when greeting cards are set up where Admin runs (OPENBLOG_GREETINGS_*). #/cards/new and
   // #/cards/<id> are the editor.
   { name: "cards", nav: "Cards", area: "cards", when: (meta) => meta.greetings === true, create: (context, route) => (route.arg ? createCardEdit(context, route) : createCards(context)) },
-  // Only when there are visitor numbers to show (meta.visitors: the hosted or the built-in counter).
-  { name: "visitors", nav: "Visitors", area: "visitors", when: (meta) => Boolean(meta.visitors), create: (context, route) => createVisitors(context, route) },
   // A trade site's own (meta.siteUses.trade): services, reviews and the business facts.
   { name: "services", nav: "Services", area: "services", when: tradeSite, create: (context) => createDocuments(context, RECORDS.services) },
   { name: "service", area: "services", when: tradeSite, create: (context, route) => createRecordEdit(context, RECORDS.services, route.arg) },
