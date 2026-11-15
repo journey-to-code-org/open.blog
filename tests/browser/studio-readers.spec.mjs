@@ -214,7 +214,7 @@ test("Home says what's waiting, and the switch rewrites only engagement", async 
   await expect(toggle).toBeChecked();
   await toggle.click();
   await page.getByRole("button", { name: "Turn them off" }).click();
-  await expect(page.locator("main p[role=status]").filter({ hasText: /^Comments are off\./ })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: /^Comments are off\./ }).first()).toBeVisible();
   await expect(page.getByText("Comments are off.", { exact: true })).toBeVisible();
   const after = JSON.parse(readFileSync(join(root, "openblog.json"), "utf8"));
   expect(after.engagement.comments).toBe(false);
