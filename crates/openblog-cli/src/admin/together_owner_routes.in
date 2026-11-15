@@ -110,7 +110,6 @@
     ("GET", "reading-paths/targets"),
     ("GET", "reading-paths/path"),
     ("POST", "reading-paths/preview"),
-    ("POST", "reading-paths/reorder"),
     ("POST", "reading-paths"),
     ("PUT", "reading-paths"),
     ("DELETE", "reading-paths"),

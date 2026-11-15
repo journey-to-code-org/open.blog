@@ -124,7 +124,6 @@ fn every_route_requires_a_session_and_every_write_a_csrf_token() {
         ("PUT", "/admin/api/reading-paths"),
         ("DELETE", "/admin/api/reading-paths?slug=x&revision=y"),
         ("POST", "/admin/api/reading-paths/preview"),
-        ("POST", "/admin/api/reading-paths/reorder"),
     ] {
         assert_eq!(
             handle(&f.state, &req(method, path)).status,
@@ -138,7 +137,6 @@ fn every_route_requires_a_session_and_every_write_a_csrf_token() {
         ("PUT", "/admin/api/reading-paths"),
         ("DELETE", "/admin/api/reading-paths?slug=x&revision=y"),
         ("POST", "/admin/api/reading-paths/preview"),
-        ("POST", "/admin/api/reading-paths/reorder"),
     ] {
         let without = handle(
             &f.state,
@@ -527,95 +525,20 @@ fn preview_shows_the_public_projection_of_unsaved_work_and_writes_nothing() {
 }
 
 #[test]
-fn reorder_moves_steps_keeps_their_text_and_never_silently_drops_a_transition() {
-    let f = site_with_posts("reorder_moves_steps_keeps_thei");
+fn the_reorder_route_is_gone_and_a_path_is_ordered_by_saving_it() {
+    // R13: the owner decided Studio orders steps in the editor and saves the whole path, so
+    // `POST reading-paths/reorder` (with no caller) is deleted.
+    let f = site_with_posts("the_reorder_route_is_gone");
     let session = login_ok(&f);
     let (_, created) = create(&f, &session, body_of("tour", "T", "draft", three_steps()));
-    // Moving the last step up one keeps every step's own words.
-    let (status, moved) = source_call(
+    let (status, _) = source_call(
         &f,
         &session,
         "POST",
         "/admin/api/reading-paths/reorder",
         json!({"slug": "tour", "revision": created["revision"], "order": ["one", "three", "two"]}),
     );
-    assert_eq!(status, 200, "{moved}");
-    let ids: Vec<&str> = moved["path"]["steps"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["id"].as_str().unwrap())
-        .collect();
-    assert_eq!(ids, ["one", "three", "two"]);
-    assert_eq!(
-        moved["path"]["steps"][1]["transition"]["why"],
-        "It continues the thread."
-    );
-    // Moving a step with a transition to the front asks first.
-    let before = stored(&f, "tour").unwrap();
-    let (status, ask) = source_call(
-        &f,
-        &session,
-        "POST",
-        "/admin/api/reading-paths/reorder",
-        json!({"slug": "tour", "revision": moved["revision"], "order": ["three", "one", "two"]}),
-    );
-    assert_eq!(status, 422, "{ask}");
-    assert_eq!(ask["needsConfirmation"], true);
-    assert_eq!(stored(&f, "tour").unwrap(), before);
-    // The old first step has no transition, so moving it down needs one the
-    // author supplies; nothing is invented for it.
-    let (status, needs) = source_call(
-        &f,
-        &session,
-        "POST",
-        "/admin/api/reading-paths/reorder",
-        json!({"slug": "tour", "revision": moved["revision"],
-            "order": ["three", "one", "two"], "clearTransition": true}),
-    );
-    assert_eq!(status, 422, "{needs}");
-    assert_eq!(needs["problems"][0]["step"], "one");
-    assert_eq!(stored(&f, "tour").unwrap(), before);
-    let (status, done) = source_call(
-        &f,
-        &session,
-        "POST",
-        "/admin/api/reading-paths/reorder",
-        json!({"slug": "tour", "revision": moved["revision"],
-            "order": ["three", "one", "two"], "clearTransition": true,
-            "transitions": {"one": {"relationship": "builds-on", "why": "It builds on the new start."}}}),
-    );
-    assert_eq!(status, 200, "{done}");
-    assert_eq!(done["clearedTransitions"], json!(["three"]));
-    assert_eq!(
-        done["path"]["steps"][1]["transition"]["relationship"],
-        "builds-on"
-    );
-    // A wrong list, a stale revision and unknown ids change nothing.
-    let after = stored(&f, "tour").unwrap();
-    for order in [
-        json!(["one", "two"]),
-        json!(["one", "two", "two"]),
-        json!(["x", "y", "z"]),
-    ] {
-        let (status, _) = source_call(
-            &f,
-            &session,
-            "POST",
-            "/admin/api/reading-paths/reorder",
-            json!({"slug": "tour", "revision": done["revision"], "order": order}),
-        );
-        assert_eq!(status, 422);
-    }
-    let (status, _) = source_call(
-        &f,
-        &session,
-        "POST",
-        "/admin/api/reading-paths/reorder",
-        json!({"slug": "tour", "revision": created["revision"], "order": ["three", "one", "two"]}),
-    );
-    assert_eq!(status, 409);
-    assert_eq!(stored(&f, "tour").unwrap(), after);
+    assert_eq!(status, 404);
 }
 
 #[test]

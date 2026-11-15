@@ -27,7 +27,8 @@ export const WORDS = {
   "paths.rowNotShown": { text: "Readers can't see it yet: a step isn't published.", layer: "her" },
   "paths.rowCantRead": { text: "Can't be read yet", layer: "her" },
   "paths.rowUnlisted": { text: "Not in lists", layer: "her" },
-  "paths.unreadable": { text: "This path's file can't be read, so it can't be edited here.", layer: "her" },
+  "paths.unreadable": { text: "This path can't be read, so it can't be shown here. Nothing changed.", layer: "her" },
+  "paths.unreadableHeading": { text: "This reading path can't be read", layer: "her" },
   "paths.unreadableDetails": { text: "The first problem the server found:", layer: "details" },
   "paths.open": { text: "Open {title}", layer: "her" },
 

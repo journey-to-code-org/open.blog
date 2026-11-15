@@ -1232,7 +1232,6 @@ fn authenticated_api_routes(
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
         ("POST", "reading-paths/preview") => reading_paths::preview(state, req),
-        ("POST", "reading-paths/reorder") => reading_paths::reorder(state, req),
         ("POST", "reading-paths/restore") => reading_paths::restore(state, req),
         ("POST", "reading-paths") => reading_paths::save(state, req, true),
         ("PUT", "reading-paths") => reading_paths::save(state, req, false),

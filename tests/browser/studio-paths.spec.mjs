@@ -264,7 +264,15 @@ test("an old address opens the new screen, and an unreadable file stays listed",
   await page.goto(`${origin}/admin/studio/#/paths`);
   await expect(page.getByText("Can't be read yet").first()).toBeVisible();
   await page.goto(`${origin}/admin/studio/#/path/broken`);
-  await expect(page.getByText("This path's file can't be read, so it can't be edited here.")).toBeVisible();
+  await expect(page.getByText("This path can't be read, so it can't be shown here. Nothing changed.")).toBeVisible();
+  // An error state, not a new path: nothing to add, save, publish or delete, and the file is untouched.
+  await expect(page.getByRole("heading", { name: "Make a reading path" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "This reading path can't be read", level: 2 })).toBeVisible();
+  for (const name of ["Add a step", "Save draft", "Publish", "Update"]) await expect(page.getByRole("button", { name, exact: true })).toBeHidden();
+  await page.getByRole("button", { name: /^More/ }).first().click();
+  await expect(page.getByRole("menuitem", { name: /Delete|Take it off/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  expect(readFileSync(pathFile("broken"), "utf8")).toBe("{ not json");
 });
 
 test("the editor passes axe at 320 px without sideways scrolling", async ({ page }) => {

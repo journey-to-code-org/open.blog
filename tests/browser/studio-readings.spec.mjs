@@ -113,6 +113,13 @@ test("a comparison of readings is made, saved as a draft and the old address ope
   await page.goto(`${origin}/admin/studio/#/comparisons`);
   await expect(page).toHaveURL(/#\/research\/readings$/);
   await expect(page.getByRole("link", { name: "The cave" })).toBeVisible();
+  // Research's tabs gain Readings side by side on a site that has readings.
+  await page.goto(`${origin}/admin/studio/#/research/sources`);
+  await page.reload();
+  const tab = page.locator(".studio-research-tabs").getByRole("link", { name: "Readings side by side" });
+  await expect(tab).toBeVisible();
+  await tab.click();
+  await expect(page).toHaveURL(/#\/research\/readings$/);
 });
 
 test("words an AI tool drafted stay a draft until approved as saved; editing withdraws; Withdraw asks when published", async ({ page }) => {

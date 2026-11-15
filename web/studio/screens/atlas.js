@@ -18,7 +18,7 @@ export async function createAtlas(context, route = {}) {
   const { api } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "segmented-control", "select-field", "skeleton-block", "status-badge", "text-field");
   guardUnload();
-  const frame = researchFrame({ screen: "atlas", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "atlas", go: (hash) => context.go(hash), meta: context.meta });
   const state = { revision: "", entries: [], relationships: [], kinds: null, sources: [], passages: [], notices: [], missingConcepts: [], chronology: {}, file: "", publishes: context.meta?.research?.atlasPublishes === true };
   const filters = { query: "", kind: "" };
   const arg = String(route.arg || "").replace(/^atlas\/?/, "");

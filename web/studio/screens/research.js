@@ -13,7 +13,7 @@ export async function createResearchHome(context, route = {}) {
   await use("action-button", "alert-banner", "breadcrumb-trail", "select-field", "skeleton-block", "status-badge");
   guardUnload();
   if (route.query?.from) rememberPost({ path: route.query.from, title: route.query.title || "" });
-  const frame = researchFrame({ screen: "overview", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "overview", go: (hash) => context.go(hash), meta: context.meta });
   const heading = h("h2", { id: "studio-research-h", class: "studio-question", tabindex: "-1", text: say("research.title") });
   const lede = h("p", { class: "studio-lede", hidden: true, text: say("research.ledeEmpty") });
   const banner = h("div", { class: "studio-banner", "aria-live": "polite" });

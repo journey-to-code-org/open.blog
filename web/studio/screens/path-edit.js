@@ -84,14 +84,18 @@ export async function createPathEdit(context, route) {
   // ---- drawing ------------------------------------------------------------------------------------
 
   function paintHead() {
-    heading.textContent = saved ? draft.title || say("paths.untitled") : say("paths.newHeading");
-    trail.items = [{ label: say("paths.crumbHome"), href: "#/" }, { label: say("paths.nav"), href: "#/paths" }, { label: saved ? draft.title || say("paths.untitled") : say("paths.newHeading"), href: "" }];
+    // A file that can't be read is an error state, not a new path: nothing to add, save or publish.
+    const here = unreadable ? say("paths.unreadableHeading") : saved ? draft.title || say("paths.untitled") : say("paths.newHeading");
+    heading.textContent = here;
+    trail.items = [{ label: say("paths.crumbHome"), href: "#/" }, { label: say("paths.nav"), href: "#/paths" }, { label: here, href: "" }];
+    for (const control of [saveButton, add, count, list]) control.hidden = unreadable;
     const wasPublished = saved?.status === "published";
     saveButton.textContent = wasPublished ? say("paths.update") : say("paths.saveDraft");
     publishButton.hidden = wasPublished || draft.status === "published";
     if (wasPublished) saveButton.textContent = R.saveWords(true, "published");
     address.hidden = Boolean(saved);
     addressLine.hidden = !saved;
+    if (unreadable) publishButton.hidden = true;
     if (saved) addressLine.textContent = say("paths.addressFixed", { address: slug });
     more.items = [
       ...(wasPublished ? [{ value: "draft", label: say("paths.makeDraft") }] : []),
@@ -99,7 +103,7 @@ export async function createPathEdit(context, route) {
       { value: "written", label: say("paths.asWritten") },
     ];
     count.textContent = say("paths.stepsLeft", { count: String(draft.steps.length), limit: String(R.LIMITS.steps) });
-    add.hidden = draft.steps.length >= R.LIMITS.steps || !targets;
+    add.hidden = unreadable || draft.steps.length >= R.LIMITS.steps || !targets;
   }
 
   function stepCard(step, index) {
@@ -243,7 +247,7 @@ export async function createPathEdit(context, route) {
   // ---- adding a step ------------------------------------------------------------------------------
 
   function addStep() {
-    if (!targets) return;
+    if (!targets || unreadable) return;
     const used = new Set(draft.steps.map(R.targetKey));
     const search = h("text-field", { label: say("paths.addSearch"), onValuechange: () => drawList() });
     const results = h("div", { "aria-live": "polite" });

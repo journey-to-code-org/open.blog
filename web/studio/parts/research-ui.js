@@ -20,6 +20,7 @@ function tabWords(screen) {
     case "atlas": return say("research.tabAtlas");
     case "compare": return say("research.tabCompare");
     case "public": return say("research.tabPublic");
+    case "readings": return say("research.tabReadings");
     default: return say("research.tabOverview");
   }
 }
@@ -34,13 +35,13 @@ export const researchPost = () => fromPost;
  * kept-forms banner and, when she came from a post, Back to your post.
  * `{ element, crumbs(list), paintKept() }`.
  */
-export function researchFrame({ screen, crumbs = [], go }) {
+export function researchFrame({ screen, crumbs = [], go, meta }) {
   const trail = h("breadcrumb-trail", {});
   const setCrumbs = (list) => {
     trail.items = [{ label: say("research.home"), href: "#/" }, { label: say("research.nav"), href: list.length ? "#/research" : "" }, ...list];
   };
   setCrumbs(crumbs);
-  const screens = builtScreens();
+  const screens = builtScreens(meta);
   const tabs = h("nav", { class: "studio-research-tabs", "aria-label": say("research.tabsLabel") },
     h("ul", {}, screens.map((item) => h("li", {}, h("a", { href: researchHash(item.id), "aria-current": item.id === screen ? "page" : null, text: tabWords(item) })))));
   const picker = h("select-field", { class: "studio-research-picker", label: say("research.tabsLabel"), value: screen,

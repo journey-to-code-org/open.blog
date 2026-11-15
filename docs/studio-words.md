@@ -2103,8 +2103,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paths.undoFailed` | her | That couldn't be put back, because the path changed since. Open it again. | none | 146 |
 | `paths.undoStep` | her | Undo | none | 40 |
 | `paths.undone` | her | Put back as it was. | none | 40 |
-| `paths.unreadable` | her | This path's file can't be read, so it can't be edited here. | none | 118 |
+| `paths.unreadable` | her | This path can't be read, so it can't be shown here. Nothing changed. | none | 136 |
 | `paths.unreadableDetails` | details | The first problem the server found: | none | 70 |
+| `paths.unreadableHeading` | her | This reading path can't be read | none | 62 |
 | `paths.untitled` | her | A reading path | none | 40 |
 | `paths.update` | her | Update | none | 40 |
 | `paths.useMine` | her | Use my changes | none | 40 |
@@ -3295,6 +3296,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `research.tabNotebook` | her | Notebook | none | 40 |
 | `research.tabOverview` | her | Overview | none | 40 |
 | `research.tabPublic` | her | What readers see | none | 40 |
+| `research.tabReadings` | her | Readings side by side | none | 42 |
 | `research.tabSources` | her | Sources | none | 40 |
 | `research.tabsLabel` | her | Part of your research | none | 42 |
 | `research.title` | her | From a source to a cited post | none | 58 |

@@ -25,7 +25,7 @@ export async function createCompare(context, route = {}) {
   const { api } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge", "text-field");
   guardUnload();
-  const frame = researchFrame({ screen: "compare", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "compare", go: (hash) => context.go(hash), meta: context.meta });
   const state = applyAlignmentState({}, {});
   const wanted = decodeURIComponent(String(route.arg || "").replace(/^compare\/?/, ""));
   let version = "";

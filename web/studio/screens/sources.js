@@ -18,7 +18,7 @@ export async function createSources(context, route = {}) {
   const { api } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "choice-cards", "dropdown-menu", "empty-state", "file-drop", "select-field", "side-sheet", "skeleton-block", "status-badge", "text-field");
   guardUnload();
-  const frame = researchFrame({ screen: "sources", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "sources", go: (hash) => context.go(hash), meta: context.meta });
   const state = { revision: "", sources: [], uses: {}, file: "", stored: false };
   const filters = { query: "", kind: "all", archived: "active" };
   let open = null; // { form, key }

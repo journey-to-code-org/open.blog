@@ -19,7 +19,7 @@ export async function createNotebook(context, route = {}) {
   const { api } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "file-drop", "segmented-control", "select-field", "side-sheet", "skeleton-block", "status-badge", "tag-input", "text-field", "toggle-switch");
   guardUnload();
-  const frame = researchFrame({ screen: "notebook", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "notebook", go: (hash) => context.go(hash), meta: context.meta });
   const state = { revision: "", passages: [], notes: [], sources: [], file: "" };
   const filters = { query: "", source: "", locator: "", concept: "", state: "", archived: false };
   let view = "passages";

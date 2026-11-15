@@ -12851,15 +12851,21 @@
       "vars": []
     },
     "paths.unreadable": {
-      "text": "This path's file can't be read, so it can't be edited here.",
+      "text": "This path can't be read, so it can't be shown here. Nothing changed.",
       "layer": "her",
-      "max": 118,
+      "max": 136,
       "vars": []
     },
     "paths.unreadableDetails": {
       "text": "The first problem the server found:",
       "layer": "details",
       "max": 70,
+      "vars": []
+    },
+    "paths.unreadableHeading": {
+      "text": "This reading path can't be read",
+      "layer": "her",
+      "max": 62,
       "vars": []
     },
     "paths.untitled": {
@@ -20539,6 +20545,12 @@
       "text": "What readers see",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "research.tabReadings": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
       "vars": []
     },
     "research.tabSources": {

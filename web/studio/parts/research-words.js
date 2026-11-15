@@ -14,6 +14,7 @@ export const WORDS = {
   "research.tabAtlas": { text: "Atlas", layer: "her" },
   "research.tabCompare": { text: "Compare", layer: "her" },
   "research.tabPublic": { text: "What readers see", layer: "her" },
+  "research.tabReadings": { text: "Readings side by side", layer: "her" },
   "research.stepRelate": { text: "Relate and compare", layer: "her" },
   "research.stepRelateText": { text: "Note who says what about the people, works and ideas you study, and read versions of a passage side by side.", layer: "her" },
   "research.stepRelateDone": { text: "{entries} atlas entries and {alignments} alignments.", layer: "her" },

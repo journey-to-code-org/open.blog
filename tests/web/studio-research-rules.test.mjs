@@ -190,3 +190,13 @@ test("a research check's finding opens its source, passage or note", async () =>
   assert.equal(openItHash({ object: "post", id: "x" }), "");
   assert.equal(openItHash({ object: "source" }), "");
 });
+
+test("Readings side by side is a Research tab only on a site that has readings", async () => {
+  const { builtScreens, researchHash } = await import("../../web/studio/parts/research-rules.js");
+  const ids = (meta) => builtScreens(meta).map((s) => s.id);
+  assert.ok(ids({ siteUses: { research: true, readings: true } }).includes("readings"));
+  assert.ok(!ids({ siteUses: { research: true } }).includes("readings"));
+  assert.ok(!ids(undefined).includes("readings"));
+  assert.equal(researchHash("readings"), "#/research/readings");
+  assert.equal(researchHash("readings", "x"), "#/research/readings");
+});

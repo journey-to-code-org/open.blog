@@ -21,13 +21,15 @@ export const RESEARCH_SCREENS = Object.freeze([
   Object.freeze({ id: "atlas", path: "atlas", takesId: true, tab: "research.tabAtlas" }),
   Object.freeze({ id: "compare", path: "compare", takesId: true, tab: "research.tabCompare" }),
   Object.freeze({ id: "public", path: "public", tab: "research.tabPublic" }),
+  // R13: only on a site that has readings side by side (its own screen, the list).
+  Object.freeze({ id: "readings", path: "readings", tab: "research.tabReadings", when: (meta) => meta?.siteUses?.readings === true }),
 ]);
 
 /** Research screens that aren't in Studio yet (none since R12); one would open "Not in Studio yet". */
 export const RESEARCH_NOT_YET = Object.freeze(new Set());
 
-/** The screens she can reach now. */
-export const builtScreens = () => RESEARCH_SCREENS.filter((screen) => !RESEARCH_NOT_YET.has(screen.id));
+/** The screens she can reach now, on this site (`meta`). */
+export const builtScreens = (meta) => RESEARCH_SCREENS.filter((screen) => !RESEARCH_NOT_YET.has(screen.id) && (!screen.when || screen.when(meta)));
 
 /** The address of one link between atlas entries. */
 export const atlasLinkHash = (id) => `#/research/atlas/relationships/${encodeURIComponent(String(id || ""))}`;

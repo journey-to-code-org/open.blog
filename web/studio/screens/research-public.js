@@ -15,7 +15,7 @@ export async function createResearchPublic(context) {
   const { api } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "select-field", "skeleton-block", "status-badge");
   guardUnload();
-  const frame = researchFrame({ screen: "public", go: (hash) => context.go(hash) });
+  const frame = researchFrame({ screen: "public", go: (hash) => context.go(hash), meta: context.meta });
   frame.crumbs([{ label: say("public.tab"), href: "" }]);
   const heading = h("h2", { id: "studio-public-h", class: "studio-question", tabindex: "-1", text: say("public.title") });
   const counts = h("p", { role: "status", "aria-live": "polite" });
