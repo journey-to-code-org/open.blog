@@ -866,6 +866,201 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paste.photoLeftOne` | her | 1 photo was left out because it has no description. Put it in with Put a photo in. | none | 164 |
 | `paste.plainKeys` | her | Ctrl+Shift+V pastes plain words. | none | 64 |
 | `paste.plainMac` | her | ⌘⇧V pastes plain words. | none | 46 |
+| `paths.addEntries` | her | Atlas entries | none | 40 |
+| `paths.addHeading` | her | Add a step | none | 40 |
+| `paths.addNoMatch` | her | Nothing matches that. | none | 42 |
+| `paths.addNone` | her | Nothing to add. Only published posts can be steps, and each can be on a path once. | none | 164 |
+| `paths.addPosts` | her | Posts | none | 40 |
+| `paths.addSearch` | her | Search your published posts | none | 54 |
+| `paths.addStep` | her | Add a step | none | 40 |
+| `paths.added` | her | Added {title}. Say why it follows, then save. | `{title}` | 90 |
+| `paths.addedFirst` | her | Added {title} as the first step. | `{title}` | 64 |
+| `paths.addressFixed` | her | Its address is {address}. It can't be changed. | `{address}` | 92 |
+| `paths.addressHelp` | her | The last part of its web address. It can't be changed after the first save. | none | 150 |
+| `paths.asWritten` | her | Show the path as written (for {helper}) | `{helper}` | 78 |
+| `paths.back` | her | ‹ All reading paths | none | 40 |
+| `paths.basis` | her | Which atlas link says so | none | 48 |
+| `paths.basisHelp` | her | Only a link you've published between two entries can say one influenced the other. | none | 164 |
+| `paths.basisNone` | her | No published link between these two | none | 70 |
+| `paths.change` | her | Change | none | 40 |
+| `paths.changedHeading` | her | Changed somewhere else | none | 44 |
+| `paths.changedText` | her | This reading path was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep? | none | 240 |
+| `paths.chooseOne` | her | Choose one | none | 40 |
+| `paths.crumbHome` | her | Home | none | 40 |
+| `paths.delete` | her | Delete | none | 40 |
+| `paths.deleteAsk` | her | Delete “{title}”? | `{title}` | 40 |
+| `paths.deleteAskLive` | her | It's on your site now. Deleting takes it off. You can bring it back right after with Undo. | none | 180 |
+| `paths.deleteAskText` | her | You can bring it back right after with Undo. | none | 88 |
+| `paths.deleted` | her | Deleted “{title}”. | `{title}` | 40 |
+| `paths.diagDetails` | details | Kind: {kind} | `{kind}` | 40 |
+| `paths.diagDropped` | her | its reason can't be shown as written, so the whole path is held back | none | 136 |
+| `paths.diagStep` | her | {title}: {why} | `{title}` `{why}` | 40 |
+| `paths.diagUnavailable` | her | isn't published, so readers don't see it | none | 80 |
+| `paths.diagWithheld` | her | fewer than two steps are published, so the path is held back | none | 120 |
+| `paths.diffAdvanced` | her | For people who know the subject | none | 62 |
+| `paths.diffIntermediate` | her | Some background helps | none | 42 |
+| `paths.diffIntroductory` | her | Easy to start with | none | 40 |
+| `paths.difficulty` | her | How hard | none | 40 |
+| `paths.difficultyNone` | her | Not said | none | 40 |
+| `paths.dismiss` | her | Dismiss | none | 40 |
+| `paths.eChanged` | her | This path changed somewhere else since you opened it. Nothing was saved. | none | 144 |
+| `paths.eGeneric` | her | That didn't work. Nothing was changed. | none | 76 |
+| `paths.eMissing` | her | That reading path isn't there any more. | none | 78 |
+| `paths.eSentence` | details | What the server said: | none | 42 |
+| `paths.eStorage` | her | Your site couldn't keep it. Nothing was changed. | none | 96 |
+| `paths.eTooLarge` | her | That's more than a reading path can hold. | none | 82 |
+| `paths.emptyText` | her | Pick a few posts, put them in an order, and say why each one follows the one before. | none | 168 |
+| `paths.emptyTitle` | her | No reading paths yet | none | 40 |
+| `paths.fieldAddress` | her | Address | none | 40 |
+| `paths.fieldSummary` | her | A line about this path | none | 44 |
+| `paths.fieldTitle` | her | Title | none | 40 |
+| `paths.findAdd` | her | Add a step to this reading path | none | 62 |
+| `paths.findMake` | her | Make a reading path | none | 40 |
+| `paths.findSave` | her | Save this reading path | none | 44 |
+| `paths.findUndo` | her | Undo: {last} | `{last}` | 40 |
+| `paths.goToStep` | her | Go to {title} | `{title}` | 40 |
+| `paths.heldAskHeading` | her | Save without the reason for “{title}”? | `{title}` | 76 |
+| `paths.heldAskNo` | her | Go back | none | 40 |
+| `paths.heldAskText` | her | That step is first now, so it has nothing to follow, and the reason you wrote for it can't be kept in the saved path. Undo after saving brings it back. | none | 240 |
+| `paths.heldAskYes` | her | Save without it | none | 40 |
+| `paths.howItRelates` | her | How it relates to the step before | none | 66 |
+| `paths.keepIt` | her | Keep it | none | 40 |
+| `paths.keptReason` | her | The reason you wrote is kept. It comes back if this step moves down again. | none | 148 |
+| `paths.lastDelete` | her | deleting {title} | `{title}` | 40 |
+| `paths.lastSave` | her | the last save | none | 40 |
+| `paths.leaveGo` | her | Leave without saving | none | 40 |
+| `paths.leaveHeading` | her | Save this reading path? | none | 46 |
+| `paths.leaveSave` | her | Save | none | 40 |
+| `paths.leaveText` | her | You changed it and didn't save. | none | 62 |
+| `paths.lede` | her | A reading path puts some of your posts in an order, with why each one comes next. | none | 162 |
+| `paths.listed` | her | Show it in lists and search | none | 54 |
+| `paths.listedHelp` | her | Off, it's still at its own address. | none | 70 |
+| `paths.loadFailed` | her | Your reading paths didn't load. | none | 62 |
+| `paths.make` | her | Make a reading path | none | 40 |
+| `paths.makeDraft` | her | Make it a draft again | none | 42 |
+| `paths.more` | her | More | none | 40 |
+| `paths.move` | her | Move | none | 40 |
+| `paths.moveDown` | her | Move down | none | 40 |
+| `paths.moveFirst` | her | Move to the start | none | 40 |
+| `paths.moveKeys` | her | On a step you can also press Alt, Shift and an arrow key, or Home or End. | none | 146 |
+| `paths.moveLast` | her | Move to the end | none | 40 |
+| `paths.moveUp` | her | Move up | none | 40 |
+| `paths.moved` | her | {title} is step {number} of {count} now. Not saved yet. | `{title}` `{number}` `{count}` | 110 |
+| `paths.nav` | her | Reading paths | none | 40 |
+| `paths.newHeading` | her | Make a reading path | none | 40 |
+| `paths.noMoreSteps` | her | That's as many steps as a path holds. | none | 74 |
+| `paths.notCollection` | her | A collection keeps posts that belong together. A reading path is an order to read them in, with why each comes next. A post can be on many paths. | none | 240 |
+| `paths.nothingChanged` | her | Nothing's changed. | none | 40 |
+| `paths.open` | her | Open {title} | `{title}` | 40 |
+| `paths.optional` | her | A side step readers may skip | none | 56 |
+| `paths.optionalHelp` | her | The first step can't be one: every reader starts there. | none | 110 |
+| `paths.pAddress` | her | The address uses lowercase letters, numbers and single hyphens, up to 64 characters. | none | 168 |
+| `paths.pAddressTaken` | her | A reading path already has that address. Choose another. | none | 112 |
+| `paths.pBadBasis` | her | That isn't a published atlas link you can use here. | none | 102 |
+| `paths.pBadValue` | her | Something here isn't right. Check it and try again. | none | 102 |
+| `paths.pDuplicate` | her | Two steps have the same name inside the path. Take one out and add it again. | none | 152 |
+| `paths.pFirstOptional` | her | The first step is where every reader starts, so it can't be a side step. | none | 144 |
+| `paths.pFirstReason` | her | The first step has nothing to follow, so it has no reason. | none | 116 |
+| `paths.pInfluenceAtlas` | her | “Was influenced by” joins two atlas entries. Choose another way for posts. | none | 148 |
+| `paths.pInfluenceBasis` | her | Choose the published atlas link that says one influenced the other. | none | 134 |
+| `paths.pNeedTwo` | her | A published path needs at least two steps readers can see. | none | 116 |
+| `paths.pNeedsReason` | her | Say why this step follows, in your own words. | none | 90 |
+| `paths.pNeedsRelation` | her | Choose how this step relates to the one before. | none | 94 |
+| `paths.pNothingToFollow` | her | There's no earlier step for this one to follow. | none | 94 |
+| `paths.pRepeat` | her | This is already a step. A path never goes back to one. | none | 108 |
+| `paths.pSummaryLong` | her | That line is too long. | none | 44 |
+| `paths.pTitleLong` | her | That title is too long. | none | 46 |
+| `paths.pTitleRequired` | her | Give the path a title. | none | 44 |
+| `paths.pTooLong` | her | That's too long. | none | 40 |
+| `paths.pTooMany` | her | A path can't hold more steps than that. | none | 78 |
+| `paths.pUnknownTarget` | her | That step points at something that isn't a published post or entry. | none | 134 |
+| `paths.prerequisites` | her | What to know first | none | 40 |
+| `paths.previewClose` | her | Back to your reading path | none | 50 |
+| `paths.previewDraft` | her | This is a draft. It shows what readers would see if you published it now. | none | 146 |
+| `paths.previewEmpty` | her | Add a step to see it here. | none | 52 |
+| `paths.previewFailed` | her | That didn't load. Try again. | none | 56 |
+| `paths.previewHard` | her | Level: {level} | `{level}` | 40 |
+| `paths.previewHeading` | her | What readers will see | none | 42 |
+| `paths.previewNeed` | her | Before you start: {text} | `{text}` | 48 |
+| `paths.previewOnlyYou` | her | Only you see this page. Nothing is published by looking. | none | 112 |
+| `paths.previewReasons` | her | Only you see this: why readers don't see some steps | none | 102 |
+| `paths.previewRefresh` | her | Looking at your latest changes… | none | 62 |
+| `paths.previewSide` | her | A side step you can skip | none | 48 |
+| `paths.previewWithheld` | her | Readers wouldn't see this path yet. | none | 70 |
+| `paths.problemsHeading` | her | Not saved yet | none | 40 |
+| `paths.problemsMany` | her | {count} things need a look first. | `{count}` | 66 |
+| `paths.problemsOne` | her | One thing needs a look first. | none | 58 |
+| `paths.publish` | her | Publish | none | 40 |
+| `paths.rationale` | her | Why it's on the path | none | 40 |
+| `paths.relApplies` | her | Applies it | none | 40 |
+| `paths.relBackground` | her | Gives background | none | 40 |
+| `paths.relBuildsOn` | her | Builds on it | none | 40 |
+| `paths.relContrastsWith` | her | Contrasts with it | none | 40 |
+| `paths.relInfluenced` | her | Was influenced by it | none | 40 |
+| `paths.relNext` | her | Comes next | none | 40 |
+| `paths.relRespondsTo` | her | Responds to it | none | 40 |
+| `paths.relatesTo` | her | Follows {title}. | `{title}` | 40 |
+| `paths.rowCantRead` | her | Can't be read yet | none | 40 |
+| `paths.rowDraft` | her | Draft | none | 40 |
+| `paths.rowNotShown` | her | Readers can't see it yet: a step isn't published. | none | 98 |
+| `paths.rowOneStep` | her | 1 step | none | 40 |
+| `paths.rowPublished` | her | Published | none | 40 |
+| `paths.rowSteps` | her | {count} steps | `{count}` | 40 |
+| `paths.rowUnlisted` | her | Not in lists | none | 40 |
+| `paths.saveDraft` | her | Save draft | none | 40 |
+| `paths.savedDraft` | her | Saved as a draft. Readers don't see it. | none | 78 |
+| `paths.savedHidden` | her | Saved, but readers can't see it yet: a step isn't published. | none | 120 |
+| `paths.savedNow` | her | Saved. | none | 40 |
+| `paths.savedPublished` | her | Published. Readers see it at {url}, in about a minute. | `{url}` | 108 |
+| `paths.savedPublishedOff` | her | Saved as published, but your site isn't showing reading paths yet. | none | 132 |
+| `paths.savedUpdated` | her | Updated. | none | 40 |
+| `paths.seeReaders` | her | See what readers will see | none | 50 |
+| `paths.sheetCancel` | her | Cancel | none | 40 |
+| `paths.sheetHeading` | her | A step | none | 40 |
+| `paths.sheetKeep` | her | Keep this step | none | 40 |
+| `paths.showTheirs` | her | Show the other version | none | 44 |
+| `paths.siteOffDetails` | details | The site's setting readingPaths.publish is off. | none | 94 |
+| `paths.siteOffText` | her | You can write them now. They show on your site once {helper} turns them on. | `{helper}` | 150 |
+| `paths.siteOffTitle` | her | Readers can't see reading paths yet | none | 70 |
+| `paths.stateDraft` | her | A draft: readers won't see this step | none | 72 |
+| `paths.stateMissing` | her | Not found: readers won't see this step | none | 76 |
+| `paths.stateOther` | her | Not public: readers won't see this step | none | 78 |
+| `paths.statePublished` | her | Published | none | 40 |
+| `paths.stateScheduled` | her | Scheduled: not public yet, readers won't see this step | none | 108 |
+| `paths.stateUnknown` | her | Not checked yet | none | 40 |
+| `paths.stepBack` | her | {title} is back. | `{title}` | 40 |
+| `paths.stepHeading` | her | Step {number}: {title} | `{number}` `{title}` | 44 |
+| `paths.stepIdDetails` | details | Step id: {id} | `{id}` | 40 |
+| `paths.stepNeedsLook` | her | Needs a look | none | 40 |
+| `paths.stepOptional` | her | A side step | none | 40 |
+| `paths.stepsEmpty` | her | No steps yet. Add the first post readers should start with. | none | 118 |
+| `paths.stepsHeading` | her | Steps | none | 40 |
+| `paths.stepsLede` | her | Readers go through these in order. Each one after the first says why it follows. | none | 160 |
+| `paths.stepsLeft` | her | {count} of {limit} steps | `{count}` `{limit}` | 48 |
+| `paths.takeOut` | her | Take it out | none | 40 |
+| `paths.targetsTrouble` | her | The list of posts to pick from didn't load, so you can't add a step right now. | none | 156 |
+| `paths.theirsShown` | her | Here's the other version. | none | 50 |
+| `paths.title` | her | Your reading paths | none | 40 |
+| `paths.tookOut` | her | Took out {title}. Not saved yet. | `{title}` | 64 |
+| `paths.tryAgain` | her | Try again | none | 40 |
+| `paths.undo` | her | Undo | none | 40 |
+| `paths.undoFailed` | her | That couldn't be put back, because the path changed since. Open it again. | none | 146 |
+| `paths.undoStep` | her | Undo | none | 40 |
+| `paths.undone` | her | Put back as it was. | none | 40 |
+| `paths.unreadable` | her | This path's file can't be read, so it can't be edited here. | none | 118 |
+| `paths.unreadableDetails` | details | The first problem the server found: | none | 70 |
+| `paths.untitled` | her | A reading path | none | 40 |
+| `paths.update` | her | Update | none | 40 |
+| `paths.useMine` | her | Use my changes | none | 40 |
+| `paths.useMineSure` | her | Use your changes? | none | 40 |
+| `paths.useMineSureText` | her | This replaces the other changes with what you have here. | none | 112 |
+| `paths.useMineYes` | her | Yes, use my changes | none | 40 |
+| `paths.wasDrafted` | her | It's a draft again. Readers don't see it. | none | 82 |
+| `paths.why` | her | Why it follows, in your words | none | 58 |
+| `paths.whyHelp` | her | A sentence or two. Readers see it between the two steps. | none | 112 |
+| `paths.writtenClose` | her | Close | none | 40 |
+| `paths.writtenHeading` | details | The path as written | none | 40 |
+| `paths.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
 | `readers.ackNo` | her | Not now | none | 40 |

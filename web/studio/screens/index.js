@@ -31,6 +31,9 @@ import { createNewPost, hasRecipes } from "./new-post.js";
 import { createNewJob } from "./new-job.js";
 import { createPeople } from "./people.js";
 import { createHelper } from "./helper.js";
+import { createPaths } from "./paths.js";
+import { createPathEdit } from "./path-edit.js";
+import { say } from "../parts/words.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -42,6 +45,10 @@ export const SCREENS = [
   { name: "page", area: "pages", create: (context, route) => createPageEdit(context, KINDS.pages, route.arg) },
   { name: "collections", nav: "Collections", area: "collections", create: (context) => createDocuments(context, KINDS.series) },
   { name: "collection", area: "collections", create: (context, route) => createPageEdit(context, KINDS.series, route.arg) },
+  // R13: reading paths. In the navigation once the site has one (meta.siteUses.paths); always routable, so an old
+  // address and Find ("Make a reading path") reach them. #/paths/new and #/path/<address> are the editor.
+  { name: "paths", nav: () => say("paths.nav"), area: "paths", navWhen: (meta) => meta.siteUses?.paths === true, create: (context, route) => (route.arg === "new" ? createPathEdit(context, route) : createPaths(context)) },
+  { name: "path", area: "paths", create: (context, route) => createPathEdit(context, route) },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   // R10: Readers (what readers sent, Visitors, How readers reach you). In the navigation when comments are
   // set up or there are visitor numbers; always routable, so an old address and Find reach How readers reach you.
