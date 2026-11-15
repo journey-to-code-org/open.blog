@@ -107,13 +107,11 @@ test("Rebuild is in the details, and Home passes axe at 320 px", async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
 
-test("an old Admin address opens its Studio screen, and one not in Studio yet says so", async ({ page }) => {
+test("an old Admin address opens its Studio screen", async ({ page }) => {
   await signIn(page);
   await page.goto(`${origin}/admin/studio/#/greetings`);
   await expect(page).toHaveURL(/#\/cards$/);
-  // Research is Studio's own since R11, so a screen still waiting stands in for it.
+  // Nothing is "not yet" any more (R14a): an old shared address opens Writing together.
   await page.goto(`${origin}/admin/studio/#/shared`);
-  await expect(page).toHaveURL(/#\/not-yet\/shared$/);
-  await expect(page.getByRole("heading", { name: "Writing together isn't in Studio yet" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Writing together in the old Admin" })).toHaveAttribute("href", "/admin/#/shared");
+  await expect(page).toHaveURL(/#\/together$/);
 });
