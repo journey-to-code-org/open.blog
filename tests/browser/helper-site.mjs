@@ -21,28 +21,49 @@ const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/
 /** The routes that would reach a provider. A test stubs the ones it uses. */
 export const PROVIDER_ROUTES = /\/admin\/api\/(assistant\/(review|complete|check|code-interaction|job-draft|voice-guide|theme-draft)|quiz\/generate)(\?|$)/;
 
-export async function startSite(tag) {
+export async function startSite(tag, { env: extra = {}, users = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), `openblog-${tag}-`));
   const password = randomBytes(24).toString("hex");
   execFileSync(binary, ["init", dir, "--no-voice"], { stdio: "pipe" });
-  execFileSync(binary, ["user", "add", "sam", "--root", dir], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
+  for (const name of ["sam", ...users]) execFileSync(binary, ["user", "add", name, "--root", dir], { env: { ...process.env, OPENBLOG_PASSWORD: password }, stdio: "pipe" });
+  const site = { dir, password, origin: "", child: null, output: "" };
+  await serve(site, extra);
+  return site;
+}
+
+/**
+ * Start (or start again, with other variables) the server for `site`. A new site says Getting
+ * started is on (G80); every spec but Getting started's own runs with the server's switch off,
+ * which wins over the site's file. `null` removes a variable.
+ */
+async function serve(site, extra = {}) {
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
   await once(listener, "listening");
   const { port } = listener.address();
   await new Promise((done) => listener.close(done));
-  const origin = `http://127.0.0.1:${port}`;
+  site.origin = `http://127.0.0.1:${port}`;
   // No provider key from the environment may leak into a test server.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/_API_KEY$/.test(name)));
-  const child = spawn(binary, ["serve", "--admin", "--root", dir, "--port", String(port)], { cwd: repository, stdio: "pipe", env });
-  const site = { dir, password, origin, child, output: "" };
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/_API_KEY$/.test(name))), OPENBLOG_STUDIO_ONBOARDING: "off", ...extra };
+  for (const [name, value] of Object.entries(env)) if (value === null || value === undefined) delete env[name];
+  const child = spawn(binary, ["serve", "--admin", "--root", site.dir, "--port", String(port)], { cwd: repository, stdio: "pipe", env });
+  site.child = child;
   child.stdout.on("data", (data) => { site.output += data; });
   child.stderr.on("data", (data) => { site.output += data; });
   await expect(async () => {
     if (child.exitCode !== null) throw new Error(`Test server exited: ${site.output}`);
-    expect((await fetch(`${origin}/admin/studio/`)).ok).toBe(true);
+    expect((await fetch(`${site.origin}/admin/studio/`)).ok).toBe(true);
   }).toPass({ timeout: 30000 });
-  return site;
+}
+
+/** Stop the server and start it again on the same site with other variables (a new address: sign in again). */
+export async function restartSite(site, extra = {}) {
+  if (site.child && site.child.exitCode === null) {
+    const stopped = once(site.child, "exit");
+    site.child.kill();
+    await stopped;
+  }
+  await serve(site, extra);
 }
 
 export async function stopSite(site) {
@@ -65,12 +86,12 @@ export async function guardProviders(page) {
   return unstubbed;
 }
 
-export async function open(page, site, hash) {
+export async function open(page, site, hash, user = "sam") {
   if (page.url().startsWith(site.origin)) await page.goto("about:blank");
   await page.goto(`${site.origin}/admin/studio/${hash}`);
   const name = page.getByRole("textbox", { name: "Your name", exact: true });
   if (await name.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
-    await name.fill("sam");
+    await name.fill(user);
     await page.getByRole("textbox", { name: "Password", exact: true }).fill(site.password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(name).toHaveCount(0);
