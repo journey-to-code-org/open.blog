@@ -23304,6 +23304,8 @@ export class Editor {
         json: {
           source: { title: capture.title, metadata: capture.metadata, markdown: capture.markdown, prefix: capture.prefix, suffix: capture.suffix, editorMode: capture.mode },
           contextIds: capture.contextIds,
+          // The author switched AI autocomplete on beside its disclosure; the server asks for that word.
+          confirmed: true,
         },
         signal: this.assistantAutocompleteAbort?.signal,
       });
@@ -23994,7 +23996,7 @@ export class Editor {
         return;
       }
       this.ui.voiceGuideStatus.textContent = `Sending ${budget.samples} voice sample${budget.samples === 1 ? "" : "s"} (${budget.characters} characters) to ${this.assistantProviderStatus.destination}…`;
-      const proposal = await this.app.api.call("POST", "assistant/voice-guide", { json: { sampleIds } });
+      const proposal = await this.app.api.call("POST", "assistant/voice-guide", { json: { sampleIds, confirmed: true } });
       this.voiceGuideProposal = proposal;
       this.renderVoiceGuideProposal();
       this.ui.voiceGuideStatus.textContent = "A voice guide is proposed. Nothing is saved until you choose Save.";
@@ -24500,6 +24502,8 @@ export class Editor {
           skillIds,
           contextIds: [...this.assistantContextSelected],
           ...(passage ? { passage } : {}),
+          // Sent from the author's press of Review, beside the disclosure of what goes.
+          confirmed: true,
         },
       });
       this.syncRichToMarkdown();
@@ -25347,7 +25351,7 @@ export class Editor {
           status.hidden = true;
           try {
             const result = await this.app.api.call("POST", "assistant/code-interaction", {
-              json: { context: this.interactionContext(target), kind: kind.value, language: language.value },
+              json: { context: this.interactionContext(target), kind: kind.value, language: language.value, confirmed: true },
             });
             if (generationSnapshot !== JSON.stringify([kind.value, language.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value])) {
               status.textContent = "The proposal changed while generation was running, so the returned draft was not applied.";
@@ -26014,7 +26018,7 @@ export class Editor {
           generate.disabled = true;
           status.hidden = true;
           try {
-            const result = await this.app.api.call("POST", "quiz/generate", { json: { context, count: Number(amount.value) } });
+            const result = await this.app.api.call("POST", "quiz/generate", { json: { context, count: Number(amount.value), confirmed: true } });
             questions.replaceChildren();
             count = 0;
             result.questions.forEach((question) => addQuestion(question));

@@ -83,14 +83,16 @@ fn review_body() -> Json {
     json!({
         "source": { "title": "Pie", "metadata": {}, "markdown": "I use alot of butter." },
         "skillIds": ["copy-review"],
-        "contextIds": []
+        "contextIds": [],
+        "confirmed": true
     })
 }
 
 fn complete_body() -> Json {
     json!({
         "source": { "title": "Pie", "metadata": {}, "markdown": "I use butter", "prefix": "I use butter", "suffix": "", "editorMode": "markdown" },
-        "contextIds": []
+        "contextIds": [],
+        "confirmed": true
     })
 }
 
@@ -114,15 +116,15 @@ fn a_provider_failure_answers_with_its_own_code_on_every_helper_route() {
     let session = login_ok(&f);
     std::env::set_var("OPENBLOG_LESSONS_API_KEY", KEY);
     let routes: [(&str, Json); 4] = [
-        ("assistant/review", review_body()),
-        ("assistant/complete", complete_body()),
+        ("assistant/review", confirmed(review_body())),
+        ("assistant/complete", confirmed(complete_body())),
         (
             "quiz/generate",
-            json!({ "context": "A short section.", "count": 1 }),
+            json!({ "confirmed": true, "context": "A short section.", "count": 1 }),
         ),
         (
             "assistant/code-interaction",
-            json!({ "context": "A short section.", "kind": "example" }),
+            json!({ "confirmed": true, "context": "A short section.", "kind": "example" }),
         ),
     ];
     let cases: [(u16, &'static str, &str, &str, Option<u64>); 8] = [
@@ -173,7 +175,7 @@ fn a_slow_provider_is_a_timeout_and_a_full_server_is_busy_as_json_on_quiz_genera
     TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_millis(300)));
     let (endpoint, server) = quiz_provider(200, "{}".into(), Duration::from_millis(700));
     set_quiz_endpoint(&f, &endpoint);
-    let slow = post(&f, &session, "quiz/generate", body.clone());
+    let slow = post(&f, &session, "quiz/generate", confirmed(body.clone()));
     TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_secs(10)));
     server.join().unwrap();
     assert_eq!(slow.status, 504);
@@ -182,7 +184,7 @@ fn a_slow_provider_is_a_timeout_and_a_full_server_is_busy_as_json_on_quiz_genera
     set_quiz_endpoint(&f, "https://assistant.example/generate");
     let _first = f.state.assistant_operations.try_acquire().unwrap();
     let _second = f.state.assistant_operations.try_acquire().unwrap();
-    let busy = post(&f, &session, "quiz/generate", body);
+    let busy = post(&f, &session, "quiz/generate", confirmed(body));
     assert_eq!(busy.status, 429);
     assert_eq!(body_json(&busy)["code"], "concurrency-limit");
 
@@ -193,7 +195,7 @@ fn a_slow_provider_is_a_timeout_and_a_full_server_is_busy_as_json_on_quiz_genera
         &f,
         &session,
         "quiz/generate",
-        json!({ "context": "A short section.", "count": 1 }),
+        json!({ "confirmed": true, "context": "A short section.", "count": 1 }),
     );
     assert_eq!(off.status, 503);
     assert_eq!(body_json(&off)["code"], "missing-credential");
@@ -283,7 +285,7 @@ fn a_request_the_helper_cannot_take_says_which_limit_by_code() {
     let review = |change: &dyn Fn(&mut Json)| {
         let mut body = review_body();
         change(&mut body);
-        post(&f, &session, "assistant/review", body)
+        post(&f, &session, "assistant/review", confirmed(body))
     };
 
     let passage = review(&|body| {
@@ -355,7 +357,7 @@ fn a_request_the_helper_cannot_take_says_which_limit_by_code() {
     for (field, max) in [("markdown", 100_000), ("prefix", 8_000), ("suffix", 8_000)] {
         let mut body = complete_body();
         body["source"][field] = json!("y".repeat(max + 1));
-        let response = post(&f, &session, "assistant/complete", body);
+        let response = post(&f, &session, "assistant/complete", confirmed(body));
         let json = body_json(&response);
         assert_eq!(response.status, 400, "{field}");
         assert_eq!(
@@ -371,7 +373,7 @@ fn a_request_the_helper_cannot_take_says_which_limit_by_code() {
                 &f,
                 &session,
                 route,
-                json!({ "context": context, "count": 1, "kind": "example" }),
+                confirmed(json!({ "context": context, "count": 1, "kind": "example" })),
             )
         };
         assert_eq!(body_json(&with("  ".into()))["code"], "no-text", "{route}");
@@ -386,7 +388,7 @@ fn a_request_the_helper_cannot_take_says_which_limit_by_code() {
         &f,
         &session,
         "quiz/generate",
-        json!({ "context": "Words.", "count": 4 }),
+        json!({ "confirmed": true, "context": "Words.", "count": 4 }),
     );
     assert_eq!(body_json(&count)["code"], "bad-count");
     for language in ["not a language!", "python"] {
@@ -394,7 +396,7 @@ fn a_request_the_helper_cannot_take_says_which_limit_by_code() {
             &f,
             &session,
             "assistant/code-interaction",
-            json!({ "context": "Words.", "kind": "example", "language": language }),
+            json!({ "confirmed": true, "context": "Words.", "kind": "example", "language": language }),
         );
         assert_eq!(response.status, 400, "{language}");
         assert_eq!(body_json(&response)["code"], "bad-language", "{language}");
@@ -499,7 +501,13 @@ fn the_key_check_makes_one_small_call_with_nothing_of_the_site_in_it() {
     )
     .unwrap();
     std::env::set_var("OPENBLOG_LESSONS_API_KEY", KEY);
-    let request = || json_req("POST", "/admin/api/assistant/check", json!({}));
+    let request = || {
+        json_req(
+            "POST",
+            "/admin/api/assistant/check",
+            json!({ "confirmed": true }),
+        )
+    };
     assert_eq!(handle(&f.state, &request()).status, 401);
     let session = login_ok(&f);
     assert_eq!(
@@ -510,7 +518,12 @@ fn the_key_check_makes_one_small_call_with_nothing_of_the_site_in_it() {
     let answer = json!({ "questions": [{ "prompt": "What colour is a clear sky?", "choices": ["Blue", "Green"], "correctIndex": 0, "explanation": "It looks blue." }] });
     let (endpoint, seen, provider) = provider_once(200, "", answer.to_string());
     set_quiz_endpoint(&f, &endpoint);
-    let ok = post(&f, &session, "assistant/check", json!({}));
+    let ok = post(
+        &f,
+        &session,
+        "assistant/check",
+        json!({ "confirmed": true }),
+    );
     provider.join().unwrap();
     assert_eq!(ok.status, 200, "{}", String::from_utf8_lossy(&ok.body));
     let json = body_json(&ok);
@@ -525,7 +538,12 @@ fn the_key_check_makes_one_small_call_with_nothing_of_the_site_in_it() {
     }
 
     // Asked again straight away: refused before any call is made.
-    let soon = post(&f, &session, "assistant/check", json!({}));
+    let soon = post(
+        &f,
+        &session,
+        "assistant/check",
+        json!({ "confirmed": true }),
+    );
     assert_eq!(soon.status, 429);
     assert_eq!(body_json(&soon)["code"], "too-soon");
 
@@ -533,7 +551,7 @@ fn the_key_check_makes_one_small_call_with_nothing_of_the_site_in_it() {
     let second = login_ok(&f);
     let (endpoint, _seen, provider) = provider_once(401, "", format!(r#"{{"e":"{KEY}"}}"#));
     set_quiz_endpoint(&f, &endpoint);
-    let refused = post(&f, &second, "assistant/check", json!({}));
+    let refused = post(&f, &second, "assistant/check", json!({ "confirmed": true }));
     provider.join().unwrap();
     assert_eq!(refused.status, 502);
     assert_eq!(body_json(&refused)["code"], "key-rejected");
@@ -542,7 +560,7 @@ fn the_key_check_makes_one_small_call_with_nothing_of_the_site_in_it() {
     let third = login_ok(&f);
     let _first = f.state.assistant_operations.try_acquire().unwrap();
     let _second = f.state.assistant_operations.try_acquire().unwrap();
-    let busy = post(&f, &third, "assistant/check", json!({}));
+    let busy = post(&f, &third, "assistant/check", json!({ "confirmed": true }));
     assert_eq!(busy.status, 429);
     assert_eq!(body_json(&busy)["code"], "concurrency-limit");
 }
@@ -941,6 +959,163 @@ fn the_admin_and_studio_pages_no_longer_allow_wasm_or_frame_codepen() {
             csp,
             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
             "{path}"
+        );
+    }
+}
+
+/// S1: the handlers that reach the helper's provider, found by reading the server's own source: a
+/// function that builds the provider (`configured_assistant_provider(`) or hands a recording to a
+/// transcriber (`transcriber.transcribe(`). Each must ask for the author's word
+/// (`provider_confirmed`) before that line. A new handler that calls a provider without asking
+/// fails here, and so does one this list doesn't know about.
+#[test]
+fn every_handler_that_calls_a_provider_asks_for_the_authors_word_first() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![src.join("admin.rs")];
+    for entry in fs::read_dir(src.join("admin")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|extension| extension == "rs") {
+            files.push(path);
+        }
+    }
+    let mut found = Vec::new();
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        // The tests of admin.rs build providers of their own.
+        let text = text.split("\nmod tests {").next().unwrap();
+        let starts = |line: &str| {
+            ["fn ", "pub fn ", "pub(super) fn ", "pub(crate) fn "]
+                .iter()
+                .find_map(|prefix| line.strip_prefix(prefix))
+                .map(|rest| {
+                    rest.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .next()
+                        .unwrap()
+                        .to_string()
+                })
+        };
+        let mut name = String::new();
+        let mut body = String::new();
+        let mut functions = Vec::new();
+        for line in text.lines() {
+            if let Some(next) = starts(line) {
+                functions.push((
+                    std::mem::replace(&mut name, next),
+                    std::mem::take(&mut body),
+                ));
+            }
+            body.push_str(line);
+            body.push('\n');
+        }
+        functions.push((name, body));
+        for (name, body) in functions {
+            // Skip the declaration line: the function that builds a provider is not a caller.
+            let inside = body.split_once('\n').map_or("", |(_, rest)| rest);
+            let call = ["configured_assistant_provider(", "transcriber.transcribe("]
+                .iter()
+                .filter_map(|marker| inside.find(marker))
+                .min();
+            let Some(call) = call else { continue };
+            let asked = inside.find("provider_confirmed");
+            assert!(
+                asked.is_some_and(|asked| asked < call),
+                "{name} in {} calls a provider without `provider_confirmed` before it",
+                file.display()
+            );
+            found.push(name);
+        }
+    }
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "check_assistant_provider",
+            "draft",
+            "generate_code_interaction",
+            "generate_document_review",
+            "generate_inline_completion",
+            "generate_quiz",
+            "generate_voice_guide",
+            "job_draft",
+            "spoken",
+            "transcribe",
+        ],
+        "the handlers that call a provider; a new one belongs in the route list of the next test"
+    );
+}
+
+/// S1: every one of those routes, asked without `confirmed: true`, answers 400 `not-confirmed`
+/// before it reads anything else, with a helper that is set up and would otherwise be called.
+#[test]
+fn every_provider_route_refuses_a_request_that_does_not_say_confirmed() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("s1-not-confirmed");
+    let session = login_ok(&f);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", KEY);
+    // An address nothing answers at: a request that got past the check would fail another way.
+    set_quiz_endpoint(&f, "https://assistant.invalid/generate");
+    let mut review = review_body();
+    let mut complete = complete_body();
+    review.as_object_mut().unwrap().remove("confirmed");
+    complete.as_object_mut().unwrap().remove("confirmed");
+    let routes: [(&str, Json); 9] = [
+        ("assistant/check", json!({})),
+        ("assistant/review", review),
+        ("assistant/complete", complete),
+        (
+            "quiz/generate",
+            json!({ "context": "A short section.", "count": 1 }),
+        ),
+        (
+            "assistant/code-interaction",
+            json!({ "context": "A short section.", "kind": "example" }),
+        ),
+        ("assistant/job-draft", json!({ "notes": "leak fixed" })),
+        ("assistant/voice-guide", json!({ "sampleIds": [] })),
+        ("assistant/transcribe", json!({ "captureId": "x" })),
+        ("theme-draft", json!({ "description": "warm and plain" })),
+    ];
+    for (route, body) in routes {
+        for said in [
+            None,
+            Some(json!(false)),
+            Some(json!("true")),
+            Some(json!(1)),
+        ] {
+            let mut body = body.clone();
+            if let Some(said) = &said {
+                body["confirmed"] = said.clone();
+            }
+            let response = post(&f, &session, route, body);
+            assert_eq!(response.status, 400, "{route} {said:?}");
+            assert_eq!(
+                body_json(&response)["code"],
+                "not-confirmed",
+                "{route} {said:?}"
+            );
+        }
+    }
+    // A recording is the whole body, so its word rides in the address.
+    for query in ["", "&confirmed=false", "&confirmed=1"] {
+        let mut spoken = authed(
+            req(
+                "POST",
+                &format!("/admin/api/voice/spoken?promptId=a-meal-you-love{query}"),
+            ),
+            &session,
+            true,
+        );
+        spoken
+            .headers
+            .insert("content-type".into(), "audio/webm".into());
+        spoken.body = vec![0x1A, 0x45, 0xDF, 0xA3, 0, 0, 0, 0];
+        let response = handle(&f.state, &spoken);
+        assert_eq!(response.status, 400, "voice/spoken {query}");
+        assert_eq!(
+            body_json(&response)["code"],
+            "not-confirmed",
+            "voice/spoken {query}"
         );
     }
 }

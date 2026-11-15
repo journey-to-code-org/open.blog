@@ -95,7 +95,7 @@ test("describe: what goes is said first, an idea fills the box, an empty box say
   await page.keyboard.press("Control+Enter");
   await expect(result(page).getByRole("heading", { name: "Warm and cozy", level: 2 })).toBeFocused();
   expect(sent).toHaveLength(1);
-  expect(Object.keys(sent[0]).sort()).toEqual(["base", "description", "previous"]);
+  expect(Object.keys(sent[0]).sort()).toEqual(["base", "confirmed", "description", "previous"]);
   expect(sent[0].previous).toBeNull();
 });
 

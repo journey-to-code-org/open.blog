@@ -294,8 +294,18 @@ fn capture_refusals_carry_a_code_a_phone_can_say_in_its_own_words() {
         (transcribe.status, code(&transcribe).as_str()),
         (404, "no-note")
     );
-    let draft = |body: Json| post(&f, &session, "/admin/api/assistant/job-draft", body);
-    assert_eq!(code(&draft(json!({ "notes": "  " }))), "no-notes");
+    let draft = |body: Json| {
+        post(
+            &f,
+            &session,
+            "/admin/api/assistant/job-draft",
+            confirmed(body),
+        )
+    };
+    assert_eq!(
+        code(&draft(json!({ "confirmed": true, "notes": "  " }))),
+        "no-notes"
+    );
     assert_eq!(
         code(&draft(
             json!({ "notes": "x".repeat(openblog_core::capture::MAX_NOTES_CHARS + 1) })

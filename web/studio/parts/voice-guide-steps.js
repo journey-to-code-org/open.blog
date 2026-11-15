@@ -124,7 +124,7 @@ export async function createGuideSteps({ api, status, pieces = [], catalog = {},
         } }, say("common.stopWaiting")));
       }, STILL_MS);
       try {
-        const reply = await api.post("assistant/voice-guide", { sampleIds: chosen.ids, ...(guide ? { guide: guide.visibility } : {}), ...extra });
+        const reply = await api.post("assistant/voice-guide", { sampleIds: chosen.ids, ...(guide ? { guide: guide.visibility } : {}), ...extra, confirmed: true });
         if (waiting !== turn) return; // she stopped waiting: nothing is shown, nothing was saved
         proposal = reply;
         showResult();

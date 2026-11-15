@@ -50,7 +50,7 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
         go.loading = true;
         status.textContent = "Writing it up…";
         try {
-          const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [] } });
+          const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [], confirmed: true } });
           const draft = normalizeDraft(reply?.draft);
           // Words alone go into her boxes: a write-up carrying a link, a picture or markup is not used.
           finish(draft && draftIsWords(draft) ? { draft } : { error: writeUpTrouble({}, { company }) });

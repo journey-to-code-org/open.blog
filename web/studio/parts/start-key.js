@@ -142,7 +142,8 @@ export async function createStartKey({ api, frame, location = globalThis.locatio
     said.textContent = say("start.keyChecking", { company: company() });
     let outcome = "later";
     try {
-      await api.call("POST", "assistant/check", { json: {} });
+      // Her press of the button that saves and checks the key is her word (nothing of the site goes).
+      await api.call("POST", "assistant/check", { json: { confirmed: true } });
       outcome = "accepted";
     } catch (error) {
       if (error?.status === 401) throw error;

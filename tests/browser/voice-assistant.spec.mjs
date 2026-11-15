@@ -123,7 +123,7 @@ test("voice samples are chosen as context and a proposed guide is saved only on 
   await page.getByRole("button", { name: "Propose a voice guide from selected samples" }).click();
   const result = page.getByRole("region", { name: "Proposed voice guide" });
   await expect(result.locator("[data-diff='add']").first()).toBeVisible();
-  expect(proposalRequest).toEqual({ sampleIds: [`voice:private:${mistake}`] });
+  expect(proposalRequest).toEqual({ sampleIds: [`voice:private:${mistake}`], confirmed: true });
   await expect(result.locator("[data-diff='remove']").first()).toContainText("-## Habits and quirks");
   expect(readFileSync(guidePath(), "utf8")).toBe(SAVED);
 

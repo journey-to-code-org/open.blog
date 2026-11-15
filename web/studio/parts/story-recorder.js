@@ -181,7 +181,8 @@ export async function createStoryRecorder({ api, user, here = {}, noun = "phone"
     status.textContent = "";
     const still = setTimeout(() => { const line = body.querySelector("[data-story-turning]"); if (line) line.textContent = say("start.turningStill"); }, STILL_MS);
     try {
-      const path = `voice/spoken?promptId=${encodeURIComponent(prompt.id)}${query ? `&${query}` : ""}`;
+      // `confirmed` rides in the address (the body is the recording): said only after she agreed to what goes.
+      const path = `voice/spoken?promptId=${encodeURIComponent(prompt.id)}${query ? `&${query}` : ""}${confirmed ? "&confirmed=true" : ""}`;
       const reply = await api.call("POST", path, { body: recording.blob, headers: { "Content-Type": recording.type || "audio/webm" } });
       // Only now that the server has the story is the recording removed from this phone.
       await forgetRecording(user);

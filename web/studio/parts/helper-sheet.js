@@ -328,7 +328,9 @@ export async function createHelperSheet({ api, write }) {
     let reply = null;
     let problem = null;
     try {
-      reply = await api.call("POST", "assistant/review", { json: c.request, signal: controller.signal });
+      // `confirmed` is said here and nowhere else: this runs only from her press of Read it over, on
+      // the sheet that lists what goes. The server refuses a review that doesn't say it.
+      reply = await api.call("POST", "assistant/review", { json: { ...c.request, confirmed: true }, signal: controller.signal });
     } catch (error) {
       problem = helperProblem(error, { company: company(), task: "review" });
     }

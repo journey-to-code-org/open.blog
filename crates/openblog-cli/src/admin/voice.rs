@@ -1480,6 +1480,10 @@ pub(super) fn spoken(state: &AppState, req: &Request, user: &str) -> Response {
     else {
         return coded_error(400, "bad-prompt", "Choose a prompt the site offers");
     };
+    // The body is the recording itself, so her word that she saw what goes rides in the address.
+    if let Err(response) = super::provider_confirmed_in_query(req) {
+        return response;
+    }
     if req.body.len() > MAX_SPOKEN_BYTES {
         return coded_error(413, "too-large", "That recording is too large");
     }
