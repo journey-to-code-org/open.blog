@@ -1321,6 +1321,18 @@ fn every_voice_refusal_carries_a_code_beside_its_flag() {
     assert_eq!(call(&f, &s, "POST", &promote, json!({})).0, 201);
     let taken = call(&f, &s, "POST", &promote, json!({}));
     assert_eq!((taken.0, code(&taken).as_str()), (409, "slug-taken"));
+    // Changing the title gives the post a new name, so the advice she is given works.
+    let (_, current) = get(&f, &s, &format!("/admin/api/voice/samples/{polished_id}"));
+    let renamed = call(
+        &f,
+        &s,
+        "PUT",
+        &format!("/admin/api/voice/samples/{polished_id}"),
+        json!({ "revision": current["revision"], "title": "Another Title Altogether", "body": "polished words" }),
+    );
+    assert_eq!(renamed.0, 200, "{}", renamed.1);
+    assert_eq!(renamed.1["slug"], "another-title-altogether");
+    assert_eq!(call(&f, &s, "POST", &promote, json!({})).0, 201);
 
     let word = call(
         &f,

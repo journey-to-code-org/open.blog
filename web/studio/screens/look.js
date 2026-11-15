@@ -28,8 +28,14 @@ export async function createLook({ api, meta }) {
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const see = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
   const reset = h("action-button", { variant: "ghost", onClick: () => { draft = {}; darkDraft = null; draw(); } }, "Use the theme's own for everything");
+  // R9: the way to Describe a new look, only while the writing helper is set up.
+  const designCard = h("section", { class: "studio-section studio-look-design", "aria-labelledby": "studio-look-design-h", hidden: true },
+    h("h3", { id: "studio-look-design-h", text: word("look.designHeading") }),
+    h("p", { class: "studio-help", text: word("look.designText") }),
+    h("div", { class: "studio-row" }, h("action-button", { variant: "secondary", href: "#/look/design" }, word("look.designOpen"))));
+  if (meta.quizGeneration) api.get("assistant/status").then((status) => { designCard.hidden = status?.configured !== true; }, () => {});
   const element = h("section", { class: "studio-page studio-look", "aria-labelledby": "studio-look-h" },
-    heading, lede, banner, controls, reset, h("div", { class: "studio-write-bar" }, see, saveButton));
+    heading, lede, banner, controls, reset, designCard, h("div", { class: "studio-write-bar" }, see, saveButton));
 
   const dirty = () => Boolean(reply) && (!M.lookSame(draft, saved) || darkDraft !== (dark?.colorSchemeToggle ?? null));
   const honored = (id) => !reply?.honored || reply.honored.includes(id);

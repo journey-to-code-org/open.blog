@@ -35,7 +35,7 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence waits for R12 and opens the post.
  */
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
-const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
+const NOT_YET = new Set(["comparisons", "paths", "research", "shared"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -71,6 +71,13 @@ export function legacyRoute(hash) {
   if (name === "contributors") return `#/people${tail}`;
   // R4: Capture is New job, whatever came after it.
   if (name === "capture") return `#/new-job${tail}`;
+  // R9: the old sample library is Your writing voice (#/voice), a sample is A piece, and Design a
+  // theme is Describe a new look under Look. The old session was #/voice, which is now the hub's
+  // own address: only a link that names a set (?pack=) is still known to be the old session's,
+  // and it opens Write a piece with that set. Write a piece is the hub's first button.
+  if (name === "voice" && rest[0] === "library") return rest.length > 1 ? `#/voice/piece/${rest.slice(1).join("/")}${tail}` : `#/voice${tail}`;
+  if (name === "voice" && !rest.length && new URLSearchParams(search).has("pack")) return `#/voice/write${tail}`;
+  if (name === "design") return `#/look/design${tail}`;
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;
   return null;

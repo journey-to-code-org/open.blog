@@ -19,6 +19,8 @@ import { captureTitle } from "./parts/new-job-rules.js";
 import { sentWords } from "./parts/job-words.js";
 import { tradeSite } from "./parts/record-kinds.js";
 import { say } from "./parts/words.js";
+import { ask } from "./parts/dialogs.js";
+import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
@@ -114,6 +116,14 @@ export async function startShell(root, api, meta) {
 
   async function signOut() {
     if (!(await router.current()?.leave?.() ?? true)) return;
+    // R9: writing kept only on this phone (an open rough draft, unsaved polish) goes with the
+    // sign-out, so it asks first. The old Admin cleared it without a word.
+    if (voiceCopiesAtRisk(() => globalThis.localStorage, api.user)) {
+      const choice = await ask({ heading: say("voice.signOutAsk"), text: say("voice.signOutText"),
+        choices: [{ label: say("voice.signOutGo"), value: "go", variant: "secondary" }, { label: say("voice.signOutStay"), value: "stay" }], focus: 1 });
+      if (choice !== "go") return;
+    }
+    clearVoiceCopies();
     context.undo?.forget();
     // Signed out is signed out, with or without a signal: Studio doesn't open as her from its copy.
     try { localStorage.removeItem("studio:last-start"); } catch { /* nothing kept */ }
@@ -136,6 +146,11 @@ export async function startShell(root, api, meta) {
     // R8: on a post, Write lists its own "Writing helper" (the sheet) first; anywhere else, the screen.
     { id: "go-helper", label: say("helper.name"), group: "Go to", href: "#/helper" },
     { id: "go-helper-setup", label: say("helper.findSetup"), group: "Do", href: "#/helper?setup=1" },
+    // R9: Your writing voice and Describe a new look, by name.
+    { id: "go-voice", label: say("voice.findHub"), group: "Go to", href: "#/voice" },
+    { id: "go-voice-write", label: say("voice.findWrite"), group: "Do", href: "#/voice/write" },
+    { id: "go-voice-guide", label: say("voice.findGuide"), group: "Go to", href: "#/voice/guide" },
+    { id: "go-design", label: say("design.findDesign"), group: "Do", href: "#/look/design" },
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },

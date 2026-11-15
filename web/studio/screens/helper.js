@@ -31,6 +31,9 @@ export async function createHelper(context, route = {}) {
   const state = h("p", { class: "studio-helper-state studio-row", role: "status", "aria-live": "polite" }, badge, line);
   const warning = h("alert-banner", { variant: "warning", hidden: true });
   const sounds = h("p", { class: "studio-help", hidden: true, text: say("hnote.soundsLike") });
+  // R9: where the voice guide comes from. Pieces and the guide are made on Your writing voice.
+  const voiceLine = h("span", { text: say("helper.voiceNone") });
+  const voice = h("p", { class: "studio-help studio-helper-voice" }, voiceLine, " ", h("a", { href: "#/voice", text: say("helper.voiceLink") }));
   const notes = [
     { type: "author", label: say("hnote.about"), field: createNoteField({ api, type: "author", label: say("hnote.about"), help: say("hnote.aboutHelp"), onSaved: () => reads.load() }) },
     { type: "site", label: say("hnote.site"), field: createNoteField({ api, type: "site", label: say("hnote.site"), help: say("hnote.siteHelp"), onSaved: () => reads.load() }) },
@@ -54,7 +57,7 @@ export async function createHelper(context, route = {}) {
     h("breadcrumb-trail", { items: [{ label: say("hsetup.home"), href: "#/" }, { label: say("hsetup.title"), href: "" }] }),
     heading, lede, state, h("div", {}, setUp), warning,
     h("section", { class: "studio-helper-notes", "aria-labelledby": "studio-helper-knows" }, h("h3", { id: "studio-helper-knows", text: say("hnote.knows") }),
-      ...notes.map((note) => note.field.element), h("p", { class: "studio-help", text: say("hnote.goWith") }), sounds),
+      ...notes.map((note) => note.field.element), h("p", { class: "studio-help", text: say("hnote.goWith") }), sounds, voice),
     details);
 
   function paint() {
@@ -89,6 +92,7 @@ export async function createHelper(context, route = {}) {
     try {
       const catalog = await api.get("assistant/context?content=none");
       sounds.hidden = !voiceGuideOf(catalog);
+      voiceLine.textContent = voiceGuideOf(catalog) ? say("helper.voiceHas") : say("helper.voiceNone");
       const said = catalog?.privateSafety?.warning;
       warning.hidden = !said;
       // Her layer says what to do; the server's sentence (it may name a file) is for {helper}.

@@ -766,6 +766,12 @@
         "helper"
       ]
     },
+    "common.stopWaiting": {
+      "text": "Stop waiting",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "common.tell": {
       "text": "Tell {helper}.",
       "layer": "her",
@@ -773,6 +779,26 @@
       "vars": [
         "helper"
       ]
+    },
+    "common.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "common.whatGoes": {
+      "text": "What goes to {company}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "company"
+      ]
+    },
+    "common.wordForWord": {
+      "text": "Word for word",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "copy.notReady": {
       "text": "Your blog can't make a copy for it right now. Try another, or tell {helper}.",
@@ -860,6 +886,799 @@
         "product",
         "theme"
       ]
+    },
+    "design.addSeason": {
+      "text": "Add it to your calendar",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "design.another": {
+      "text": "Describe another look",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "design.back": {
+      "text": "Back to the one before",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "design.backDone": {
+      "text": "Back to the one before.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "design.badIdea": {
+      "text": "Your helper's idea couldn't be used, so nothing changed. Try again, or say it another way.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "design.baseGone": {
+      "text": "That look isn't on your site any more. Choose another to start from.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "design.baseHelp": {
+      "text": "Your new look keeps this look's layout and seasonal touches, and changes the colors and lettering.",
+      "layer": "her",
+      "max": 196,
+      "vars": []
+    },
+    "design.baseLabel": {
+      "text": "Start from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.baseOwn": {
+      "text": "The look your site has now",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "design.cantSave": {
+      "text": "This look couldn't be saved. Try drafting it again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "design.change": {
+      "text": "Change it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.changeColor": {
+      "text": "Change {role}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "role"
+      ]
+    },
+    "design.changeLabel": {
+      "text": "Want something different? Say what to change",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "design.changePlaceholder": {
+      "text": "For example: a little warmer, and less green.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "design.changeShort": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.changing": {
+      "text": "Changing it…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.colorAdjusted": {
+      "text": "{role} changed, and made a little {way} so it's easy to read.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "role",
+        "way"
+      ]
+    },
+    "design.colorLabel": {
+      "text": "{role} color",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "role"
+      ]
+    },
+    "design.colorPicked": {
+      "text": "{role} changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "role"
+      ]
+    },
+    "design.colorReplaced": {
+      "text": "{role} couldn't be made easy to read, so it uses {replacement} instead.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "role",
+        "replacement"
+      ]
+    },
+    "design.colorUndo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.colorUndone": {
+      "text": "{role} is back as it was.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "role"
+      ]
+    },
+    "design.colorWillAdjust": {
+      "text": "That's hard to read on this page color, so {product} will adjust it until it's easy to read.",
+      "layer": "her",
+      "max": 184,
+      "vars": [
+        "product"
+      ]
+    },
+    "design.darker": {
+      "text": "darker",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.describeEmpty": {
+      "text": "Describe the look you want in a few words first.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "design.describeLabel": {
+      "text": "Describe the look you want",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "design.describeLong": {
+      "text": "That's {n} letters; the most is 1,000. Say it a little shorter.",
+      "layer": "her",
+      "max": 126,
+      "vars": [
+        "n"
+      ]
+    },
+    "design.describePlaceholder": {
+      "text": "For example: warm and cozy, deep red and pine green, big easy-to-read writing.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "design.detailsBase": {
+      "text": "Extends the theme “{base}”.",
+      "layer": "details",
+      "max": 54,
+      "vars": [
+        "base"
+      ]
+    },
+    "design.detailsColor": {
+      "text": "{role}: {given} given, {made} saved",
+      "layer": "details",
+      "max": 70,
+      "vars": [
+        "role",
+        "given",
+        "made"
+      ]
+    },
+    "design.detailsColors": {
+      "text": "Colors as they will be saved ({scheme})",
+      "layer": "details",
+      "max": 78,
+      "vars": [
+        "scheme"
+      ]
+    },
+    "design.detailsDraft": {
+      "text": "The draft as it is sent",
+      "layer": "details",
+      "max": 46,
+      "vars": []
+    },
+    "design.detailsLimits": {
+      "text": "The helper may only propose six colours per scheme, a font, corners and a size; the server refuses anything else.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "design.detailsLook": {
+      "text": "Look choices applied in the preview: {list}",
+      "layer": "details",
+      "max": 86,
+      "vars": [
+        "list"
+      ]
+    },
+    "design.detailsPath": {
+      "text": "Saved in {path}.",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "path"
+      ]
+    },
+    "design.detailsRatio": {
+      "text": "{role} on {ground}: {ratio} to 1",
+      "layer": "details",
+      "max": 64,
+      "vars": [
+        "role",
+        "ground",
+        "ratio"
+      ]
+    },
+    "design.draft": {
+      "text": "Draft a look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.drafting": {
+      "text": "Drafting a look… This can take a minute.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "design.easyToRead": {
+      "text": "Easy to read",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.findDesign": {
+      "text": "Describe a new look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.fromBase": {
+      "text": "as in {base}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "base"
+      ]
+    },
+    "design.goes": {
+      "text": "What goes to {company}: your description, your site's name and the name of the look you start from. Nothing else.",
+      "layer": "her",
+      "max": 226,
+      "vars": [
+        "company"
+      ]
+    },
+    "design.helperOff": {
+      "text": "Your writing helper isn't turned on, so it can't draft a look.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "design.home": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.idea1": {
+      "text": "Warm and cozy: deep red, pine green and a little gold, with big easy-to-read writing.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "design.idea1Name": {
+      "text": "Warm and cozy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.idea2": {
+      "text": "Spring garden: soft greens and lilac on a light page, gentle and airy.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "design.idea2Name": {
+      "text": "Spring garden",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.idea3": {
+      "text": "Bold and clear: navy, white and one strong red, square corners, easy to read from across a room.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "design.idea3Name": {
+      "text": "Bold and clear",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.idea4": {
+      "text": "Fall harvest: burnt orange, wheat and deep brown, warm like a farm table.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "design.idea4Name": {
+      "text": "Fall harvest",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.idea5": {
+      "text": "Calm night: a dark blue page with warm gold links, quiet and easy on the eyes.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "design.idea5Name": {
+      "text": "Calm night",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.ideasLabel": {
+      "text": "Or start from an idea",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "design.inDark": {
+      "text": "dark mode",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.inLight": {
+      "text": "light mode",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.leaveAsk": {
+      "text": "Leave without saving this look?",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "design.leaveGo": {
+      "text": "Leave",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.leaveStay": {
+      "text": "Stay",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.leaveText": {
+      "text": "The look your helper drafted isn't kept anywhere.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "design.lede": {
+      "text": "Say what you'd like: the colors, the feeling, how big the writing is. Your writing helper drafts a look and shows it on your own front page. Nothing changes until you save it and put it up.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "design.letteringLine": {
+      "text": "Lettering: {body} for writing, {heading} for headings. Corners: {corners}. Writing size: {size}.",
+      "layer": "her",
+      "max": 192,
+      "vars": [
+        "body",
+        "heading",
+        "corners",
+        "size"
+      ]
+    },
+    "design.lighter": {
+      "text": "lighter",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.loadFailed": {
+      "text": "This didn't load.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.look": {
+      "text": "Look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.lookAccentNote": {
+      "text": "While a main color is chosen on How your site looks, links and buttons use that instead.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "design.lookLink": {
+      "text": "How your site looks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.lookOverrides": {
+      "text": "Your choices on How your site looks still apply on top: {choices}.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "choices"
+      ]
+    },
+    "design.madeReadable": {
+      "text": "Changed a little so it's easy to read",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "design.nameEmpty": {
+      "text": "Give your new look a name.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "design.nameHelp": {
+      "text": "How it's listed in Decorations.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "design.nameLabel": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.nameLine": {
+      "text": "Keep the name on one line.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "design.nameLong": {
+      "text": "Keep the name to 40 letters or fewer.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "design.nameTaken": {
+      "text": "You already have a look called “{name}”. Choose another name.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.noSignal": {
+      "text": "Drafting a look needs a signal. What you typed is kept here.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "design.notSaved": {
+      "text": "That wasn't saved. Try again in a moment.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "design.noteDarker": {
+      "text": "In {scheme}, the {role} is a little darker so it's easy to read.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "scheme",
+        "role"
+      ]
+    },
+    "design.noteLighter": {
+      "text": "In {scheme}, the {role} is a little lighter so it's easy to read.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "scheme",
+        "role"
+      ]
+    },
+    "design.noteReplaced": {
+      "text": "In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "scheme",
+        "role",
+        "replacement"
+      ]
+    },
+    "design.previewBack": {
+      "text": "Back to your new look",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "design.previewFailed": {
+      "text": "Your front page couldn't be shown just now. Your new look is still here.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "design.previewFrame": {
+      "text": "Your front page in the new look",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "design.previewHeading": {
+      "text": "Your front page in the new look",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "design.previewNote": {
+      "text": "Only you can see this. Nothing is saved yet.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "design.putUp": {
+      "text": "Put it up now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.resultNote": {
+      "text": "Here's an idea. See it on your front page, change it if you like, then save it.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "design.roleAccent": {
+      "text": "Links and buttons",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.roleBorder": {
+      "text": "Edges",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.roleMuted": {
+      "text": "Quiet writing (dates and notes)",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "design.rolePage": {
+      "text": "Page",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.roleSurface": {
+      "text": "Boxes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.roleText": {
+      "text": "Writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.save": {
+      "text": "Save this look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.saved": {
+      "text": "Saved as “{name}”. It isn't on your site yet.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.savedNotBuilt": {
+      "text": "Saved as “{name}”. Your site couldn't be updated just now; it will be with your next change.",
+      "layer": "her",
+      "max": 184,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.savedToast": {
+      "text": "Saved as “{name}”.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.schemeDark": {
+      "text": "Dark",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.schemeLabel": {
+      "text": "Colors for",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.schemeLight": {
+      "text": "Light",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.see": {
+      "text": "See it on your front page",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "design.setUp": {
+      "text": "Set it up",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "design.still": {
+      "text": "Still drafting.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.stopped": {
+      "text": "Stopped waiting. Nothing changed.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "design.title": {
+      "text": "Describe a new look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.undoTooLate": {
+      "text": "“{name}” is in use or was changed, so it stays.",
+      "layer": "her",
+      "max": 94,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.unsaved": {
+      "text": "“{name}” is gone.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.useSuggested": {
+      "text": "Use the suggested {role}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "role"
+      ]
+    },
+    "design.wfwBase": {
+      "text": "The look you start from: {base}",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "base"
+      ]
+    },
+    "design.wfwChange": {
+      "text": "What to change: {description}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "description"
+      ]
+    },
+    "design.wfwDescription": {
+      "text": "Your description: {description}",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "description"
+      ]
+    },
+    "design.wfwPrevious": {
+      "text": "The look as drafted so far: {draft}",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "draft"
+      ]
+    },
+    "design.wfwSite": {
+      "text": "Your site's name: {site}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "site"
+      ]
+    },
+    "design.withBlack": {
+      "text": "black",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.withPage": {
+      "text": "the page color",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.withText": {
+      "text": "the writing color",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.withWhite": {
+      "text": "white",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "did.added": {
       "text": "{thing} added.",
@@ -3191,6 +4010,24 @@
       "max": 72,
       "vars": []
     },
+    "helper.voiceHas": {
+      "text": "Your helper can make suggestions sound like you, from your voice guide.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "helper.voiceLink": {
+      "text": "Your writing voice",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.voiceNone": {
+      "text": "Write a few short pieces so your helper learns how you sound.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
     "helper.wfwCant": {
       "text": "(This one couldn't be shown just now. It still goes.)",
       "layer": "her",
@@ -3605,6 +4442,62 @@
       "vars": [
         "helper"
       ]
+    },
+    "home.voiceInviteDismiss": {
+      "text": "No thanks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "home.voiceInviteGone": {
+      "text": "Okay. It's under Writing helper whenever you want it.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "home.voiceInviteHeading": {
+      "text": "Show your writing helper how you sound",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "home.voiceInviteNotSaved": {
+      "text": "That couldn't be remembered just now. Try again later.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "home.voiceInviteStart": {
+      "text": "Try it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "home.voiceInviteText": {
+      "text": "Write for three minutes on a prompt you choose. It's just for your helper and never appears on {product}.",
+      "layer": "her",
+      "max": 210,
+      "vars": [
+        "product"
+      ]
+    },
+    "home.voiceInviteUndo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "home.voiceKept": {
+      "text": "Your writing voice: changes kept on this phone.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "home.voiceKeptOpen": {
+      "text": "Open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "hsetup.accepted": {
       "text": "{company} accepted the key. Checked just now.",
@@ -4706,6 +5599,24 @@
       "text": "Pages stay put, like About or Contact. Posts come and go by date.",
       "layer": "her",
       "max": 130,
+      "vars": []
+    },
+    "look.designHeading": {
+      "text": "Make a new look from your words",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "look.designOpen": {
+      "text": "Describe a new look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "look.designText": {
+      "text": "Describe the colors and feeling you want. Your writing helper drafts a look you can see before you save it.",
+      "layer": "her",
+      "max": 214,
       "vars": []
     },
     "look.notAccepted": {
@@ -6672,6 +7583,1796 @@
       "vars": [
         "title",
         "helper"
+      ]
+    },
+    "voice.announceDone": {
+      "text": "Your rough draft is saved as you wrote it.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "voice.announceLeft": {
+      "text": "{time} left.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "time"
+      ]
+    },
+    "voice.announceResumed": {
+      "text": "Back where you were. {time} left.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "time"
+      ]
+    },
+    "voice.announceTimeUp": {
+      "text": "Time's up. Your rough draft is saved as you wrote it.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "voice.another": {
+      "text": "Write another",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.back": {
+      "text": "Your writing voice",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.backToList": {
+      "text": "Back to your pieces",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.badgePolished": {
+      "text": "Polished",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.badgeRough": {
+      "text": "Rough",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.cantPolish": {
+      "text": "This rough draft can't be read, so it can't be polished.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "voice.catalogWarning": {
+      "text": "Your own prompts file: {warning}",
+      "layer": "details",
+      "max": 64,
+      "vars": [
+        "warning"
+      ]
+    },
+    "voice.checkAgain": {
+      "text": "Check again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.checkGone": {
+      "text": "The piece this quotes is gone, so it couldn't be checked. It's kept.",
+      "layer": "her",
+      "max": 136,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.checkMoved": {
+      "text": "These words aren't in that piece any more. It's kept; check it.",
+      "layer": "her",
+      "max": 126,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.choiceKeep": {
+      "text": "Keep what you had",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.choiceLegend": {
+      "text": "Changed: {statement}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "statement"
+      ]
+    },
+    "voice.choiceTake": {
+      "text": "Use the new one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.chooseFirst": {
+      "text": "Choose a prompt first.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "voice.chooseHeading": {
+      "text": "What would you like to write about?",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "voice.chooseHelp": {
+      "text": "You get three minutes. Nothing gets corrected, and it never appears on {product}.",
+      "layer": "her",
+      "max": 162,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.chooseHelpTime": {
+      "text": "You get {minutes} minutes. Nothing gets corrected, and it never appears on {product}.",
+      "layer": "her",
+      "max": 170,
+      "vars": [
+        "minutes",
+        "product"
+      ]
+    },
+    "voice.chooseLegend": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.cli": {
+      "text": "In a terminal: openblog voice --list shows the same; openblog voice export copies the portable ones.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "voice.conflictGone": {
+      "text": "It was thrown away or replaced somewhere else. Yours is still here.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "voice.conflictHeading": {
+      "text": "This copy was changed somewhere else",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "voice.conflictKeep": {
+      "text": "Keep changing mine",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.conflictMine": {
+      "text": "Save mine over it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.conflictText": {
+      "text": "Yours has {mine} words; the saved one has {theirs}. Nothing is lost: yours is still here.",
+      "layer": "her",
+      "max": 178,
+      "vars": [
+        "mine",
+        "theirs"
+      ]
+    },
+    "voice.conflictTheirs": {
+      "text": "Use the saved one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.conflictUsedSaved": {
+      "text": "Showing the saved one.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "voice.continue": {
+      "text": "Keep writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.detailsFiles": {
+      "text": "Each file: where it is kept, its size and its revision",
+      "layer": "details",
+      "max": 108,
+      "vars": []
+    },
+    "voice.discarded": {
+      "text": "Your last piece ran out of time with nothing written, so nothing was kept.",
+      "layer": "her",
+      "max": 148,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.drawMore": {
+      "text": "Show me three others",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.drewMore": {
+      "text": "Here are three others.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "voice.emptyHeading": {
+      "text": "No pieces yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.emptyText": {
+      "text": "A piece is a few minutes of your own writing, on a prompt you choose. It shows your writing helper how you sound, and it never appears on {product}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.eraseAll": {
+      "text": "Erase all your voice writing…",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "voice.eraseChecking": {
+      "text": "Checking what's there…",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "voice.eraseCopies": {
+      "text": "Copies kept on this phone go too. Copies in backups aren't touched; {helper} can remove those.",
+      "layer": "her",
+      "max": 188,
+      "vars": [
+        "helper"
+      ]
+    },
+    "voice.eraseFailed": {
+      "text": "Nothing was erased.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.eraseFile": {
+      "text": "{path} ({kind})",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "path",
+        "kind"
+      ]
+    },
+    "voice.eraseFiles": {
+      "text": "The {n} files",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "voice.eraseHeading": {
+      "text": "Erase all your voice writing?",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "voice.eraseNo": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.eraseNothing": {
+      "text": "There's nothing to erase.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "voice.erasePartial": {
+      "text": "Most of it is erased, but some files are still there.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "voice.eraseText": {
+      "text": "This erases {what} from {product}'s computer. It can't be undone.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "what",
+        "product"
+      ]
+    },
+    "voice.eraseYes": {
+      "text": "Erase it all",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.erased": {
+      "text": "Erased. Checked again: nothing is left.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "voice.erasing": {
+      "text": "Erasing…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.fileLine": {
+      "text": "{where} · {bytes} bytes · revision {revision}",
+      "layer": "details",
+      "max": 90,
+      "vars": [
+        "where",
+        "bytes",
+        "revision"
+      ]
+    },
+    "voice.findGuide": {
+      "text": "Your voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.findHub": {
+      "text": "Your writing voice",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.findWrite": {
+      "text": "Write a piece",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.finish": {
+      "text": "I'm done",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.finishingHeading": {
+      "text": "Time's up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.finishingText": {
+      "text": "Another window is still saving its last words. This checks again in a moment.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "voice.fromEveryPack": {
+      "text": "Show prompts from every set",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "voice.fromPack": {
+      "text": "Showing prompts from {pack}.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "pack"
+      ]
+    },
+    "voice.guideBack": {
+      "text": "Choose pieces again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideBroken": {
+      "text": "Your voice guide can't be read.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "voice.guideCantNow": {
+      "text": "Your helper can't make a voice guide right now.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "voice.guideCardHeading": {
+      "text": "Your voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideChanged": {
+      "text": "Your voice guide was changed somewhere else. Make it again to compare with the new one.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "voice.guideCrumb": {
+      "text": "Voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideDecided": {
+      "text": "Every change is chosen.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "voice.guideDiff": {
+      "text": "What changes in the file",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "voice.guideDiscard": {
+      "text": "Don't save these",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideDiscarded": {
+      "text": "Nothing was saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideEditLabel": {
+      "text": "The guide's text (your edits win)",
+      "layer": "details",
+      "max": 66,
+      "vars": []
+    },
+    "voice.guideEditWait": {
+      "text": "Read-only until every change is chosen.",
+      "layer": "details",
+      "max": 78,
+      "vars": []
+    },
+    "voice.guideFreeKept": {
+      "text": "Your own words outside these lines stay where they are.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "voice.guideFrom": {
+      "text": "Learn from these pieces",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "voice.guideFromHelp": {
+      "text": "Up to 8 pieces at a time. Rough drafts show best how you really write.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "voice.guideGoesGuide": {
+      "text": "Your voice guide as it is now",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "voice.guideGoesNot": {
+      "text": "Not your posts, photos, or anything about your readers. {company}'s own rules cover what it keeps.",
+      "layer": "her",
+      "max": 196,
+      "vars": [
+        "company"
+      ]
+    },
+    "voice.guideGoesPieces": {
+      "text": "The pieces you ticked, about {count} words",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "count"
+      ]
+    },
+    "voice.guideHas": {
+      "text": "Made from your pieces. Your writing helper uses it when you turn on Sound like me.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "voice.guideHeading": {
+      "text": "Your voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideHelperOff": {
+      "text": "Your writing helper isn't turned on, so it can't make a voice guide yet.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "voice.guideLeaveAsk": {
+      "text": "Leave without saving your voice guide?",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "voice.guideLeaveGo": {
+      "text": "Leave",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideLeaveStay": {
+      "text": "Stay",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideLeaveText": {
+      "text": "What your helper noticed isn't kept anywhere.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "voice.guideLede": {
+      "text": "Your helper reads the pieces you tick and writes down how you sound, quoting your own words. Nothing is saved until you say so.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "voice.guideMade": {
+      "text": "Made by {skill} with {model}.",
+      "layer": "details",
+      "max": 58,
+      "vars": [
+        "skill",
+        "model"
+      ]
+    },
+    "voice.guideMake": {
+      "text": "Make my voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideMove": {
+      "text": "Move it to {where}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "where"
+      ]
+    },
+    "voice.guideMoveAsk": {
+      "text": "Move the voice guide?",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "voice.guideMoveNo": {
+      "text": "Leave it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideMovePlan": {
+      "text": "From {from} to {to}, {bytes} bytes, copied unchanged.",
+      "layer": "details",
+      "max": 106,
+      "vars": [
+        "from",
+        "to",
+        "bytes"
+      ]
+    },
+    "voice.guideMoveYes": {
+      "text": "Move it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideMoved": {
+      "text": "Moved to {where}.",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "where"
+      ]
+    },
+    "voice.guideNeedsPieces": {
+      "text": "Write a piece or two first. Then your helper can make a voice guide from them.",
+      "layer": "her",
+      "max": 156,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.guideNone": {
+      "text": "Your writing helper can read your pieces and write down how you sound, quoting your own words.",
+      "layer": "her",
+      "max": 188,
+      "vars": []
+    },
+    "voice.guideNoneTicked": {
+      "text": "Tick at least one piece.",
+      "layer": "her",
+      "max": 48,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.guideNotSaved": {
+      "text": "Your voice guide wasn't saved. Try again in a moment.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "voice.guideNothingNew": {
+      "text": "Your helper found nothing new to add.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "voice.guideNow": {
+      "text": "Your guide as it is now",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "voice.guideNowFailed": {
+      "text": "Your guide couldn't be shown just now.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "voice.guideNowLoading": {
+      "text": "Getting your guide…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideOneSample": {
+      "text": "Lines that rest on one piece: {list}",
+      "layer": "details",
+      "max": 72,
+      "vars": [
+        "list"
+      ]
+    },
+    "voice.guideOver": {
+      "text": "That's more than your helper reads at once. Untick a few.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "voice.guideOwnSections": {
+      "text": "Your own sections stay: {sections}.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "sections"
+      ]
+    },
+    "voice.guidePending": {
+      "text": "Choose for each change before saving ({n} left).",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "n"
+      ]
+    },
+    "voice.guidePortableBlocked": {
+      "text": "It quotes private pieces, so it can only be kept private.",
+      "layer": "details",
+      "max": 114,
+      "vars": []
+    },
+    "voice.guidePropose": {
+      "text": "Update my voice guide",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "voice.guideProposeNew": {
+      "text": "Make my voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideProvenance": {
+      "text": "Keep the openblog:voice-provenance line if you edit it; the portable rule relies on it.",
+      "layer": "details",
+      "max": 174,
+      "vars": []
+    },
+    "voice.guideRead": {
+      "text": "Read it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideResultHeading": {
+      "text": "What your helper noticed",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.guideResultNote": {
+      "text": "Each line quotes your own words. Nothing is saved until you press Save. Your helper can be wrong.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "voice.guideRow": {
+      "text": "{title} · {stage} · {words}",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "title",
+        "stage",
+        "words"
+      ]
+    },
+    "voice.guideSave": {
+      "text": "Save my voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideSaved": {
+      "text": "Voice guide saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideStagePolished": {
+      "text": "polished",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideStageRough": {
+      "text": "rough",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideStill": {
+      "text": "Still reading.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.guideStopped": {
+      "text": "Stopped waiting. Nothing was saved.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "voice.guideUndone": {
+      "text": "Your voice guide is back as it was.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "voice.guideUnknown": {
+      "text": "What it doesn't know yet",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.guideUpdate": {
+      "text": "Update it from my pieces",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.guideWhere": {
+      "text": "The guide is kept in {path}.",
+      "layer": "details",
+      "max": 56,
+      "vars": [
+        "path"
+      ]
+    },
+    "voice.guideWhereNone": {
+      "text": "No guide is saved yet; a new one is kept private.",
+      "layer": "details",
+      "max": 98,
+      "vars": []
+    },
+    "voice.guideWorking": {
+      "text": "Reading your pieces… This can take a minute.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "voice.home": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.inProgress": {
+      "text": "You have a piece in progress: “{title}”, {time} left.",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "title",
+        "time"
+      ],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.inProgressDone": {
+      "text": "Time ran out on “{title}”. Your rough draft is waiting.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.keepWriting": {
+      "text": "Keep writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.keptPhone": {
+      "text": "Waiting for a signal. Your writing is kept on this phone.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "voice.leaveAsk": {
+      "text": "Stop writing for now?",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "voice.leaveGo": {
+      "text": "Leave",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.leavePolishAsk": {
+      "text": "Save your polished copy?",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.leavePolishGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.leavePolishSave": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.leavePolishText": {
+      "text": "You changed it and didn't save. A copy stays on this phone.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "voice.leaveStay": {
+      "text": "Keep writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.leaveText": {
+      "text": "The clock keeps going. Come back within {time} to keep writing; after that, your rough draft is saved as it is.",
+      "layer": "her",
+      "max": 222,
+      "vars": [
+        "time"
+      ]
+    },
+    "voice.lede": {
+      "text": "Write for three minutes about a prompt, the way you'd say it out loud. Your writing helper learns how you sound from these pieces. They never appear on {product}.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.loadFailed": {
+      "text": "Your pieces didn't load.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.loading": {
+      "text": "Loading…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.lockFailedMemory": {
+      "text": "Your rough draft couldn't be saved just now, and this phone won't keep a copy. Keep this page open until you have a signal.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "voice.lockFailedPhone": {
+      "text": "Your rough draft couldn't be saved just now. Your latest words are kept on this phone; open this page again when you have a signal.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "voice.lockFailedSent": {
+      "text": "Your rough draft couldn't be saved just now, but your words reached {product}. Open this page again when you have a signal.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.lockRetry": {
+      "text": "Saving your rough draft… trying again.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "voice.lockedHeading": {
+      "text": "Your rough draft is saved",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "voice.lockedNote": {
+      "text": "A rough draft stays exactly as you wrote it, typos and all, so it keeps showing how you really write. To fix or reshape it, polish a copy.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "voice.lockedTimeUp": {
+      "text": "Time ran out, so it was saved as it was.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "voice.locking": {
+      "text": "Saving your rough draft…",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.madePost": {
+      "text": "Made a draft post. It isn't published.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "voice.madePostUndone": {
+      "text": "The draft post is gone. Your piece didn't change.",
+      "layer": "her",
+      "max": 98,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.makePortable": {
+      "text": "Make portable",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.makePost": {
+      "text": "Turn it into a post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.makePostHelp": {
+      "text": "Makes a draft post from your saved polished copy. It isn't published until you publish it.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "voice.makePostSaveFirst": {
+      "text": "Save your polished copy first. The post is made from the saved copy.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "voice.makePrivate": {
+      "text": "Make private",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.makingPost": {
+      "text": "Making the post…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.morePack": {
+      "text": "Write one from {pack}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "pack"
+      ]
+    },
+    "voice.moveFailed": {
+      "text": "That wasn't moved: {reason}",
+      "layer": "details",
+      "max": 54,
+      "vars": [
+        "reason"
+      ]
+    },
+    "voice.moveUndo": {
+      "text": "Undo",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.moved": {
+      "text": "Moved to {where}. Copied byte for byte.",
+      "layer": "details",
+      "max": 78,
+      "vars": [
+        "where"
+      ]
+    },
+    "voice.noSignal": {
+      "text": "That needs a signal. Your writing is kept on this phone.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "voice.noSignalList": {
+      "text": "Your pieces need a signal to show. Anything you were writing is kept on this phone.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "voice.notPrivate": {
+      "text": "Your voice writing may not stay private.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "voice.notYet": {
+      "text": "Sets you haven't written from: {packs}.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "packs"
+      ]
+    },
+    "voice.notYetHeading": {
+      "text": "Not written yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.nothingYet": {
+      "text": "Nothing's written yet, so there's nothing to save. Write something, or start over.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "voice.openActive": {
+      "text": "You started “{title}” somewhere else and the clock is still running.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.openContinue": {
+      "text": "Keep writing it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.openExpired": {
+      "text": "You started “{title}” somewhere else and its time ran out.",
+      "layer": "her",
+      "max": 116,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.openHeading": {
+      "text": "You have a piece in progress",
+      "layer": "her",
+      "max": 56,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.openLock": {
+      "text": "Save what was written",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "voice.openPost": {
+      "text": "Open it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.openRow": {
+      "text": "Open",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.openRowName": {
+      "text": "Open: {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.openScrap": {
+      "text": "Throw it away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.otherSet": {
+      "text": "Other prompts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.otherSetHelp": {
+      "text": "Prompts {product} doesn't offer any more. Your pieces stay readable.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.phoneRefused": {
+      "text": "This phone won't keep a copy, so keep this page open until it says Saved.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "voice.pieceBoth": {
+      "text": "Rough draft and polished copy · {date}",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "date"
+      ]
+    },
+    "voice.pieceGone": {
+      "text": "This piece isn't there any more. It may have been moved or erased.",
+      "layer": "her",
+      "max": 132,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.pieceNoRough": {
+      "text": "Its rough draft is missing, so it can't be opened.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "voice.pieceRough": {
+      "text": "Rough draft only · {date}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "date"
+      ]
+    },
+    "voice.pieceTitle": {
+      "text": "A piece",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.polishBody": {
+      "text": "Polished copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishClean": {
+      "text": "All changes saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishDirty": {
+      "text": "Changes not saved. A copy is kept on this phone.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "voice.polishDirtyMemory": {
+      "text": "Changes not saved. Keep this page open until you save.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "voice.polishEditHeading": {
+      "text": "Your polished copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishEmpty": {
+      "text": "There's nothing to save yet.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "voice.polishHeading": {
+      "text": "Polish a copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishHelp": {
+      "text": "This one is yours to change: fix typos, cut, reshape and give it a title. Your rough draft stays as it is.",
+      "layer": "her",
+      "max": 212,
+      "vars": []
+    },
+    "voice.polishInvalid": {
+      "text": "That couldn't be saved. Check the title has no line breaks.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "voice.polishNew": {
+      "text": "Not saved yet. It starts as a copy of your rough draft.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "voice.polishReset": {
+      "text": "Start the copy over",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishResetDone": {
+      "text": "Your rough draft is back in the copy. Not saved yet.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "voice.polishSave": {
+      "text": "Save polished copy",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishSaved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishSavedTyping": {
+      "text": "Saved. What you typed while it saved isn't saved yet.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "voice.polishTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.polishTooLong": {
+      "text": "That's longer than a piece can hold. Shorten it a little before saving.",
+      "layer": "her",
+      "max": 142,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.postTaken": {
+      "text": "A post with this name already exists. Change the title of your polished copy, save, and try again.",
+      "layer": "her",
+      "max": 196,
+      "vars": []
+    },
+    "voice.restoreHeading": {
+      "text": "Bring back your unsaved changes?",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "voice.restoreNo": {
+      "text": "Throw them away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.restoreText": {
+      "text": "Changes you didn't save are kept on this phone.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "voice.restoreTextChanged": {
+      "text": "Changes you didn't save are kept on this phone. The copy was changed somewhere else since, so saving will ask which to keep.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "voice.restoreThrown": {
+      "text": "Thrown away.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.restoreYes": {
+      "text": "Bring them back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.restoredCopy": {
+      "text": "Your latest words were on this phone. They're back.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "voice.roughHeading": {
+      "text": "Rough draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.roughHelp": {
+      "text": "Spelling and autocorrect are off here on purpose, so it shows how you really write.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "voice.roughLabel": {
+      "text": "Your rough draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.roughOnly": {
+      "text": "Not polished yet: {prompts}.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "prompts"
+      ]
+    },
+    "voice.roughRegion": {
+      "text": "Your rough draft, as you wrote it",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "voice.roughTooLong": {
+      "text": "That's more than a piece can hold. What's here is saved.",
+      "layer": "her",
+      "max": 112,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.saveFirst": {
+      "text": "Save your polished copy first.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "voice.savePortable": {
+      "text": "Save as portable",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.savePrivate": {
+      "text": "Save as private",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.scrapAsk": {
+      "text": "Throw away “{title}”?",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "title"
+      ]
+    },
+    "voice.scrapNo": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.scrapText": {
+      "text": "Nothing from it is kept.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "voice.scrapYes": {
+      "text": "Throw it away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.scrapped": {
+      "text": "Thrown away. Nothing was kept.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "voice.seeIt": {
+      "text": "See it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.serverTrouble": {
+      "text": "{product} couldn't do that just now. Your writing is kept on this phone.",
+      "layer": "her",
+      "max": 144,
+      "vars": [
+        "product"
+      ]
+    },
+    "voice.sessionFile": {
+      "text": "The piece in progress is kept in {path} until it is saved.",
+      "layer": "details",
+      "max": 116,
+      "vars": [
+        "path"
+      ]
+    },
+    "voice.sessionMoved": {
+      "text": "This piece was finished somewhere else.",
+      "layer": "her",
+      "max": 78,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.sessionStuck": {
+      "text": "A piece in progress can't be read.",
+      "layer": "her",
+      "max": 68,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.setUpHelper": {
+      "text": "Set it up",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "voice.showAll": {
+      "text": "Show all",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.signIn": {
+      "text": "Sign in again to keep going. Your writing is kept on this phone.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "voice.signOutAsk": {
+      "text": "Sign out and throw away your unsaved writing?",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "voice.signOutGo": {
+      "text": "Sign out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.signOutStay": {
+      "text": "Stay signed in",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.signOutText": {
+      "text": "Changes to your writing voice are kept only on this phone.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "voice.start": {
+      "text": "Start writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.startOver": {
+      "text": "Start over",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.startOverAsk": {
+      "text": "Start over and keep nothing?",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "voice.startOverText": {
+      "text": "What you've written in this piece is thrown away.",
+      "layer": "her",
+      "max": 98,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.startOverYes": {
+      "text": "Start over",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.startRefused": {
+      "text": "That prompt can't be used. Choose another.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "voice.startedOver": {
+      "text": "Started over. Nothing was kept.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "voice.starting": {
+      "text": "Starting…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.summary": {
+      "text": "{written}, {polished} polished.",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "written",
+        "polished"
+      ]
+    },
+    "voice.summaryNone": {
+      "text": "{written}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "written"
+      ]
+    },
+    "voice.tagChanged": {
+      "text": "Changed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.tagKept": {
+      "text": "Kept",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.tagNew": {
+      "text": "New",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.tagSame": {
+      "text": "Same as before",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.timerLeft": {
+      "text": "{time} left",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "time"
+      ]
+    },
+    "voice.timerName": {
+      "text": "Time left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.timerUp": {
+      "text": "Time's up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.timerWriting": {
+      "text": "Writing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.title": {
+      "text": "Your writing voice",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.toList": {
+      "text": "See all your pieces",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.traitFrom": {
+      "text": "from “{piece}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "piece"
+      ],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.traitOne": {
+      "text": "(from one piece only)",
+      "layer": "her",
+      "max": 42,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "voice.unreadable": {
+      "text": "Some pieces can't be opened.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "voice.unreadableFile": {
+      "text": "{file}: {guidance}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "file",
+        "guidance"
+      ]
+    },
+    "voice.wherePortable": {
+      "text": "Portable: {path}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "path"
+      ]
+    },
+    "voice.wherePrivate": {
+      "text": "Private: {path}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "path"
+      ]
+    },
+    "voice.wordRange": {
+      "text": "About {min} to {max} words.",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "min",
+        "max"
+      ]
+    },
+    "voice.writeOne": {
+      "text": "Write a piece",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "piece"
+      ]
+    },
+    "voice.writeTitle": {
+      "text": "Write a piece",
+      "layer": "her",
+      "max": 40,
+      "vars": [],
+      "allows": [
+        "piece"
       ]
     },
     "write.collectionHelp": {

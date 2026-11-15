@@ -726,3 +726,81 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-generated:empty { display: none; }
 .studio-generated { align-items: center; }
 @media (prefers-reduced-motion: reduce) { .studio-helper-sheet loading-spinner, .studio-helper-page loading-spinner { display: none; } }
+
+/* ---- R9: Your writing voice, and Describe a new look ---- */
+.studio-did { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); overflow-wrap: anywhere; }
+.studio-did[hidden] { display: none; }
+.studio-did[data-variant="problem"] .studio-did-words { color: var(--studio-beet); font-weight: 600; }
+.studio-did-link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+.studio-voice-hub, .studio-voice-write-page, .studio-voice-piece-page, .studio-voice-guide-page { max-width: 40rem; }
+.studio-voice-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio-voice-host, .studio-voice-stage, .studio-voice-piece, .studio-voice-sets, .studio-voice-write, .studio-guide, .studio-guide-steps, .studio-voice-polish-view, .studio-voice-rough-view, .studio-voice-after, .studio-voice-where { display: grid; gap: var(--space-4); min-width: 0; }
+.studio-voice-host > *, .studio-voice-stage > *, .studio-voice-piece > *, .studio-voice-sets > *, .studio-voice-write > *, .studio-guide > *, .studio-guide-steps > *, .studio-voice-polish-view > *, .studio-voice-rough-view > *, .studio-design-form > *, .studio-design-result > *, .studio-design-columns > * { min-width: 0; }
+.studio-voice-after[hidden] { display: none; }
+.studio-voice-rows, .studio-voice-files, .studio-guide-traits, .studio-design-swatches { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.studio-voice-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-voice-row-text { display: grid; gap: var(--space-1); min-width: 0; flex: 1 1 12rem; overflow-wrap: anywhere; }
+.studio-voice-badges { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.studio-voice-files li { overflow-wrap: anywhere; }
+.studio-voice-details > summary, .studio-guide-now + summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.studio-voice-details { display: grid; gap: var(--space-3); }
+.studio-voice-details[hidden] { display: none; }
+.studio-voice-open { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-voice-open h3 { margin: 0; font-size: var(--text-lg); }
+.studio-voice-rule { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio-voice-cards [role="radiogroup"] { grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr)); }
+.studio-voice-cards button { min-height: 2.75rem; overflow-wrap: anywhere; }
+.studio-voice-cards .note { order: -1; text-transform: uppercase; letter-spacing: 0.04em; color: var(--studio-ink-soft); }
+.studio-voice-cards .row:has(.note:empty) { display: none; }
+.studio-voice-cards button { display: flex; flex-direction: column; }
+.studio-voice-cards button .row { order: -1; margin: 0; }
+.studio-voice-cards .detail { font-size: var(--text-sm); }
+.studio-voice-timer { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); font-size: var(--text-lg); font-weight: 600; }
+.studio-voice-clock { font-variant-numeric: tabular-nums; }
+.studio-voice-timer[data-state="warning"], .studio-voice-timer[data-state="locked"] { color: var(--studio-beet); }
+.studio-voice-label { font-weight: 600; }
+.studio-voice-rough, .studio-guide-text { width: 100%; box-sizing: border-box; min-height: 40dvh; padding: var(--space-3); font: inherit; font-family: var(--font-writing); line-height: 1.6; color: inherit; background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); border-radius: var(--radius); resize: vertical; }
+.studio-guide-text { min-height: 14rem; font-family: var(--font-mono); font-size: var(--text-sm); }
+.studio-voice-rough:focus-visible, .studio-guide-text:focus-visible, .studio-voice-rough-text:focus-visible, .studio-guide-now:focus-visible, .studio-guide-diff:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.studio-voice-rough-text, .studio-guide-now { margin: 0; padding: var(--space-3); max-height: 50dvh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-writing); background: var(--studio-flour); border: 1px solid var(--studio-linen); border-radius: var(--radius); }
+.studio-voice-polish textarea { min-height: 14rem; font-family: var(--font-writing); line-height: 1.6; }
+.studio-voice-rough-view h3, .studio-voice-polish-view h3 { margin: 0; font-size: var(--text-lg); }
+@media (min-width: 64rem) {
+  .studio-voice-write-page:has(.studio-voice-piece), .studio-voice-piece-page { max-width: 72rem; }
+  .studio-voice-piece { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .studio-voice-piece > .studio-voice-details { grid-column: 1 / -1; }
+}
+.studio-guide-pieces { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-1); min-width: 0; }
+.studio-guide-pieces legend, .studio-guide-change legend { font-weight: 600; padding: 0; margin-bottom: var(--space-2); overflow-wrap: anywhere; }
+.studio-guide-pieces .studio-tick-label span, .studio-guide-option span { overflow-wrap: anywhere; min-width: 0; }
+.studio-guide-trait { overflow-wrap: anywhere; }
+.studio-guide-change { border: 1px solid var(--studio-linen); border-radius: var(--radius); padding: var(--space-3) var(--space-4); margin: 0; display: grid; gap: var(--space-2); min-width: 0; }
+.studio-guide-option { align-items: flex-start; }
+.studio-guide-check { color: var(--studio-damson); font-weight: 600; }
+.studio-guide-diff { margin: 0; padding: var(--space-3); max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); border-radius: var(--radius); }
+.studio-guide-diff [data-diff="add"] { font-weight: 600; }
+.studio-guide-diff [data-diff="remove"] { text-decoration: line-through; }
+.studio-home-voice { display: grid; gap: var(--space-3); }
+.studio-home-voice:not(:has(section, content-card, .studio-did:not([hidden]))) { display: none; }
+.studio-home-voice-card h3 { margin: 0; font-size: var(--text-lg); }
+.studio-design { max-width: 40rem; }
+.studio-design-columns, .studio-design-form, .studio-design-result { display: grid; gap: var(--space-4); min-width: 0; }
+.studio-design-result[hidden] { display: none; }
+@media (min-width: 64rem) {
+  .studio-design:has(.studio-design-result:not([hidden])) { max-width: 76rem; }
+  .studio-design-columns:has(.studio-design-result:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: var(--space-6, 2rem); }
+}
+.studio-design-goes { margin: 0; }
+.studio-design-swatch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 2.75rem; overflow-wrap: anywhere; }
+.studio-design-chip { flex: none; inline-size: 2rem; block-size: 2rem; border-radius: 50%; border: 2px solid var(--studio-linen); background: var(--swatch); }
+.studio-design-role { font-weight: 600; flex: 1 1 8rem; min-width: 0; }
+.studio-design-easy { font-size: var(--text-sm); }
+.studio-design-change { position: relative; display: inline-flex; }
+.studio-design-picker { position: absolute; inset: auto 0 0 auto; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.studio-design-saved:empty { display: none; }
+@media (max-width: 30rem) {
+  .studio-design-ideas > *, .studio-design-ideas .action-button { width: 100%; }
+  .studio-design-swatch { flex-direction: column; align-items: flex-start; }
+  .studio-voice-row > action-button, .studio-voice-row .action-button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .studio-voice-timer, .studio-voice-timer * { animation: none !important; transition: none !important; } }

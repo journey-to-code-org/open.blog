@@ -6,6 +6,7 @@ import { startShell } from "./shell.js";
 import { showSignIn } from "./screens/signin.js";
 import { listenForInstall } from "./parts/install-state.js";
 import { configureWords } from "./parts/words.js";
+import { clearVoiceCopies } from "./parts/voice-copies.js";
 
 // The browser's "Install" question can come at any moment from the start: keep it for Add to Home
 // Screen (Studio R3).
@@ -63,6 +64,9 @@ async function start() {
       return;
     }
     await showSignIn(root, api, { heading: "Sign in" });
+    // R9: someone signed in here. Voice writing another person left on this phone goes; her own
+    // (a sign-in that ran out mid-piece) is kept and offered back. As the old Admin did.
+    clearVoiceCopies(() => globalThis.localStorage, { keepUser: api.user });
   }
   const meta = await api.get("meta");
   remember(api.user, meta);

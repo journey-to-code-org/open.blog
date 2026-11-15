@@ -11,6 +11,7 @@ import { homeQuoteLine } from "../parts/quote-words.js";
 import { createReadyList, recipeNotesBanner } from "../parts/home-ready.js";
 import { homeJobsCard } from "../parts/home-jobs.js";
 import { tradeSite } from "../parts/record-kinds.js";
+import { homeVoice } from "../parts/home-voice.js";
 
 export async function createHome({ api, meta, posts, jobs }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
@@ -20,9 +21,12 @@ export async function createHome({ api, meta, posts, jobs }) {
   const notes = h("div", { class: "studio-banner" });
   // R4: jobs kept on this phone, on any site, only when something is waiting.
   const waitingJobs = jobs ? homeJobsCard(jobs) : null;
+  // R9: writing kept only on this phone, and the one-time invitation to Your writing voice.
+  const voice = homeVoice({ api, meta });
   const extras = () => [waitingJobs, notes, ready?.element];
   async function loadExtras() {
     ready?.load();
+    voice.load();
     try {
       const banner = await recipeNotesBanner(api);
       notes.replaceChildren(...(banner ? [banner] : []));
@@ -99,7 +103,7 @@ export async function createHome({ api, meta, posts, jobs }) {
     if (!items.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing written yet" },
         "Your first recipe or story starts here.",
-        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element, ...extras().filter(Boolean));
+        h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element, ...extras().filter(Boolean), voice.element);
       return;
     }
     fill(body,
@@ -111,6 +115,8 @@ export async function createHome({ api, meta, posts, jobs }) {
         h("h3", { id: "studio-keep", text: "Keep going" }),
         h("auto-grid", { min: "15rem" }, drafts.map((p) => h("content-card", { heading: p.title || "Untitled", href: postHref(p.path) },
           h("p", { class: "studio-meta", text: sayListDate(p.date) ? `Draft, goes up ${sayListDate(p.date)}` : "A draft" }))))) : null,
+      // Below her drafts, never above them.
+      voice.element,
       coming.length ? h("section", { class: "studio-section", "aria-labelledby": "studio-coming" },
         h("h3", { id: "studio-coming", text: "Coming up" }),
         postList(coming, "Coming up")) : null,

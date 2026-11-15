@@ -33,7 +33,9 @@ import { WORDS as review } from "./review-words.js";
 import { WORDS as route } from "./route-words.js";
 import { WORDS as video } from "./video-words.js";
 import { WORDS as writingHelper } from "./writing-helper-words.js";
-import { HER_BANNED } from "./plain-words.js";
+import { WORDS as writingVoice } from "./writing-voice-words.js";
+import { WORDS as design } from "./design-words.js";
+import { HER_BANNED, bannedExcept } from "./plain-words.js";
 
 /** The three variables and their built-in values. */
 export const DEFAULT_VARS = Object.freeze({ helper: "the person who set up your site", product: "your blog", owner: "" });
@@ -48,7 +50,7 @@ let merged = null;
 export function catalog() {
   if (merged) return merged;
   const out = {};
-  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper]) {
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design]) {
     for (const [id, entry] of Object.entries(words || {})) {
       if (id in out) throw new Error(`word id ${id} is defined twice`);
       out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });
@@ -81,7 +83,7 @@ export function overrideProblem(id, value) {
   if (/[<>]/.test(value)) return "has < or >";
   const allowed = new Set([...GLOBAL_VARS, ...entry.vars]);
   if (varsIn(value).some((name) => !allowed.has(name))) return "unknown variable";
-  if (entry.layer === "her" && HER_BANNED.test(value)) return "a word she never sees";
+  if (entry.layer === "her" && bannedExcept(value, entry.allows)) return "a word she never sees";
   return "";
 }
 

@@ -32,6 +32,11 @@ import { createNewPost, hasRecipes } from "./new-post.js";
 import { createNewJob } from "./new-job.js";
 import { createPeople } from "./people.js";
 import { createHelper } from "./helper.js";
+import { createVoiceHub } from "./voice.js";
+import { createVoiceWriteScreen } from "./voice-write.js";
+import { createVoicePieceScreen } from "./voice-piece.js";
+import { createVoiceGuideScreen } from "./voice-guide.js";
+import { createDesign } from "./design.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -83,10 +88,18 @@ export const SCREENS = [
   // R8: the writing helper's setup and what it knows. Not in the navigation: the account menu,
   // Find, and the sheet in Write. ?setup=1 opens Connection.
   { name: "helper", area: "helper", create: (context, route) => createHelper(context, route) },
+  // R9: Your writing voice. Not in the navigation: the Writing helper screen, Home's invitation
+  // and Find. #/voice is the hub, #/voice/write[?pack=] a piece against the clock,
+  // #/voice/piece/<id> one piece, #/voice/guide the voice guide.
+  { name: "voice", area: "voice", create: (context, route) => (route.arg === "write" ? createVoiceWriteScreen(context, route)
+    : route.arg === "guide" ? createVoiceGuideScreen(context, route)
+      : route.arg.startsWith("piece/") ? createVoicePieceScreen(context, route.arg.slice(6))
+        : createVoiceHub(context)) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
-  { name: "look", nav: "Look", area: "look", create: (context) => createLook(context) },
+  // R9: #/look/design is Describe a new look (Look's navigation item stays current).
+  { name: "look", nav: "Look", area: "look", create: (context, route) => (route.arg === "design" ? createDesign(context) : createLook(context)) },
   { name: "decorations", nav: "Decorations", area: "decorations", create: (context) => createDecorations(context) },
   // Only when gifts are set up where Admin runs (OPENBLOG_GIFTS_*).
   { name: "gifts", nav: "Gifts", area: "gifts", when: (meta) => meta.gifts === true, create: (context) => createGifts(context) },

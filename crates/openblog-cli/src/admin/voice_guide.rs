@@ -80,7 +80,7 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Err(response) => return response,
     };
     if sample_ids.is_empty() {
-        return Response::error(400, "Select at least one voice sample");
+        return coded_error(400, "no-pieces", "Select at least one voice sample");
     }
     if sample_ids.iter().any(|id| !id.starts_with("voice:")) {
         return Response::error(400, "A voice guide is proposed from voice samples only");

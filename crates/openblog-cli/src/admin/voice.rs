@@ -381,14 +381,27 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
 /// invitation card. Read only: it never locks or creates anything.
 pub(super) fn status(state: &AppState, user: &str) -> Response {
     let now = clock::now();
+    // The prompt's title and the time left, so a screen can say "You have a piece in progress"
+    // without opening it (opening an expired one saves it).
+    let catalog = catalog_of(state);
+    let title = |session: &voice_session::Session| {
+        catalog
+            .prompt(&session.prompt_id)
+            .map_or(session.prompt_id.clone(), |p| p.title.clone())
+    };
     let session = match voice_session::status(&state.root, now) {
         Ok(Status::None) => json!({ "open": false }),
-        Ok(Status::Active { session, .. }) => json!({
+        Ok(Status::Active {
+            session,
+            remaining_seconds,
+        }) => json!({
             "open": true,
             "expired": false,
             "sessionId": session_id(&session),
             "deadline": session.deadline,
             "draftChars": session.draft.chars().count(),
+            "promptTitle": title(&session),
+            "remainingSeconds": remaining_seconds,
         }),
         Ok(Status::Expired { session }) => json!({
             "open": true,
@@ -396,6 +409,8 @@ pub(super) fn status(state: &AppState, user: &str) -> Response {
             "sessionId": session_id(&session),
             "deadline": session.deadline,
             "draftChars": session.draft.chars().count(),
+            "promptTitle": title(&session),
+            "remainingSeconds": 0,
         }),
         // A record that cannot be used still means a session is in the way.
         Err(_) => json!({ "open": true, "unreadable": true }),
@@ -555,6 +570,7 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
                     "error": StartError::AlreadyOpen { prompt_id: prompt_id.clone(), expired }.to_string(),
                     "alreadyOpen": true,
                     "code": "already-open",
+                    "promptTitle": catalog.prompt(&prompt_id).map_or(prompt_id.as_str(), |p| p.title.as_str()),
                     "promptId": prompt_id,
                     "expired": expired,
                     "sessionId": open_id,
@@ -1104,8 +1120,17 @@ pub(super) fn save_polished(state: &AppState, req: &Request, id: &str) -> Respon
             &json!({ "error": "Only a polished draft can be saved this way.", "refused": true, "code": "not-polished" }),
         );
     }
+    let title_before = sample.title.clone();
     if let Err(response) = apply_fields(&mut sample, &body) {
         return response;
+    }
+    // A new title is a new name for the post it may become: "a post with this name already
+    // exists, change the title" has to be something she can do (Studio has no other field for it).
+    if sample.title != title_before {
+        let slug = openblog_core::slug::slugify(&sample.title);
+        if voice::is_kebab(&slug) {
+            sample.slug = slug;
+        }
     }
     if let Err(message) = sample.validate() {
         return refuse_text(message);
