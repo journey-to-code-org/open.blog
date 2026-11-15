@@ -106,7 +106,11 @@ fn problems_json(problems: &[PathProblem]) -> Json {
     Json::Array(
         problems
             .iter()
-            .map(|p| json!({ "step": p.step, "message": p.message, "text": p.to_string() }))
+            .map(|p| {
+                let (code, field) = super::path_codes::path_problem(&p.message);
+                json!({ "step": p.step, "message": p.message, "text": p.to_string(),
+                    "code": code, "field": field })
+            })
             .collect(),
     )
 }
@@ -182,6 +186,18 @@ fn view(stored: &store::Stored, ctx: &Context) -> Json {
                 "states": step_states(path, ctx),
             });
             v["projection"] = projection(path, ctx);
+            // G99: where readers find it, when the site publishes paths and this one is shown.
+            let shown =
+                path.status == Status::Published && v["projection"]["withheld"] == json!(false);
+            v["url"] = if ctx.switch && shown {
+                json!(format!(
+                    "{}{}/",
+                    openblog_core::reading_path::PATHS_URL,
+                    stored.slug
+                ))
+            } else {
+                Json::Null
+            };
             v
         }
         Err(problems) => json!({
@@ -207,21 +223,25 @@ fn store_error(state: &AppState, error: PathError, slug: Option<&str>) -> Respon
                 409,
                 &json!({
                     "error": error.to_string(),
+                    "code": "changed",
                     "conflict": true,
                     "revision": latest.as_ref().map(|s| s.revision.as_str()),
                     "current": latest.as_ref().map(|s| view(s, &ctx)),
                 }),
             )
         }
-        PathError::Exists => {
-            Response::json(409, &json!({ "error": error.to_string(), "exists": true }))
-        }
-        PathError::Missing => {
-            Response::json(404, &json!({ "error": error.to_string(), "missing": true }))
-        }
+        PathError::Exists => Response::json(
+            409,
+            &json!({ "error": error.to_string(), "code": "exists", "exists": true }),
+        ),
+        PathError::Missing => Response::json(
+            404,
+            &json!({ "error": error.to_string(), "code": "missing", "missing": true }),
+        ),
         PathError::Invalid(problems) => Response::json(
             422,
             &json!({
+                "code": "invalid",
                 "error": problems.first().map_or_else(
                     || "The reading path is not valid".to_string(),
                     ToString::to_string,
@@ -229,7 +249,9 @@ fn store_error(state: &AppState, error: PathError, slug: Option<&str>) -> Respon
                 "problems": problems_json(&problems),
             }),
         ),
-        PathError::Storage(message) => Response::error(500, &message),
+        PathError::Storage(message) => {
+            Response::json(500, &json!({ "error": message, "code": "storage" }))
+        }
     }
 }
 
@@ -365,6 +387,20 @@ pub(super) fn targets(state: &AppState) -> Response {
         .entries()
         .map(|(id, label, kind)| json!({ "id": id, "label": label, "kind": kind }))
         .collect();
+    // G100: the atlas links an "influenced" step may rest on, with the entries' words so a picker shows
+    // names, never ids. Only public entries and uncontested links are listed.
+    let atlas_links: Vec<Json> = ctx
+        .targets
+        .influences()
+        .filter(|(_, from, to)| {
+            ctx.targets.entry_label(from).is_some() && ctx.targets.entry_label(to).is_some()
+        })
+        .map(|(id, from, to)| {
+            let name = |entry: &str| ctx.targets.entry_label(entry).unwrap_or(entry).to_string();
+            json!({ "id": id, "from": from, "to": to,
+                "label": format!("{} influenced {}", name(from), name(to)) })
+        })
+        .collect();
     let relationships: Vec<Json> = Relationship::ALL
         .iter()
         .map(|r| json!({ "value": r.value(), "label": r.label() }))
@@ -374,6 +410,7 @@ pub(super) fn targets(state: &AppState) -> Response {
         &json!({
             "posts": posts,
             "entries": entries,
+            "atlasLinks": atlas_links,
             "problem": ctx.problem,
             "relationships": relationships,
             "difficulties": Difficulty::ALL.iter().map(|d| d.value()).collect::<Vec<_>>(),
@@ -474,6 +511,7 @@ pub(super) fn save(state: &AppState, req: &Request, create: bool) -> Response {
         Err(response) => return response,
     };
     let ctx = context(state);
+    let stamp = clock::now().rfc3339().replace(':', "");
     let saved = if create {
         store::create(&state.root, &ctx.content, &path)
     } else {
@@ -482,10 +520,12 @@ pub(super) fn save(state: &AppState, req: &Request, create: bool) -> Response {
             &ctx.content,
             revision.as_deref().unwrap_or_default(),
             &path,
+            &stamp,
         )
     };
     match saved {
         Ok(saved) => {
+            let replaced = saved.replaced.clone();
             let stored = store::Stored {
                 slug: slug.clone(),
                 revision: saved.revision,
@@ -495,6 +535,7 @@ pub(super) fn save(state: &AppState, req: &Request, create: bool) -> Response {
             let mut v = view(&stored, &ctx);
             v["publish"] = json!(ctx.switch);
             v["targetsProblem"] = json!(ctx.problem);
+            v["replaced"] = json!(replaced);
             Response::json(if create { 201 } else { 200 }, &v)
         }
         Err(error) => store_error(state, error, Some(&slug)),
@@ -606,7 +647,8 @@ pub(super) fn reorder(state: &AppState, req: &Request) -> Response {
         }
     }
     path.steps = steps;
-    match store::update(&state.root, &ctx.content, &revision, &path) {
+    let stamp = clock::now().rfc3339().replace(':', "");
+    match store::update(&state.root, &ctx.content, &revision, &path, &stamp) {
         Ok(saved) => {
             let stored = store::Stored {
                 slug: slug.clone(),
@@ -643,7 +685,55 @@ pub(super) fn remove(state: &AppState, req: &Request) -> Response {
     let ctx = context(state);
     let stamp = clock::now().rfc3339().replace(':', "");
     match store::delete(&state.root, &ctx.content, slug, revision, &stamp) {
-        Ok(name) => Response::json(200, &json!({ "ok": true, "trashedTo": name })),
+        Ok(name) => Response::json(
+            200,
+            &json!({ "ok": true, "trashedTo": name, "replaced": name }),
+        ),
         Err(error) => store_error(state, error, Some(slug)),
+    }
+}
+
+/// `POST reading-paths/restore` (G97): put a kept copy back. The body names the `slug`, the `name` a
+/// save answered as `replaced`, and the `revision` now stored (left out when the file is gone). The copy
+/// the restore replaces is kept too, so a restore can be undone the same way.
+pub(super) fn restore(state: &AppState, req: &Request) -> Response {
+    let request = match body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let slug = match slug_of(&request) {
+        Ok(slug) => slug.to_string(),
+        Err(response) => return response,
+    };
+    let Some(name) = request["name"].as_str() else {
+        return Response::error(400, "Name the kept copy by `name`");
+    };
+    if !crate::trash::valid_name("paths", &slug, name) {
+        return Response::error(400, "That is not a kept copy of this reading path");
+    }
+    let revision = request["revision"].as_str();
+    let _build = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let ctx = context(state);
+    let stamp = clock::now().rfc3339().replace(':', "");
+    match store::restore(&state.root, &ctx.content, &slug, revision, name, &stamp) {
+        Ok(saved) => {
+            let replaced = saved.replaced.clone();
+            let stored = store::Stored {
+                slug: slug.clone(),
+                revision: saved.revision,
+                text: saved.text,
+                parsed: Ok(saved.path),
+            };
+            let mut v = view(&stored, &ctx);
+            v["publish"] = json!(ctx.switch);
+            v["targetsProblem"] = json!(ctx.problem);
+            v["replaced"] = json!(replaced);
+            Response::json(200, &v)
+        }
+        Err(error) => store_error(state, error, Some(&slug)),
     }
 }

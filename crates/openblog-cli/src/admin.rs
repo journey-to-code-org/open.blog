@@ -95,6 +95,7 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod path_codes;
 mod pieces;
 mod post_settings;
 mod push;
@@ -923,6 +924,39 @@ fn authenticated_api(
     if name.starts_with("engagement/") || name == "analytics" {
         return with_engagement_code(response);
     }
+    if name.starts_with("reading-paths") || name.starts_with("comparisons") {
+        return with_curation_code(response);
+    }
+    response
+}
+
+/// R13 G98: every refusal from a reading-path or comparison route carries a top-level `code`. A route that
+/// already sent one keeps it; the sentence is never changed.
+fn with_curation_code(mut response: Response) -> Response {
+    if response.status < 400 || response.status == 401 {
+        return response;
+    }
+    let Ok(mut body) = serde_json::from_slice::<Json>(&response.body) else {
+        return response;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return response;
+    };
+    if object.contains_key("code") {
+        return response;
+    }
+    let code = match response.status {
+        400 => "bad-request",
+        404 => "missing",
+        409 => "changed",
+        413 => "too-large",
+        422 => "invalid",
+        _ => "storage",
+    };
+    object.insert("code".into(), json!(code));
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        response.body = bytes;
+    }
     response
 }
 
@@ -1091,6 +1125,7 @@ fn authenticated_api_routes(
         ("GET", "comparisons/references") => comparisons::references(state),
         ("GET", "comparisons/item") => comparisons::get(state, req),
         ("POST", "comparisons/preview") => comparisons::preview(state, req),
+        ("POST", "comparisons/restore") => comparisons::restore(state, req),
         ("POST", "comparisons/approve") => comparisons::decide(state, req, &session.user, true),
         ("POST", "comparisons/revoke") => comparisons::decide(state, req, &session.user, false),
         ("POST", "comparisons") => comparisons::save(state, req, true),
@@ -1121,6 +1156,7 @@ fn authenticated_api_routes(
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
         ("POST", "reading-paths/preview") => reading_paths::preview(state, req),
         ("POST", "reading-paths/reorder") => reading_paths::reorder(state, req),
+        ("POST", "reading-paths/restore") => reading_paths::restore(state, req),
         ("POST", "reading-paths") => reading_paths::save(state, req, true),
         ("PUT", "reading-paths") => reading_paths::save(state, req, false),
         ("DELETE", "reading-paths") => reading_paths::remove(state, req),
@@ -4229,6 +4265,15 @@ fn published_services_and_reviews(
     (services, reviews)
 }
 
+/// Whether a folder holds at least one `.json` file (a missing folder holds none).
+fn has_json_files(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+    })
+}
+
 /// Whether the site is a trade site (`meta.siteUses.trade`): Studio's Business, Services, Reviews and
 /// New job show for it, and only for it.
 fn is_trade_site(config: &SiteConfig, sources: &openblog_core::Sources) -> bool {
@@ -4574,6 +4619,17 @@ fn meta(state: &AppState) -> Response {
                 "shared": crate::outcomes::any_shared(&state.root, &config),
                 // Pins are sent (Studio R5 G39): a post's Pin words are on her layer.
                 "pinterest": config.syndication.pinterest.as_ref().is_some_and(|pins| pins.enabled),
+                // A reading path exists, or the site publishes them (Studio R13 G96).
+                "paths": config.reading_paths.publish
+                    || has_json_files(&state.root.join(&config.paths.content).join("paths")),
+                // Readings side by side exist, or the site publishes them (G96; also opens Research).
+                "readings": config.interpretations.publish
+                    || has_json_files(&state.root.join(&config.paths.content).join("comparisons")),
+            },
+            // Which public pages the site publishes (Studio R13 G96).
+            "publishes": {
+                "readingPaths": config.reading_paths.publish,
+                "interpretations": config.interpretations.publish,
             },
             // How a scheduled post reaches readers (Studio R5 G37): "self" or "next-send".
             "schedule": post_settings::schedule_mode(&state.root, &config),

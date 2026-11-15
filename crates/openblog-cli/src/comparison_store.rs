@@ -191,6 +191,8 @@ pub struct Saved {
     pub revision: String,
     pub text: String,
     pub comparison: Comparison,
+    /// The name of the kept copy of the file this write replaced (G97), if there was one.
+    pub replaced: Option<String>,
 }
 
 /// Create a comparison. Refuses a slug that already has a file.
@@ -210,14 +212,69 @@ pub fn update(
     content: &str,
     expected_revision: &str,
     comparison: &Comparison,
+    stamp: &str,
 ) -> Result<Saved, StoreError> {
     check(comparison)?;
     let target = file_path(root, content, &comparison.slug)?;
     match read_file(&target, &comparison.slug)? {
         None => Err(StoreError::Missing),
         Some(current) if current.revision != expected_revision => Err(StoreError::Conflict),
-        Some(_) => write(&target, comparison),
+        Some(_) => {
+            let replaced =
+                crate::trash::keep(root, &target, "comparisons", &comparison.slug, stamp)
+                    .map_err(trash_error)?;
+            let mut saved = write(&target, comparison)?;
+            saved.replaced = Some(replaced);
+            Ok(saved)
+        }
     }
+}
+
+fn trash_error(error: crate::trash::TrashError) -> StoreError {
+    match error {
+        crate::trash::TrashError::BadName | crate::trash::TrashError::Gone => StoreError::Missing,
+        crate::trash::TrashError::Storage(message) => StoreError::Storage(message),
+    }
+}
+
+/// Put a kept copy back as the comparison `slug`, byte for byte, approvals included (G97): the bytes are
+/// the server's own. The file now stored must still be the revision the caller read (or absent, when
+/// `expected_revision` is `None`). The copy this replaces is kept too, so a restore can be undone.
+pub fn restore(
+    root: &Path,
+    content: &str,
+    slug: &str,
+    expected_revision: Option<&str>,
+    name: &str,
+    stamp: &str,
+) -> Result<Saved, StoreError> {
+    let bytes = crate::trash::read(root, "comparisons", slug, name).map_err(trash_error)?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        StoreError::Invalid(vec![ComparisonProblem {
+            file: format!("{COMPARISONS_DIR}/{slug}.json"),
+            item: None,
+            message: "is not valid UTF-8".into(),
+        }])
+    })?;
+    let comparison = Comparison::parse(&format!("{COMPARISONS_DIR}/{slug}.json"), &text)
+        .map_err(StoreError::Invalid)?;
+    check(&comparison)?;
+    let target = file_path(root, content, slug)?;
+    let current = read_file(&target, slug)?;
+    let replaced = match (&current, expected_revision) {
+        (None, None) => None,
+        (Some(current), Some(revision)) if current.revision == revision => Some(
+            crate::trash::keep(root, &target, "comparisons", slug, stamp).map_err(trash_error)?,
+        ),
+        _ => return Err(StoreError::Conflict),
+    };
+    write_bytes(&target, slug, text.as_bytes())?;
+    Ok(Saved {
+        revision: source_store::revision(text.as_bytes()),
+        text,
+        comparison,
+        replaced,
+    })
 }
 
 /// Move a comparison file to the trash folder (`.openblog/trash`), never
@@ -260,6 +317,7 @@ fn write(target: &Path, comparison: &Comparison) -> Result<Saved, StoreError> {
         revision: source_store::revision(text.as_bytes()),
         text,
         comparison: comparison.clone(),
+        replaced: None,
     })
 }
 

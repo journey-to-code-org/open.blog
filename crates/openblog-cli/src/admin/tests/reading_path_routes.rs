@@ -906,3 +906,283 @@ fn with_the_atlas_unpublished_no_entry_is_public() {
     ));
     assert_eq!(targets["entries"], json!([]));
 }
+
+fn restore_call(f: &Fixture, session: &(String, String), body: Json) -> (u16, Json) {
+    source_call(f, session, "POST", "/admin/api/reading-paths/restore", body)
+}
+
+#[test]
+fn a_save_keeps_the_replaced_copy_and_restore_puts_it_back_byte_for_byte() {
+    let f = site_with_posts("restore_round_trip");
+    let session = login_ok(&f);
+    let (_, created) = create(
+        &f,
+        &session,
+        body_of("tour", "First", "draft", three_steps()),
+    );
+    assert_eq!(
+        created["replaced"],
+        Json::Null,
+        "a new file replaces nothing"
+    );
+    let first = stored(&f, "tour").unwrap();
+    let (status, saved) = update(
+        &f,
+        &session,
+        body_of("tour", "Second", "draft", three_steps()),
+        &created["revision"],
+    );
+    assert_eq!(status, 200, "{saved}");
+    let name = saved["replaced"]
+        .as_str()
+        .expect("the replaced copy is named")
+        .to_string();
+    assert!(name.contains("paths_tour"), "{name}");
+    assert_ne!(stored(&f, "tour").unwrap(), first);
+
+    let (status, put_back) = restore_call(
+        &f,
+        &session,
+        json!({"slug": "tour", "name": name, "revision": saved["revision"]}),
+    );
+    assert_eq!(status, 200, "{put_back}");
+    assert_eq!(stored(&f, "tour").unwrap(), first, "byte for byte");
+    assert_eq!(put_back["revision"], created["revision"]);
+    assert!(
+        put_back["replaced"].is_string(),
+        "a restore can be undone the same way"
+    );
+}
+
+#[test]
+fn restore_refuses_a_changed_file_a_gone_name_and_a_name_with_a_separator() {
+    let f = site_with_posts("restore_refusals");
+    let session = login_ok(&f);
+    let (_, created) = create(
+        &f,
+        &session,
+        body_of("tour", "First", "draft", three_steps()),
+    );
+    let (_, saved) = update(
+        &f,
+        &session,
+        body_of("tour", "Second", "draft", three_steps()),
+        &created["revision"],
+    );
+    let name = saved["replaced"].as_str().unwrap().to_string();
+    let second = stored(&f, "tour").unwrap();
+
+    let (status, stale) = restore_call(
+        &f,
+        &session,
+        json!({"slug": "tour", "name": name, "revision": "0000"}),
+    );
+    assert_eq!(
+        (status, stale["code"].as_str()),
+        (409, Some("changed")),
+        "{stale}"
+    );
+    assert_eq!(stored(&f, "tour").unwrap(), second);
+
+    let (status, gone) = restore_call(
+        &f,
+        &session,
+        json!({"slug": "tour", "name": "2026-01-01T000000Z-paths_tour-9.json", "revision": saved["revision"]}),
+    );
+    assert_eq!(
+        (status, gone["code"].as_str()),
+        (404, Some("missing")),
+        "{gone}"
+    );
+
+    for bad in [
+        "../x.json",
+        "a/2026-01-01T000000Z-paths_tour.json",
+        "2026-01-01T000000Z-paths_other.json",
+        "",
+    ] {
+        let (status, refused) = restore_call(
+            &f,
+            &session,
+            json!({"slug": "tour", "name": bad, "revision": saved["revision"]}),
+        );
+        assert_eq!(
+            (status, refused["code"].as_str()),
+            (400, Some("bad-request")),
+            "{bad}: {refused}"
+        );
+    }
+    assert_eq!(stored(&f, "tour").unwrap(), second);
+
+    let plain = handle(&f.state, &req("POST", "/admin/api/reading-paths/restore"));
+    assert_eq!(plain.status, 401, "a restore needs a session");
+}
+
+#[test]
+fn a_deleted_path_comes_back_with_a_null_revision() {
+    let f = site_with_posts("restore_deleted");
+    let session = login_ok(&f);
+    let (_, created) = create(&f, &session, body_of("tour", "T", "draft", three_steps()));
+    let first = stored(&f, "tour").unwrap();
+    let gone = handle(
+        &f.state,
+        &authed(
+            req(
+                "DELETE",
+                &format!(
+                    "/admin/api/reading-paths?slug=tour&revision={}",
+                    created["revision"].as_str().unwrap()
+                ),
+            ),
+            &session,
+            true,
+        ),
+    );
+    let name = body_json(&gone)["replaced"].as_str().unwrap().to_string();
+    // The file is gone, so a restore must say so (null), and a wrong revision is refused.
+    let (status, wrong) = restore_call(
+        &f,
+        &session,
+        json!({"slug": "tour", "name": name, "revision": "abc"}),
+    );
+    assert_eq!(status, 409, "{wrong}");
+    let (status, back) = restore_call(
+        &f,
+        &session,
+        json!({"slug": "tour", "name": name, "revision": null}),
+    );
+    assert_eq!(status, 200, "{back}");
+    assert_eq!(stored(&f, "tour").unwrap(), first);
+}
+
+#[test]
+fn every_refusal_has_a_code_and_every_problem_a_code_and_a_field() {
+    let f = site_with_posts("codes");
+    let session = login_ok(&f);
+    let bad = json!([
+        {"id": "one", "target": {"kind": "post", "slug": "alpha"}},
+        {"id": "two", "target": {"kind": "post", "slug": "bravo"},
+         "transition": {"relationship": "next", "why": ""}}
+    ]);
+    let (status, refused) = create(&f, &session, body_of("tour", "T", "draft", bad));
+    assert_eq!(
+        (status, refused["code"].as_str()),
+        (422, Some("invalid")),
+        "{refused}"
+    );
+    let problems = refused["problems"].as_array().unwrap();
+    assert!(!problems.is_empty());
+    for problem in problems {
+        assert!(
+            problem["code"].is_string() && problem["field"].is_string(),
+            "{problem}"
+        );
+    }
+    assert!(problems
+        .iter()
+        .any(|p| p["code"] == "needs-reason" && p["step"] == "two" && p["field"] == "why"));
+
+    let (status, missing) = update(
+        &f,
+        &session,
+        body_of("nothing", "T", "draft", three_steps()),
+        &json!("abc"),
+    );
+    assert_eq!((status, missing["code"].as_str()), (404, Some("missing")));
+    let (_, created) = create(&f, &session, body_of("tour", "T", "draft", three_steps()));
+    let (status, exists) = create(&f, &session, body_of("tour", "T", "draft", three_steps()));
+    assert_eq!((status, exists["code"].as_str()), (409, Some("exists")));
+    let (status, changed) = update(
+        &f,
+        &session,
+        body_of("tour", "T", "draft", three_steps()),
+        &json!("0000"),
+    );
+    assert_eq!((status, changed["code"].as_str()), (409, Some("changed")));
+    let _ = created;
+    let r = handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/reading-paths/path?slug=Bad Slug"),
+            &session,
+            false,
+        ),
+    );
+    assert_eq!(body_json(&r)["code"], "bad-request");
+}
+
+#[test]
+fn targets_list_only_public_uncontested_atlas_links_with_names() {
+    let f = atlas_site("atlas_links", true);
+    let session = login_ok(&f);
+    let r = handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/reading-paths/targets"),
+            &session,
+            false,
+        ),
+    );
+    let targets = body_json(&r);
+    let links = targets["atlasLinks"].as_array().unwrap();
+    assert_eq!(links.len(), 1, "{targets}");
+    assert_eq!(links[0]["id"], "r-influence");
+    assert_eq!(
+        (links[0]["from"].as_str(), links[0]["to"].as_str()),
+        (Some("plato"), Some("stoics"))
+    );
+    assert_eq!(links[0]["label"], "Plato influenced The Stoics");
+    assert!(!String::from_utf8_lossy(&r.body).contains("SECRET-ATLAS-LABEL"));
+
+    let off = atlas_site("atlas_links_off", false);
+    let session = login_ok(&off);
+    let r = handle(
+        &off.state,
+        &authed(
+            req("GET", "/admin/api/reading-paths/targets"),
+            &session,
+            false,
+        ),
+    );
+    assert_eq!(body_json(&r)["atlasLinks"], json!([]));
+}
+
+#[test]
+fn meta_says_when_paths_are_in_use_and_which_pages_are_published() {
+    let f = site_with_posts("meta_paths");
+    let session = login_ok(&f);
+    let meta = |f: &Fixture, s: &(String, String)| {
+        body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), s, false),
+        ))
+    };
+    let before = meta(&f, &session);
+    assert_eq!(before["siteUses"]["paths"], false);
+    assert_eq!(before["siteUses"]["readings"], false);
+    assert_eq!(
+        before["publishes"],
+        json!({"readingPaths": false, "interpretations": false})
+    );
+    create(&f, &session, body_of("tour", "T", "draft", three_steps()));
+    assert_eq!(
+        meta(&f, &session)["siteUses"]["paths"],
+        true,
+        "a path file is use"
+    );
+
+    let g = site_with_posts("meta_paths_switch");
+    let config_path = g.dir.join(site::CONFIG_FILE);
+    let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    config["readingPaths"] = json!({"publish": true});
+    config["interpretations"] = json!({"publish": true});
+    fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let session = login_ok(&g);
+    let after = meta(&g, &session);
+    assert_eq!(after["siteUses"]["paths"], true, "the switch alone counts");
+    assert_eq!(after["siteUses"]["readings"], true);
+    assert_eq!(
+        after["publishes"],
+        json!({"readingPaths": true, "interpretations": true})
+    );
+}
