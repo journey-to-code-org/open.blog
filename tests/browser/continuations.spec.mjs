@@ -64,7 +64,7 @@ test.beforeAll(async () => {
   server.stderr.on("data", (data) => { output += data; });
   await expect(async () => {
     if (server.exitCode !== null) throw new Error(`Test server exited: ${output}`);
-    expect((await fetch(`${origin}/admin/`)).ok).toBe(true);
+    expect((await fetch(`${origin}/admin/studio/`)).ok).toBe(true);
   }).toPass({ timeout: 30000 });
 });
 
@@ -79,17 +79,6 @@ test.afterAll(async () => {
 
 const CORS = { "access-control-allow-origin": "*" };
 const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", headers: CORS, body: JSON.stringify(body) });
-
-async function signIn(page) {
-  await page.goto(`${origin}/admin/`);
-  const username = page.getByLabel("Username", { exact: true });
-  if (await username.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
-    await username.fill("writer");
-    await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page.locator('[data-action="logout"]')).toBeVisible();
-  }
-}
 
 const overflowOf = (page, selector) =>
   page.evaluate((selector) => {
@@ -175,145 +164,3 @@ const page_ = (items, extra = {}) => ({ state: "approved", kind: "third-perspect
 const WORKS = [{ path: "/neaps/", title: "Neap tides", series: "ocean" }, { path: "/springs/", title: "Spring tides", series: null }];
 const NOTICE = "These links connect later work to earlier questions and reflections.";
 
-test("an editor previews, links, removes and sweeps continuation links from the keyboard", async ({ page }) => {
-  const calls = [];
-  let links = [{ id: "link-1", origin: ID(9), kind: "question", relation: "takes-up", from: "/tides/", to: "/neaps/", series: "ocean", note: null, linked: "2026-10-20", standing: "notApproved", shown: false, hidden: null }];
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([item(1), item(2, { role: "moderator" }), item(3, { status: "pending", statusLabel: "Pending" })])));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features: [] }));
-  await page.route(`${origin}/admin/api/engagement/continuations`, (route) => json(route, 200, { truncated: false, links, works: WORKS, notice: NOTICE }));
-  await page.route(`${origin}/admin/api/engagement/continuations/preview`, async (route) => {
-    calls.push(["preview", route.request().postDataJSON()]);
-    return json(route, 200, { preview: { kind: "reflection", relation: "takes-up", from: "/tides/", to: "/neaps/", series: "ocean", note: NOTE }, notice: NOTICE });
-  });
-  await page.route(`${origin}/admin/api/engagement/continuations/link`, async (route) => {
-    const body = route.request().postDataJSON();
-    calls.push(["link", body]);
-    if (body.note?.includes("caused")) return json(route, 422, { error: "`note` must not say the submission caused or is endorsed by the work", code: "invalid" });
-    links = [...links, { id: "link-2", origin: ID(1), kind: "reflection", relation: "takes-up", from: "/tides/", to: "/neaps/", series: "ocean", note: NOTE, linked: "2026-10-28", standing: "approved", shown: true, hidden: null }];
-    return json(route, 200, { linked: true, id: "link-2", build: { ok: true } });
-  });
-  await page.route(`${origin}/admin/api/engagement/continuations/unlink`, async (route) => {
-    calls.push(["unlink", route.request().postDataJSON()]);
-    links = links.filter((entry) => entry.id !== route.request().postDataJSON().id);
-    return json(route, 200, { unlinked: true, build: { ok: true } });
-  });
-  await page.route(`${origin}/admin/api/engagement/continuations/sweep`, async (route) => {
-    calls.push(["sweep", route.request().postDataJSON()]);
-    links = links.filter((entry) => entry.standing !== "notApproved");
-    return json(route, 200, { dropped: 1, build: { ok: true } });
-  });
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
-
-  // Only the site Admin, only an approved item.
-  const form = page.locator(`[data-moderation-id="${ID(1)}"] [data-continuation-form]`);
-  await expect(form.getByRole("heading", { name: "Link to a later work", level: 4 })).toBeVisible();
-  await expect(page.locator(`[data-moderation-id="${ID(2)}"] [data-continuation-form]`)).toHaveCount(0);
-  await expect(page.locator(`[data-moderation-id="${ID(3)}"] [data-continuation-form]`)).toHaveCount(0);
-
-  // The list shows the stale link with its standing, in words.
-  const section = page.locator("[data-continuations]");
-  await expect(section.getByRole("heading", { name: "Continuation links", level: 2 })).toBeVisible();
-  await expect(section).toContainText("Its submission is no longer approved here, so it is not shown.");
-
-  // A choice needs a work.
-  await form.getByRole("button", { name: "Preview" }).click();
-  await expect(form.getByRole("status")).toContainText("Choose the later work first.");
-  expect(calls).toEqual([]);
-
-  const note = form.getByLabel("Your note");
-  await expect(note).toHaveAccessibleDescription(/refused if it says the submission caused the work/);
-  await expect(note).toHaveAttribute("maxlength", "280");
-  await form.getByLabel("Later work").selectOption("/neaps/");
-  await note.fill(`  ${NOTE}  `);
-  await form.getByRole("button", { name: "Preview" }).focus();
-  await page.keyboard.press("Enter");
-  const preview = form.locator("[data-continuation-preview]");
-  await expect(preview).toContainText(NOTICE);
-  await expect(preview).toContainText("From /tides/ to /neaps/ (takes-up, series ocean).");
-  await expect(preview).toContainText(`Your note: ${NOTE}`);
-  expect(calls).toEqual([["preview", { id: ID(1), to: "/neaps/", relation: "takes-up", note: NOTE, expectedVersion: 5 }]]);
-
-  // A refused note says why and keeps the form.
-  await note.fill("Our post caused this one.");
-  await form.getByRole("button", { name: "Link to the later work" }).click();
-  await expect(form.getByRole("status")).toContainText("must not say the submission caused");
-  await expect(form.getByRole("button", { name: "Link to the later work" })).toBeEnabled();
-
-  await note.fill(NOTE);
-  await form.getByRole("button", { name: "Link to the later work" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(page.locator(".oba-feedback-section").first().locator('p[role="status"]').first()).toContainText("Linked.");
-  expect(calls.at(-1)).toEqual(["link", { id: ID(1), to: "/neaps/", relation: "takes-up", note: NOTE, expectedVersion: 5 }]);
-  await expect(section).toContainText("It is shown on both pages.");
-
-  // The sweep drops what the hosted service says is gone; removal takes a shown link off.
-  await section.getByRole("button", { name: "Check for withdrawn submissions" }).click();
-  await expect(page.locator(".oba-feedback-section").first().locator('p[role="status"]').first()).toContainText("1 link of withdrawn or removed submissions dropped.");
-  await expect(section).not.toContainText("no longer approved");
-  await section.getByRole("button", { name: "Remove the link" }).click();
-  await expect(page.locator(".oba-feedback-section").first().locator('p[role="status"]').first()).toContainText("The link was removed from both pages.");
-  expect(calls.at(-1)).toEqual(["unlink", { id: "link-2" }]);
-  await expect(section).toContainText("No links yet.");
-});
-
-test("a moderator who is not the site Admin is not offered the section", async ({ page }) => {
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([item(1, { role: "moderator" })])));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 403, { error: "denied" }));
-  await page.route(`${origin}/admin/api/engagement/continuations`, (route) => json(route, 403, { error: "Only the site Admin can change the continuation links.", code: "denied" }));
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
-  await expect(page.locator(`[data-moderation-id="${ID(1)}"]`)).toBeVisible();
-  await expect(page.locator("[data-continuations]")).toBeHidden();
-  await expect(page.locator("[data-continuation-form]")).toHaveCount(0);
-});
-
-test("a slow continuations list still ends with the section, the cards and their forms, and no failure", async ({ page }) => {
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([item(1)])));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features: [] }));
-  await page.route(`${origin}/admin/api/engagement/continuations`, async (route) => {
-    await new Promise((done) => setTimeout(done, 2500));
-    return json(route, 200, { truncated: false, links: [], works: WORKS, notice: NOTICE });
-  });
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
-  // The list is slow, not broken: once it arrives the section, the card and its form all show,
-  // and nothing said the load failed.
-  await expect(page.locator("[data-continuations]")).toBeVisible({ timeout: 15000 });
-  await expect(page.locator("[data-continuations]")).toContainText("No links yet.");
-  await expect(page.locator("[data-continuations]")).not.toContainText("could not be loaded");
-  const form = page.locator(`[data-moderation-id="${ID(1)}"] [data-continuation-form]`);
-  await expect(form.getByLabel("Later work")).toBeVisible();
-  await expect(form.getByLabel("Later work").locator("option")).toHaveCount(WORKS.length + 1);
-});
-
-test("a continuations list that cannot be loaded says so instead of vanishing", async ({ page }) => {
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([item(1)])));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features: [] }));
-  await page.route(`${origin}/admin/api/engagement/continuations`, (route) => json(route, 500, { error: "The service is down." }));
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/approved?kind=third-perspective`);
-  const section = page.locator("[data-continuations]");
-  await expect(section).toBeVisible();
-  await expect(section.getByRole("status")).toContainText("The continuation links could not be loaded");
-  await expect(section.getByRole("status")).toContainText("nothing was changed");
-  // A refused load stays quiet for someone who is not offered the section, and a dropped
-  // connection is a failure like a server fault.
-  await page.unroute(`${origin}/admin/api/engagement/continuations`);
-  await page.route(`${origin}/admin/api/engagement/continuations`, (route) => route.abort("connectionreset"));
-  await page.reload();
-  await expect(page.locator("[data-continuations]").getByRole("status")).toContainText("could not be loaded");
-});
-
-test("a decision whose continuation links could not be dropped tells the moderator", async ({ page }) => {
-  const reject = { action: "reject", label: "Reject", reasons: [], guidance: "" };
-  const MESSAGE = "The submission's continuation links could not be removed, so a link may still show on the pages. Run \"Check for withdrawn submissions\" or remove the link by hand.";
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([item(3, { status: "pending", statusLabel: "Pending", actions: [reject] })], { state: "pending" })));
-  await page.route(`${origin}/admin/api/engagement/moderation`, (route) => json(route, 200, { item: item(3), published: false, publishError: null, build: { ok: true }, removedTarget: false, continuationsDropped: 0, continuationsError: MESSAGE }));
-  await page.route(`${origin}/admin/api/engagement/community/features`, (route) => json(route, 200, { truncated: false, features: [] }));
-  await page.route(`${origin}/admin/api/engagement/continuations`, (route) => json(route, 200, { truncated: false, links: [], works: WORKS, notice: NOTICE }));
-  await signIn(page);
-  await page.goto(`${origin}/admin/#/moderation/pending?kind=third-perspective`);
-  await page.locator(`[data-moderation-id="${ID(3)}"]`).getByRole("button", { name: "Reject" }).click();
-  await expect(page.getByText("Rejected. Nothing was published.").first()).toContainText("Check for withdrawn submissions");
-});

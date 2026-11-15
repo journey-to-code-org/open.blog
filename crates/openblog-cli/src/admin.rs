@@ -74,7 +74,6 @@ use openblog_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as Json};
 
-use crate::admin_preferences::{self, Preferences, SaveError};
 use crate::alignment_store;
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
@@ -95,13 +94,20 @@ mod greetings;
 mod job_sharing;
 mod landing;
 mod look;
+mod onboarding;
+mod path_codes;
+mod pieces;
+mod post_settings;
 mod push;
 mod quote;
 mod reading_paths;
+mod research;
 mod seasonal;
 mod seasons;
 mod social;
+pub(crate) mod studio_words;
 mod theme_draft;
+mod together;
 mod trade_checklist;
 mod voice;
 mod voice_guide;
@@ -176,6 +182,8 @@ struct PreviewDocument {
     token: String,
     html: String,
     csp: String,
+    /// Who it was made for. A co-writer sign-in opens only its own (Studio R14 G110).
+    owner: String,
 }
 
 pub struct AppState {
@@ -204,8 +212,24 @@ pub struct AppState {
     pub workspace_enabled: bool,
     /// This server starts again from its image when it restarts (ADR 0353).
     pub host_resets_files: bool,
+    /// The server was started to listen on an address other machines can reach (`--host` is not
+    /// this computer's own): set by `serve`. One of the things that say it is deployed (S3).
+    pub listens_beyond_this_computer: bool,
+    /// A host's own variable is set (Render, Railway, Fly, Heroku, Cloud Run): it is deployed.
+    pub hosted_env: bool,
+    /// The host chose the port (`PORT` is set); with a public site address, it is deployed.
+    pub port_env: bool,
+    /// The host's file of Studio's words (`OPENBLOG_STUDIO_WORDS_PATH`), read on every `meta`.
+    pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
+    /// The server's Getting started switch (`OPENBLOG_STUDIO_ONBOARDING`), read once at start.
+    /// It wins over `studio.onboarding` in the site's file (Studio R9b, G70).
+    pub onboarding_env: Option<String>,
+    /// Looks saved a moment ago that can still be undone (G68): in memory, ten minutes each.
+    theme_undos: Mutex<Vec<theme_draft::ThemeUndo>>,
+    /// When each session last asked the provider to check its key (at most once per 10 s).
+    assistant_checks: Mutex<BTreeMap<String, std::time::Instant>>,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
     /// Small, bounded cache of generated documents served into sandboxed previews.
@@ -286,7 +310,16 @@ impl AppState {
             workspace: Mutex::new(None),
             workspace_enabled: false,
             host_resets_files: crate::workspace::host_resets_files(),
+            listens_beyond_this_computer: false,
+            // A test's server is never a hosted one, whatever the machine running the tests sets.
+            hosted_env: !cfg!(test) && hosted_env_given(|name| std::env::var(name).ok()),
+            port_env: !cfg!(test)
+                && std::env::var("PORT").is_ok_and(|port| !port.trim().is_empty()),
+            studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
+            onboarding_env: crate::onboarding::environment_value(),
+            theme_undos: Mutex::new(Vec::new()),
+            assistant_checks: Mutex::new(BTreeMap::new()),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
             portability_acknowledgements: Mutex::new(()),
@@ -419,6 +452,9 @@ impl AppState {
     /// serialises content writes so two saves never interleave.
     pub fn rebuild_locked(&self, status: &mut BuildStatus) -> Result<BuildReport, String> {
         let now = clock::now();
+        if let Ok(config) = site::load_config(&self.root) {
+            sort_route_files(&self.root, &config, now);
+        }
         let result = site::build(
             &self.root,
             &BuildOptions {
@@ -450,12 +486,28 @@ impl AppState {
         // Scheduled shared reflections are held privately and checked again as they fall due.
         fire_due_shared_publications(self);
         let mut status = lock(&self.build);
-        let due = status.next_due.is_some_and(|d| d <= clock::now());
-        if due {
-            Some(self.rebuild_locked(&mut status))
-        } else {
-            None
+        let now = clock::now();
+        let due = status.next_due.is_some_and(|d| d <= now);
+        if !due {
+            return None;
         }
+        // The posts going up now, by title, so the send-out says which (Studio R5 G37).
+        let titles: Vec<String> = status
+            .scheduled
+            .iter()
+            .filter(|(_, _, date)| DateTime::parse(date).is_some_and(|date| date <= now))
+            .map(|(title, _, _)| title.clone())
+            .collect();
+        let result = self.rebuild_locked(&mut status);
+        drop(status);
+        // A site that sends itself out after a save sends a scheduled post out when it goes up too,
+        // so it reaches readers by itself and not at the next save.
+        if result.is_ok() {
+            if let Some(summary) = post_settings::scheduled_summary(&titles) {
+                state_arc(self).auto_publish(summary);
+            }
+        }
+        Some(result)
     }
 
     fn out_dir(&self, config: &SiteConfig) -> PathBuf {
@@ -518,10 +570,14 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         return Err(secured(Response::error(404, "Not found")));
     }
     if let Some(name) = req.path.strip_prefix("/admin/api/") {
-        if name == "login" {
+        if name == "login" || name == together::JOIN {
             return Ok(MAX_LOGIN_BODY);
         }
-        authenticate(state, req).map_err(secured)?;
+        let session = authenticate(state, req).map_err(secured)?;
+        // A co-writer sign-in (Studio R14 G110) is refused before any body is read.
+        if session.co_writer && !together::co_writer_may(&req.method, name) {
+            return Err(secured(together::refused()));
+        }
         if name == "upload" {
             let config = site::load_config(&state.root).unwrap_or_default();
             return Ok(upload_intake_bytes(&config));
@@ -535,7 +591,7 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         if name == "seasons" || name == "seasons/preview" {
             return Ok(seasons::MAX_REQUEST_BYTES);
         }
-        if name == "decorations" || name == "decorations/preview" {
+        if name == "decorations" {
             return Ok(decorations::MAX_REQUEST_BYTES);
         }
         if name == "business" {
@@ -604,6 +660,22 @@ fn route(state: &AppState, req: &Request) -> Response {
     if path == "/admin/studio" || path.starts_with("/admin/studio/") {
         return studio_file(path);
     }
+    // The one service worker (ADR 0412, Studio R3 G21): Studio's file, at the address and scope
+    // existing installs and sign-ups already have, so a new file is an update of the same worker and
+    // every sign-up survives. Always asked again, so an update is seen at once; a site can't replace it.
+    if path == "/admin/sw.js" {
+        return match studio_bytes("sw.js") {
+            Some(bytes) => {
+                // Which release of Studio's files it keeps for opening with no signal (R4 G35): a
+                // new release is a new worker, which replaces the old copy.
+                let mut script = studio_release_line().into_bytes();
+                script.extend_from_slice(bytes);
+                Response::new(200, "text/javascript; charset=utf-8", script)
+                    .with_header("Cache-Control", "no-cache")
+            }
+            None => Response::error(404, "Not found"),
+        };
+    }
     if path == CODE_RUNNER_LANGUAGE_PATH {
         let config = site::load_config(&state.root).unwrap_or_default();
         return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
@@ -611,10 +683,16 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
-    // The installed app (ADR 0412): its manifest from the site's own name, and its icons, which a
-    // site may replace with its own under `<paths.web>/admin/icons/`.
+    // The installed app (ADR 0412): its manifest from the site's own name, and its icons (Studio's,
+    // `web/studio/icons/`), which a site may replace with its own under `<paths.web>/admin/icons/`.
     if path == "/admin/manifest.webmanifest" {
-        return push::manifest(&site::load_config(&state.root).unwrap_or_default());
+        let config = site::load_config(&state.root).unwrap_or_default();
+        let trade = {
+            let _guard = lock(&state.build);
+            let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+            is_trade_site(&config, &sources)
+        };
+        return push::manifest(&config, trade);
     }
     if let Some(icon) = path.strip_prefix("/admin/icons/") {
         let config = site::load_config(&state.root).unwrap_or_default();
@@ -624,57 +702,16 @@ fn route(state: &AppState, req: &Request) -> Response {
             None => Response::error(404, "Not found"),
         };
     }
-    let file = match path {
-        "/admin" | "/admin/" => "index.html",
-        "/admin/admin.js" => "admin.js",
-        "/admin/block-forms.js" => "block-forms.js",
-        "/admin/admin.css" => "admin.css",
-        "/admin/landing.js" => "landing.js",
-        "/admin/look.js" => "look.js",
-        "/admin/business.js" => "business.js",
-        "/admin/seasons.js" => "seasons.js",
-        "/admin/theme-designer.js" => "theme-designer.js",
-        "/admin/seasonal.js" => "seasonal.js",
-        "/admin/trade-checklist.js" => "trade-checklist.js",
-        "/admin/distribution.js" => "distribution.js",
-        "/admin/services.js" => "services.js",
-        "/admin/proof.js" => "proof.js",
-        "/admin/paste.js" => "paste.js",
-        "/admin/landing-history.js" => "landing-history.js",
-        "/admin/lasting.js" => "lasting.js",
-        "/admin/checks.js" => "checks.js",
-        "/admin/checks-panel.js" => "checks-panel.js",
-        "/admin/job-form.js" => "job-form.js",
-        "/admin/job-capture.js" => "job-capture.js",
-        "/admin/capture-queue.js" => "capture-queue.js",
-        "/admin/capture-recorder.js" => "capture-recorder.js",
-        "/admin/capture-assistant.js" => "capture-assistant.js",
-        "/admin/voice.js" => "voice.js",
-        "/admin/voice-session.js" => "voice-session.js",
-        "/admin/voice-polished.js" => "voice-polished.js",
-        "/admin/social.js" => "social.js",
-        "/admin/quotes.js" => "quotes.js",
-        "/admin/greetings.js" => "greetings.js",
-        "/admin/notifications.js" => "notifications.js",
-        "/admin/sw.js" => "sw.js",
-        "/admin/announcements.js" => "announcements.js",
-        "/admin/job-share.js" => "job-share.js",
-        "/admin/voice-library.js" => "voice-library.js",
-        _ => return Response::error(404, "Not found"),
-    };
-    let config = site::load_config(&state.root).unwrap_or_default();
-    match site::admin_file(&state.root, &config, file) {
-        Some(bytes) => {
-            let ctype = match file {
-                name if name.ends_with(".js") => "text/javascript; charset=utf-8",
-                "admin.css" => "text/css; charset=utf-8",
-                _ => "text/html; charset=utf-8",
-            };
-            Response::new(200, ctype, bytes)
-        }
-        None => Response::error(404, "Not found"),
-    }
+    // The old Admin was retired (R15, ADR 0415): its address opens Studio. A 302, never cached
+    // (`no-store` from `secured`), so a rollback works at once; the query goes (Studio's kept copy
+    // opens only a query-less address) and the browser keeps the `#…`, which Studio's
+    // `legacyRoute` maps. Any other address under /admin/ that isn't Studio's, the worker, the
+    // manifest or the icons was one of the old Admin's files or pages, and opens Studio too.
+    Response::new(302, "text/plain; charset=utf-8", Vec::new()).with_header("Location", STUDIO_HOME)
 }
+
+/// Studio's address: where `/admin/` and every old Admin page now go.
+pub(crate) const STUDIO_HOME: &str = "/admin/studio/";
 
 /// Headers every admin response carries.
 fn header_default(mut response: Response, name: &str, value: &str) -> Response {
@@ -699,10 +736,17 @@ fn studio_file(path: &str) -> Response {
         "" => "index.html",
         rel => rel,
     };
-    let Some((_, bytes)) = crate::studio_files::STUDIO_FILES
-        .iter()
-        .find(|(name, _)| *name == rel)
-    else {
+    // The worker lives at /admin/sw.js only: served from here too, it could be registered with a
+    // second, narrower scope.
+    // Which release the page is (R4 Details: the worker's, the page's and the server's side by side).
+    if rel == "release.js" {
+        return Response::new(
+            200,
+            "text/javascript; charset=utf-8",
+            format!("export const RELEASE = \"{}\";\n", studio_release().0).into_bytes(),
+        );
+    }
+    let Some(bytes) = studio_bytes(rel).filter(|_| rel != "sw.js") else {
         return Response::error(404, "Not found");
     };
     let ctype = match rel.rsplit('.').next() {
@@ -712,17 +756,71 @@ fn studio_file(path: &str) -> Response {
         Some("json") => "application/json",
         Some("svg") => "image/svg+xml",
         Some("woff2") => "font/woff2",
+        Some("png") => "image/png",
         _ => "application/octet-stream",
     };
     Response::new(200, ctype, bytes.to_vec())
 }
 
+/// This release of Studio's files: its version (a hash of every Studio file) and the addresses of
+/// the files the worker keeps so Studio opens with no signal (R4 G35), including `release.js`, which
+/// tells the page its own version. Never an API address, never the old Admin's files.
+fn studio_release() -> &'static (String, Vec<String>) {
+    static RELEASE: std::sync::OnceLock<(String, Vec<String>)> = std::sync::OnceLock::new();
+    RELEASE.get_or_init(|| {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut files = vec!["/admin/studio/release.js".to_string()];
+        for (name, bytes) in crate::studio_files::STUDIO_FILES {
+            for byte in name.as_bytes().iter().chain(bytes.iter()) {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            let skip = *name == "sw.js"
+                || name.ends_with(".md")
+                || name.ends_with("LICENSE")
+                || name.ends_with(".json");
+            if !skip {
+                files.push(if *name == "index.html" {
+                    "/admin/studio/".to_string()
+                } else {
+                    format!("/admin/studio/{name}")
+                });
+            }
+        }
+        files.sort();
+        (format!("{hash:016x}"), files)
+    })
+}
+
+/// The first line of the served worker: this release's version and the files it keeps.
+pub(crate) fn studio_release_line() -> String {
+    let (version, files) = studio_release();
+    format!(
+        "self.STUDIO_RELEASE = {};\n",
+        json!({ "version": version, "files": files })
+    )
+}
+
+/// One of Studio's embedded files, by its path under `web/studio/`.
+pub(crate) fn studio_bytes(rel: &str) -> Option<&'static [u8]> {
+    crate::studio_files::STUDIO_FILES
+        .iter()
+        .find(|(name, _)| *name == rel)
+        .map(|(_, bytes)| *bytes)
+}
+
+/// The policy every Admin and Studio page and answer carries.
+const ADMIN_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https: blob:; \
+     media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
 fn secured(response: Response) -> Response {
     let response = header_default(
         response,
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
-         frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        // Studio R8: nothing in Studio or the old Admin loads WebAssembly or frames another site.
+        // Runnable code and embeds are only ever shown inside the preview frame, which carries
+        // its own policy (`preview_csp`).
+        ADMIN_CSP,
     );
     let response = header_default(response, "X-Frame-Options", "DENY");
     let response = header_default(response, "Referrer-Policy", "same-origin");
@@ -733,17 +831,29 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     if name == "login" {
         return login(state, req);
     }
+    if name == together::JOIN {
+        return together::coded(together::join(state, req));
+    }
     let session = match authenticate(state, req) {
         Ok(s) => s,
         Err(r) => return r,
     };
+    // A co-writer sign-in reaches only Writing together (Studio R14 G110): checked here, before
+    // the CSRF check and before any handler, for every route, so a new route is an owner's.
+    if session.co_writer && !together::co_writer_may(&req.method, name) {
+        return together::refused();
+    }
     if !req.is_read_only() {
         if let Err(r) = check_csrf(req, &session) {
             return r;
         }
     }
     if !state.workspace_enabled {
-        return authenticated_api(state, req, name, &session);
+        return research::coded(
+            name,
+            &req.method,
+            collaboration_coded(name, authenticated_api(state, req, name, &session)),
+        );
     }
     let mut workspace = lock(&state.workspace);
     // Social routes change nothing on disk, so they never open a workspace transaction.
@@ -779,7 +889,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             }
         }
     }
-    let response = authenticated_api(state, req, name, &session);
+    let response = research::coded(
+        name,
+        &req.method,
+        collaboration_coded(name, authenticated_api(state, req, name, &session)),
+    );
     if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
@@ -804,7 +918,105 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     response
 }
 
+/// Every collaboration answer carries a code (Studio R14 G117).
+fn collaboration_coded(name: &str, response: Response) -> Response {
+    if name.starts_with("collaboration/") {
+        together::coded(response)
+    } else {
+        response
+    }
+}
+
 fn authenticated_api(
+    state: &AppState,
+    req: &Request,
+    name: &str,
+    session: &auth::Session,
+) -> Response {
+    let response = authenticated_api_routes(state, req, name, session);
+    if name.starts_with("engagement/") || name == "analytics" {
+        return with_engagement_code(response);
+    }
+    if name.starts_with("reading-paths") || name.starts_with("comparisons") {
+        return with_curation_code(response);
+    }
+    response
+}
+
+/// R13 G98: every refusal from a reading-path or comparison route carries a top-level `code`. A route that
+/// already sent one keeps it; the sentence is never changed.
+fn with_curation_code(mut response: Response) -> Response {
+    if response.status < 400 || response.status == 401 {
+        return response;
+    }
+    let Ok(mut body) = serde_json::from_slice::<Json>(&response.body) else {
+        return response;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return response;
+    };
+    if object.contains_key("code") {
+        return response;
+    }
+    let code = match response.status {
+        400 => "bad-request",
+        404 => "missing",
+        409 => "changed",
+        413 => "too-large",
+        422 => "invalid",
+        _ => "storage",
+    };
+    object.insert("code".into(), json!(code));
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        response.body = bytes;
+    }
+    response
+}
+
+/// R10 G81: every refusal from an `engagement/*` or `analytics` route says what kind of trouble it is, so
+/// Studio can answer in her words instead of guessing from a status or a sentence. A route that already sent a
+/// `code` keeps it; the sentence is never changed.
+fn with_engagement_code(mut response: Response) -> Response {
+    if response.status < 400 || response.status == 401 {
+        return response;
+    }
+    let Ok(mut body) = serde_json::from_slice::<Json>(&response.body) else {
+        return response;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return response;
+    };
+    if object.contains_key("code") {
+        return response;
+    }
+    let message = object
+        .get("error")
+        .and_then(Json::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let code = match response.status {
+        404 if message.contains("not configured") || message.contains("not set up") => "not-set-up",
+        503 if message.contains("credential") => "not-set-up",
+        404 => "gone",
+        403 => "not-yours",
+        409 => "changed",
+        502 => "service-down",
+        504 => "service-slow",
+        422 if message.contains("moderation state") => "unknown-state",
+        422 if message.contains("participation kind") => "unknown-kind",
+        422 if message.contains("cursor") => "bad-cursor",
+        422 if message.contains("reason") => "reason-not-allowed",
+        413 => "too-long",
+        _ => return response,
+    };
+    object.insert("code".into(), json!(code));
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        response.body = bytes;
+    }
+    response
+}
+
+fn authenticated_api_routes(
     state: &AppState,
     req: &Request,
     name: &str,
@@ -812,7 +1024,7 @@ fn authenticated_api(
 ) -> Response {
     if req.method == "GET" {
         if let Some(token) = name.strip_prefix("preview/") {
-            return preview_document(state, token);
+            return preview_document(state, token, session);
         }
     }
     if let Some(rest) = name.strip_prefix("quote/") {
@@ -835,7 +1047,21 @@ fn authenticated_api(
         if announcements::owns(rest) {
             return announcements::handle(state, req, session, rest);
         }
+        // G62: an account's app password is a secret like any other.
+        if req.method == "POST"
+            && serde_json::from_slice::<Json>(&req.body).is_ok_and(|body| {
+                body.get("appPassword")
+                    .is_some_and(|value| !value.is_null())
+            })
+        {
+            if let Some(refusal) = secret_over_plain_http(state, req) {
+                return refusal;
+            }
+        }
         return social::route(req, &session.user, rest);
+    }
+    if let (true, Some(theme)) = (req.method == "DELETE", theme_draft::undo_route(name)) {
+        return theme_draft::undo(state, req, theme, &session.csrf);
     }
     if let Some(route) = voice::sample_route(name) {
         return match (req.method.as_str(), route) {
@@ -843,6 +1069,9 @@ fn authenticated_api(
             ("PUT", voice::SampleRoute::One(id)) => voice::save_polished(state, req, id),
             ("POST", voice::SampleRoute::Visibility(id)) => voice::set_visibility(state, req, id),
             ("POST", voice::SampleRoute::Promote(id)) => voice::promote(state, req, id),
+            ("DELETE", voice::SampleRoute::One(id)) => {
+                voice::delete_piece(state, req, id, &session.user)
+            }
             _ => Response::error(404, "Unknown API route"),
         };
     }
@@ -852,19 +1081,25 @@ fn authenticated_api(
             200,
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
-        ("GET", "meta") => meta(state),
+        ("GET", "meta") => together::meta(state, session, || meta_for(state, &session.user)),
+        ("GET", "onboarding") => onboarding::get(state, &session.user),
+        ("PUT", "onboarding") => onboarding::put(state, req, &session.user),
+        ("GET", "onboarding/nudge") => onboarding::nudge(state, &session.user),
+        ("POST", "onboarding/nudge") => onboarding::nudge_event(state, req, &session.user),
+        ("GET", "onboarding/accounts") => onboarding::accounts(state),
+        ("POST", "onboarding/reset") => onboarding::reset(state, req, &session.user),
+        ("PUT", "onboarding/restore") => onboarding::restore(state, req, &session.user),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "theme-draft") => theme_draft::options(state),
         ("POST", "theme-draft") => theme_draft::draft(state, req),
         ("POST", "theme-draft/preview") => theme_draft::preview(state, req),
-        ("POST", "theme-draft/save") => theme_draft::save(state, req),
+        ("POST", "theme-draft/save") => theme_draft::save(state, req, &session.csrf),
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
         ("GET", "decorations") => decorations::get_decorations(state),
         ("PUT", "decorations") => decorations::save_decorations(state, req),
-        ("POST", "decorations/preview") => decorations::preview_decorations(state, req),
         ("GET", "business") => business::get_business(state),
         ("PUT", "business") => business::save_business(state, req),
         ("GET", "seasonal") => seasonal::get_seasonal(state),
@@ -873,13 +1108,12 @@ fn authenticated_api(
         ("POST", "seasonal/open") => seasonal::open(state, req),
         ("GET", "job-share") => job_sharing::get(state, req),
         ("GET", "trade-checklist") => trade_checklist::get(state),
+        ("PUT", "trade-checklist") => trade_checklist::put(state, req),
         ("GET", "distribution") => crate::outcomes::admin_get(state, req),
         ("POST", "job-share/by-hand") => job_sharing::by_hand(state, req),
         ("GET", "look") => look::get_look(state),
         ("PUT", "look") => look::save_look(state, req),
         ("POST", "look/preview") => look::preview(state, req),
-        ("GET", "preferences") => admin_preferences(state, &session.user),
-        ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "sources") => list_sources(state),
         ("POST", "sources") => save_source(state, req, true),
         ("PUT", "sources") => save_source(state, req, false),
@@ -925,6 +1159,7 @@ fn authenticated_api(
         ("GET", "comparisons/references") => comparisons::references(state),
         ("GET", "comparisons/item") => comparisons::get(state, req),
         ("POST", "comparisons/preview") => comparisons::preview(state, req),
+        ("POST", "comparisons/restore") => comparisons::restore(state, req),
         ("POST", "comparisons/approve") => comparisons::decide(state, req, &session.user, true),
         ("POST", "comparisons/revoke") => comparisons::decide(state, req, &session.user, false),
         ("POST", "comparisons") => comparisons::save(state, req, true),
@@ -936,35 +1171,40 @@ fn authenticated_api(
         ("GET", "landing/history") => landing::history_list(state),
         ("GET", "landing/history/item") => landing::history_item(state, req),
         ("POST", "landing/history/restore") => landing::history_restore(state, req),
-        ("GET", "voice/catalog") => voice::catalog(state),
-        ("GET", "voice/status") => voice::status(state),
+        ("GET", "voice/status") => voice::status(state, &session.user),
+        ("POST", "voice/invitation") => voice::set_invitation(state, req, &session.user),
+        ("POST", "voice/spoken") => voice::spoken(state, req, &session.user),
         ("POST", "voice/draw") => voice::draw(state, req),
-        ("GET", "voice/session") => voice::get_session(state),
+        ("GET", "voice/session") => voice::get_session(state, req),
         ("DELETE", "voice/session") => voice::scrap(state, req),
         ("GET", "voice/erase") => voice::erase_plan(state),
         ("POST", "voice/erase") => voice::erase(state, req),
         ("GET", "voice/guide/move") => voice::guide_move_plan(state, req),
         ("POST", "voice/guide/move") => voice::guide_move(state, req),
-        ("POST", "voice/session/start") => voice::start(state, req),
+        ("POST", "voice/session/start") => voice::start(state, req, &session.user),
         ("PUT", "voice/session/draft") => voice::save_draft(state, req),
         ("POST", "voice/session/lock") => voice::lock_session(state, req),
-        ("GET", "voice/samples") => voice::list(state),
+        ("GET", "voice/samples") => voice::list(state, req),
         ("POST", "voice/samples") => voice::create_polished(state, req),
         ("GET", "reading-paths") => reading_paths::list(state),
         ("GET", "reading-paths/targets") => reading_paths::targets(state),
         ("GET", "reading-paths/path") => reading_paths::get(state, req),
         ("POST", "reading-paths/preview") => reading_paths::preview(state, req),
-        ("POST", "reading-paths/reorder") => reading_paths::reorder(state, req),
+        ("POST", "reading-paths/restore") => reading_paths::restore(state, req),
         ("POST", "reading-paths") => reading_paths::save(state, req, true),
         ("PUT", "reading-paths") => reading_paths::save(state, req, false),
         ("DELETE", "reading-paths") => reading_paths::remove(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
-        ("PUT", "assistant/settings") => save_assistant_settings(state, req),
+        ("PUT", "assistant/settings") => save_assistant_settings(state, req, session),
+        ("POST", "assistant/check") => check_assistant_provider(state, req, session),
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
+        ("GET", "engagement/health") => engagement_health(state, req),
         ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
+        ("GET", "engagement/moderation/item") => moderation_inbox_one(state, req, session),
+        ("PATCH", "engagement/moderation/batch") => moderate_inbox_batch(state, req, session),
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
         ("POST", "engagement/author-response") => author_answer(state, req, session),
         ("PATCH", "engagement/author-response") => withdraw_author_answer(state, req, session),
@@ -1023,6 +1263,7 @@ fn authenticated_api(
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
         ("GET", "assistant/context") => assistant_context_catalog(state, req),
+        ("GET", "assistant/context/item") => assistant_context_item(state, req),
         ("PUT", "assistant/context") => save_assistant_context(state, req),
         ("DELETE", "assistant/context") => delete_assistant_context(state, req),
         ("POST", "assistant/reference") => create_assistant_reference(state, req),
@@ -1031,12 +1272,19 @@ fn authenticated_api(
         ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
-        ("GET", "collaboration/publications") => list_shared_publications(state, session),
-        ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
+        ("GET", "collaboration/publications") => together::list(state, req, session),
+        ("POST", "collaboration/publications") => together::create(state, req, session),
+        ("POST", "collaboration/publications/archive") => together::put_away(state, req, session),
+        ("GET", "collaboration/co-writers") => together::co_writers(state, session),
+        ("POST", "collaboration/co-writers/remove") => {
+            together::remove_co_writer(state, req, session)
+        }
         ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
         ("GET", "collaboration/invitations") => list_invitations(state, req, session),
-        ("POST", "collaboration/invitations") => create_invitation(state, req, session),
-        ("POST", "collaboration/invitations/revoke") => revoke_invitation(state, req, session),
+        ("POST", "collaboration/invitations") => together::invite(state, req, session),
+        ("POST", "collaboration/invitations/revoke") => {
+            together::then_release(state, revoke_invitation(state, req, session))
+        }
         ("POST", "collaboration/invitations/reissue") => reissue_invitation(state, req, session),
         ("GET", "collaboration/members") => list_members(state, req, session),
         ("POST", "collaboration/members/roles") => change_member_roles(state, req, session),
@@ -1066,7 +1314,7 @@ fn authenticated_api(
             answer_invitation(state, req, session, true)
         }
         ("POST", "collaboration/invitations/decline") => {
-            answer_invitation(state, req, session, false)
+            together::then_release(state, answer_invitation(state, req, session, false))
         }
         ("GET", "status") => status(state),
         ("GET", "recipe-notes") => recipe_notes(state),
@@ -1092,15 +1340,17 @@ fn authenticated_api(
                 None => Response::error(400, "Missing ?path="),
             }
         }
-        ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "document/restore") => restore_document(state, req),
         ("POST", "upload") => upload(state, req),
         ("GET", "images") => list_images(state),
         ("POST", "capture-audio") => upload_capture_audio(state, req),
+        ("GET", "capture-audio") => capture_audio(state, req),
+        ("GET", "capture") => capture_status(state, req),
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "video/release") => video_release_preview(state, req),
         ("POST", "pieces") => build_piece(req),
         ("POST", "job/check") => job_check(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
@@ -1123,6 +1373,10 @@ fn authenticated_api(
             match crate::publish::status(&state.root, &config) {
                 Ok(mut v) => {
                     v["filesMayVanish"] = json!(state.files_may_vanish());
+                    // Studio R5 G37: how the site goes out and when the next scheduled post is due.
+                    v["mode"] = json!(post_settings::publish_mode(&state.root, &config));
+                    v["schedule"] = json!(post_settings::schedule_mode(&state.root, &config));
+                    v["nextDue"] = json!(lock(&state.build).next_due.map(|due| due.rfc3339()));
                     Response::json(200, &v)
                 }
                 Err(e) => Response::error(500, &e),
@@ -1185,12 +1439,19 @@ fn authenticate(state: &AppState, req: &Request) -> Result<auth::Session, Respon
         .ok_or_else(|| Response::error(401, "Session expired; sign in again"))?;
     // A removed user, or one whose password changed, is signed out immediately.
     let config = site::load_config(&state.root).unwrap_or_default();
-    let still_valid = Users::load(&state.root.join(&config.admin.users_file))
+    let record = Users::load(&state.root.join(&config.admin.users_file))
         .ok()
-        .and_then(|u| u.find(&session.user).map(|r| r.hash == session.credential))
-        .unwrap_or(false);
+        .and_then(|u| u.find(&session.user).cloned());
+    let still_valid = record
+        .as_ref()
+        .is_some_and(|r| !r.hash.is_empty() && r.hash == session.credential);
     if still_valid {
-        Ok(session)
+        // What the account may reach is read from the users file on every request (G110).
+        let co_writer = record.is_some_and(|r| r.is_co_writer());
+        Ok(auth::Session {
+            co_writer,
+            ..session
+        })
     } else {
         lock(&state.sessions).remove(token);
         Err(Response::error(401, "Session ended; sign in again"))
@@ -1242,48 +1503,6 @@ fn require_json(req: &Request) -> Result<(), Response> {
     }
 }
 
-fn admin_preferences(state: &AppState, user: &str) -> Response {
-    match admin_preferences::load(&state.root, user) {
-        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
-        Err(error) => Response::error(500, &error),
-    }
-}
-
-fn save_admin_preferences(state: &AppState, req: &Request, user: &str) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    if req.body.len() > admin_preferences::MAX_REQUEST_BYTES {
-        return Response::error(413, "Workspace preferences are limited to 16 KiB");
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid JSON"),
-    };
-    let Some(expected_etag) = body["etag"].as_str() else {
-        return Response::error(400, "Missing preferences ETag");
-    };
-    let preferences: Preferences = match serde_json::from_value(body["preferences"].clone()) {
-        Ok(preferences) => preferences,
-        Err(error) => return Response::error(400, &format!("Invalid preferences: {error}")),
-    };
-
-    let _content_transaction = lock(&state.build);
-    let _filesystem_transaction = match content_transaction(state) {
-        Ok(lock) => lock,
-        Err(response) => return response,
-    };
-    match admin_preferences::save(&state.root, user, expected_etag, preferences) {
-        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
-        Err(SaveError::Conflict) => Response::error(
-            409,
-            "Workspace preferences changed in another session. Reload and try again.",
-        ),
-        Err(SaveError::Invalid(error)) => Response::error(400, &error),
-        Err(SaveError::Storage(error)) => Response::error(500, &error),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Research source library
 // ---------------------------------------------------------------------------
@@ -1300,15 +1519,22 @@ fn source_contributors(
 
 fn list_sources(state: &AppState) -> Response {
     match source_store::load(&state.root, &source_contributors(state)) {
-        Ok(snapshot) => Response::json(
-            200,
-            &json!({
-                "file": source_store::LIBRARY_FILE,
-                "revision": snapshot.revision,
-                "stored": snapshot.stored,
-                "sources": snapshot.library.sources,
-            }),
-        ),
+        Ok(snapshot) => {
+            // Studio R11 G94: where each source is used, beside the records (never inside them).
+            let posts = site::load_config(&state.root)
+                .and_then(|config| site::read_sources(&state.root, &config))
+                .unwrap_or_default();
+            Response::json(
+                200,
+                &json!({
+                    "file": source_store::LIBRARY_FILE,
+                    "revision": snapshot.revision,
+                    "stored": snapshot.stored,
+                    "sources": snapshot.library.sources,
+                    "uses": research::source_uses(&state.root, &snapshot.library, &posts),
+                }),
+            )
+        }
         Err(error) => source_store_error(state, error, None),
     }
 }
@@ -1643,6 +1869,14 @@ fn check_citation_request(state: &AppState, req: &Request) -> Response {
         Ok(checked) => {
             let mut view = json!(checked);
             view["revision"] = json!(snapshot.revision);
+            // Studio R11 G95: as readers will see it, in the named post's language.
+            let config = site::load_config(&state.root).unwrap_or_default();
+            let posts = site::read_sources(&state.root, &config).unwrap_or_default();
+            let locale = research::post_locale(&config, &posts, body["post"].as_str());
+            let (label, note) = research::citation_reads(&checked, locale);
+            view["label"] = json!(label);
+            view["note"] = json!(note);
+            view["locale"] = json!(locale.key());
             Response::json(200, &view)
         }
         Err(diagnostics) => Response::json(
@@ -3931,6 +4165,33 @@ fn etag(text: &str) -> String {
     etag_bytes(text.as_bytes())
 }
 
+/// A refusal with a short `code` a screen can say in its own words, and the sentence as the detail.
+pub(crate) fn coded_error(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
+}
+
+/// Every route that sends anything to the helper's provider (another company, or the site's own
+/// transcriber) starts here: the request must say `confirmed: true`, which a page sends only after
+/// the author has seen what goes and pressed the button that sends it. Otherwise 400
+/// `not-confirmed`, before anything else is read. A test lists the provider-calling handlers and
+/// fails when one does not call this before its provider.
+pub(crate) fn provider_confirmed(body: &Json) -> Result<(), Response> {
+    if body["confirmed"] == true {
+        return Ok(());
+    }
+    Err(coded_error(
+        400,
+        "not-confirmed",
+        "Confirm what will be sent before anything goes to the writing helper",
+    ))
+}
+
+/// [`provider_confirmed`] for a route whose body is not JSON (a recording): `?confirmed=true`.
+pub(crate) fn provider_confirmed_in_query(req: &Request) -> Result<(), Response> {
+    let confirmed = req.query.get("confirmed").map(String::as_str) == Some("true");
+    provider_confirmed(&json!({ "confirmed": confirmed }))
+}
+
 fn etag_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -3963,15 +4224,111 @@ fn job_check(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     let front_matter = frontmatter::FrontMatter { fields };
-    let problems = match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades)
+    let mut messages =
+        match openblog_core::job::from_front_matter(&front_matter, &config.extra_trades) {
+            Ok(_) => Vec::new(),
+            Err(problems) => problems,
+        };
+    // What the build checks across files (Studio R4 G32): the service is one of the site's published
+    // services, and the review one of its published reviews, when it has any.
+    let sources = site::read_sources(&state.root, &config).unwrap_or_default();
+    let (services, reviews) = published_services_and_reviews(&sources);
+    if let Some(service) = front_matter
+        .get("job.service")
+        .and_then(|value| openblog_core::job::normalize_service(value).ok())
     {
-        Ok(_) => Vec::new(),
-        Err(problems) => problems,
-    };
+        let known: Vec<&str> = services.iter().map(|(id, _)| id.as_str()).collect();
+        messages.extend(openblog_core::service::unknown_service_problem(
+            &known, &service,
+        ));
+    }
+    if let Some(review) = front_matter.get("job.review").map(str::trim) {
+        let known: Vec<&str> = reviews.iter().map(String::as_str).collect();
+        if !review.is_empty() && !known.is_empty() {
+            messages.extend(openblog_core::proof::unknown_review_problem(&known, review));
+        }
+    }
+    let problems: Vec<Json> = messages
+        .iter()
+        .map(|message| {
+            let (field, code) = openblog_core::job::problem_code(message);
+            json!({ "field": field, "code": code, "message": message })
+        })
+        .collect();
+    // `messages` keeps the old Admin's list of sentences for one release.
     Response::json(
         200,
-        &json!({ "ok": problems.is_empty(), "problems": problems }),
+        &json!({ "ok": problems.is_empty(), "problems": problems, "messages": messages }),
     )
+}
+
+/// The site's published services, as `(id, title)`, and its published reviews' ids: the ones the build
+/// accepts a job naming.
+fn published_services_and_reviews(
+    sources: &openblog_core::Sources,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let mut services: Vec<(String, String)> = Vec::new();
+    for file in &sources.services {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        let Some(id) = doc.front_matter.get("id").map(str::trim) else {
+            continue;
+        };
+        if openblog_core::service::check_id(id).is_err()
+            || services.iter().any(|(known, _)| known == id)
+        {
+            continue;
+        }
+        let title = doc
+            .front_matter
+            .get("name")
+            .or_else(|| doc.front_matter.get("title"))
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(id)
+            .to_string();
+        services.push((id.to_string(), title));
+    }
+    let mut reviews = Vec::new();
+    for file in &sources.proof {
+        let Ok(doc) = frontmatter::parse(&file.contents) else {
+            continue;
+        };
+        if doc.front_matter.get_bool("draft").unwrap_or(false) {
+            continue;
+        }
+        if let Ok(review) = openblog_core::proof::from_front_matter(&doc.front_matter) {
+            reviews.push(review.id);
+        }
+    }
+    (services, reviews)
+}
+
+/// Whether a folder holds at least one `.json` file (a missing folder holds none).
+fn has_json_files(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+    })
+}
+
+/// Whether the site is a trade site (`meta.siteUses.trade`): Studio's Business, Services, Reviews and
+/// New job show for it, and only for it.
+fn is_trade_site(config: &SiteConfig, sources: &openblog_core::Sources) -> bool {
+    config.business != openblog_core::business::BusinessConfig::default()
+        || !sources.services.is_empty()
+        || !sources.proof.is_empty()
+        || !config.business.trade.is_empty()
+        || config.seasonal_prompts.enabled
+        || sources.posts.iter().any(|file| {
+            frontmatter::parse(&file.contents)
+                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
+        })
 }
 
 fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
@@ -4070,6 +4427,19 @@ fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
     Ok(out)
 }
 
+/// `meta` for the signed-in account: the site's, plus where that account stands with Getting
+/// started (`onboarding: { mode, practice, due, step, total, resume }`, Studio R9b).
+fn meta_for(state: &AppState, user: &str) -> Response {
+    let mut response = meta(state);
+    if response.status == 200 {
+        if let Ok(Json::Object(mut body)) = serde_json::from_slice::<Json>(&response.body) {
+            body.insert("onboarding".into(), onboarding::meta_json(state, user));
+            response = Response::json(200, &Json::Object(body));
+        }
+    }
+    response
+}
+
 fn meta(state: &AppState) -> Response {
     let _content_transaction = lock(&state.build);
     let config = match site::load_config(&state.root) {
@@ -4122,32 +4492,55 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
-    let mut services: Vec<String> = Vec::new();
+    // The services a job can name (Studio R4 G33): the published Services by their names, then any
+    // other service a job already names, by its id in words.
+    let (mut services, _) = published_services_and_reviews(&sources);
+    let mut regions: Vec<String> = Vec::new();
     for file in &sources.posts {
         if let Ok(doc) = frontmatter::parse(&file.contents) {
             if let Some(service) = doc.front_matter.get("job.service") {
                 if let Ok(service) = openblog_core::job::normalize_service(service) {
-                    if !services.contains(&service) {
-                        services.push(service);
+                    if !services.iter().any(|(known, _)| *known == service) {
+                        let words = service.replace('-', " ");
+                        let mut title = words.clone();
+                        if let Some(first) = words.chars().next() {
+                            title = first.to_uppercase().collect::<String>()
+                                + &words[first.len_utf8()..];
+                        }
+                        services.push((service, title));
                     }
+                }
+            }
+            if let Some(region) = doc.front_matter.get("job.place.region").map(str::trim) {
+                if !region.is_empty() {
+                    regions.push(region.to_string());
                 }
             }
         }
     }
-    for file in &sources.services {
-        let Ok(doc) = frontmatter::parse(&file.contents) else {
-            continue;
-        };
-        if let Some(id) = doc.front_matter.get("id").map(str::trim) {
-            if openblog_core::service::check_id(id).is_ok()
-                && !doc.front_matter.get_bool("draft").unwrap_or(false)
-                && !services.iter().any(|known| known == id)
+    services.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    // The state most of the site's jobs name, as the one a new job starts with.
+    let site_region = {
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for region in &regions {
+            match counts
+                .iter_mut()
+                .find(|(known, _)| known.eq_ignore_ascii_case(region))
             {
-                services.push(id.to_string());
+                Some((_, count)) => *count += 1,
+                None => counts.push((region.clone(), 1)),
             }
         }
-    }
-    services.sort();
+        counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(region, _)| region)
+            .unwrap_or_default()
+    };
     // The saved reviews a job can link (ADR 0389): published and valid ones only, newest first.
     let mut reviews: Vec<(String, Json)> = Vec::new();
     for file in &sources.proof {
@@ -4173,9 +4566,11 @@ fn meta(state: &AppState) -> Response {
     let job_form = json!({
         "trades": openblog_core::job::known_trades(&config.extra_trades),
         "costBands": openblog_core::job::CostBand::ALL.map(openblog_core::job::CostBand::as_str),
-        "services": services,
+        "services": services.iter().map(|(id, title)| json!({ "id": id, "title": title })).collect::<Vec<_>>(),
         "reviews": reviews.into_iter().map(|(_, review)| review).collect::<Vec<_>>(),
         "scaffold": openblog_core::job::scaffold_body(),
+        "siteTrade": config.business.trade.trim().to_ascii_lowercase(),
+        "siteRegion": site_region,
     });
     let (owner_courses, owner_cuisines) =
         openblog_core::recipe_listing::owner_values(&sources.posts);
@@ -4203,14 +4598,25 @@ fn meta(state: &AppState) -> Response {
                 "label": profile.label,
                 "description": profile.description,
                 "starter": profile.starter,
-                "fields": profile.fields.iter().map(|field| json!({
-                    "key": field.key,
-                    "label": field.label,
-                    "kind": field.kind.as_str(),
-                    "help": openblog_core::profile::field_help(field, config.recipes.listing),
-                    "aliases": openblog_core::profile::field_aliases(field.key),
-                    "suggestions": suggestions(field.key),
-                })).collect::<Vec<_>>(),
+                "fields": profile.fields.iter().map(|field| {
+                    // Studio R5 G40: a web address, a file, or one of a few choices.
+                    let (kind, choices) = post_settings::field_control(field.key, field.kind.as_str());
+                    let mut out = json!({
+                        "key": field.key,
+                        "label": field.label,
+                        "kind": kind,
+                        "help": openblog_core::profile::field_help(field, config.recipes.listing),
+                        "aliases": openblog_core::profile::field_aliases(field.key),
+                        "suggestions": suggestions(field.key),
+                    });
+                    if let Some(choices) = choices {
+                        out["choices"] = json!(choices.iter().map(|value| json!({ "value": value })).collect::<Vec<_>>());
+                    }
+                    if let Some(max) = post_settings::field_max(field.key) {
+                        out["max"] = json!(max);
+                    }
+                    out
+                }).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -4235,15 +4641,7 @@ fn meta(state: &AppState) -> Response {
     if !config.code_runner.endpoint.is_empty() {
         code_runner_languages.extend(config.code_runner.languages.iter().cloned());
     }
-    let trade_site = config.business != openblog_core::business::BusinessConfig::default()
-        || !sources.services.is_empty()
-        || !sources.proof.is_empty()
-        || !config.business.trade.is_empty()
-        || config.seasonal_prompts.enabled
-        || sources.posts.iter().any(|file| {
-            frontmatter::parse(&file.contents)
-                .is_ok_and(|doc| doc.front_matter.get("profile") == Some("job"))
-        });
+    let trade_site = is_trade_site(&config, &sources);
     let engagement_ready = config.engagement.enabled
         && engagement_credential_summary(&state.root, &config.engagement.endpoint)
             .is_ok_and(|summary| summary["configured"] == json!(true));
@@ -4273,7 +4671,28 @@ fn meta(state: &AppState) -> Response {
                 "reminders": !config.business.trade.is_empty() || config.seasonal_prompts.enabled,
                 // A trade site: Studio's Business, Services and Reviews show for it, and only for it.
                 "trade": trade_site,
+                // Something has gone somewhere (G16): Sharing shows "Where it went" for it.
+                "shared": crate::outcomes::any_shared(&state.root, &config),
+                // Pins are sent (Studio R5 G39): a post's Pin words are on her layer.
+                "pinterest": config.syndication.pinterest.as_ref().is_some_and(|pins| pins.enabled),
+                // Studio R11 G92: research shows only on a site that uses it.
+                "research": research::site_uses_research(&state.root, &config, &sources),
+                // A reading path exists, or the site publishes them (Studio R13 G96).
+                "paths": config.reading_paths.publish
+                    || has_json_files(&state.root.join(&config.paths.content).join("paths")),
+                // Readings side by side exist, or the site publishes them (G96; also opens Research).
+                "readings": config.interpretations.publish
+                    || has_json_files(&state.root.join(&config.paths.content).join("comparisons")),
             },
+            // Which public pages the site publishes (Studio R13 G96).
+            "publishes": {
+                "readingPaths": config.reading_paths.publish,
+                "interpretations": config.interpretations.publish,
+            },
+            // Studio R11 G92: the research switches her words depend on.
+            "research": research::research_meta(&config),
+            // How a scheduled post reaches readers (Studio R5 G37): "self" or "next-send".
+            "schedule": post_settings::schedule_mode(&state.root, &config),
             "job": job_form,
             "capture": openblog_core::capture::limits_json(
                 (upload_intake_bytes(&config) / (1024 * 1024)) as u32,
@@ -4307,6 +4726,9 @@ fn meta(state: &AppState) -> Response {
                 json!(false)
             },
             "now": clock::now().rfc3339(),
+            // Studio's words for this site (docs/studio-words.md): what's in effect and, for the
+            // developer only, what was dropped and why.
+            "studioWords": studio_words::for_meta(&config, state.studio_words_path.as_deref()),
         }),
     )
 }
@@ -4317,6 +4739,10 @@ fn assistant_status(state: &AppState) -> Response {
         Err(response) => return response,
     };
     let credential_configured = credential.is_some();
+    let summary = match assistant_credential_summary(&state.root, &config) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
     let status = match config.knowledge_checks.provider {
         AssistantProviderKind::CustomHttps => AssistantProviderStatus::legacy_quiz(
             &config.knowledge_checks.generation_endpoint,
@@ -4334,7 +4760,202 @@ fn assistant_status(state: &AppState) -> Response {
             credential_configured,
         ),
     };
-    Response::json(200, &json!(status))
+    // Studio R8 (G56): the state as facts, so the page says it in its own words. `message` stays
+    // for the old Admin until it is retired.
+    let mut status = json!(status);
+    status["reason"] = json!(assistant_status_reason(&config, &summary));
+    status["credential"] = json!({ "state": assistant_credential_state(&summary) });
+    status["company"] = json!(assistant_company(&config));
+    Response::json(200, &status)
+}
+
+/// Why the helper is or isn't ready: `ready`, `no-endpoint`, `bad-endpoint`, `no-model`, `no-key`
+/// or `key-other-provider` (a key is saved, but for another company or address).
+fn assistant_status_reason(config: &SiteConfig, credential: &Json) -> &'static str {
+    let checks = &config.knowledge_checks;
+    if checks.provider == AssistantProviderKind::CustomHttps {
+        let endpoint = checks.generation_endpoint.trim();
+        if endpoint.is_empty() {
+            return "no-endpoint";
+        }
+        if !endpoint.starts_with("https://") {
+            return "bad-endpoint";
+        }
+    } else if checks.model.trim().is_empty() {
+        return "no-model";
+    }
+    if credential["configured"] == true {
+        "ready"
+    } else if credential["targetMismatch"] == true {
+        "key-other-provider"
+    } else {
+        "no-key"
+    }
+}
+
+/// Whether a key is set and where from, never the key: `server` (the environment), `set` (saved
+/// here), `other-provider` (saved for another company or address) or `not-set`.
+fn assistant_credential_state(credential: &Json) -> &'static str {
+    if credential["environmentOverride"] == true {
+        "server"
+    } else if credential["configured"] == true {
+        "set"
+    } else if credential["targetMismatch"] == true {
+        "other-provider"
+    } else {
+        "not-set"
+    }
+}
+
+/// The company a request goes to, by name; for a custom address, its host (never its path, its
+/// query or anything before an `@`).
+fn assistant_company(config: &SiteConfig) -> String {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::Anthropic => "Anthropic".into(),
+        AssistantProviderKind::OpenAi => "OpenAI".into(),
+        AssistantProviderKind::Gemini => "Google".into(),
+        AssistantProviderKind::Xai => "xAI".into(),
+        AssistantProviderKind::DeepSeek => "DeepSeek".into(),
+        AssistantProviderKind::Mistral => "Mistral".into(),
+        AssistantProviderKind::OpenRouter => "OpenRouter".into(),
+        AssistantProviderKind::CustomHttps => {
+            url::Url::parse(config.knowledge_checks.generation_endpoint.trim())
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_string))
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// How long suggestions as you type may wait for the provider (G59): an abandoned pause must not
+/// hold one of the two places for minutes.
+fn assistant_completion_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
+    assistant_provider_timeout(provider, test_mode).min(Duration::from_secs(20))
+}
+
+thread_local! {
+    /// What the Admin logged about the helper's key on this thread, for the tests that prove the
+    /// key itself is never in it.
+    #[cfg(test)]
+    static KEY_LOG: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Log that the helper's key changed (G61): who did it and for which company. Never the key, its
+/// length or any part of it.
+fn log_key_change(action: &str, user: &str, provider: &str) {
+    let line = format!("admin: assistant key {action} by '{user}' ({provider})");
+    #[cfg(test)]
+    KEY_LOG.with(|log| log.borrow_mut().push(line.clone()));
+    eprintln!("{line}");
+}
+
+/// Whether a host's own variable says this server runs on its platform.
+fn hosted_env_given(value: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |name: &str| value(name).is_some_and(|value| !value.trim().is_empty());
+    value("RENDER").is_some_and(|value| value.trim().eq_ignore_ascii_case("true"))
+        || [
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_STATIC_URL",
+            "RAILWAY_PUBLIC_DOMAIN",
+            "FLY_APP_NAME",
+            "DYNO",
+            "K_SERVICE",
+        ]
+        .iter()
+        .any(|name| set(name))
+}
+
+/// Whether an address names this same computer.
+fn names_this_computer(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Whether the server knows it is deployed, so that something stands between it and the browser
+/// (S3). It knows from what the owner wrote and from where it runs, never from the request:
+///
+/// - `admin.trustedProxies` lists a proxy, or `admin.secureCookies` says the Admin is on https;
+/// - it was started to listen beyond this computer (`--host 0.0.0.0`, as the container does);
+/// - a host's own variable is set (`RENDER`, `RAILWAY_*`, `FLY_APP_NAME`, `DYNO`, `K_SERVICE`);
+/// - the host chose the port (`PORT`) and the site's `url` is a public address.
+///
+/// The site's `url` alone says nothing: a site with a public address is also edited on its
+/// owner's own computer.
+fn knows_it_is_deployed(state: &AppState, config: &SiteConfig) -> bool {
+    let public_address = url::Url::parse(config.url.trim()).is_ok_and(|url| {
+        url.host_str()
+            .is_some_and(|host| !names_this_computer(host))
+    });
+    !config.admin.trusted_proxies.is_empty()
+        || config.admin.secure_cookies
+        || state.listens_beyond_this_computer
+        || state.hosted_env
+        || (state.port_env && public_address)
+}
+
+/// Whether this request reached the server privately enough to carry a secret (G62): over TLS as
+/// a trusted proxy reports it, or, on a server that nothing says is deployed, from this same
+/// computer with nothing in between. The server itself never speaks TLS, so a direct connection
+/// from anywhere else is plain http.
+///
+/// Once the server knows it is deployed ([`knows_it_is_deployed`]), a request from this computer
+/// is not private by itself (S3): a proxy here that isn't listed, strips the forwarded headers
+/// and rewrites `Host` is indistinguishable from a person at the keyboard. The way in is then a
+/// proxy listed in `admin.trustedProxies` that says `X-Forwarded-Proto: https`, or the server's
+/// environment.
+fn request_is_private(state: &AppState, config: &SiteConfig, req: &Request) -> bool {
+    let trusted = config
+        .admin
+        .trusted_proxies
+        .iter()
+        .any(|proxy| proxy.trim() == "*" || proxy.trim() == req.peer);
+    if trusted {
+        return req
+            .header("x-forwarded-proto")
+            .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
+    }
+    if knows_it_is_deployed(state, config) {
+        return false;
+    }
+    // Loopback counts only when nothing forwarded the request: a proxy on this computer that
+    // isn't listed in `admin.trustedProxies` can't vouch for how the request reached it.
+    let forwarded = [
+        "x-forwarded-for",
+        "x-forwarded-proto",
+        "x-forwarded-host",
+        "forwarded",
+        "x-real-ip",
+    ]
+    .iter()
+    .any(|name| req.header(name).is_some());
+    let host = req.header("host").unwrap_or("");
+    let host_name = host
+        .rsplit_once(':')
+        .filter(|(_, port)| port.bytes().all(|byte| byte.is_ascii_digit()))
+        .map_or(host, |(name, _)| name);
+    names_this_computer(&req.peer) && !forwarded && names_this_computer(host_name)
+}
+
+/// The answer to a secret sent over plain http (G62), on every route that accepts one: the
+/// helper's key, the readers' service token, a social account's app password. `None` when the
+/// request may carry it. Checked before anything is read or written; says nothing of the secret.
+fn secret_over_plain_http(state: &AppState, req: &Request) -> Option<Response> {
+    let config = site::load_config(&state.root).unwrap_or_default();
+    if request_is_private(state, &config, req) {
+        return None;
+    }
+    Some(Response::json(
+        422,
+        &json!({
+            "error": "A key can't be sent over plain http. Open the Admin over https (with the proxy listed in admin.trustedProxies and sending X-Forwarded-Proto: https), or set the key in the server's environment.",
+            "code": "insecure",
+        }),
+    ))
 }
 
 fn assistant_provider_kind(config: &SiteConfig) -> &str {
@@ -4770,7 +5391,7 @@ fn assistant_settings(state: &AppState) -> Response {
     )
 }
 
-fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
+fn save_assistant_settings(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     if let Err(response) = require_json(req) {
         return response;
     }
@@ -4818,6 +5439,13 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
     }
     if action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024) {
         return Response::error(422, "Enter a credential no larger than 16 KiB");
+    }
+    // G62: a key is never accepted over plain http, except from this same computer. Checked
+    // before anything is read or written, and the answer says nothing about the key.
+    if action == "replace" {
+        if let Some(refusal) = secret_over_plain_http(state, req) {
+            return refusal;
+        }
     }
 
     let _filesystem_transaction = match content_transaction(state) {
@@ -4893,6 +5521,13 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
             restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
         return Response::error(500, &mutation_with_rollback_error(&error, rollback));
     }
+    match action {
+        "replace" => log_key_change("replaced", &session.user, provider),
+        "clear" if previous_credential.is_some() => {
+            log_key_change("removed", &session.user, provider)
+        }
+        _ => {}
+    }
     let credential = match assistant_credential_summary(&state.root, &candidate_config) {
         Ok(summary) => summary,
         Err(error) => return Response::error(500, &error),
@@ -4913,6 +5548,25 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
 }
 
 const ENGAGEMENT_CREDENTIAL_FILE: &str = ".openblog/private/engagement/api-key";
+/// When old notes were last cleared out (R10 G91): private, per site, one RFC 3339 time.
+const RETENTION_LAST_RUN_FILE: &str = ".openblog/private/engagement/retention-last-run";
+
+fn retention_last_run(root: &Path) -> Option<String> {
+    let path = crate::assistant_storage::contained_target(root, Path::new(RETENTION_LAST_RUN_FILE))
+        .ok()?;
+    let text = fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    DateTime::parse(text).map(|at| at.rfc3339())
+}
+
+fn record_retention_last_run(root: &Path, at: DateTime) {
+    // Best effort: failing to note the day must never undo what was cleared out.
+    if let Ok(path) =
+        crate::assistant_storage::contained_target(root, Path::new(RETENTION_LAST_RUN_FILE))
+    {
+        let _ = write_private_bytes_atomic(&path, at.rfc3339().as_bytes());
+    }
+}
 const ENGAGEMENT_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_KEY";
 const ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_ORIGIN";
 
@@ -5128,8 +5782,173 @@ fn engagement_settings(state: &AppState) -> Response {
             "captcha": config.engagement.captcha,
             "etag": etag,
             "credential": credential,
+            // R10 G83: what readers can send and how long old notes are kept. Read-only:
+            // saving the settings ignores these.
+            "kinds": engagement_kinds(&config),
+            "retention": engagement_retention(&config),
+            "receipts": config.engagement.receipts,
+            "evidence": config.engagement.evidence,
+            "feedbackContact": config.engagement.feedback_contact,
         }),
     )
+}
+
+/// The kinds a site takes, as `[{id, setting}]` with the setting as it is in effect: comments by their
+/// own switch, the others by `participation.kinds` and what `engagement.feedback` folds in.
+fn engagement_kinds(config: &SiteConfig) -> Json {
+    let kinds: Vec<Json> = participation::ParticipationKind::ALL
+        .iter()
+        .map(|kind| {
+            let setting = if *kind == participation::ParticipationKind::Comment {
+                if config.engagement.comments {
+                    "open".to_string()
+                } else {
+                    "off".to_string()
+                }
+            } else {
+                serde_json::to_value(config.participation.setting(*kind))
+                    .ok()
+                    .and_then(|value| value.as_str().map(str::to_string))
+                    .unwrap_or_else(|| "off".to_string())
+            };
+            json!({ "id": kind.id(), "setting": setting })
+        })
+        .collect();
+    Json::Array(kinds)
+}
+
+/// The check ids the hosted function may report; anything else it sends is dropped.
+const HEALTH_HOSTED_IDS: [&str; 5] = [
+    "comments",
+    "feedback",
+    "moderation",
+    "protection",
+    "robot-secret",
+];
+
+/// The hosted function's table checks, as `[{id, ok, code}]`; refuses anything of another shape.
+fn validate_hosted_health(value: &Json) -> Result<Json, String> {
+    let checks = value["checks"]
+        .as_array()
+        .ok_or("Hosted engagement returned an unexpected health answer")?;
+    let kept: Vec<Json> = checks
+        .iter()
+        .filter_map(|check| {
+            let id = check["id"].as_str()?;
+            if !HEALTH_HOSTED_IDS.contains(&id) {
+                return None;
+            }
+            let ok = match &check["ok"] {
+                Json::Bool(ok) => json!(ok),
+                _ => Json::Null,
+            };
+            let code = ["ok", "missing", "unreachable"]
+                .into_iter()
+                .find(|known| Some(*known) == check["code"].as_str())
+                .unwrap_or("unreachable");
+            Some(json!({ "id": id, "ok": ok, "code": code }))
+        })
+        .collect();
+    Ok(json!({ "checks": kept }))
+}
+
+/// What reaching the hosted function came to, for the one "service answers" check.
+enum HostedHealth {
+    /// It answered with these table checks.
+    Answered(Vec<Json>),
+    /// This site does not use the hosted service, or the key is not here yet: nothing to ask.
+    NotAsked,
+    /// The deployed function predates the health check.
+    Older,
+    /// It did not answer in time.
+    Slow,
+    /// It could not be reached or answered with something unusable.
+    Down,
+}
+
+/// The setup checks: the settings' own (address, key) and what the hosted function said. Yes, no or
+/// `null` for "can't tell": never a value, key or address.
+fn health_checks(address_ok: bool, key_ok: Option<bool>, hosted: HostedHealth) -> Json {
+    let mut checks = vec![
+        json!({ "id": "address", "ok": address_ok, "code": if address_ok { "ok" } else { "bad-address" } }),
+        json!({ "id": "key", "ok": key_ok, "code": match key_ok { Some(true) => "ok", Some(false) => "missing", None => "unknown" } }),
+    ];
+    match hosted {
+        HostedHealth::Answered(rows) => {
+            checks.push(json!({ "id": "service", "ok": true, "code": "ok" }));
+            checks.extend(rows);
+        }
+        HostedHealth::NotAsked => {
+            checks.push(json!({ "id": "service", "ok": null, "code": "not-asked" }))
+        }
+        HostedHealth::Older => {
+            checks.push(json!({ "id": "service", "ok": true, "code": "older-function" }))
+        }
+        HostedHealth::Slow => {
+            checks.push(json!({ "id": "service", "ok": false, "code": "service-slow" }))
+        }
+        HostedHealth::Down => {
+            checks.push(json!({ "id": "service", "ok": false, "code": "service-down" }))
+        }
+    }
+    json!({ "checks": checks })
+}
+
+/// `GET engagement/health`: is this site's comments service set up and answering? The address and
+/// the key are checked here, the service and its tables by asking the hosted function (5 seconds at
+/// most). Admin only; the answer never holds a key.
+fn engagement_health(state: &AppState, req: &Request) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let address_ok = valid_engagement_endpoint(&config.engagement.endpoint);
+    let key_ok = if address_ok {
+        match engagement_credential(&state.root, &config.engagement.endpoint) {
+            Ok(Some(_)) => Some(true),
+            Ok(None) => Some(false),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let hosted = if !config.engagement.enabled || key_ok != Some(true) {
+        HostedHealth::NotAsked
+    } else {
+        let asked = hosted_engagement_request_within(state, req, "admin/health", 5);
+        match asked.status {
+            200 => match serde_json::from_slice::<Json>(&asked.body)
+                .ok()
+                .and_then(|value| value["checks"].as_array().cloned())
+            {
+                Some(rows) => HostedHealth::Answered(rows),
+                None => HostedHealth::Down,
+            },
+            504 => HostedHealth::Slow,
+            _ => {
+                if String::from_utf8_lossy(&asked.body)
+                    .contains("unsupported hosted engagement operation")
+                {
+                    HostedHealth::Older
+                } else {
+                    HostedHealth::Down
+                }
+            }
+        }
+    };
+    Response::json(200, &health_checks(address_ok, key_ok, hosted))
+}
+
+/// How long moderation keeps what it does not publish, and whether comments are covered.
+fn engagement_retention(config: &SiteConfig) -> Json {
+    let policy = moderation::ModerationPolicy::from_config(config);
+    json!({
+        "pendingDays": policy.retention.pending_days,
+        "clarificationDays": policy.retention.clarification_days,
+        "closedDays": policy.retention.closed_days,
+        "auditDays": policy.retention.audit_days,
+        "coversComments": policy.comment_retention,
+    })
 }
 
 fn valid_engagement_endpoint(endpoint: &str) -> bool {
@@ -5174,6 +5993,12 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
             422,
             "Choose keep, replace, or clear and provide a bounded credential when replacing",
         );
+    }
+    // G62, as for the helper's key: a token is never accepted over plain http.
+    if action == "replace" {
+        if let Some(refusal) = secret_over_plain_http(state, req) {
+            return refusal;
+        }
     }
     let target_origin = engagement_endpoint_origin(endpoint);
     if action == "replace" && target_origin.is_none() {
@@ -5380,7 +6205,11 @@ fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
         "series": safe_series,
         "topPosts": safe_posts,
         "referrers": safe_referrers,
-        "agentRequests": 0,
+        // R10 G87: the hosted counter keeps what its table keeps (not reported here), and does not count
+        // agents, so that is "not counted" (null), never zero.
+        "keptDays": value["keptDays"].as_u64().filter(|days| (1..=36_500).contains(days)),
+        "counter": "hosted",
+        "agentRequests": null,
         "agents": [],
         "agentPages": [],
     }))
@@ -5393,11 +6222,21 @@ fn validate_hosted_engagement_response(
 ) -> Result<Json, String> {
     match (method, operation) {
         ("GET", "admin/analytics") => validate_hosted_analytics(value),
+        ("GET", "admin/health") => validate_hosted_health(value),
         _ => Err("unsupported hosted engagement operation".into()),
     }
 }
 
 fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -> Response {
+    hosted_engagement_request_within(state, req, operation, 20)
+}
+
+fn hosted_engagement_request_within(
+    state: &AppState,
+    req: &Request,
+    operation: &str,
+    seconds: u64,
+) -> Response {
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
@@ -5434,7 +6273,7 @@ fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -
         url.push_str(&query);
     }
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(20)))
+        .timeout_global(Some(Duration::from_secs(seconds)))
         .max_redirects(0)
         .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -7801,6 +8640,81 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
     )
 }
 
+/// `GET engagement/moderation/item?source=&id=`: one inbox item as this account sees it (R10 G85), for a
+/// tapped notification and for checking that an Undo still applies. An item the account may not see
+/// is the same 404 as one that is gone, so the answer never says which.
+fn moderation_inbox_one(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let source = req.query.get("source").map_or("", String::as_str);
+    let id = req
+        .query
+        .get("id")
+        .map_or("", String::as_str)
+        .to_ascii_lowercase();
+    let uuid = id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        });
+    if !["comment", "feedback", "report"].contains(&source) || !uuid {
+        return Response::json(
+            422,
+            &json!({ "error": "Name an item by its source and id.", "code": "bad-item" }),
+        );
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let bound = sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    });
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let collected = collect_inbox_page(
+        bound,
+        None,
+        |_| match hosted_moderation_call(state, &[("source", source), ("id", id.as_str())], None) {
+            Ok((200, value)) => {
+                moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))
+            }
+            Ok(_) => Err(Response::error(
+                502,
+                "hosted engagement returned an invalid inbox",
+            )),
+            Err(response) => Err(response),
+        },
+        |page| {
+            sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
+                page.items
+                    .iter()
+                    .filter_map(|item| {
+                        inbox_view(inbox, item, published.as_ref(), perspectives.as_ref())
+                    })
+                    .collect()
+            })
+        },
+    );
+    let mut collected = match collected {
+        Ok(collected) => collected,
+        Err(response) => return response,
+    };
+    add_decision_choices(state, &sources.published, &mut collected.items);
+    match collected.items.into_iter().next() {
+        Some(item) => Response::json(200, &json!({ "item": item })),
+        None => Response::json(
+            404,
+            &json!({ "error": "That note isn't here any more.", "code": "gone" }),
+        ),
+    }
+}
+
 /// One page of the inbox as one account sees it.
 struct CollectedPage {
     protocol: moderation_inbox::Protocol,
@@ -8077,7 +8991,13 @@ fn retention_dry_run(state: &AppState, session: &auth::Session) -> Response {
     let policy = moderation::ModerationPolicy::from_config(&sources.config);
     let as_of = clock::now();
     match retention_plan(state, &policy, as_of) {
-        Ok(plan) => Response::json(200, &retention_report(&policy, as_of, &plan)),
+        Ok(plan) => {
+            let mut report = retention_report(&policy, as_of, &plan);
+            // R10 G91: when it was last run, and how many notes it would touch now.
+            report["lastRunAt"] = json!(retention_last_run(&state.root));
+            report["dueCount"] = json!(plan.items.len());
+            Response::json(200, &report)
+        }
         Err(response) => response,
     }
 }
@@ -8144,9 +9064,11 @@ fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Re
         count("purged"),
         count("skipped")
     );
+    record_retention_last_run(&state.root, now);
     Response::json(
         200,
         &json!({
+            "lastRunAt": now.rfc3339(),
             "expired": count("expired"),
             "purged": count("purged"),
             "scrubbed": count("scrubbed"),
@@ -8155,6 +9077,87 @@ fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Re
             "more": plan.truncated || plan.items.len() > 200,
         }),
     )
+}
+
+/// The most items one batch decides.
+const MAX_BATCH_ITEMS: usize = 50;
+
+/// Decide each item with `decide` (which is given that item's own decision body), in order, each on its
+/// own: one refused or changed item never stops the rest, and nothing is all-or-nothing. A hosted service
+/// that cannot be reached (502, 503, 504) would fail every item the same slow way, so the rest are
+/// marked `service-down` without asking again.
+fn batch_results(bodies: &[Json], mut decide: impl FnMut(&Json) -> Response) -> Vec<Json> {
+    let mut results = Vec::with_capacity(bodies.len());
+    let mut down = false;
+    for body in bodies {
+        let id = body["id"].clone();
+        if down {
+            results.push(json!({ "id": id, "ok": false, "code": "service-down" }));
+            continue;
+        }
+        let response = with_engagement_code(decide(body));
+        let answer = serde_json::from_slice::<Json>(&response.body).unwrap_or(Json::Null);
+        if response.status == 200 {
+            results.push(json!({ "id": id, "ok": true, "item": answer["item"] }));
+            continue;
+        }
+        down = matches!(response.status, 502..=504);
+        let code = answer["code"].as_str().unwrap_or("failed");
+        results.push(json!({ "id": id, "ok": false, "code": code }));
+    }
+    results
+}
+
+/// `PATCH engagement/moderation/batch` (R10 G82): `{items: [{source, id, from, version, confirm?}] (at most
+/// 50), action: approve | reject | reopen | erase, reason?}`. Each item is decided exactly as the single
+/// route decides it (so every check, every audit event and every refusal is the same, including a note whose
+/// passage must be read first, which this refuses), and the answer is `{results: [{id, ok, item?, code?}]}`.
+fn moderate_inbox_batch(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let action = body["action"].as_str().unwrap_or_default();
+    if !["approve", "reject", "reopen", "erase"].contains(&action) {
+        return Response::json(
+            422,
+            &json!({ "error": "Choose approve, reject, reopen or erase.", "code": "not-offered" }),
+        );
+    }
+    let Some(items) = body["items"]
+        .as_array()
+        .filter(|items| !items.is_empty() && items.len() <= MAX_BATCH_ITEMS)
+    else {
+        return Response::json(
+            422,
+            &json!({ "error": "Send between 1 and 50 notes.", "code": "too-many" }),
+        );
+    };
+    let bodies: Vec<Json> = items
+        .iter()
+        .map(|item| {
+            let mut one = json!({
+                "source": item["source"], "id": item["id"], "from": item["from"],
+                "version": item["version"], "action": action,
+            });
+            for key in ["reason", "confirm"] {
+                if let Some(value) = item
+                    .get(key)
+                    .or_else(|| body.get(key))
+                    .filter(|v| !v.is_null())
+                {
+                    one[key] = value.clone();
+                }
+            }
+            one
+        })
+        .collect();
+    let results = batch_results(&bodies, |one| {
+        let mut single = req.clone();
+        single.body = serde_json::to_vec(one).unwrap_or_default();
+        moderate_inbox_item(state, &single, session)
+    });
+    Response::json(200, &json!({ "results": results }))
 }
 
 /// `PATCH engagement/moderation`: one decision on one item. The request names
@@ -10967,7 +11970,54 @@ fn assistant_post_snapshots(root: &Path) -> Result<Vec<Json>, Response> {
     Ok(snapshots)
 }
 
+/// A catalog entry without its text (G58): what it is and how long, so opening the sheet doesn't
+/// carry every post and every private note to the phone.
+fn without_content(mut document: Json) -> Json {
+    if let Some(object) = document.as_object_mut() {
+        object.remove("content");
+    }
+    document
+}
+
+/// `GET assistant/context/item?id=`: one catalog entry with its text, for Word for word. The id is
+/// resolved the way a request resolves it, so it can only name what a request could send.
+fn assistant_context_item(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("id")
+        .filter(|id| !id.is_empty() && id.len() <= 400)
+    else {
+        return Response::error(400, "Missing id");
+    };
+    let _assistant_lock = lock(&state.build);
+    match resolve_review_context(&state.root, id) {
+        Ok(context) => Response::json(
+            200,
+            &json!({
+                "id": context.identity(),
+                "name": context.name(),
+                "visibility": context.visibility().as_str(),
+                "characters": context.content().chars().count(),
+                "content": context.content(),
+            }),
+        ),
+        Err(response) => response,
+    }
+}
+
 fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
+    let light = match req.query.get("content").map(String::as_str) {
+        None => false,
+        Some("none") => true,
+        Some(_) => return Response::error(400, "content must be none"),
+    };
+    let strip = |documents: Vec<Json>| -> Vec<Json> {
+        if light {
+            documents.into_iter().map(without_content).collect()
+        } else {
+            documents
+        }
+    };
     let mut documents = Vec::new();
     for (visibility, context_type) in [
         ("portable", "author"),
@@ -11054,16 +12104,16 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
     Response::json(
         200,
         &json!({
-            "documents": documents,
+            "documents": strip(documents),
             "references": match assistant_references(&state.root) {
-                Ok(references) => references,
+                Ok(references) => strip(references),
                 Err(response) => return response,
             },
             "postSnapshots": match assistant_post_snapshots(&state.root) {
-                Ok(posts) => posts,
+                Ok(posts) => strip(posts),
                 Err(response) => return response,
             },
-            "voiceGuides": voice_guides,
+            "voiceGuides": strip(voice_guides),
             "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
             "voiceBudget": crate::voice_assistant::budget(),
             "voiceGaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
@@ -11327,7 +12377,14 @@ fn resolve_review_skill(
         (Some(_), Some(project)) => project.clone(),
         (Some(builtin), None) => builtin.clone(),
         (None, Some(project)) => project.clone(),
-        (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
+        (None, None) => {
+            return Err(helper_refusal(
+                400,
+                "Selected skill is unavailable",
+                "skill-scope",
+                json!({ "skillId": id }),
+            ))
+        }
     };
     if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&scope) {
         let what = match scope {
@@ -11335,9 +12392,11 @@ fn resolve_review_skill(
             SkillScope::Selection => "review of selected text",
             SkillScope::Section => "review of one section",
         };
-        return Err(Response::error(
+        return Err(helper_refusal(
             400,
             &format!("Selected skill does not support {what}"),
+            "skill-scope",
+            json!({ "skillId": id }),
         ));
     }
     Ok(ReviewSkill {
@@ -11355,12 +12414,38 @@ fn resolve_review_contexts(root: &Path, ids: &[String]) -> Result<Vec<ReviewCont
         .iter()
         .map(|id| resolve_review_context(root, id))
         .collect::<Result<Vec<_>, _>>()?;
-    crate::voice_assistant::check_budget(&context)
-        .map_err(|message| Response::error(400, &message))?;
+    crate::voice_assistant::check_budget(&context).map_err(|message| {
+        let samples = context.iter().filter(|c| c.voice().is_some());
+        helper_refusal(
+            400,
+            &message,
+            "over-budget",
+            json!({
+                "samples": samples.clone().count(),
+                "characters": samples.map(|c| c.content().chars().count()).sum::<usize>(),
+                "budget": crate::voice_assistant::budget(),
+            }),
+        )
+    })?;
     Ok(context)
 }
 
 fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
+    resolve_review_context_plain(root, id).map_err(|response| {
+        // A choice that can't be used any more (removed, renamed, made invalid) says which one.
+        if response.status != 400 {
+            return response;
+        }
+        let message = serde_json::from_slice::<Json>(&response.body)
+            .ok()
+            .and_then(|body| body["error"].as_str().map(str::to_string))
+            .unwrap_or_else(|| "Selected context is unavailable or invalid".into());
+        let shown: String = id.chars().take(200).collect();
+        helper_refusal(400, &message, "context-unavailable", json!({ "id": shown }))
+    })
+}
+
+fn resolve_review_context_plain(root: &Path, id: &str) -> Result<ReviewContext, Response> {
     let parts = id.split(':').collect::<Vec<_>>();
     if let ["voice", visibility, file] = parts.as_slice() {
         let visibility = crate::voice_store::Visibility::parse(visibility)
@@ -11416,7 +12501,12 @@ fn selected_ids(body: &Json, field: &str, maximum: usize) -> Result<Vec<String>,
         return Err(Response::error(400, "Select at least one review skill"));
     }
     if values.len() > maximum {
-        return Err(Response::error(400, &format!("Too many selected {field}")));
+        return Err(helper_refusal(
+            400,
+            &format!("Too many selected {field}"),
+            "too-many",
+            json!({ "field": field, "max": maximum }),
+        ));
     }
     let mut ids = Vec::with_capacity(values.len());
     for value in values {
@@ -11446,23 +12536,164 @@ fn review_source_hash(title: &str, metadata: &Json, markdown: &str) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// A failed helper call as an answer with a code the page can act on (Studio R8, G54). The words
+/// are the provider adapter's own, which name the company and the status and never carry the key.
 fn review_error(error: crate::assistant::AssistantError) -> Response {
-    let (status, code) = match error.kind {
-        AssistantErrorKind::NotConfigured => (404, "not-configured"),
-        AssistantErrorKind::InvalidConfiguration => (400, "invalid-configuration"),
-        AssistantErrorKind::MissingCredential => (503, "missing-credential"),
-        AssistantErrorKind::Timeout => (504, "timeout"),
-        AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult => {
+    use crate::assistant::ProviderFailure;
+    let mut retry_after = None;
+    let (status, code) = match (error.failure, error.kind) {
+        (Some(ProviderFailure::KeyRejected), _) => (502, "key-rejected"),
+        (
+            Some(ProviderFailure::Busy {
+                retry_after: seconds,
+            }),
+            _,
+        ) => {
+            retry_after = seconds;
+            (502, "provider-busy")
+        }
+        (Some(ProviderFailure::Down), _) => (502, "provider-down"),
+        (Some(ProviderFailure::Refused), _) => (502, "refused"),
+        (Some(ProviderFailure::CutShort), _) => (502, "cut-short"),
+        (None, AssistantErrorKind::NotConfigured) => (404, "not-configured"),
+        (None, AssistantErrorKind::InvalidConfiguration) => (400, "invalid-configuration"),
+        (None, AssistantErrorKind::MissingCredential) => (503, "missing-credential"),
+        (None, AssistantErrorKind::Timeout) => (504, "timeout"),
+        (None, AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult) => {
             (502, "invalid-result")
         }
-        AssistantErrorKind::Transport
-        | AssistantErrorKind::ProviderStatus
-        | AssistantErrorKind::ResponseRead => (502, "provider-error"),
+        (None, AssistantErrorKind::Transport | AssistantErrorKind::ResponseRead) => {
+            (502, "provider-down")
+        }
+        (None, AssistantErrorKind::ProviderStatus) => (502, "provider-error"),
     };
+    let mut body = json!({ "error": error.public_message(), "code": code });
+    if let Some(seconds) = retry_after {
+        body["retryAfter"] = json!(seconds);
+    }
+    Response::json(status, &body)
+}
+
+/// A request the helper can't take, with a code and the facts beside the sentence (G55).
+fn helper_refusal(status: u16, message: &str, code: &str, facts: Json) -> Response {
+    let mut body = json!({ "error": message, "code": code });
+    if let (Some(body), Json::Object(facts)) = (body.as_object_mut(), facts) {
+        body.extend(facts);
+    }
+    Response::json(status, &body)
+}
+
+fn assistant_busy() -> Response {
     Response::json(
-        status,
-        &json!({ "error": error.public_message(), "code": code }),
+        429,
+        &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
     )
+}
+
+/// The provider's display type for a reply (G60): what the site is configured with.
+fn assistant_provider_type(config: &SiteConfig) -> &'static str {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => "generic-https",
+        provider => provider.as_str(),
+    }
+}
+
+const ASSISTANT_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+
+/// `POST assistant/check` (G57): one small call to the provider that carries nothing of the site,
+/// to learn whether it accepts the key. Under the shared limit, and at most once per 10 s per
+/// session. The answer is `{ ok, checkedAt }` or a coded failure; never the key.
+fn check_assistant_provider(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid check request"),
+    };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
+    {
+        let mut checks = lock(&state.assistant_checks);
+        let now = std::time::Instant::now();
+        checks.retain(|_, at| now.duration_since(*at) < ASSISTANT_CHECK_INTERVAL);
+        if checks.contains_key(&session.csrf) {
+            return Response::json(
+                429,
+                &json!({ "error": "The key was checked a moment ago; wait ten seconds", "code": "too-soon" }),
+            );
+        }
+        checks.insert(session.csrf.clone(), now);
+    }
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_completion_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => return assistant_busy(),
+    };
+    match provider.check(&config.knowledge_checks.model) {
+        Ok(()) => Response::json(
+            200,
+            &json!({ "ok": true, "checkedAt": clock::now().rfc3339() }),
+        ),
+        Err(error) => review_error(error),
+    }
+}
+
+/// A post's details as a provider may get them (S2, Studio R7: where someone was stays private by
+/// default). What a route file says is never sent. Unless the author chose to show the place to
+/// readers (`locationPrivacy` is `trimmed`, `approximate` or `exact`), nothing about the place is
+/// sent either: not the area's name, not the route's numbers (a trip's distance, climb and time),
+/// not the choice itself. Studio leaves these out before it sends; this holds for any page.
+fn metadata_without_hidden_place(mut metadata: Json) -> Json {
+    let Some(fields) = metadata.as_object_mut() else {
+        return metadata;
+    };
+    for key in [
+        "trackToken",
+        "captureId",
+        "route",
+        "routeShape",
+        "elevationProfile",
+    ] {
+        fields.remove(key);
+    }
+    let word = |fields: &serde_json::Map<String, Json>, key: &str| {
+        fields
+            .get(key)
+            .and_then(Json::as_str)
+            .map(|value| value.trim().to_lowercase())
+            .unwrap_or_default()
+    };
+    let shown = matches!(
+        word(fields, "locationPrivacy").as_str(),
+        "trimmed" | "approximate" | "exact"
+    );
+    if !shown {
+        for key in [
+            "location",
+            "distanceKm",
+            "elevationGainM",
+            "locationPrivacy",
+        ] {
+            fields.remove(key);
+        }
+        if word(fields, "profile") == "field-journal" {
+            fields.remove("duration");
+        }
+    }
+    metadata
 }
 
 fn generate_document_review(state: &AppState, req: &Request) -> Response {
@@ -11473,13 +12704,17 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid review request"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let source = &body["source"];
     let title = match source["title"].as_str() {
         Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
         _ => return Response::error(400, "Review source needs a bounded UTF-8 title"),
     };
     let metadata = match source["metadata"].as_object() {
-        Some(_) => source["metadata"].clone(),
+        // Whatever a page sent, nothing about a hidden place reaches the provider (S2).
+        Some(_) => metadata_without_hidden_place(source["metadata"].clone()),
         None => return Response::error(400, "Review source metadata must be an object"),
     };
     if let Err(error) = fields_from_json(&metadata) {
@@ -11488,6 +12723,14 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     let markdown = match source["markdown"].as_str() {
         Some(markdown) if markdown.len() <= MAX_DOCUMENT_BYTES && !markdown.contains('\0') => {
             markdown
+        }
+        Some(markdown) if markdown.len() > MAX_DOCUMENT_BYTES => {
+            return helper_refusal(
+                413,
+                "Review Markdown is too large or invalid",
+                "too-long",
+                json!({ "field": "markdown", "max": MAX_DOCUMENT_BYTES, "unit": "bytes" }),
+            )
         }
         _ => return Response::error(400, "Review Markdown is too large or invalid"),
     };
@@ -11509,6 +12752,26 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
                 (Some(kind), Some(start), Some(end)) if object.len() == 3 => {
                     match ReviewPassage::new(kind, start, end, markdown) {
                         Ok(passage) => Some(passage),
+                        Err(error)
+                            if end > start
+                                && end <= markdown.chars().count()
+                                && end - start > crate::assistant::MAX_REVIEW_PASSAGE =>
+                        {
+                            return helper_refusal(
+                                400,
+                                &error,
+                                "too-long",
+                                json!({ "field": "passage", "max": crate::assistant::MAX_REVIEW_PASSAGE, "unit": "characters" }),
+                            )
+                        }
+                        Err(error) if error == "The passage has no text" => {
+                            return helper_refusal(
+                                400,
+                                &error,
+                                "no-text",
+                                json!({ "field": "passage" }),
+                            )
+                        }
                         Err(error) => return Response::error(400, &error),
                     }
                 }
@@ -11588,12 +12851,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     };
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     let findings = match provider.generate(&request) {
         Ok(AssistantResult::Review(findings)) => findings,
@@ -11621,7 +12879,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "scope": scope_json,
             "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
             "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
-            "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
+            "provider": { "type": assistant_provider_type(&config), "model": config.knowledge_checks.model },
             "research": { "enabled": false },
             "createdAt": clock::now().rfc3339(),
             "findings": findings.findings,
@@ -11637,34 +12895,48 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid completion request"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let source = &body["source"];
     let title = match source["title"].as_str() {
         Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
         _ => return Response::error(400, "Completion source needs a bounded UTF-8 title"),
     };
     let metadata = match source["metadata"].as_object() {
-        Some(_) => source["metadata"].clone(),
+        // Whatever a page sent, nothing about a hidden place reaches the provider (S2).
+        Some(_) => metadata_without_hidden_place(source["metadata"].clone()),
         None => return Response::error(400, "Completion source metadata must be an object"),
     };
     if let Err(error) = fields_from_json(&metadata) {
         return Response::error(400, &format!("Invalid completion source metadata: {error}"));
     }
-    let bounded_text = |field: &str, maximum: usize| {
-        source[field]
-            .as_str()
-            .filter(|value| value.chars().count() <= maximum && !value.contains('\0'))
+    let bounded_text = |field: &str, maximum: usize, message: &str| match source[field].as_str() {
+        Some(value) if value.contains('\0') => Err(Response::error(400, message)),
+        Some(value) if value.chars().count() > maximum => Err(helper_refusal(
+            400,
+            message,
+            "too-long",
+            json!({ "field": field, "max": maximum, "unit": "characters" }),
+        )),
+        Some(value) => Ok(value),
+        None => Err(Response::error(400, message)),
     };
-    let markdown = match bounded_text("markdown", 100_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion Markdown is too large or invalid"),
+    let markdown = match bounded_text(
+        "markdown",
+        100_000,
+        "Completion Markdown is too large or invalid",
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
     };
-    let prefix = match bounded_text("prefix", 8_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion prefix is too large or invalid"),
+    let prefix = match bounded_text("prefix", 8_000, "Completion prefix is too large or invalid") {
+        Ok(value) => value,
+        Err(response) => return response,
     };
-    let suffix = match bounded_text("suffix", 8_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion suffix is too large or invalid"),
+    let suffix = match bounded_text("suffix", 8_000, "Completion suffix is too large or invalid") {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let editor_mode = match source["editorMode"].as_str() {
         Some(mode @ ("visual" | "markdown")) => mode,
@@ -11688,7 +12960,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     let provider = match configured_assistant_provider(
         &config,
         credential,
-        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+        assistant_completion_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
         Err(error) => return review_error(error),
@@ -11707,12 +12979,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     match provider.generate(&request) {
         Ok(AssistantResult::Completion(completion)) => Response::json(200, &json!(completion)),
@@ -11924,16 +13191,21 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let context = body["context"].as_str().unwrap_or("").trim();
     let count = body["count"].as_u64().unwrap_or(0);
-    if context.is_empty() || context.chars().count() > 50_000 {
-        return Response::error(
-            400,
-            "Select between 1 and 50,000 characters of article text",
-        );
+    if let Err(response) = interaction_context_bounds(context) {
+        return response;
     }
     if !(1..=3).contains(&count) {
-        return Response::error(400, "Question count must be between one and three");
+        return helper_refusal(
+            400,
+            "Question count must be between one and three",
+            "bad-count",
+            json!({ "field": "count", "max": 3 }),
+        );
     }
 
     let (config, credential) = match assistant_provider_snapshot(state) {
@@ -11946,15 +13218,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
-        Err(error) => {
-            let status = match error.kind {
-                AssistantErrorKind::NotConfigured => 404,
-                AssistantErrorKind::InvalidConfiguration => 400,
-                AssistantErrorKind::MissingCredential => 503,
-                _ => 500,
-            };
-            return Response::error(status, error.public_message());
-        }
+        Err(error) => return review_error(error),
     };
     let request = AssistantRequest::knowledge_checks(
         config.knowledge_checks.model,
@@ -11963,12 +13227,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::error(
-                429,
-                "Two Assistant operations are already running; try again shortly",
-            )
-        }
+        None => return assistant_busy(),
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
@@ -11982,8 +13241,30 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Err(error) => Response::error(502, error.public_message()),
+        Err(error) => review_error(error),
     }
+}
+
+/// The words a quiz or a code example is written from: some, and no more than 50,000 characters.
+fn interaction_context_bounds(context: &str) -> Result<(), Response> {
+    const MESSAGE: &str = "Select between 1 and 50,000 characters of article text";
+    if context.is_empty() {
+        return Err(helper_refusal(
+            400,
+            MESSAGE,
+            "no-text",
+            json!({ "field": "context" }),
+        ));
+    }
+    if context.chars().count() > 50_000 {
+        return Err(helper_refusal(
+            400,
+            MESSAGE,
+            "too-long",
+            json!({ "field": "context", "max": 50_000, "unit": "characters" }),
+        ));
+    }
+    Ok(())
 }
 
 fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
@@ -11994,12 +13275,12 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let context = body["context"].as_str().unwrap_or("").trim();
-    if context.is_empty() || context.chars().count() > 50_000 {
-        return Response::error(
-            400,
-            "Select between 1 and 50,000 characters of article text",
-        );
+    if let Err(response) = interaction_context_bounds(context) {
+        return response;
     }
     let kind = match body["kind"].as_str().and_then(CodeInteractionKind::parse) {
         Some(kind) => kind,
@@ -12008,7 +13289,14 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
     let language = match CodeInteractionLanguage::parse(body["language"].as_str().unwrap_or("rust"))
     {
         Some(language) => language,
-        None => return Response::error(400, "Code interaction language is invalid"),
+        None => {
+            return helper_refusal(
+                400,
+                "Code interaction language is invalid",
+                "bad-language",
+                json!({ "field": "language" }),
+            )
+        }
     };
     let (config, credential) = match assistant_provider_snapshot(state) {
         Ok(snapshot) => snapshot,
@@ -12022,9 +13310,11 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
                 .iter()
                 .any(|allowed| allowed == language.as_str()));
     if !language_allowed {
-        return Response::error(
+        return helper_refusal(
             400,
             "Code interaction language is not enabled for this site",
+            "bad-language",
+            json!({ "field": "language", "language": language.as_str() }),
         );
     }
     let provider = match configured_assistant_provider(
@@ -12043,12 +13333,7 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     code_interaction_response(provider.generate(&request))
 }
@@ -12094,19 +13379,37 @@ fn status(state: &AppState) -> Response {
 /// Overview, and stays out of the content transaction: saves and builds don't
 /// wait for it. A write in progress can at worst make the notes stale or empty
 /// until the next look, and they are only advice.
+///
+/// `notes` are the finished sentences (the old Admin's); `items` are the same notes as facts beside
+/// each sentence, so Studio says them in its own words and links the page (R1, G14).
 fn recipe_notes(state: &AppState) -> Response {
-    Response::json(
-        200,
-        &json!({ "notes": published_recipe_notes(&state.root) }),
-    )
+    let plan = published_recipe_plan(&state.root);
+    let items: Vec<Json> = plan
+        .notes
+        .iter()
+        .zip(plan.facts.iter())
+        .map(|(text, fact)| {
+            json!({
+                "text": text,
+                "code": fact.code,
+                "address": fact.address,
+                "fallback": fact.fallback,
+                "page": fact.page.as_ref().map(|page| json!({ "path": page.path, "kind": page.kind, "title": page.title })),
+                "byAlias": fact.by_alias,
+                "facet": fact.facet,
+                "value": fact.value,
+            })
+        })
+        .collect();
+    Response::json(200, &json!({ "notes": plan.notes, "items": items }))
 }
 
-fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
+fn published_recipe_plan(root: &std::path::Path) -> openblog_core::recipe_listing::RecipePlan {
     let Ok(config) = site::load_config(root) else {
-        return Vec::new();
+        return Default::default();
     };
     let Ok(sources) = site::read_sources(root, &config) else {
-        return Vec::new();
+        return Default::default();
     };
     let options = LoadOptions {
         include_drafts: false,
@@ -12114,7 +13417,7 @@ fn published_recipe_notes(root: &std::path::Path) -> Vec<String> {
         preview_source: None,
     };
     Site::load(config, sources, options)
-        .map(|site| openblog_core::recipe_listing::plan(&site).notes)
+        .map(|site| openblog_core::recipe_listing::plan(&site))
         .unwrap_or_default()
 }
 
@@ -12184,7 +13487,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                                 json!({
                                     "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
                                     "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
-                                    "url": p.url, "words": p.word_count,
+                                    "url": p.url, "words": p.word_count, "profile": p.profile,
                                     "creditMode": credit_mode,
                                 }),
                             )
@@ -12288,10 +13591,32 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             } else {
                 Json::Null
             };
-            Response::json(
-                200,
-                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error }),
-            )
+            let mut reply = json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error });
+            // Studio R5 G38/G43: what the post is now, where it lives, whether it was ever on the
+            // site (its address stays put once it may have been), and its automatic excerpt.
+            if kind == "posts" {
+                let now = clock::now();
+                let facts = post_settings::post_facts(rel, &text, &config, now);
+                reply["status"] = json!(facts.status);
+                reply["url"] = json!(facts.url);
+                reply["slug"] = json!(facts.slug);
+                reply["excerpt"] = json!(facts.excerpt);
+                reply["wasPublished"] = json!(post_settings::was_published(
+                    &state.root,
+                    &config,
+                    rel,
+                    facts.status == "published",
+                    now,
+                ));
+                reply["hasHistory"] = json!(post_settings::has_history(&state.root));
+            }
+            // A job made on a phone: the capture it came from, for its voice note (Studio R4 G30).
+            if kind == "posts" && doc.front_matter.get("profile") == Some("job") {
+                if let Some(capture) = capture_for_path(state, rel) {
+                    reply["capture"] = capture;
+                }
+            }
+            Response::json(200, &reply)
         }
         Err(e) => Response::json(
             200,
@@ -12432,10 +13757,10 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
     let Some(contributors) = body.get("contributors").and_then(Json::as_object) else {
-        return Response::error(422, "contributors must be an object");
+        return coded_error(422, "invalid", "contributors must be an object");
     };
     if contributors.len() > 500 {
-        return Response::error(422, "contributors has too many entries");
+        return coded_error(422, "invalid", "contributors has too many entries");
     }
 
     let mut status = lock(&state.build);
@@ -12450,9 +13775,11 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot read {}: {error}", path.display()))
         }
     };
+    // Every refusal carries a `code` (Studio R5 G41).
     if body.get("etag").and_then(Json::as_str) != Some(etag_bytes(&current_bytes).as_str()) {
-        return Response::error(
+        return coded_error(
             409,
+            "changed",
             "Site settings changed on disk since you opened Contributors. Reload before saving.",
         );
     }
@@ -12480,7 +13807,12 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
     };
     let candidate_config = match SiteConfig::from_json(&candidate_text) {
         Ok(config) => config,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": error, "code": "invalid", "field": post_settings::contributor_field(&error) }),
+            )
+        }
     };
     let removed = current_config
         .contributors
@@ -12497,7 +13829,9 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Referenced contributors cannot be removed. Update these post credits first.",
+                "code": "named-on-posts",
                 "paths": references,
+                "posts": post_settings::posts_naming(&state.root, &current_config, &references),
             }),
         );
     }
@@ -12515,6 +13849,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors who take part in a shared reflection cannot be removed.",
+                "code": "in-shared-reflection",
                 "contributors": bound_removed,
             }),
         );
@@ -12538,6 +13873,7 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             422,
             &json!({
                 "error": "Contributors named as interpreters in the source library cannot be removed. Change those interpretations first.",
+                "code": "named-in-sources",
                 "contributors": contributors,
                 "interpretations": interpretations,
             }),
@@ -12678,46 +14014,6 @@ fn collaboration_identities(
         users.users.iter().map(|user| user.name.clone()).collect(),
         config.contributors.keys().cloned().collect(),
     ))
-}
-
-fn list_shared_publications(state: &AppState, session: &auth::Session) -> Response {
-    let _content_transaction = lock(&state.build);
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let (admin_users, contributor_ids) = match collaboration_identities(&state.root, &config) {
-        Ok(identities) => identities,
-        Err(response) => return response,
-    };
-    let admin_users = admin_users.iter().map(String::as_str).collect::<Vec<_>>();
-    let contributor_ids = contributor_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    let records = match crate::shared_publications::load_all(&state.root) {
-        Ok(records) => records,
-        Err(error) => return Response::error(500, &error),
-    };
-    let publications = records
-        .iter()
-        .filter_map(|(_, record)| {
-            let identities = openblog_core::invitation::Identities {
-                active_admin_users: &admin_users,
-                contributor_ids: &contributor_ids,
-            };
-            record
-                .authorize(
-                    &session.user,
-                    &identities,
-                    AuthorizationAction::ViewPublication,
-                    AuthorizationTarget::Publication,
-                )
-                .ok()
-                .map(|binding| shared_publication_summary(record, &binding.roles))
-        })
-        .collect::<Vec<_>>();
-    Response::json(200, &json!({ "publications": publications }))
 }
 
 #[derive(serde::Deserialize)]
@@ -13005,8 +14301,11 @@ impl InvitationTransaction<'_> {
     }
 }
 
+/// Where an invitation link opens: Studio's join page (Studio R14 G119). The token is in the
+/// address's fragment, so it never reaches the server or its log; Studio takes it out of the
+/// address before its first request. The old Admin's form still opens the same page.
 fn invitation_link(token: &str) -> String {
-    format!("/admin/#/shared/accept/{token}")
+    format!("/admin/studio/#/together/join/{token}")
 }
 
 fn list_invitations(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -13530,9 +14829,11 @@ fn publish_not_found() -> Response {
 }
 
 fn published_already() -> Response {
-    Response::error(
+    together::problem(
         409,
+        "published",
         "This shared reflection is already published. Nothing was changed.",
+        None,
     )
 }
 
@@ -13683,25 +14984,31 @@ fn prepare_post(
             ))
         }
         Err(AssemblyError::UnsafeMarkup) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "unsafe-markup",
                 "A section contains raw HTML or an unsafe link, which shared reflections do not publish. Ask its author to remove it and approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::ReservedSectionAnchor) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "reserved-heading",
                 "A section heading uses an anchor reserved for the generated continuing conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`). Ask its author to rename the heading and approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnsafeConversationItem(rule, item)) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "unsafe-markup",
                 &format!(
                     "The continuing conversation cannot be published: {} contains {}. Ask its author to edit the item and approve it again. Nothing was changed.",
                     item.describe(),
                     rule.describe()
                 ),
+                Some(""),
             ))
         }
         Err(AssemblyError::Invalid) => {
@@ -13711,21 +15018,27 @@ fn prepare_post(
             ))
         }
         Err(AssemblyError::ArrangementMismatch) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "layout-mismatch",
                 "The arrangement no longer matches the drafts: a turn names a part an author has since removed. Ask a coordinator to arrange the piece again; the combined preview shows where. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnresolvedMoment) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "moment-unresolved",
                 "A moment proposed for the piece no longer fits its source: the source was removed or its kind changed. Ask its author to edit the moment or keep it private, then approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnsafeMoment) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "moment-unsafe",
                 "A moment proposed for the piece has an observation that would change how another part of the piece reads, such as a link reference or an unclosed code block. Ask its author to edit the observation, then approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::RuleUnmet { named, roles }) => {
@@ -13761,9 +15074,11 @@ fn prepare_post(
             match original {
                 Some(candidate) if same(&candidate) => assembly = candidate,
                 _ => {
-                    return Err(Response::error(
+                    return Err(together::problem(
                         409,
+                        "occupied",
                         "A different file already occupies this reflection's place. Nothing was changed.",
+                        None,
                     ))
                 }
             }
@@ -13779,9 +15094,11 @@ fn prepare_post(
     .is_err()
     {
         // The problems quote the authors' prose, which the requester may not be entitled to read.
-        return Err(shared_problem(
-            "",
+        return Err(together::problem(
+            422,
+            "build",
             "The combined piece could not be built into the site. Ask the authors to review the combined preview. Nothing was changed.",
+            Some(""),
         ));
     }
     Ok(Prepared {
@@ -13811,7 +15128,9 @@ fn commit_publication(
     use openblog_core::assembly::Outcome;
     let inputs = gate_inputs(state, transaction, record)?;
     if matches!(inputs.outcome.outcome, Some(Outcome::Published { .. })) {
-        return Ok(json!({ "state": "published", "alreadyPublished": true }));
+        return Ok(
+            json!({ "state": "published", "alreadyPublished": true, "path": openblog_core::assembly::post_path(record) }),
+        );
     }
     let prepared = prepare_post(state, record, &inputs, date)?;
     let id = &record.publication_id;
@@ -13847,7 +15166,7 @@ fn commit_publication(
     if let Some(title) = &record.title {
         state_arc(state).auto_publish(title.clone());
     }
-    Ok(json!({ "state": "published", "alreadyPublished": false }))
+    Ok(json!({ "state": "published", "alreadyPublished": false, "path": prepared.assembly.path }))
 }
 
 /// Publish the approved piece now. The publish grant is necessary but never enough: every
@@ -13969,6 +15288,7 @@ fn fire_due_shared_publications(state: &AppState) {
             continue;
         };
         if publish_at > now
+            || !together::is_owner_account(state, &requested_by)
             || authorize_publisher(&transaction, &record, &requested_by, true).is_err()
         {
             continue;
@@ -15209,6 +16529,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         token,
         html: preview.document,
         csp: openblog_core::preview::PREVIEW_CSP.to_string(),
+        owner: session.user.clone(),
     });
     if previews.len() > 16 {
         previews.remove(0);
@@ -16246,9 +17567,11 @@ fn create_series(state: &AppState, req: &Request, session: &auth::Session) -> Re
 
 /// No room for another revision. Saved revisions are intact; only this change was refused.
 fn draft_limit_problem() -> Response {
-    shared_problem(
-        "markdown",
+    together::problem(
+        422,
+        "revision-limit",
         "This draft has reached its limit of saved revisions or storage, so this change was not saved. Your earlier revisions are intact; keep a copy of your latest text.",
+        Some("markdown"),
     )
 }
 
@@ -16461,7 +17784,11 @@ fn validate_candidate(
     ) {
         Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e])?,
         Err(errors) => {
-            let sidecar = openblog_core::contributor::sidecar_path(rel);
+            // The credit file's own problems are this save's only when it changes the credits: a
+            // file that was already broken never stops the title saving (Studio R5).
+            let sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
+                .then(|| openblog_core::contributor::sidecar_path(rel))
+                .flatten();
             let mine: Vec<String> = errors
                 .into_iter()
                 .filter(|error| {
@@ -16610,6 +17937,8 @@ struct StagedTrack {
     target: PathBuf,
     url: String,
     contents: Vec<u8>,
+    /// The post a held file belongs to (its path in the content folder), recorded beside it.
+    owner: Option<String>,
 }
 
 fn field_scalar<'a>(fields: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
@@ -16623,52 +17952,139 @@ fn staged_track(
     root: &Path,
     config: &SiteConfig,
     body: &Json,
+    effective: &BTreeMap<String, Value>,
     fields: &mut BTreeMap<String, Value>,
-) -> Result<Option<StagedTrack>, String> {
+    live: bool,
+    rel: &str,
+) -> Result<Option<StagedTrack>, (&'static str, String)> {
     let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
         return Ok(None);
     };
-    if field_scalar(fields, "profile") != Some("field-journal")
-        || field_scalar(fields, "locationPrivacy") != Some("exact")
+    if field_scalar(effective, "profile") != Some("field-journal")
+        || field_scalar(effective, "locationPrivacy") != Some("exact")
     {
-        return Err("staged tracks require the Field journal profile in Exact mode".into());
+        return Err((
+            "track-needs-exact",
+            "staged tracks require the Field journal profile in Exact mode".into(),
+        ));
     }
-    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("invalid staged track token".into());
+    if !valid_track_token(token) {
+        return Err(("bad-token", "invalid staged track token".into()));
     }
     let pending = root
         .join(".openblog/pending-tracks")
         .join(format!("{token}.gpx"));
-    let contents =
-        fs::read(&pending).map_err(|_| "staged track expired; import the GPX again".to_string())?;
-    let source =
-        std::str::from_utf8(&contents).map_err(|_| "staged GPX is not UTF-8".to_string())?;
-    validate_gpx(source)?;
+    let contents = fs::read(&pending).map_err(|_| {
+        (
+            "track-expired",
+            "staged track expired; import the GPX again".to_string(),
+        )
+    })?;
+    let source = std::str::from_utf8(&contents)
+        .map_err(|_| ("not-utf8", "staged GPX is not UTF-8".to_string()))?;
+    validate_gpx(source).map_err(|error| ("not-gpx", error))?;
     let name = body
         .get("trackName")
         .and_then(Json::as_str)
         .unwrap_or("track.gpx");
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
-    let dir_rel = format!("tracks/uploads/{year}");
-    let static_dir = root.join(&config.paths.static_dir);
+    let public_dir = root
+        .join(&config.paths.static_dir)
+        .join(site::TRACK_UPLOADS)
+        .join(year.to_string());
+    let held_dir = root.join(site::HELD_TRACKS).join(year.to_string());
     let mut file_name = format!("{stem}.gpx");
     let mut number = 2;
-    while static_dir.join(&dir_rel).join(&file_name).exists() {
+    // A name is taken whether its file is public or still held.
+    while public_dir.join(&file_name).exists() || held_dir.join(&file_name).exists() {
         file_name = format!("{stem}-{number}.gpx");
         number += 1;
     }
-    let relative = format!("{dir_rel}/{file_name}");
-    let url = format!("/{relative}");
+    let url = format!("/{}{year}/{file_name}", site::TRACK_UPLOADS);
     fields.insert("route".into(), Value::Scalar(url.clone()));
     Ok(Some(StagedTrack {
         pending,
-        target: static_dir.join(relative),
+        target: if live { public_dir } else { held_dir }.join(file_name),
         url,
         contents,
+        owner: (!live).then(|| rel.to_string()),
     }))
 }
 
+/// Before each rebuild, put each exact route file where its post's state says
+/// (G47): a held file whose own post is now live goes into `static`, so the
+/// site's files (and a repository built from them) hold it from the day it goes
+/// up; a file an older release put in `static` for a post that isn't live (a
+/// draft, or one waiting for its day) moves into the held store for that post,
+/// so it leaves the repository. A file a live post shows never moves, and a file
+/// no post names stays where it is (the build leaves it out). Best effort: the
+/// build already takes a held file its live post names.
+fn sort_route_files(root: &Path, config: &SiteConfig, now: DateTime) {
+    let held_root = root.join(site::HELD_TRACKS);
+    let static_root = root
+        .join(&config.paths.static_dir)
+        .join(site::TRACK_UPLOADS);
+    if !held_root.is_dir() && !static_root.is_dir() {
+        return;
+    }
+    let Ok(sources) = site::read_sources(root, config) else {
+        return;
+    };
+    let move_file = |from: &Path, to: &Path| -> bool {
+        if to.exists() {
+            return false;
+        }
+        if let Some(parent) = to.parent() {
+            if fs::create_dir_all(parent).is_err() {
+                return false;
+            }
+        }
+        crate::fsutil::retry_transient(|| fs::rename(from, to)).is_ok()
+    };
+    for track in site::held_tracks_gone_live(root, config, &sources.posts, now) {
+        let held = held_root.join(&track);
+        if move_file(&held, &static_root.join(&track)) {
+            let _ = fs::remove_file(site::held_owner_file(&held));
+            eprintln!("admin: a route file went up with its post");
+        } else {
+            eprintln!("admin: a route file could not go up with its post");
+        }
+    }
+    if !static_root.is_dir() {
+        return;
+    }
+    // Which posts name each file, and whether any of them is live.
+    let mut named: BTreeMap<String, (bool, Vec<&str>)> = BTreeMap::new();
+    for file in &sources.posts {
+        if let Some((track, live)) = site::post_route_file(file, config, now) {
+            let entry = named.entry(track).or_default();
+            entry.0 |= live;
+            entry.1.push(&file.path);
+        }
+    }
+    for (track, (live, posts)) in named {
+        let public = static_root.join(&track);
+        if live || !public.is_file() {
+            continue;
+        }
+        let Some(owner) = posts.into_iter().min() else {
+            continue;
+        };
+        let held = held_root.join(&track);
+        if move_file(&public, &held) {
+            if site::record_held_track_owner(&held, owner).is_err() {
+                // Without an owner the file would never go up again: put it back.
+                let _ = fs::rename(&held, &public);
+                continue;
+            }
+            eprintln!("admin: a route file for a post that isn't live was put away");
+        }
+    }
+}
+
+/// The file an exact route names: in `static` once its post went up, else
+/// where it is held while the post is a draft or scheduled (G47).
 fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<PathBuf> {
     let relative = route.strip_prefix("/tracks/uploads/")?;
     if relative.is_empty()
@@ -16680,11 +18096,16 @@ fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<Pa
     {
         return None;
     }
-    Some(
-        root.join(&config.paths.static_dir)
-            .join("tracks/uploads")
-            .join(relative),
-    )
+    let public = root
+        .join(&config.paths.static_dir)
+        .join("tracks/uploads")
+        .join(relative);
+    let held = root.join(site::HELD_TRACKS).join(relative);
+    Some(if !public.is_file() && held.is_file() {
+        held
+    } else {
+        public
+    })
 }
 
 /// A saved review a published job still shows cannot go to the trash: the build would stop on that job, or,
@@ -16781,15 +18202,18 @@ fn write_document_bundle(
     let result = (|| {
         if let Some(track) = upload {
             write_atomic_bytes(&track.target, &track.contents)?;
+            if let Some(owner) = &track.owner {
+                site::record_held_track_owner(&track.target, owner)?;
+            }
         }
         if let Some((from, to)) = retire {
             if let Some(parent) = to.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
             }
-            crate::fsutil::retry_transient(|| fs::rename(from, to)).map_err(|error| {
-                format!("cannot retire private track {}: {error}", from.display())
-            })?;
+            crate::fsutil::retry_transient(|| fs::rename(from, to))
+                .map_err(|_| "cannot retire a private route file".to_string())?;
+            let _ = fs::remove_file(site::held_owner_file(from));
         }
         Ok(())
     })();
@@ -16798,6 +18222,7 @@ fn write_document_bundle(
         let _ = restore_file(sidecar, previous_sidecar.as_deref());
         if let Some(track) = upload {
             let _ = restore_file(&track.target, previous_upload.as_deref());
+            let _ = fs::remove_file(site::held_owner_file(&track.target));
         }
         return Err(error);
     }
@@ -16850,17 +18275,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if let Err(r) = require_json(req) {
         return r;
     }
+    // Every refusal carries a `code` Studio says in its own words (Studio R5 G36).
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let mut fields = match fields_from_json(&body["fields"]) {
         Ok(f) => f,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return coded_error(422, "bad-request", &e),
     };
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Response::error(413, "The post body is too large");
+        return coded_error(413, "too-large", "The post body is too large");
     }
     // A capture id makes creation idempotent: the same id never creates a second draft (ADR 0297).
     let capture_id = match body.get("captureId") {
@@ -16870,7 +18296,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         {
             Some(id.clone())
         }
-        Some(_) => return Response::error(422, "That capture id is not valid"),
+        Some(_) => return coded_error(422, "capture-id", "That capture id is not valid"),
     };
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -16891,71 +18317,145 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             Err(error) => return Response::error(500, &error),
         }
     }
-    let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
-    let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
-    if field_journal && !exact_location {
-        fields.remove("route");
+    // Studio sends only what changed and keeps the rest of the file as it is (`frontMatter:
+    // "keep"`), so what the post will be is the file's fields under the ones sent: the route
+    // rules below, and whether the post is live, read that.
+    let mut effective = fields.clone();
+    if body["frontMatter"].as_str() == Some("keep") {
+        if let (Some(rel), Some(sent)) = (existing_path.as_deref(), body["fields"].as_object()) {
+            let current = resolve_content_path(&state.root, &config, rel)
+                .ok()
+                .and_then(|path| fs::read_to_string(path).ok());
+            if let Some(document) = current.and_then(|text| frontmatter::parse(&text).ok()) {
+                for (key, value) in &document.front_matter.fields {
+                    let top = key.split('.').next().unwrap_or(key);
+                    if !sent.contains_key(key) && !sent.contains_key(top) {
+                        effective
+                            .entry(key.clone())
+                            .or_insert_with(|| value.clone());
+                    }
+                }
+            }
+        }
     }
-    let track_upload = match staged_track(&state.root, &config, &body, &mut fields) {
-        Ok(track) => track,
-        Err(error) => return Response::error(422, &error),
-    };
-    let mut source = frontmatter::compose(&fields, text_body);
-
+    let field_journal = field_scalar(&effective, "profile") == Some("field-journal");
+    let exact_location =
+        field_journal && field_scalar(&effective, "locationPrivacy") == Some("exact");
+    // What a field journal's privacy leaves out of the file: the route file's
+    // address unless exact, and the route's shape when hidden (G52), so a
+    // public repository never holds the shape of a route its post hides.
+    let mut dropped: Vec<&str> = Vec::new();
+    if field_journal && !exact_location {
+        dropped.push("route");
+    }
+    if field_journal
+        && openblog_core::field_journal::LocationPrivacy::parse(field_scalar(
+            &effective,
+            "locationPrivacy",
+        )) == openblog_core::field_journal::LocationPrivacy::Hidden
+    {
+        dropped.push("routeShape");
+    }
+    for key in &dropped {
+        fields.remove(*key);
+        effective.remove(*key);
+    }
     let (rel, created) = match existing_path {
         Some(rel) => (rel, false),
         None => {
             let kind = body["kind"].as_str().unwrap_or("posts");
             match derive_new_path(kind, &fields) {
                 Ok(rel) => (rel, true),
-                Err(e) => return Response::error(422, &e),
+                Err(e) => return coded_error(422, "bad-request", &e),
             }
         }
     };
+    // An exact route file goes into `static` only with a live post; a draft or
+    // a post waiting for its day keeps it private until it goes up (G47).
+    let live = describe(
+        &rel,
+        &frontmatter::compose(&effective, text_body),
+        &config,
+        clock::now(),
+    )
+    .0 == "published";
+    // A route file held for another post isn't this post's to show: a `route`
+    // naming one is left out of what's written (G47).
+    if exact_location && body.get("trackToken").is_none() {
+        if let Some(route) = field_scalar(&effective, "route") {
+            if let Some(relative) = route.strip_prefix("/tracks/uploads/") {
+                let held = state.root.join(site::HELD_TRACKS).join(relative);
+                if !relative.contains("..")
+                    && held.is_file()
+                    && site::held_track_owner(&held).as_deref() != Some(rel.as_str())
+                {
+                    fields.remove("route");
+                    effective.remove("route");
+                    dropped.push("route");
+                }
+            }
+        }
+    }
+    let track_upload = match staged_track(
+        &state.root,
+        &config,
+        &body,
+        &effective,
+        &mut fields,
+        live,
+        &rel,
+    ) {
+        Ok(track) => track,
+        Err((code, error)) => return track_refused(code, &error),
+    };
+    let mut source = frontmatter::compose(&fields, text_body);
     let path = match resolve_content_path(&state.root, &config, &rel) {
         Ok(p) => p,
-        Err(e) => return Response::error(400, &e),
+        Err(e) => return coded_error(400, "bad-path", &e),
     };
     let kind = check_rel_path(&rel).unwrap_or("posts");
     let credit_path = if kind == "posts" {
         match resolve_credit_path(&state.root, &config, &rel) {
             Ok(path) => Some(path),
-            Err(error) => return Response::error(400, &error),
+            Err(error) => return coded_error(400, "bad-path", &error),
         }
     } else {
         None
     };
     let credit_edit = match requested_credit_edit(&body, kind) {
         Ok(edit) => edit,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => return coded_error(422, "bad-request", &error),
     };
 
     let mut retired_track = None;
     if created {
         if path.exists() {
-            return Response::error(
+            // Named by its address (`slug`), the address is what's taken; else the title.
+            return Response::json(
                 409,
-                "A file with that name already exists. Change the title, slug, or date.",
+                &json!({ "error": "A file with that name already exists. Change the title, slug, or date.", "code": "exists", "slug": field_scalar(&fields, "slug").is_some_and(|slug| !slug.trim().is_empty()) }),
             );
         }
         if matches!(credit_edit, CreditEdit::Unchanged)
             && credit_path.as_ref().is_some_and(|path| path.exists())
         {
-            return Response::error(
+            return coded_error(
                 409,
+                "credit-file-exists",
                 "A credit sidecar with that name already exists. Reload with a credits-aware Admin client or move the orphaned sidecar.",
             );
         }
     } else {
         let current = match fs::read_to_string(&path) {
             Ok(t) => t,
-            Err(_) => return Response::error(404, "No such document"),
+            Err(_) => return coded_error(404, "not-found", "No such document"),
         };
         match body["etag"].as_str() {
             Some(sent) if sent == etag(&current) => {}
             _ => {
-                return Response::error(
+                return coded_error(
                     409,
+                    "changed",
                     "This file changed on disk since you opened it. Reload it before saving.",
                 )
             }
@@ -17011,6 +18511,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                     if !sent.contains_key(key)
                         && !sent.contains_key(top)
                         && !fields.contains_key(key)
+                        && !dropped.contains(&key.as_str())
                     {
                         fields.insert(key.clone(), value.clone());
                     }
@@ -17042,8 +18543,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             None => body.get("creditEtag").is_none_or(Json::is_null),
         };
         if !matches {
-            return Response::error(
+            return coded_error(
                 409,
+                "credits-changed",
                 "The post credits changed on disk since you opened them. Reload before saving.",
             );
         }
@@ -17066,8 +18568,9 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                 &config.contributors,
             );
             if !published.sections().is_empty() && edited.sections().is_empty() {
-                return Response::error(
+                return coded_error(
                     422,
+                    "shared-order",
                     "These credits no longer match the order in which each contributor first appears in this shared reflection, so readers could no longer write to or answer each author’s own section. List each contributor once, in the order they first appear.",
                 );
             }
@@ -17086,15 +18589,12 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
             &credit_edit,
             &config,
         ) {
-            return Response::error(422, &message);
+            return coded_error(422, "shared-rebind", &message);
         }
     }
 
     if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
-        return Response::json(
-            422,
-            &json!({ "error": "This can't be saved yet.", "problems": problems }),
-        );
+        return post_settings::save_refused(&problems);
     }
     let sidecar = credit_path.as_deref().unwrap_or(&path);
     if let Err(e) = write_document_bundle(
@@ -17159,7 +18659,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
 fn replayed_capture(state: &AppState, config: &SiteConfig, ledger: &[u8]) -> Response {
     let rel = match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(ledger)) {
         Ok(rel) => rel,
-        Err(error) => return Response::error(409, &error),
+        Err(error) => return coded_error(409, "ledger-version", &error),
     };
     let source = resolve_content_path(&state.root, config, &rel)
         .ok()
@@ -17264,28 +18764,6 @@ fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
     target
 }
 
-fn post_context_path_pairs(
-    root: &Path,
-    old_document: &str,
-    new_document: &str,
-) -> Result<Vec<(PathBuf, PathBuf)>, Response> {
-    let mut pairs = Vec::new();
-    for visibility in ["portable", "private"] {
-        let (old, _, _) = assistant_context_target(root, "post", visibility, Some(old_document))?;
-        let (new, _, _) = assistant_context_target(root, "post", visibility, Some(new_document))?;
-        if old.exists() {
-            if !old.is_file() {
-                return Err(Response::error(
-                    409,
-                    "Associated post context is not a file",
-                ));
-            }
-            pairs.push((old, new));
-        }
-    }
-    Ok(pairs)
-}
-
 fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
     for (from, to) in moves {
         if !from.is_file() {
@@ -17325,93 +18803,6 @@ fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String
         moved.push((from.clone(), to.clone()));
     }
     Ok(())
-}
-
-fn rename_document(state: &AppState, req: &Request) -> Response {
-    if let Err(response) = require_json(req) {
-        return response;
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid rename request"),
-    };
-    let Some(old_rel) = body["path"].as_str() else {
-        return Response::error(400, "Missing path");
-    };
-    let Some(new_rel) = body["newPath"].as_str() else {
-        return Response::error(400, "Missing newPath");
-    };
-    if old_rel == new_rel {
-        return Response::error(422, "The new document path is unchanged");
-    }
-    if check_rel_path(old_rel).ok() != Some("posts")
-        || check_rel_path(new_rel).ok() != Some("posts")
-    {
-        return Response::error(422, "Only post Markdown paths can be renamed here");
-    }
-    let mut status = lock(&state.build);
-    let _filesystem_transaction = match content_transaction(state) {
-        Ok(lock) => lock,
-        Err(response) => return response,
-    };
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let old_path = match resolve_content_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let new_path = match resolve_content_path(&state.root, &config, new_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    let source = match fs::read_to_string(&old_path) {
-        Ok(source) => source,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Response::error(404, "No such document")
-        }
-        Err(error) => return Response::error(500, &format!("Cannot read document: {error}")),
-    };
-    if body["etag"].as_str() != Some(etag(&source).as_str()) {
-        return Response::error(
-            409,
-            "Document changed since it was opened; reload and retry",
-        );
-    }
-    let mut moves = vec![(old_path, new_path)];
-    let old_credit = match resolve_credit_path(&state.root, &config, old_rel) {
-        Ok(path) => path,
-        Err(error) => return Response::error(400, &error),
-    };
-    if old_credit.is_file() {
-        let new_credit = match resolve_credit_path(&state.root, &config, new_rel) {
-            Ok(path) => path,
-            Err(error) => return Response::error(400, &error),
-        };
-        moves.push((old_credit, new_credit));
-    }
-    match post_context_path_pairs(&state.root, old_rel, new_rel) {
-        Ok(context_moves) => moves.extend(context_moves),
-        Err(response) => return response,
-    }
-    if let Err(error) = move_files_transactionally(&moves) {
-        let status = if error.contains("destination already exists") {
-            409
-        } else {
-            500
-        };
-        return Response::error(status, &format!("Cannot rename document bundle: {error}"));
-    }
-    let build = state.rebuild_locked(&mut status);
-    let build_json = match build {
-        Ok(report) => json!({ "ok": true, "posts": report.posts }),
-        Err(error) => json!({ "ok": false, "error": error }),
-    };
-    Response::json(
-        200,
-        &json!({ "ok": true, "path": new_rel, "etag": etag(&source), "build": build_json }),
-    )
 }
 
 fn delete_document(state: &AppState, req: &Request) -> Response {
@@ -17861,16 +19252,17 @@ impl DraftSite<'_> {
 fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>, Response> {
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Err(Response::error(413, "The post body is too large"));
+        return Err(coded_error(413, "too-large", "The post body is too large"));
     }
     let fields = match fields_from_json(&body["fields"]) {
         Ok(fields) => fields,
-        Err(e) => return Err(Response::error(422, &e)),
+        Err(e) => return Err(coded_error(422, "bad-request", &e)),
     };
     let kind = body["kind"].as_str().unwrap_or("posts").to_string();
     if !matches!(kind.as_str(), "posts" | "pages" | "series" | "services") {
-        return Err(Response::error(
+        return Err(coded_error(
             422,
+            "bad-request",
             "kind must be posts, series, pages, or services",
         ));
     }
@@ -17878,16 +19270,17 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
         Some(path) => match check_rel_path(path) {
             Ok(path_kind) if path_kind == kind => path.to_string(),
             Ok(_) => {
-                return Err(Response::error(
+                return Err(coded_error(
                     422,
+                    "bad-request",
                     "path does not match the document kind",
                 ))
             }
-            Err(e) => return Err(Response::error(422, &e)),
+            Err(e) => return Err(coded_error(422, "bad-request", &e)),
         },
         None => match derive_new_path(&kind, &fields) {
             Ok(path) => path,
-            Err(e) => return Err(Response::error(422, &e)),
+            Err(e) => return Err(coded_error(422, "bad-request", &e)),
         },
     };
     let source = frontmatter::compose(&fields, text_body);
@@ -17962,8 +19355,17 @@ fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>
                 })
                 .cloned()
                 .collect();
-            let shown = if mine.is_empty() { errors } else { mine };
-            return Err(Response::error(422, &site::content_problems(&shown)));
+            // A problem only in other documents doesn't make this one unbuildable: it is
+            // coded apart, so a checklist doesn't hold this post back for it (G46).
+            if mine.is_empty() {
+                let mut refused = build_refused(&site::content_problems(&errors), &errors);
+                if let Ok(mut json) = serde_json::from_slice::<Json>(&refused.body) {
+                    json["code"] = json!("site-build");
+                    refused = Response::json(422, &json);
+                }
+                return Err(refused);
+            }
+            return Err(build_refused(&site::content_problems(&mine), &mine));
         }
     };
     Ok(DraftSite {
@@ -18187,25 +19589,30 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
         return r;
     }
     if req.body.len() > 16 * 1024 {
-        return Response::error(413, "An acknowledgement is limited to 16 KiB");
+        return coded_error(413, "too-large", "An acknowledgement is limited to 16 KiB");
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(body) => body,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let Some(revision) = body["revision"].as_str() else {
-        return Response::error(400, "Missing acknowledgements revision");
+        return coded_error(400, "bad-request", "Missing acknowledgements revision");
     };
     let acknowledgement: Acknowledgement =
         match serde_json::from_value(body["acknowledgement"].clone()) {
             Ok(acknowledgement) => acknowledgement,
             Err(error) => {
-                return Response::error(422, &format!("Invalid acknowledgement: {error}"))
+                return coded_error(
+                    422,
+                    "invalid-acknowledgement",
+                    &format!("Invalid acknowledgement: {error}"),
+                )
             }
         };
     if let Some(problem) = acknowledgement.problem() {
-        return Response::error(
+        return coded_error(
             422,
+            "invalid-acknowledgement",
             &format!("Not acknowledged: {problem}. Nothing was changed."),
         );
     }
@@ -18226,6 +19633,7 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
             409,
             &json!({
                 "error": "The acknowledgements changed since this review was read. Nothing was changed; review again.",
+                "code": "changed",
                 "conflict": true,
                 "revision": research_review::load(&state.root).ok().map(|snapshot| snapshot.revision),
             }),
@@ -18234,6 +19642,7 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
             422,
             &json!({
                 "error": format!("{error}. Nothing was changed."),
+                "code": "file-invalid",
                 "file": research_review::ACKNOWLEDGEMENTS_FILE,
             }),
         ),
@@ -18244,24 +19653,25 @@ fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Respons
 /// Check one piece's form values and return the Markdown that holds it in a
 /// post (ADR 0253). The engine is the only place a piece is validated or
 /// written, so the Admin cannot save one the build would refuse. Nothing is
-/// stored.
+/// stored. Problems carry codes (Studio R6 G44); a question for readers and a
+/// code block are checked here too (G45). See `admin/pieces.rs`.
 fn build_piece(req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
     }
     if req.body.len() > MAX_PIECE_REQUEST_BYTES {
-        return Response::error(413, "A piece is limited to 64 KiB");
+        return coded_error(413, "too-large", "A piece is limited to 64 KiB");
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
     };
     let kind = body["kind"].as_str().unwrap_or("");
     if body["values"]
         .as_array()
         .is_some_and(|pairs| pairs.len() > MAX_PIECE_VALUES)
     {
-        return Response::error(413, "That piece has too many details");
+        return coded_error(413, "too-many", "That piece has too many details");
     }
     let Some(values) = body["values"].as_array().map(|pairs| {
         pairs
@@ -18274,23 +19684,15 @@ fn build_piece(req: &Request) -> Response {
             })
             .collect::<Vec<_>>()
     }) else {
-        return Response::error(400, "values must be a list of [field, value] pairs");
+        return coded_error(
+            400,
+            "bad-request",
+            "values must be a list of [field, value] pairs",
+        );
     };
-    if kind == openblog_core::compare::FENCE {
-        return match openblog_core::compare::from_values(&values) {
-            Ok(pair) => Response::json(200, &json!({ "markdown": pair.to_markdown() })),
-            Err(problems) => Response::json(
-                422,
-                &json!({ "error": "Check the highlighted details", "problems": problems }),
-            ),
-        };
-    }
-    match openblog_core::piece::Piece::from_values(kind, &values) {
-        Ok(piece) => Response::json(200, &json!({ "markdown": piece.to_markdown() })),
-        Err(problems) => Response::json(
-            422,
-            &json!({ "error": "Check the highlighted details", "problems": problems }),
-        ),
+    match pieces::build(kind, &values) {
+        Ok(markdown) => Response::json(200, &json!({ "markdown": markdown })),
+        Err(problems) => Response::json(422, &pieces::refusal(&problems)),
     }
 }
 
@@ -18377,8 +19779,62 @@ fn preview(state: &AppState, req: &Request) -> Response {
         _ => None,
     };
     let Some((url, theme)) = target else {
-        return Response::error(422, "Preview document was not found in the site model");
+        return coded_error(
+            422,
+            "not-found",
+            "Preview document was not found in the site model",
+        );
     };
+    let first_body_line = draft.first_body_line;
+    let social = match social_metadata(preview_site, rel) {
+        Ok(meta) => json!({
+            "siteName": meta.site_name,
+            "title": meta.title,
+            "description": meta.description,
+            "url": meta.url,
+            "image": meta.image,
+            "imageAlt": meta.image_alt.unwrap_or_default(),
+            "type": meta.kind,
+            "card": meta.card,
+        }),
+        Err(e) => return build_refused(&e, std::slice::from_ref(&e)),
+    };
+    let accessibility: Vec<_> = preview_site
+        .accessibility
+        .iter()
+        .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
+        .cloned()
+        .collect();
+    // The previewed recipe's problems, as codes Admin words for its author (#556).
+    let recipe_problems = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| {
+            let recipe = post.recipe.as_ref()?;
+            Some(openblog_core::recipe_check::check(
+                &preview_site.config,
+                post,
+                recipe,
+            ))
+        })
+        .unwrap_or_default();
+    // Before you publish asks only for the checks (Studio R7 G53): no portable
+    // copy and no preview page, so it answers in time on a large site.
+    if body["only"].as_str() == Some("checks") {
+        return Response::json(
+            200,
+            &json!({
+                "url": url,
+                "social": social,
+                "warnings": preview_site.warnings,
+                "warningsSource": rel,
+                "recipeProblems": recipe_problems,
+                "accessibility": accessibility,
+                "firstBodyLine": first_body_line,
+            }),
+        );
+    }
     let research = preview_site
         .posts
         .iter()
@@ -18406,25 +19862,29 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .map(|(post, summary)| citation_preview(&post.slug, summary));
     let portable_preview = if kind == "posts" {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
-            return Response::error(422, "Preview post was not found in the site model");
+            return coded_error(
+                422,
+                "not-found",
+                "Preview post was not found in the site model",
+            );
         };
         // A published part of a collaborative series previews the series context its external
         // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
         let projection = match admin_portable_projection(preview_site, post, portable_config) {
             Ok(projection) => projection,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let mut portable_html = match projection.portable_html() {
             Ok(output) => output,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let portable_markdown = match projection.portable_markdown() {
             Ok(markdown) => markdown,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         let portable_text = match projection.portable_text() {
             Ok(text) => text,
-            Err(error) => return Response::error(422, &error),
+            Err(error) => return build_refused(&error, std::slice::from_ref(&error)),
         };
         // compose() normalizes leading blank lines; locations must refer to the
         // unsaved editor body, not the composed production-preview document.
@@ -18508,22 +19968,9 @@ fn preview(state: &AppState, req: &Request) -> Response {
     } else {
         Json::Null
     };
-    let social = match social_metadata(preview_site, rel) {
-        Ok(meta) => json!({
-            "siteName": meta.site_name,
-            "title": meta.title,
-            "description": meta.description,
-            "url": meta.url,
-            "image": meta.image,
-            "imageAlt": meta.image_alt.unwrap_or_default(),
-            "type": meta.kind,
-            "card": meta.card,
-        }),
-        Err(e) => return Response::error(422, &e),
-    };
     let document = match generate_document(preview_site, themes, rel) {
         Ok(document) => document,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return build_refused(&e, std::slice::from_ref(&e)),
     };
     let token = match auth::random_token() {
         Ok(token) => token,
@@ -18531,32 +19978,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
     };
     let csp = preview_csp(&preview_site.config);
     store_preview(state, &token, document.contents, csp);
-    let accessibility: Vec<_> = preview_site
-        .accessibility
-        .iter()
-        .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
-        .cloned()
-        .collect();
     let evidence: Vec<_> = preview_site
         .evidence
         .iter()
         .filter(|finding| finding.source.path == rel)
         .cloned()
         .collect();
-    // The previewed recipe's problems, as codes Admin words for its author (#556).
-    let recipe_problems = preview_site
-        .posts
-        .iter()
-        .find(|post| post.source == rel)
-        .and_then(|post| {
-            let recipe = post.recipe.as_ref()?;
-            Some(openblog_core::recipe_check::check(
-                &preview_site.config,
-                post,
-                recipe,
-            ))
-        })
-        .unwrap_or_default();
     Response::json(
         200,
         &json!({
@@ -18573,9 +20000,87 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "recipeProblems": recipe_problems,
             "recipeNotes": openblog_core::recipe_listing::plan(preview_site).notes,
             "accessibility": accessibility,
-            "evidence": evidence
+            "evidence": evidence,
+            "firstBodyLine": first_body_line
         }),
     )
+}
+
+/// A draft the build would refuse (Studio R7 G46): the sentence as before in
+/// `error`, and each problem with the field it names when it names one.
+fn build_refused(error: &str, problems: &[String]) -> Response {
+    let problems: Vec<Json> = problems
+        .iter()
+        .map(|problem| {
+            let issue = post_settings::document_issue(problem);
+            let mut entry = json!({ "message": problem });
+            if let Some(field) = issue["field"].as_str().filter(|field| !field.is_empty()) {
+                entry["field"] = json!(field);
+            }
+            if let Some(line) = problem_line(problem) {
+                entry["line"] = json!(line);
+            }
+            entry
+        })
+        .collect();
+    Response::json(
+        422,
+        &json!({ "error": error, "code": "build", "problems": problems }),
+    )
+}
+
+/// The line a build problem names ("… line 12 …" or "path.md:12:"), when it names one.
+fn problem_line(problem: &str) -> Option<u64> {
+    let after_line = problem
+        .split("line ")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|digits| digits.parse().ok());
+    after_line.or_else(|| {
+        let (_, rest) = problem.split_once(".md:")?;
+        rest.split(|c: char| !c.is_ascii_digit())
+            .next()?
+            .parse()
+            .ok()
+    })
+}
+
+/// What `openblog video` would print for the post as the editor holds it,
+/// saved or not (Studio R7 G50), so Words for YouTube and the engine can't
+/// disagree. Reads only; sends nothing.
+fn video_release_preview(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return coded_error(400, "bad-request", "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" {
+        return coded_error(422, "bad-request", "Only a post has a video release");
+    }
+    let mut draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    draft.release();
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return coded_error(422, "not-found", "The post was not found in the site model");
+    };
+    let live = !post.draft && post.date <= clock::now();
+    match crate::video_release::draft_preview(&state.root, &draft.site, post, live) {
+        Some(preview) => Response::json(200, &preview.to_json_value()),
+        None => coded_error(
+            422,
+            "not-video",
+            "A video release is prepared only from a post with `profile: video`",
+        ),
+    }
 }
 
 /// What the previewed post's citations made public, with its portable
@@ -18638,6 +20143,7 @@ fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
         token: token.to_string(),
         html,
         csp,
+        owner: String::new(),
     });
     if previews.len() > 16 {
         previews.remove(0);
@@ -18678,13 +20184,15 @@ fn greeting_preview(state: &AppState, response: Response) -> Response {
     Response::json(200, &body)
 }
 
-fn preview_document(state: &AppState, token: &str) -> Response {
+fn preview_document(state: &AppState, token: &str, session: &auth::Session) -> Response {
     if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Response::error(404, "Preview not found");
     }
     let document = lock(&state.previews)
         .iter()
-        .find(|document| document.token == token)
+        .find(|document| {
+            document.token == token && (!session.co_writer || document.owner == session.user)
+        })
         .map(|document| (document.html.clone(), document.csp.clone()));
     let Some((html, csp)) = document else {
         return Response::error(404, "Preview not found");
@@ -18779,11 +20287,12 @@ fn upload(state: &AppState, req: &Request) -> Response {
         Err(e) => return Response::error(500, &e),
     };
     if req.body.is_empty() {
-        return Response::error(400, "No image data");
+        return coded_error(400, "not-image", "No image data");
     }
     if req.body.len() > upload_intake_bytes(&config) {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture is over {} MB, which is too large to use. Try a smaller copy.",
                 upload_intake_bytes(&config) / (1024 * 1024)
@@ -18792,14 +20301,16 @@ fn upload(state: &AppState, req: &Request) -> Response {
     }
     let Some(sniffed) = sniff_image(&req.body) else {
         if is_heic(&req.body) {
-            return Response::error(
+            return coded_error(
                 415,
+                "heic",
                 "This photo is in the HEIC format iPhones use, which web pages cannot show. \
                  Choose it directly from the iPhone, or save a copy as a JPEG and upload that.",
             );
         }
-        return Response::error(
+        return coded_error(
             415,
+            "not-image",
             "Only PNG, JPEG, GIF, WebP, and AVIF images can be uploaded",
         );
     };
@@ -18810,8 +20321,9 @@ fn upload(state: &AppState, req: &Request) -> Response {
         None => (req.body.as_slice(), sniffed),
     };
     if bytes.len() > config.admin.max_upload_mb as usize * 1024 * 1024 {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "This picture could not be made smaller and is over the {} MB limit. Try a smaller copy.",
                 config.admin.max_upload_mb
@@ -18830,10 +20342,22 @@ fn upload(state: &AppState, req: &Request) -> Response {
                 .and_then(|slot| openblog_core::capture::photo_stem(id, slot))
             {
                 Some(stem) => Some(stem),
-                None => return Response::error(400, "That capture id or photo slot is not valid"),
+                None => {
+                    return coded_error(
+                        400,
+                        "capture-slot",
+                        "That capture id or photo slot is not valid",
+                    )
+                }
             }
         }
-        _ => return Response::error(400, "A capture upload needs both capture and slot"),
+        _ => {
+            return coded_error(
+                400,
+                "capture-slot",
+                "A capture upload needs both capture and slot",
+            )
+        }
     };
     let stem = sanitize_upload_stem(name);
     let year = clock::now().civil().year;
@@ -18950,14 +20474,15 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         .get("capture")
         .filter(|id| openblog_core::capture::valid_id(id))
     else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     if req.body.is_empty() {
-        return Response::error(400, "No audio data");
+        return coded_error(400, "not-audio", "No audio data");
     }
     if req.body.len() > openblog_core::capture::MAX_AUDIO_BYTES {
-        return Response::error(
+        return coded_error(
             413,
+            "too-large",
             &format!(
                 "A voice note can be at most {} MB",
                 openblog_core::capture::MAX_AUDIO_BYTES / (1024 * 1024)
@@ -18965,10 +20490,14 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
         );
     }
     let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
-        return Response::error(415, "That is not an audio recording this site can keep");
+        return coded_error(
+            415,
+            "not-audio",
+            "That is not an audio recording this site can keep",
+        );
     };
     let Some(name) = openblog_core::capture::audio_file_name(id, extension) else {
-        return Response::error(400, "That capture id is not valid");
+        return coded_error(400, "capture-id", "That capture id is not valid");
     };
     let _guard = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -18985,6 +20514,134 @@ fn upload_capture_audio(state: &AppState, req: &Request) -> Response {
     Response::json(201, &json!({ "stored": true, "bytes": req.body.len() }))
 }
 
+/// The image extensions a capture's photo can be stored under (what `sniff_image` and
+/// `photo::fit_for_web` produce).
+const CAPTURE_PHOTO_EXTENSIONS: [&str; 5] = ["jpg", "png", "webp", "gif", "avif"];
+
+/// What the server already has of a capture (Studio R4 G29): the photos stored for each slot, whether
+/// its voice note is kept, and the draft it became, so a phone sending it again skips what arrived.
+/// Reads only; the same lock as a save, so it never sees half a capture.
+fn capture_status(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("id")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(c) => c,
+        Err(e) => return Response::error(500, &e),
+    };
+    let _guard = lock(&state.build);
+    let static_dir = state.root.join(&config.paths.static_dir);
+    let mut photos = Vec::new();
+    for slot in 0..openblog_core::capture::MAX_PHOTOS {
+        let Some(stem) = openblog_core::capture::photo_stem(id, slot) else {
+            continue;
+        };
+        if let Some(ext) = CAPTURE_PHOTO_EXTENSIONS.iter().find(|ext| {
+            static_dir
+                .join(format!("images/uploads/captures/{stem}.{ext}"))
+                .is_file()
+        }) {
+            photos.push(
+                json!({ "slot": slot, "url": format!("/images/uploads/captures/{stem}.{ext}") }),
+            );
+        }
+    }
+    let draft = match read_optional_bytes(&captures_dir(state).join(format!("{id}.json"))) {
+        Ok(Some(bytes)) => {
+            match openblog_core::capture::parse_ledger(&String::from_utf8_lossy(&bytes)) {
+                Ok(rel) => {
+                    let status = resolve_content_path(&state.root, &config, &rel)
+                        .ok()
+                        .and_then(|path| fs::read_to_string(path).ok())
+                        .map_or("removed", |source| {
+                            describe(&rel, &source, &config, clock::now()).0
+                        });
+                    json!({ "path": rel, "status": status })
+                }
+                Err(_) => Json::Null,
+            }
+        }
+        _ => Json::Null,
+    };
+    Response::json(
+        200,
+        &json!({ "photos": photos, "audio": stored_capture_audio(state, id).is_some(), "draft": draft }),
+    )
+}
+
+/// A capture's kept voice note, for the post it became (Studio R4 G30). Signed in only, never cached,
+/// and typed by its own bytes.
+fn capture_audio(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("capture")
+        .filter(|id| openblog_core::capture::valid_id(id))
+    else {
+        return coded_error(400, "capture-id", "That capture id is not valid");
+    };
+    let _guard = lock(&state.build);
+    let Some(name) = stored_capture_audio(state, id) else {
+        return coded_error(404, "no-note", "No voice note is kept for that capture");
+    };
+    let Ok(bytes) = fs::read(captures_dir(state).join(name)) else {
+        return Response::error(500, "Cannot read the voice note");
+    };
+    let ctype = match openblog_core::capture::sniff_audio(&bytes) {
+        Some("webm") => "audio/webm",
+        Some("ogg") => "audio/ogg",
+        Some("m4a") => "audio/mp4",
+        Some("wav") => "audio/wav",
+        Some("mp3") => "audio/mpeg",
+        _ => return coded_error(415, "not-audio", "That voice note can't be read"),
+    };
+    Response::new(200, ctype, bytes)
+        .with_header("Cache-Control", "no-store")
+        .with_header("X-Content-Type-Options", "nosniff")
+}
+
+/// Most ledger entries read to find which capture a post came from.
+const MAX_LEDGERS_SCANNED: usize = 2000;
+
+/// The capture a post was made from, by the ledger entry naming its path (Studio R4 G30): its id,
+/// whether its voice note is kept and whether it has been turned into words. The ledger is the index;
+/// entries whose id starts with the post's slug suffix (a capture's slug ends with the id's first six
+/// digits) are read first, so the usual case reads one file.
+fn capture_for_path(state: &AppState, rel: &str) -> Option<Json> {
+    let dir = captures_dir(state);
+    let hint = rel
+        .trim_end_matches(".md")
+        .rsplit('-')
+        .next()
+        .filter(|tail| tail.len() == 6)
+        .unwrap_or("")
+        .to_string();
+    let mut ids: Vec<String> = fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            let id = name.strip_suffix(".json")?.to_string();
+            openblog_core::capture::valid_id(&id).then_some(id)
+        })
+        .take(MAX_LEDGERS_SCANNED)
+        .collect();
+    ids.sort_by_key(|id| !(!hint.is_empty() && id.starts_with(&hint)));
+    let id = ids.into_iter().find(|id| {
+        fs::read_to_string(dir.join(format!("{id}.json")))
+            .ok()
+            .and_then(|text| openblog_core::capture::parse_ledger(&text).ok())
+            .is_some_and(|path| path == rel)
+    })?;
+    let transcript = openblog_core::capture::transcript_file_name(&id)
+        .is_some_and(|name| dir.join(name).is_file());
+    Some(
+        json!({ "id": id, "audio": stored_capture_audio(state, &id).is_some(), "transcript": transcript }),
+    )
+}
+
 fn upload_track(state: &AppState, req: &Request) -> Response {
     let config = match site::load_config(&state.root) {
         Ok(config) => config,
@@ -18992,20 +20649,35 @@ fn upload_track(state: &AppState, req: &Request) -> Response {
     };
     let max = config.admin.max_upload_mb as usize * 1024 * 1024;
     if req.body.is_empty() {
-        return Response::error(400, "No GPX data");
+        return coded_error(400, "empty", "No GPX data");
     }
     if req.body.len() > max {
-        return Response::error(
+        return Response::json(
             413,
-            &format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+            &json!({
+                "error": format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+                "code": "too-large",
+                "maxMb": config.admin.max_upload_mb,
+            }),
         );
     }
     let Ok(source) = std::str::from_utf8(&req.body) else {
-        return Response::error(415, "GPX tracks must be UTF-8 XML");
+        return coded_error(415, "not-utf8", "GPX tracks must be UTF-8 XML");
     };
-    if let Err(error) = validate_gpx(source) {
-        return Response::error(415, &error);
+    if gpx_is_unsafe(source) {
+        return coded_error(
+            415,
+            "unsafe",
+            "Choose a GPX track without scripts or document entities",
+        );
     }
+    if let Err(error) = validate_gpx(source) {
+        return coded_error(415, "not-gpx", &error);
+    }
+    // Only what the published file needs is kept: track points with their
+    // position and height. Times, waypoints, names and the app's details are
+    // dropped before the file is stored (G48).
+    let (cleaned, points) = clean_gpx(source);
     let token = match auth::random_token() {
         Ok(token) => token,
         Err(error) => return Response::error(500, &error),
@@ -19017,19 +20689,23 @@ fn upload_track(state: &AppState, req: &Request) -> Response {
         Err(response) => return response,
     };
     prune_staged_tracks(&pending_dir);
-    if let Err(error) = fsutil::write_file(&pending_dir.join(format!("{token}.gpx")), &req.body) {
+    if let Err(error) = fsutil::write_file(
+        &pending_dir.join(format!("{token}.gpx")),
+        cleaned.as_bytes(),
+    ) {
         return Response::error(500, &error);
     }
-    eprintln!("admin: staged track {token} ({} bytes)", req.body.len());
-    Response::json(201, &json!({ "token": token }))
+    // Never the token or the file's name: a log is no place for where someone was.
+    eprintln!("admin: a route file went up for a post");
+    Response::json(201, &json!({ "token": token, "points": points }))
 }
 
 fn discard_track(state: &AppState, req: &Request) -> Response {
     let Some(token) = req.query.get("token") else {
-        return Response::error(400, "Missing track token");
+        return coded_error(400, "bad-token", "Missing track token");
     };
-    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Response::error(400, "Invalid track token");
+    if !valid_track_token(token) {
+        return coded_error(400, "bad-token", "Invalid track token");
     }
     let _guard = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
@@ -19067,13 +20743,112 @@ fn prune_staged_tracks(dir: &Path) {
     }
 }
 
-fn validate_gpx(source: &str) -> Result<(), String> {
+fn valid_track_token(token: &str) -> bool {
+    token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// A save refused because of its route file (G49): coded like other refusals.
+fn track_refused(code: &str, message: &str) -> Response {
+    Response::json(
+        422,
+        &json!({
+            "error": message,
+            "code": code,
+            "problems": [message],
+            "issues": [{ "code": code, "field": "route", "message": message }],
+        }),
+    )
+}
+
+fn gpx_is_unsafe(source: &str) -> bool {
     let lower = source.to_ascii_lowercase();
-    if lower.contains("<!doctype")
+    lower.contains("<!doctype")
         || lower.contains("<!entity")
         || lower.contains("<script")
         || lower.contains("<?xml-stylesheet")
-    {
+}
+
+/// The GPX with only its track points' position and height, each track
+/// segment kept apart (G48), and how many points it kept. Call only on a
+/// source `validate_gpx` accepted. Numbers are written back from their
+/// parsed values, so nothing of the source's text survives but the numbers.
+fn clean_gpx(source: &str) -> (String, usize) {
+    let mut segments: Vec<Vec<(f64, f64, Option<f64>)>> = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut in_segment = false;
+    for part in source.split('<').skip(1) {
+        let Some((tag, text)) = part.split_once('>') else {
+            continue;
+        };
+        let tag = tag.trim();
+        if tag.starts_with(['?', '!']) {
+            continue;
+        }
+        if let Some(closing) = tag.strip_prefix('/') {
+            let name = closing.trim().rsplit(':').next().unwrap_or("");
+            if name.eq_ignore_ascii_case("trkseg") {
+                in_segment = false;
+            }
+            stack.pop();
+            continue;
+        }
+        let name = tag
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        let local = name.rsplit(':').next().unwrap_or(name).to_ascii_lowercase();
+        let inside = |wanted: &str| stack.iter().any(|name| name == wanted);
+        if local == "trkseg" && inside("trk") {
+            segments.push(Vec::new());
+            in_segment = true;
+        } else if local == "trkpt" && in_segment {
+            let lat = xml_attribute(tag, "lat").and_then(|value| value.parse::<f64>().ok());
+            let lon = xml_attribute(tag, "lon").and_then(|value| value.parse::<f64>().ok());
+            if let (Some(lat), Some(lon)) = (lat, lon) {
+                if lat.is_finite() && lat.abs() <= 90.0 && lon.is_finite() && lon.abs() <= 180.0 {
+                    if let Some(segment) = segments.last_mut() {
+                        segment.push((lat, lon, None));
+                    }
+                }
+            }
+        } else if local == "ele" && stack.last().is_some_and(|name| name == "trkpt") && in_segment {
+            let height = text
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite() && (-1000.0..=10000.0).contains(value));
+            if let Some(point) = segments.last_mut().and_then(|segment| segment.last_mut()) {
+                point.2 = height;
+            }
+        }
+        if !tag.ends_with('/') {
+            stack.push(local);
+        }
+    }
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"open.blog\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n<trk>\n",
+    );
+    let mut points = 0;
+    for segment in segments.iter().filter(|segment| !segment.is_empty()) {
+        out.push_str("<trkseg>\n");
+        for (lat, lon, height) in segment {
+            points += 1;
+            match height {
+                Some(height) => out.push_str(&format!(
+                    "<trkpt lat=\"{lat}\" lon=\"{lon}\"><ele>{height}</ele></trkpt>\n"
+                )),
+                None => out.push_str(&format!("<trkpt lat=\"{lat}\" lon=\"{lon}\"/>\n")),
+            }
+        }
+        out.push_str("</trkseg>\n");
+    }
+    out.push_str("</trk>\n</gpx>\n");
+    (out, points)
+}
+
+fn validate_gpx(source: &str) -> Result<(), String> {
+    if gpx_is_unsafe(source) {
         return Err("Choose a GPX track without scripts or document entities".into());
     }
     let mut stack: Vec<String> = Vec::new();
@@ -19180,22 +20955,30 @@ mod tests {
     mod distribution_routes;
     mod document_keep_routes;
     mod greeting_routes;
+    mod helper_routes;
     mod job_draft_routes;
     mod job_share_routes;
     mod landing_history_routes;
     mod landing_routes;
     mod look_routes;
+    mod onboarding_routes;
+    mod piece_routes;
+    mod post_settings_routes;
     mod proof_routes;
     mod push_routes;
     mod quote_routes;
     mod reading_path_routes;
+    mod research_routes;
     mod safety_audit;
     mod seasonal_routes;
     mod seasons_routes;
     mod service_routes;
     mod social_routes;
+    mod studio_job_routes;
     mod studio_routes;
+    mod studio_words_routes;
     mod theme_draft_routes;
+    mod together_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;
     mod voice_journey;
@@ -19414,11 +21197,26 @@ mod tests {
         r
     }
 
+    /// A request to a provider route as a page sends it after the author saw what goes and
+    /// pressed the button that sends it (S1): the same body, saying so.
+    fn confirmed(mut body: Json) -> Json {
+        body["confirmed"] = json!(true);
+        body
+    }
+
     fn json_req(method: &str, path: &str, body: Json) -> Request {
         let mut r = req(method, path);
         r.headers
             .insert("content-type".into(), "application/json".into());
         r.body = body.to_string().into_bytes();
+        r
+    }
+
+    /// A request from this same computer, with nothing in between: the only plain-http request
+    /// that may carry the helper's key (Studio R8, G62).
+    fn local_json_req(method: &str, path: &str, body: Json) -> Request {
+        let mut r = json_req(method, path, body);
+        r.peer = "127.0.0.1".into();
         r
     }
 
@@ -21888,6 +23686,102 @@ What I read:
     }
 
     #[test]
+    fn acknowledgement_refusals_carry_codes() {
+        let f = review_fixture("review-ack-codes");
+        let session = login_ok(&f);
+        let send = |body: Vec<u8>| {
+            let mut request = authed(
+                req("PUT", "/admin/api/research/review/acknowledgements"),
+                &session,
+                true,
+            );
+            request
+                .headers
+                .insert("content-type".into(), "application/json".into());
+            request.body = body;
+            let response = handle(&f.state, &request);
+            (response.status, body_json(&response))
+        };
+        let first = review(&f, &session, REVIEW_BODY);
+        let revision = first["acknowledgements"]["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let context = finding(&first, "context-link-unpublished").clone();
+        let ack = json!({
+            "validator": context["validator"], "code": context["code"],
+            "object": context["scope"]["object"], "path": context["scope"]["path"],
+            "fingerprint": context["fingerprint"],
+        });
+        let (status, bad_json) = send(b"{".to_vec());
+        assert_eq!(
+            (status, bad_json["code"].as_str()),
+            (400, Some("bad-request"))
+        );
+        let (status, no_revision) =
+            send(json!({ "acknowledgement": ack }).to_string().into_bytes());
+        assert_eq!(
+            (status, no_revision["code"].as_str()),
+            (400, Some("bad-request"))
+        );
+        let (status, big) = send(vec![b' '; 17 * 1024]);
+        assert_eq!((status, big["code"].as_str()), (413, Some("too-large")));
+        let mut hostile = ack.clone();
+        hostile["resolved"] = json!(true);
+        let (status, invalid) = send(
+            json!({ "revision": revision, "acknowledgement": hostile })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!(
+            (status, invalid["code"].as_str()),
+            (422, Some("invalid-acknowledgement"))
+        );
+        let refusing = finding(&first, "citation-unresolved").clone();
+        let (status, refused) = send(
+            json!({ "revision": revision, "acknowledgement": {
+                "validator": refusing["validator"], "code": refusing["code"],
+                "object": refusing["scope"]["object"], "path": refusing["scope"]["path"],
+                "fingerprint": refusing["fingerprint"],
+            } })
+            .to_string()
+            .into_bytes(),
+        );
+        assert_eq!(
+            (status, refused["code"].as_str()),
+            (422, Some("invalid-acknowledgement"))
+        );
+        let (status, saved) = send(
+            json!({ "revision": revision, "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        let (status, changed) = send(
+            json!({ "revision": revision, "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert_eq!((status, changed["code"].as_str()), (409, Some("changed")));
+        assert_eq!(changed["revision"], saved["revision"]);
+        fs::write(
+            f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE),
+            "{not json",
+        )
+        .unwrap();
+        let (status, broken) = send(
+            json!({ "revision": saved["revision"], "acknowledgement": ack })
+                .to_string()
+                .into_bytes(),
+        );
+        assert!(matches!(status, 409 | 422), "{status} {broken}");
+        if status == 422 {
+            assert_eq!(broken["code"], "file-invalid");
+            assert_eq!(broken["file"], research_review::ACKNOWLEDGEMENTS_FILE);
+        }
+    }
+
+    #[test]
     fn an_acknowledgement_never_resolves_a_finding_and_goes_stale_when_it_changes() {
         let f = review_fixture("review-acknowledge");
         let session = login_ok(&f);
@@ -22760,7 +24654,7 @@ What I read:
         }
 
         // Other Admin views are not a back door to the notebook.
-        for path in ["meta", "sources", "preferences", "contributors", "session"] {
+        for path in ["meta", "sources", "contributors", "session"] {
             let response = handle(
                 &f.state,
                 &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
@@ -23176,7 +25070,6 @@ What I read:
         for path in [
             "meta",
             "sources",
-            "preferences",
             "contributors",
             "session",
             "research/notebook",
@@ -25934,204 +27827,92 @@ What I read:
     }
 
     #[test]
-    fn workspace_preferences_are_authenticated_csrf_protected_and_conflict_safe() {
-        let f = fixture("workspace-preferences");
-        assert_eq!(
-            handle(&f.state, &req("GET", "/admin/api/preferences")).status,
-            401
-        );
-        let session = login_ok(&f);
-        let initial = handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &session, false),
-        );
-        assert_eq!(initial.status, 200);
-        let initial = body_json(&initial);
-        assert_eq!(initial["preferences"]["preset"], "simple");
-        assert_eq!(initial["preferences"]["editorMode"], "visual");
-        assert!(!initial.to_string().contains("correct horse battery"));
-
-        let mut preferences = initial["preferences"].clone();
-        preferences["preset"] = json!("custom");
-        preferences["density"] = json!("compact");
-        preferences["hiddenModules"] = json!(["assistant"]);
-        let payload = json!({ "etag": initial["etag"], "preferences": preferences });
-        let without_csrf = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload.clone()),
-                &session,
-                false,
-            ),
-        );
-        assert_eq!(without_csrf.status, 403);
-
-        let saved = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload.clone()),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(
-            saved.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&saved.body)
-        );
-        let saved = body_json(&saved);
-        assert_eq!(saved["preferences"]["preset"], "custom");
-        assert_eq!(saved["preferences"]["density"], "compact");
-        assert_ne!(saved["etag"], initial["etag"]);
-
-        let conflict = handle(
-            &f.state,
-            &authed(
-                json_req("PUT", "/admin/api/preferences", payload),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(conflict.status, 409);
-        assert!(body_json(&conflict)["error"]
-            .as_str()
-            .unwrap()
-            .contains("another session"));
-        let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
-        assert!(!config.contains("hiddenModules"));
-        assert!(f.dir.join(".openblog/private/admin-preferences").is_dir());
-    }
-
-    #[test]
-    fn workspace_preferences_are_private_bounded_and_never_built() {
-        let f = fixture("workspace-preferences-private");
-        let users_path = f.dir.join(".openblog/users.json");
-        let mut users = Users::load(&users_path).unwrap();
-        users.set("ada", "another long passphrase").unwrap();
-        users.save(&users_path).unwrap();
-        let mikey = login_ok(&f);
-        let initial = body_json(&handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &mikey, false),
-        ));
-        assert_eq!(initial["stored"], false);
-        let canonical = || {
-            let mut files = crate::fsutil::walk(&f.dir.join("content"));
-            files.push(f.dir.join("openblog.json"));
-            files
-                .into_iter()
-                .map(|file| (file.clone(), fs::read(file).unwrap()))
-                .collect::<Vec<_>>()
-        };
-        let before = canonical();
-
-        let mut preferences = initial["preferences"].clone();
-        preferences["preset"] = json!("custom");
-        preferences["hiddenModules"] = json!(["analytics", "assistant"]);
-        let saved = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "PUT",
-                    "/admin/api/preferences",
-                    json!({ "etag": initial["etag"], "preferences": preferences }),
-                ),
-                &mikey,
-                true,
-            ),
-        );
-        assert_eq!(saved.status, 200);
-        assert_eq!(body_json(&saved)["stored"], true);
-        assert!(
-            before == canonical(),
-            "presentation changed canonical content"
-        );
-
-        let login = handle(
-            &f.state,
-            &json_req(
-                "POST",
-                "/admin/api/login",
-                json!({ "username": "ada", "password": "another long passphrase" }),
-            ),
-        );
-        assert_eq!(login.status, 200);
-        let cookie = login
-            .headers
-            .iter()
-            .find(|(name, _)| name == "Set-Cookie")
-            .unwrap()
-            .1
-            .split(';')
-            .next()
-            .unwrap()
-            .to_string();
-        let ada = (
-            cookie,
-            body_json(&login)["csrf"].as_str().unwrap().to_string(),
-        );
-        let theirs = body_json(&handle(
-            &f.state,
-            &authed(req("GET", "/admin/api/preferences"), &ada, false),
-        ));
-        assert_eq!(theirs["preferences"]["preset"], "simple");
-        assert_eq!(theirs["stored"], false);
-
-        for (label, preferences) in [
-            ("essential control", json!({ "hiddenModules": ["write"] })),
-            ("publish control", json!({ "hiddenModules": ["publish"] })),
-            ("preset", json!({ "preset": "<script>" })),
-            ("field", json!({ "theme": "dark" })),
-        ] {
-            let mut invalid = theirs["preferences"].clone();
-            for (key, value) in preferences.as_object().unwrap() {
-                invalid[key] = value.clone();
-            }
-            let response = handle(
-                &f.state,
-                &authed(
-                    json_req(
-                        "PUT",
-                        "/admin/api/preferences",
-                        json!({ "etag": theirs["etag"], "preferences": invalid }),
-                    ),
-                    &ada,
-                    true,
-                ),
-            );
-            assert_eq!(response.status, 400, "{label}");
-        }
-        let oversized = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "PUT",
-                    "/admin/api/preferences",
-                    json!({
-                        "etag": theirs["etag"],
-                        "preferences": theirs["preferences"],
-                        "padding": "x".repeat(admin_preferences::MAX_REQUEST_BYTES),
-                    }),
-                ),
-                &ada,
-                true,
-            ),
-        );
-        assert_eq!(oversized.status, 413);
-
+    fn old_preference_files_stay_private_and_are_never_built() {
+        // The old Admin's Personalize files stay on disk after R15 (nothing of the owner's is
+        // deleted); nothing writes them, and a build never publishes them.
+        let f = fixture("old-preferences-private");
+        let path = crate::admin_preferences::preference_path(&f.dir, "mikey").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"compact","editorMode":"visual","moduleOrder":[],"hiddenModules":["analytics"],"voiceInvitationDismissed":true}"#,
+        )
+        .unwrap();
         f.state.rebuild().unwrap();
         for file in crate::fsutil::walk(&f.dir.join("dist")) {
             let bytes = fs::read(&file).unwrap();
             let text = String::from_utf8_lossy(&bytes);
             assert!(
                 !text.contains("hiddenModules") && !text.contains("admin-preferences"),
-                "{} exposes workspace preferences",
+                "{} exposes old preferences",
                 file.display()
             );
         }
         let ignored = fs::read_to_string(f.dir.join(".gitignore")).unwrap();
         assert!(ignored.lines().any(|line| line == "/.openblog/private/"));
+        assert!(path.is_file(), "the file is left where it was");
+        assert!(crate::admin_preferences::voice_invitation_dismissed(
+            &f.dir, "mikey"
+        ));
+    }
+
+    #[test]
+    fn removed_routes_answer_404() {
+        // R15 G123 (and R6, R9, R13 before it): routes only the old Admin used, or nothing used,
+        // answer the same 404 as any unknown route.
+        let f = fixture("removed-routes");
+        let mikey = login_ok(&f);
+        let unknown = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/no-such-route", json!({})),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(unknown.status, 404);
+        for (method, path) in [
+            ("GET", "/admin/api/preferences"),
+            ("PUT", "/admin/api/preferences"),
+            ("POST", "/admin/api/reading-paths/reorder"),
+            ("POST", "/admin/api/decorations/preview"),
+            ("GET", "/admin/api/voice/catalog"),
+            ("POST", "/admin/api/document/rename"),
+        ] {
+            let request = if method == "GET" {
+                authed(req(method, path), &mikey, false)
+            } else {
+                authed(json_req(method, path, json!({})), &mikey, true)
+            };
+            let response = handle(&f.state, &request);
+            assert_eq!(response.status, 404, "{method} {path}");
+            assert_eq!(
+                body_json(&response)["error"],
+                body_json(&unknown)["error"],
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn kept_routes_still_answer() {
+        // Decided 6: kept although the old Admin is gone, because Studio uses them.
+        let f = fixture("kept-routes");
+        let mikey = login_ok(&f);
+        for path in [
+            "/admin/api/engagement/feedback/publish-decision",
+            "/admin/api/collaboration/approve",
+            "/admin/api/collaboration/approve/withdraw",
+            "/admin/api/collaboration/schedule",
+            "/admin/api/collaboration/publish",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(json_req("POST", path, json!({})), &mikey, true),
+            );
+            assert_ne!(response.status, 404, "{path} is routed");
+            assert_ne!(response.status, 405, "{path} takes POST");
+        }
     }
 
     #[test]
@@ -26445,6 +28226,76 @@ What I read:
     }
 
     #[test]
+    fn recipe_notes_come_with_facts_so_studio_can_word_them_and_link_the_page() {
+        // G14: beside each sentence, its code, the addresses, the page that holds the address and
+        // the course or cuisine, so Studio never shows "Settings" or "Slug".
+        let f = fixture("recipe-note-facts");
+        assert_eq!(body_json(&recipe_notes(&f.state))["items"], json!([]));
+        std::fs::write(
+            f.dir.join("content/posts/soup.md"),
+            "---\ntitle: Soup\ndate: 2026-10-01\nprofile: recipe\ncourse: \"\u{1F370}\"\n---\nBody.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(f.dir.join("content/pages")).unwrap();
+        std::fs::write(
+            f.dir.join("content/pages/recipes.md"),
+            "---\ntitle: My recipes\nslug: recipes\n---\nMine.\n",
+        )
+        .unwrap();
+        let body = body_json(&recipe_notes(&f.state));
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "{items:?}");
+        assert_eq!(
+            items[0]["text"], body["notes"][0],
+            "each fact sits beside its sentence"
+        );
+        assert_eq!(items[0]["code"], "address-taken");
+        assert_eq!(items[0]["address"], "/recipes/");
+        assert_eq!(items[0]["fallback"], "/recipes/all/");
+        assert_eq!(items[0]["page"]["kind"], "page");
+        assert_eq!(items[0]["page"]["title"], "My recipes");
+        assert_eq!(items[0]["page"]["path"], "pages/recipes.md");
+        assert_eq!(items[0]["byAlias"], false);
+        assert_eq!(items[1]["code"], "wordless");
+        assert_eq!(items[1]["facet"], "course");
+        assert_eq!(items[1]["value"], "\u{1F370}");
+        assert_eq!(items[1]["page"], Json::Null);
+    }
+
+    #[test]
+    fn listed_posts_say_their_profile_so_studio_can_tell_a_job() {
+        // G15: Posts offers "Share this job" on a job, so the list says each post's profile.
+        let f = fixture("documents-profile");
+        let session = login_ok(&f);
+        std::fs::write(
+            f.dir.join("content/posts/oak.md"),
+            "---\ntitle: New oak floor\ndate: 2026-10-01\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2026-09-14\n  finished: 2026-09-16\n---\nSanded and sealed.\n",
+        )
+        .unwrap();
+        let listed = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        ));
+        let items = listed["items"].as_array().unwrap();
+        let oak = items
+            .iter()
+            .find(|item| item["path"] == "posts/oak.md")
+            .unwrap();
+        assert_eq!(oak["profile"], "job", "{oak}");
+        assert!(
+            items
+                .iter()
+                .filter(|item| item["status"] != "error")
+                .all(|item| item["profile"].is_string()),
+            "every readable post names one: {items:?}"
+        );
+    }
+
+    #[test]
     fn admin_meta_promises_browsing_by_course_only_on_a_site_with_a_recipe_list() {
         let f = fixture("recipe-listing-off");
         let help = |state: &AppState| {
@@ -26568,7 +28419,12 @@ What I read:
             .iter()
             .any(|t| t == "flooring"));
         assert_eq!(job["costBands"][0], "under-500");
-        assert_eq!(job["services"], json!(["hardwood-install"]));
+        assert_eq!(
+            job["services"],
+            json!([{ "id": "hardwood-install", "title": "Hardwood install" }])
+        );
+        assert_eq!(job["siteTrade"], "");
+        assert_eq!(job["siteRegion"], "");
         assert!(job["scaffold"]
             .as_str()
             .unwrap()
@@ -26635,11 +28491,19 @@ What I read:
             true,
         );
         assert_eq!(bad.status, 200);
-        let problems = body_json(&bad)["problems"].to_string();
+        let problems = body_json(&bad)["messages"].to_string();
         assert!(
             problems.contains("welding") && problems.contains("job.costBand"),
             "{problems}"
         );
+        let coded = &body_json(&bad)["problems"];
+        assert!(coded
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["field"] == "job.trade"
+                && p["code"] == "unknown-trade"
+                && p["message"].as_str().unwrap().contains("welding")));
         assert!(
             problems.contains("job.place.town"),
             "every problem at once: {problems}"
@@ -26894,7 +28758,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/engagement/settings",
                     json!({
@@ -27017,7 +28881,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req("PUT", "/admin/api/engagement/settings", save),
+                local_json_req("PUT", "/admin/api/engagement/settings", save),
                 &session,
                 true,
             ),
@@ -28268,6 +30132,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         };
         let bound = make(vec![author_answers::record()]);
         let refused = remove_unlisted_publication(
@@ -28440,6 +30305,7 @@ What I read:
                 credential: String::new(),
                 csrf: String::new(),
                 expires: std::time::Instant::now() + Duration::from_secs(3600),
+                co_writer: false,
             }
         }
 
@@ -29145,6 +31011,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         };
         let details = json!({
             "type": "video", "url": "https://example.org/watch",
@@ -29345,6 +31212,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         }
     }
 
@@ -30398,6 +32266,344 @@ What I read:
     }
 
     #[test]
+    fn engagement_settings_say_what_readers_can_send_and_how_long_notes_are_kept() {
+        let _env = quiz_env();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-settings-kinds");
+        let path = f.dir.join(site::CONFIG_FILE);
+        let mut written: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        written["engagement"] = json!({
+            "enabled": true, "comments": true, "endpoint": "https://comments.example/api",
+            "receipts": true, "feedbackContact": "mailto:write@example.com"
+        });
+        written["participation"] = json!({
+            "kinds": { "question": "open", "future-suggestion": "locked" },
+            "retention": { "pendingDays": 45 }
+        });
+        fs::write(&path, serde_json::to_string_pretty(&written).unwrap()).unwrap();
+        let session = login_ok(&f);
+        let settings = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        ));
+        let setting_of = |id: &str| {
+            settings["kinds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|kind| kind["id"] == id)
+                .map(|kind| kind["setting"].clone())
+        };
+        assert_eq!(setting_of("comment"), Some(json!("open")));
+        assert_eq!(setting_of("question"), Some(json!("open")));
+        assert_eq!(setting_of("future-suggestion"), Some(json!("locked")));
+        assert_eq!(setting_of("third-perspective"), Some(json!("off")));
+        assert_eq!(settings["kinds"].as_array().unwrap().len(), 9);
+        assert_eq!(settings["retention"]["pendingDays"], 45);
+        assert_eq!(settings["retention"]["closedDays"], 30);
+        assert_eq!(settings["retention"]["coversComments"], true);
+        assert_eq!(settings["receipts"], true);
+        assert_eq!(settings["evidence"], false);
+        assert_eq!(settings["feedbackContact"], "mailto:write@example.com");
+
+        // Saving ignores them: the file keeps its own `participation`.
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true, "comments": false, "analytics": false,
+                        "endpoint": "https://comments.example/api", "etag": settings["etag"],
+                        "credentialAction": "keep",
+                        "kinds": [{ "id": "question", "setting": "off" }],
+                        "retention": { "pendingDays": 1 }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let after: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after["participation"], written["participation"]);
+        assert_eq!(after["engagement"]["comments"], false);
+    }
+
+    #[test]
+    fn the_health_check_says_yes_no_or_cant_tell_and_never_holds_a_key() {
+        let rows = vec![json!({ "id": "comments", "ok": true, "code": "ok" })];
+        let answered = health_checks(true, Some(true), HostedHealth::Answered(rows));
+        let ok_of = |value: &Json, id: &str| {
+            value["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|check| check["id"] == id)
+                .map(|check| check["ok"].clone())
+        };
+        assert_eq!(ok_of(&answered, "address"), Some(json!(true)));
+        assert_eq!(ok_of(&answered, "service"), Some(json!(true)));
+        assert_eq!(ok_of(&answered, "comments"), Some(json!(true)));
+        let down = health_checks(true, Some(true), HostedHealth::Down);
+        assert_eq!(ok_of(&down, "service"), Some(json!(false)));
+        assert_eq!(
+            ok_of(&down, "comments"),
+            None,
+            "no table is claimed when the service did not answer"
+        );
+        let slow = health_checks(true, Some(true), HostedHealth::Slow);
+        assert_eq!(slow["checks"][2]["code"], "service-slow");
+        let unasked = health_checks(false, None, HostedHealth::NotAsked);
+        assert_eq!(ok_of(&unasked, "address"), Some(json!(false)));
+        assert_eq!(ok_of(&unasked, "key"), Some(Json::Null));
+        assert_eq!(ok_of(&unasked, "service"), Some(Json::Null));
+
+        // What the hosted function sends is cut down to the ids and words we know.
+        let cleaned = validate_hosted_health(&json!({ "checks": [
+            { "id": "comments", "ok": false, "code": "missing", "secret": "sb_secret_x" },
+            { "id": "surprise", "ok": true, "code": "ok" },
+            { "id": "feedback", "ok": "yes", "code": "weird" }
+        ]}))
+        .unwrap();
+        assert_eq!(
+            cleaned,
+            json!({ "checks": [
+                { "id": "comments", "ok": false, "code": "missing" },
+                { "id": "feedback", "ok": null, "code": "unreachable" }
+            ]})
+        );
+        assert!(validate_hosted_health(&json!({ "nothing": 1 })).is_err());
+    }
+
+    #[test]
+    fn the_health_route_works_without_a_comments_service() {
+        let _env = quiz_env();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-health-route");
+        let session = login_ok(&f);
+        let answer = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/engagement/health"), &session, false),
+        );
+        assert_eq!(answer.status, 200);
+        let body = body_json(&answer);
+        let service = body["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "service")
+            .unwrap();
+        assert_eq!(
+            service["ok"],
+            Json::Null,
+            "nothing was asked, so it can't tell"
+        );
+        let signed_out = handle(&f.state, &req("GET", "/admin/api/engagement/health"));
+        assert_eq!(signed_out.status, 401);
+    }
+
+    #[test]
+    fn one_inbox_item_is_asked_for_by_source_and_id_and_only_when_signed_in() {
+        let f = fixture("engagement-one-item");
+        let session = login_ok(&f);
+        let path = "/admin/api/engagement/moderation/item";
+        let asked = |query: &str| {
+            handle(
+                &f.state,
+                &authed(req("GET", &format!("{path}?{query}")), &session, false),
+            )
+        };
+        let id = "00000000-0000-4000-8000-000000000001";
+        for bad in [
+            String::new(),
+            format!("source=comment&id={}", "not-an-id"),
+            format!("source=newsletter&id={id}"),
+            format!("source=comment&id={id}x"),
+        ] {
+            let answer = asked(&bad);
+            assert_eq!(answer.status, 422, "{bad}");
+            assert_eq!(body_json(&answer)["code"], "bad-item");
+        }
+        assert_eq!(
+            handle(
+                &f.state,
+                &req("GET", &format!("{path}?source=comment&id={id}"))
+            )
+            .status,
+            401
+        );
+        // A well-formed ask on a site with no comments service is the same refusal the inbox gives.
+        assert_ne!(asked(&format!("source=comment&id={id}")).status, 200);
+    }
+
+    #[test]
+    fn the_day_old_notes_were_last_cleared_out_is_kept_privately_and_read_back() {
+        let f = fixture("retention-last-run");
+        assert_eq!(retention_last_run(&f.dir), None);
+        let at = DateTime::parse("2026-10-05T14:30:00Z").unwrap();
+        record_retention_last_run(&f.dir, at);
+        assert_eq!(
+            retention_last_run(&f.dir).as_deref(),
+            Some("2026-10-05T14:30:00Z")
+        );
+        // It lives under the private folder, never in the published tree or openblog.json.
+        let file = f.dir.join(RETENTION_LAST_RUN_FILE);
+        assert!(file.starts_with(f.dir.join(".openblog").join("private")));
+        assert!(!fs::read_to_string(f.dir.join(site::CONFIG_FILE))
+            .unwrap()
+            .contains("2026-10-05"));
+        // Something that isn't a time is not a day.
+        fs::write(&file, "yesterday").unwrap();
+        assert_eq!(retention_last_run(&f.dir), None);
+    }
+
+    #[test]
+    fn engagement_refusals_carry_a_code_and_keep_their_own() {
+        let said = |status: u16, error: &str| {
+            body_json(&with_engagement_code(Response::error(status, error)))["code"].clone()
+        };
+        assert_eq!(
+            said(404, "Hosted engagement is not configured"),
+            "not-set-up"
+        );
+        assert_eq!(
+            said(503, "Hosted engagement admin credential is not configured"),
+            "not-set-up"
+        );
+        assert_eq!(
+            said(502, "Hosted engagement request failed"),
+            "service-down"
+        );
+        assert_eq!(said(504, "Hosted engagement timed out"), "service-slow");
+        assert_eq!(said(422, "Unknown moderation state"), "unknown-state");
+        assert_eq!(said(422, "Unknown participation kind"), "unknown-kind");
+        assert_eq!(said(422, "Invalid page cursor"), "bad-cursor");
+        assert_eq!(
+            said(422, "Choose one of the listed reasons."),
+            "reason-not-allowed"
+        );
+        assert_eq!(said(409, "changed"), "changed");
+        assert_eq!(said(404, "No such item"), "gone");
+        assert_eq!(said(403, "Only the site Admin runs retention"), "not-yours");
+        // A code the route chose stays; success and sign-in are left alone; the sentence is never changed.
+        let own = Response::json(422, &json!({ "error": "x", "code": "notAllowed" }));
+        assert_eq!(body_json(&with_engagement_code(own))["code"], "notAllowed");
+        assert_eq!(
+            with_engagement_code(Response::json(200, &json!({ "ok": true }))).status,
+            200
+        );
+        assert_eq!(
+            body_json(&with_engagement_code(Response::error(401, "no"))).get("code"),
+            None
+        );
+        assert_eq!(
+            body_json(&with_engagement_code(Response::error(404, "No such item")))["error"],
+            "No such item"
+        );
+    }
+
+    #[test]
+    fn a_batch_decides_each_note_on_its_own_and_stops_asking_when_the_service_is_down() {
+        let bodies: Vec<Json> = (1..=4)
+            .map(|n| json!({ "source": "comment", "id": format!("id{n}"), "action": "reject" }))
+            .collect();
+        let mut asked = Vec::new();
+        let results = batch_results(&bodies, |body| {
+            asked.push(body["id"].as_str().unwrap().to_string());
+            match body["id"].as_str().unwrap() {
+                "id1" => Response::json(
+                    200,
+                    &json!({ "ok": true, "item": { "id": "id1", "status": "rejected" } }),
+                ),
+                "id2" => Response::json(409, &json!({ "error": "changed", "code": "conflict" })),
+                _ => Response::error(502, "Hosted engagement request failed"),
+            }
+        });
+        assert_eq!(
+            asked,
+            ["id1", "id2", "id3"],
+            "nothing is asked after the service is down"
+        );
+        assert_eq!(
+            results[0],
+            json!({ "id": "id1", "ok": true, "item": { "id": "id1", "status": "rejected" } })
+        );
+        assert_eq!(
+            results[1],
+            json!({ "id": "id2", "ok": false, "code": "conflict" })
+        );
+        assert_eq!(
+            results[2],
+            json!({ "id": "id3", "ok": false, "code": "service-down" })
+        );
+        assert_eq!(
+            results[3],
+            json!({ "id": "id4", "ok": false, "code": "service-down" })
+        );
+    }
+
+    #[test]
+    fn the_batch_route_takes_one_to_fifty_notes_and_only_the_four_actions() {
+        let f = fixture("engagement-batch-route");
+        let session = login_ok(&f);
+        let send = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PATCH", "/admin/api/engagement/moderation/batch", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let one = json!({ "source": "comment", "id": "00000000-0000-4000-8000-000000000001", "from": "pending", "version": 1 });
+        let refused = send(json!({ "items": [one], "action": "publish" }));
+        assert_eq!(
+            (refused.status, body_json(&refused)["code"].clone()),
+            (422, json!("not-offered"))
+        );
+        for items in [json!([]), json!(vec![one.clone(); 51]), json!("nope")] {
+            let refused = send(json!({ "items": items, "action": "reject" }));
+            assert_eq!(
+                (refused.status, body_json(&refused)["code"].clone()),
+                (422, json!("too-many"))
+            );
+        }
+        // A well-formed batch answers 200 with one result per note, each its own, even when each fails.
+        let answer = send(json!({ "items": [one, one], "action": "reject", "reason": "spam" }));
+        assert_eq!(answer.status, 200);
+        let results = body_json(&answer)["results"].clone();
+        assert_eq!(results.as_array().unwrap().len(), 2);
+        assert!(results
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["ok"] == false && r["code"].is_string()));
+        let signed_out = handle(
+            &f.state,
+            &json_req("PATCH", "/admin/api/engagement/moderation/batch", json!({})),
+        );
+        assert_eq!(signed_out.status, 401);
+    }
+
+    #[test]
     fn the_retention_dry_run_shows_facts_and_counts_never_text_or_names() {
         let policy = moderation::ModerationPolicy::default();
         let as_of = DateTime::parse("2026-10-27T10:00:00Z").unwrap();
@@ -31003,7 +33209,16 @@ What I read:
         let validated =
             validate_hosted_engagement_response("GET", "admin/analytics", &safe).unwrap();
         assert_eq!(validated["topPosts"][0]["path"], "/story/");
-        assert_eq!(validated["agentRequests"], 0);
+        assert_eq!(validated["agentRequests"], Json::Null);
+        assert_eq!(validated["counter"], "hosted");
+        assert_eq!(validated["keptDays"], Json::Null);
+        let kept = validate_hosted_engagement_response("GET", "admin/analytics", &{
+            let mut with = safe.clone();
+            with["keptDays"] = json!(400);
+            with
+        })
+        .unwrap();
+        assert_eq!(kept["keptDays"], 400);
 
         let unsafe_path = json!({
             "days": 30, "from": "2026-09-25", "to": "2026-10-24",
@@ -31046,7 +33261,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31092,7 +33307,7 @@ What I read:
         let replaced = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31111,7 +33326,7 @@ What I read:
         let stale = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31150,7 +33365,7 @@ What I read:
         let cleared = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31186,7 +33401,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31223,7 +33438,7 @@ What I read:
         let switched = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31325,7 +33540,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31386,7 +33601,7 @@ What I read:
         let switched = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -31466,7 +33681,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/quiz/generate",
-                    json!({ "context": "Unsaved lesson", "count": 1 }),
+                    json!({ "confirmed": true, "context": "Unsaved lesson", "count": 1 }),
                 ),
                 &session,
                 true,
@@ -31540,7 +33755,11 @@ What I read:
             handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/review", request_body.clone()),
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/review",
+                        confirmed(request_body.clone())
+                    ),
                     &session,
                     false,
                 ),
@@ -31551,7 +33770,11 @@ What I read:
         let response = handle(
             &f.state,
             &authed(
-                json_req("POST", "/admin/api/assistant/review", request_body),
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    confirmed(request_body),
+                ),
                 &session,
                 true,
             ),
@@ -31652,7 +33875,7 @@ What I read:
                     json_req(
                         "POST",
                         "/admin/api/assistant/complete",
-                        request_body.clone()
+                        confirmed(request_body.clone())
                     ),
                     &session,
                     false,
@@ -31664,7 +33887,11 @@ What I read:
         let response = handle(
             &f.state,
             &authed(
-                json_req("POST", "/admin/api/assistant/complete", request_body),
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    confirmed(request_body),
+                ),
                 &session,
                 true,
             ),
@@ -31705,7 +33932,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -31754,7 +33981,7 @@ What I read:
             let response = handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/complete", body),
+                    json_req("POST", "/admin/api/assistant/complete", confirmed(body)),
                     &session,
                     true,
                 ),
@@ -31776,7 +34003,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -31832,7 +34059,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -31875,7 +34102,7 @@ What I read:
             json_req(
                 "POST",
                 "/admin/api/assistant/code-interaction",
-                json!({ "context": "A section about Rust ownership.", "kind": "challenge" }),
+                json!({ "confirmed": true, "context": "A section about Rust ownership.", "kind": "challenge" }),
             )
         };
         assert_eq!(handle(&f.state, &request()).status, 401);
@@ -31918,7 +34145,11 @@ What I read:
             let response = handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/code-interaction", body),
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/code-interaction",
+                        confirmed(body),
+                    ),
                     &session,
                     true,
                 ),
@@ -31937,7 +34168,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/code-interaction",
-                    json!({ "context": "Section", "kind": "example" }),
+                    json!({ "confirmed": true, "context": "Section", "kind": "example" }),
                 ),
                 &session,
                 true,
@@ -31969,7 +34200,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/code-interaction",
-                    json!({ "context": "Section", "kind": "example" }),
+                    json!({ "confirmed": true, "context": "Section", "kind": "example" }),
                 ),
                 &session,
                 true,
@@ -32010,7 +34241,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/review",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
                         "skillIds": ["copy-review"],
                         "contextIds": []
@@ -32054,7 +34285,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/review",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
                         "skillIds": ["copy-review"],
                         "contextIds": []
@@ -32825,78 +35056,6 @@ What I read:
     }
 
     #[test]
-    fn document_rename_moves_post_context_and_conflicts_without_partial_changes() {
-        let f = fixture("post-context-rename");
-        let session = login_ok(&f);
-        let old_rel = "posts/2026-01-01-old-name.md";
-        let new_rel = "posts/2026-01-01-new-name.md";
-        let source = "---\ntitle: Old name\ndate: 2026-01-01\n---\n\nBody.\n";
-        fs::write(f.dir.join("content").join(old_rel), source).unwrap();
-        for root in ["assistant/context", ".openblog/private/context"] {
-            let directory = f.dir.join(root).join("posts");
-            fs::create_dir_all(&directory).unwrap();
-            fs::write(
-                directory.join("2026-01-01-old-name.md"),
-                "## Goal\n\nKeep me.\n",
-            )
-            .unwrap();
-        }
-
-        let renamed = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": old_rel, "newPath": new_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(
-            renamed.status,
-            200,
-            "{}",
-            String::from_utf8_lossy(&renamed.body)
-        );
-        assert!(!f.dir.join("content").join(old_rel).exists());
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        for root in ["assistant/context", ".openblog/private/context"] {
-            assert!(!f
-                .dir
-                .join(root)
-                .join("posts/2026-01-01-old-name.md")
-                .exists());
-            assert_eq!(
-                fs::read_to_string(f.dir.join(root).join("posts/2026-01-01-new-name.md")).unwrap(),
-                "## Goal\n\nKeep me.\n"
-            );
-        }
-
-        let conflict_rel = "posts/2026-01-01-conflict.md";
-        fs::write(f.dir.join("content").join(conflict_rel), "occupied").unwrap();
-        let conflict = handle(
-            &f.state,
-            &authed(
-                json_req(
-                    "POST",
-                    "/admin/api/document/rename",
-                    json!({ "path": new_rel, "newPath": conflict_rel, "etag": etag(source) }),
-                ),
-                &session,
-                true,
-            ),
-        );
-        assert_eq!(conflict.status, 409);
-        assert!(f.dir.join("content").join(new_rel).is_file());
-        assert!(f
-            .dir
-            .join("assistant/context/posts/2026-01-01-new-name.md")
-            .is_file());
-    }
-
-    #[test]
     fn document_bundle_move_rolls_back_completed_moves_after_a_later_failure() {
         let f = fixture("document-bundle-move-rollback");
         let source = f.dir.join("source.md");
@@ -32976,6 +35135,177 @@ What I read:
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn a_preview_for_the_checks_skips_the_page_and_coded_refusals_name_the_problem() {
+        let f = fixture("preview-checks");
+        let session = login_ok(&f);
+        let send = |body: Json| {
+            let response = handle(
+                &f.state,
+                &authed(json_req("POST", "/admin/api/preview", body), &session, true),
+            );
+            (response.status, body_json(&response))
+        };
+        let fields = json!({ "title": "A post with a cover", "date": "2026-01-02", "cover": "/images/x.jpg", "tags": "walks" });
+        let (status, full) = send(
+            json!({ "kind": "posts", "fields": fields, "body": "Hello.\n\n![](/images/y.jpg)\n" }),
+        );
+        assert_eq!(status, 200);
+        assert!(full["previewUrl"].is_string());
+        let header_lines = frontmatter::compose(&fields_from_json(&fields).unwrap(), "")
+            .matches('\n')
+            .count();
+        assert_eq!(full["firstBodyLine"], header_lines + 1);
+        let (status, checks) = send(
+            json!({ "kind": "posts", "fields": fields, "body": "Hello.\n\n![](/images/y.jpg)\n", "only": "checks" }),
+        );
+        assert_eq!(status, 200);
+        let mut keys: Vec<&str> = checks
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "accessibility",
+                "firstBodyLine",
+                "recipeProblems",
+                "social",
+                "url",
+                "warnings",
+                "warningsSource"
+            ]
+        );
+        assert_eq!(checks["social"], full["social"]);
+        assert_eq!(checks["accessibility"], full["accessibility"]);
+        assert_eq!(checks["firstBodyLine"], full["firstBodyLine"]);
+        // The page was never made: nothing new is stored for the checks.
+        assert!(checks.get("previewUrl").is_none());
+
+        let (status, refused) = send(
+            json!({ "kind": "posts", "fields": { "title": "Bad date", "date": "not a date" }, "body": "x" }),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["code"], "build");
+        assert!(refused["error"].as_str().is_some_and(|e| !e.is_empty()));
+        let problems = refused["problems"].as_array().unwrap();
+        assert!(!problems.is_empty());
+        assert!(problems.iter().all(|p| p["message"].is_string()));
+        assert!(problems.iter().any(|p| p["field"] == "date"), "{refused}");
+
+        let (status, bad) = send(json!({ "kind": "nope", "fields": {}, "body": "" }));
+        assert_eq!((status, bad["code"].as_str()), (422, Some("bad-request")));
+        // Another post the build can't make: this one isn't held back for it.
+        let broken = f.dir.join("content/posts/2026-01-09-broken.md");
+        fs::write(&broken, "---\ntitle: Broken\ndate: soon\n---\nx\n").unwrap();
+        let (status, elsewhere) =
+            send(json!({ "kind": "posts", "fields": fields, "body": "Hello.", "only": "checks" }));
+        assert_eq!(
+            (status, elsewhere["code"].as_str()),
+            (422, Some("site-build")),
+            "{elsewhere}"
+        );
+        fs::remove_file(&broken).unwrap();
+        assert_eq!(problem_line("posts/a.md:12: bad"), Some(12));
+        assert_eq!(problem_line("bad shortcode on line 7 of the body"), Some(7));
+        assert_eq!(problem_line("no place"), None);
+    }
+
+    #[test]
+    fn a_video_release_of_the_draft_is_what_openblog_video_prints() {
+        let f = fixture("video-release-draft");
+        let session = login_ok(&f);
+        let body = "Intro.\n\n0:00 Start\n0:20 Middle\n1:00 End\n";
+        let fields = json!({ "title": "The gate", "date": "2026-01-02", "profile": "video", "description": "A walk to the gate.", "duration": "PT2M", "tags": ["Walks", "Gates"], "videoUrl": "https://www.youtube.com/watch?v=abcdefghijk" });
+        fs::write(
+            f.dir.join("content/posts/2026-01-02-the-gate.md"),
+            frontmatter::compose(&fields_from_json(&fields).unwrap(), body),
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "path": "posts/2026-01-02-the-gate.md", "fields": fields, "body": body }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let draft = body_json(&response);
+        let printed = crate::video_release::prepare(&f.dir, "the-gate")
+            .unwrap()
+            .preview
+            .to_json_value();
+        for key in [
+            "title",
+            "description",
+            "tags",
+            "chapters",
+            "problems",
+            "status",
+            "steps",
+            "digest",
+        ] {
+            assert_eq!(draft[key], printed[key], "{key}");
+        }
+        assert!(draft["description"]
+            .as_str()
+            .unwrap()
+            .contains("Read the article: "));
+
+        // An unsaved change shows at once, and its problems carry codes.
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "path": "posts/2026-01-02-the-gate.md", "fields": fields, "body": "0:05 Late start\n" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        let changed = body_json(&response);
+        let codes: Vec<&str> = changed["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(codes[..2], ["chapters-first-not-zero", "chapters-too-few"]);
+        assert!(codes.iter().all(|code| !code.is_empty()));
+
+        let mut story = fields.clone();
+        story["profile"] = json!("");
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/video/release",
+                    json!({ "kind": "posts", "fields": story, "body": body }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 422);
+        assert_eq!(body_json(&response)["code"], "not-video");
     }
 
     #[test]
@@ -33384,8 +35714,8 @@ What I read:
             .iter()
             .any(|(name, value)| name == "Access-Control-Allow-Origin" && value == "*"));
         assert!(String::from_utf8_lossy(&module.body).contains("class ObCitationPreviews"));
-        // The Admin application itself keeps its strict policy.
-        let admin = handle(&f.state, &req("GET", "/admin"));
+        // Studio keeps its strict policy.
+        let admin = handle(&f.state, &req("GET", "/admin/studio/"));
         let strict = admin
             .headers
             .iter()
@@ -33460,7 +35790,7 @@ What I read:
             json_req(
                 "POST",
                 "/admin/api/quiz/generate",
-                json!({ "context": "A short article section.", "count": 1 }),
+                json!({ "confirmed": true, "context": "A short article section.", "count": 1 }),
             )
         };
         assert_eq!(handle(&f.state, &request()).status, 401);
@@ -33485,7 +35815,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/quiz/generate",
-                    json!({ "context": "A short article section.", "count": 1 }),
+                    json!({ "confirmed": true, "context": "A short article section.", "count": 1 }),
                 ),
                 &session,
                 true,
@@ -33547,7 +35877,16 @@ What I read:
             set_quiz_endpoint(&f, &endpoint);
             let response = handle(&f.state, &request());
             TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_secs(10)));
-            assert_eq!(response.status, 502, "{label}");
+            // Studio R8 (G54): a provider that took too long is 504 `timeout`, like every
+            // other helper route; the rest are 502 with their own code.
+            let (expected_status, expected_code) = match label {
+                "timeout" => (504, "timeout"),
+                "provider status" => (502, "provider-down"),
+                "oversized response" => (502, "provider-down"),
+                _ => (502, "invalid-result"),
+            };
+            assert_eq!(response.status, expected_status, "{label}");
+            assert_eq!(body_json(&response)["code"], expected_code, "{label}");
             let response_body = String::from_utf8_lossy(&response.body);
             assert!(response_body.contains(expected), "{label}: {response_body}");
             assert!(!response_body.contains("test-secret"), "{label}");
@@ -34464,8 +36803,19 @@ href: /about/
 
         let config = site::load_config(&f.dir).unwrap();
         let source = fs::read_to_string(&markdown).unwrap();
-        let problems =
-            validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).unwrap_err();
+        // A credit file that was already broken doesn't stop a save that leaves it alone (Studio
+        // R5); one that changes the credits answers for them.
+        assert!(validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).is_ok());
+        let problems = validate_candidate(
+            &f.dir,
+            &config,
+            &rel,
+            &source,
+            &CreditEdit::Set(
+                r#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#.into(),
+            ),
+        )
+        .unwrap_err();
         assert!(problems.iter().any(|problem| {
             problem.contains(".credits.json") && problem.contains("unknown contributor `missing`")
         }));
@@ -35587,6 +37937,637 @@ href: /about/
             .exists());
     }
 
+    /// Every file under `dist/tracks/uploads`, as site paths.
+    fn built_tracks(dir: &Path) -> Vec<String> {
+        fsutil::walk(&dir.join("dist/tracks/uploads"))
+            .iter()
+            .map(|path| fsutil::relative(&dir.join("dist"), path))
+            .collect()
+    }
+
+    #[test]
+    fn an_exact_route_file_stays_private_until_its_post_is_live() {
+        let f = fixture("track-held");
+        let session = login_ok(&f);
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let stage = || {
+            let mut request = authed(
+                req("POST", "/admin/api/track-upload?name=ridge.gpx"),
+                &session,
+                true,
+            );
+            request.body = gpx.to_vec();
+            let response = handle(&f.state, &request);
+            assert_eq!(response.status, 201);
+            body_json(&response)["token"].as_str().unwrap().to_string()
+        };
+        let save = |method: &str, path: &str, fields: Json, extra: Json| {
+            let mut body = json!({ "kind": "posts", "fields": fields, "body": "Trail notes." });
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            let response = handle(
+                &f.state,
+                &authed(json_req(method, path, body), &session, true),
+            );
+            assert!(
+                response.status < 300,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+        let year = clock::now().civil().year;
+
+        // A draft: the file is held privately, never in `static` or the built site.
+        let token = stage();
+        let draft = save(
+            "POST",
+            "/admin/api/document",
+            json!({"title":"Draft Ridge","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"}),
+            json!({"trackToken": token, "trackName": "Draft Ridge.gpx"}),
+        );
+        let draft_url = draft["trackUrl"].as_str().unwrap().to_string();
+        assert_eq!(draft_url, format!("/tracks/uploads/{year}/draft-ridge.gpx"));
+        let relative = draft_url.trim_start_matches("/tracks/uploads/");
+        assert!(f.dir.join(site::HELD_TRACKS).join(relative).is_file());
+        assert!(!f.dir.join("static").join(&draft_url[1..]).exists());
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // A post waiting for its day: held too.
+        let token = stage();
+        let future = save(
+            "POST",
+            "/admin/api/document",
+            json!({"title":"Future Ridge","date":"2099-01-01","profile":"field-journal","locationPrivacy":"exact"}),
+            json!({"trackToken": token, "trackName": "Future Ridge.gpx"}),
+        );
+        assert_eq!(future["status"], "scheduled");
+        let future_url = future["trackUrl"].as_str().unwrap().to_string();
+        assert!(!f.dir.join("static").join(&future_url[1..]).exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Old releases put a draft's file in `static`; a stray file sits there too.
+        // Neither reaches the built site.
+        let legacy = format!("tracks/uploads/{year}/legacy.gpx");
+        fs::create_dir_all(f.dir.join("static").join(format!("tracks/uploads/{year}"))).unwrap();
+        fs::write(f.dir.join("static").join(&legacy), gpx).unwrap();
+        fs::write(
+            f.dir
+                .join(format!("static/tracks/uploads/{year}/stray.gpx")),
+            gpx,
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join("content/posts/2026-01-04-legacy.md"),
+            format!("---\ntitle: Legacy\ndate: 2026-01-04\ndraft: true\nprofile: field-journal\nlocationPrivacy: exact\nroute: /{legacy}\n---\nNotes."),
+        )
+        .unwrap();
+        // A live post that names a file but isn't exact doesn't publish it either.
+        fs::write(
+            f.dir.join("content/posts/2026-01-05-hidden.md"),
+            format!("---\ntitle: Hidden\ndate: 2026-01-05\nprofile: field-journal\nlocationPrivacy: hidden\nroute: /tracks/uploads/{year}/stray.gpx\n---\nNotes."),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Publishing the draft (no new token) puts its file in `static` and the site.
+        let path = "/admin/api/document?path=posts/2026-01-03-draft-ridge.md";
+        let published = save(
+            "PUT",
+            path,
+            json!({"title":"Draft Ridge","date":"2026-01-03","profile":"field-journal","locationPrivacy":"exact","route":draft_url}),
+            json!({"etag": draft["etag"]}),
+        );
+        assert_eq!(published["status"], "published");
+        assert!(f.dir.join("static").join(&draft_url[1..]).is_file());
+        assert!(!f.dir.join(site::HELD_TRACKS).join(relative).exists());
+        assert_eq!(built_tracks(&f.dir), vec![draft_url[1..].to_string()]);
+
+        // The scheduled post's day comes: the next build shows its file and moves it up.
+        let scheduled = f.dir.join("content/posts/2099-01-01-future-ridge.md");
+        let source = fs::read_to_string(&scheduled).unwrap();
+        fs::write(&scheduled, source.replace("2099-01-01", "2026-01-06")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(f.dir.join("static").join(&future_url[1..]).is_file());
+        let mut built = built_tracks(&f.dir);
+        built.sort();
+        assert_eq!(
+            built,
+            vec![draft_url[1..].to_string(), future_url[1..].to_string()]
+        );
+
+        // Making it a draft again takes the file off the built site at once.
+        save(
+            "PUT",
+            path,
+            json!({"title":"Draft Ridge","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact","route":draft_url}),
+            json!({"etag": published["etag"]}),
+        );
+        assert_eq!(built_tracks(&f.dir), vec![future_url[1..].to_string()]);
+    }
+
+    /// A log is no place for where someone was: no line the server prints about a
+    /// route file may carry a value (its token, name or path), only fixed words.
+    #[test]
+    fn no_printed_line_about_a_route_file_carries_its_token_or_name() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offending = Vec::new();
+        for entry in fs::read_dir(&src).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            for (at, _) in text.match_indices("println!(") {
+                let call = &text[at..];
+                let call = &call[..call.find(");").unwrap_or(call.len())];
+                let lower = call.to_ascii_lowercase();
+                let about_route = ["route", "gpx", "staged track", "pending-tracks", "tracks/"]
+                    .iter()
+                    .any(|word| lower.contains(word));
+                if about_route && call.contains('{') {
+                    offending.push(format!("{}: {call}", path.display()));
+                }
+            }
+        }
+        assert!(offending.is_empty(), "{offending:#?}");
+    }
+
+    #[test]
+    fn a_held_route_file_goes_up_only_with_the_post_that_staged_it() {
+        let f = fixture("track-owner");
+        let session = login_ok(&f);
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=home.gpx"),
+            &session,
+            true,
+        );
+        request.body = gpx.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Home Loop","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"},"body":"Notes.","trackToken":token,"trackName":"Home Loop.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let url = body_json(&response)["trackUrl"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let relative = url.trim_start_matches("/tracks/uploads/").to_string();
+        let held = f.dir.join(site::HELD_TRACKS).join(&relative);
+        assert!(held.is_file());
+        assert_eq!(
+            site::held_track_owner(&held).as_deref(),
+            Some("posts/2026-01-03-home-loop.md"),
+            "the held file records the post that staged it"
+        );
+
+        // Another post, live and exact, names the draft's held file: saved, it loses the `route`.
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Other","date":"2026-01-04","profile":"field-journal","locationPrivacy":"exact","route":url},"body":"Notes."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let other = fs::read_to_string(f.dir.join("content/posts/2026-01-04-other.md")).unwrap();
+        assert!(!other.contains("route:"), "{other}");
+
+        // Written by hand, it still gets nothing: the file stays held and out of the site.
+        fs::write(
+            f.dir.join("content/posts/2026-01-05-sneaky.md"),
+            format!("---\ntitle: Sneaky\ndate: 2026-01-05\nprofile: field-journal\nlocationPrivacy: exact\nroute: {url}\n---\nNotes."),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        assert!(held.is_file());
+        assert!(!f.dir.join("static").join(&url[1..]).exists());
+        assert_eq!(built_tracks(&f.dir), Vec::<String>::new());
+
+        // Its own post going live takes it up.
+        let draft = f.dir.join("content/posts/2026-01-03-home-loop.md");
+        let source = fs::read_to_string(&draft).unwrap();
+        fs::write(&draft, source.replace("draft: true\n", "")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(f.dir.join("static").join(&url[1..]).is_file());
+        assert!(!held.exists() && !site::held_owner_file(&held).exists());
+    }
+
+    #[test]
+    fn an_older_release_s_route_file_for_a_post_not_live_moves_out_of_static() {
+        let f = fixture("track-legacy");
+        let year = clock::now().civil().year;
+        let gpx = r#"<gpx><trk><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk></gpx>"#;
+        let uploads = f.dir.join(format!("static/tracks/uploads/{year}"));
+        fs::create_dir_all(&uploads).unwrap();
+        for name in ["draft", "future", "live", "shared", "stray"] {
+            fs::write(uploads.join(format!("{name}.gpx")), gpx).unwrap();
+        }
+        let post = |file: &str, extra: &str, route: &str| {
+            fs::write(
+                f.dir.join(format!("content/posts/{file}.md")),
+                format!("---\ntitle: {file}\n{extra}profile: field-journal\nlocationPrivacy: exact\nroute: /tracks/uploads/{year}/{route}.gpx\n---\nNotes."),
+            )
+            .unwrap();
+        };
+        post(
+            "2026-01-04-draft",
+            "date: 2026-01-04\ndraft: true\n",
+            "draft",
+        );
+        post("2099-01-04-future", "date: 2099-01-04\n", "future");
+        post("2026-01-04-live", "date: 2026-01-04\n", "live");
+        // A file a live post shows stays, even when a draft names it too.
+        post(
+            "2026-01-05-shared-draft",
+            "date: 2026-01-05\ndraft: true\n",
+            "shared",
+        );
+        post("2026-01-05-shared-live", "date: 2026-01-05\n", "shared");
+        f.state.rebuild().unwrap();
+        let held = f.dir.join(site::HELD_TRACKS).join(year.to_string());
+        for name in ["draft", "future"] {
+            assert!(!uploads.join(format!("{name}.gpx")).exists(), "{name}");
+            assert!(held.join(format!("{name}.gpx")).is_file(), "{name}");
+        }
+        assert_eq!(
+            site::held_track_owner(&held.join("draft.gpx")).as_deref(),
+            Some("posts/2026-01-04-draft.md")
+        );
+        for name in ["live", "shared", "stray"] {
+            assert!(uploads.join(format!("{name}.gpx")).is_file(), "{name}");
+        }
+        let mut built = built_tracks(&f.dir);
+        built.sort();
+        assert_eq!(
+            built,
+            vec![
+                format!("tracks/uploads/{year}/live.gpx"),
+                format!("tracks/uploads/{year}/shared.gpx")
+            ]
+        );
+
+        // The draft goes up later: its file comes back from where it was held.
+        let draft = f.dir.join("content/posts/2026-01-04-draft.md");
+        let source = fs::read_to_string(&draft).unwrap();
+        fs::write(&draft, source.replace("draft: true\n", "")).unwrap();
+        f.state.rebuild().unwrap();
+        assert!(uploads.join("draft.gpx").is_file());
+        assert!(built_tracks(&f.dir).contains(&format!("tracks/uploads/{year}/draft.gpx")));
+    }
+
+    #[test]
+    fn a_staged_route_file_keeps_only_positions_and_heights_and_errors_carry_codes() {
+        let f = fixture("track-clean");
+        let session = login_ok(&f);
+        let send = |bytes: &[u8]| {
+            let mut request = authed(req("POST", "/admin/api/track-upload"), &session, true);
+            request.body = bytes.to_vec();
+            handle(&f.state, &request)
+        };
+        let gpx = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="Garmin Fenix 7 serial 12345" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+<metadata><name>Home loop</name><link href="https://example.com/me"><text>me</text></link><time>2026-05-01T07:00:00Z</time></metadata>
+<wpt lat="39.1" lon="-79.6"><name>My house</name></wpt>
+<rte><rtept lat="39.2" lon="-79.7"/></rte>
+<trk><name>Morning</name><desc>From home</desc><trkseg>
+<trkpt lat="39.0001" lon="-79.5001"><ele>1012.5</ele><time>2026-05-01T07:00:00Z</time><extensions><gpxtpx:hr>140</gpxtpx:hr></extensions></trkpt>
+<trkpt lat="39.0002" lon="-79.5002"><time>2026-05-01T07:01:00Z</time></trkpt>
+</trkseg><trkseg><trkpt lat="39.0003" lon="-79.5003"><ele>1013</ele></trkpt><trkpt lat="39.0004" lon="-79.5004"/></trkseg></trk>
+</gpx>"#;
+        let staged = send(gpx.as_bytes());
+        assert_eq!(staged.status, 201);
+        let staged = body_json(&staged);
+        assert_eq!(staged["points"], 4);
+        let token = staged["token"].as_str().unwrap();
+        let kept = fs::read_to_string(f.dir.join(format!(".openblog/pending-tracks/{token}.gpx")))
+            .unwrap();
+        for gone in [
+            "<time",
+            "<wpt",
+            "<rte",
+            "<metadata",
+            "<name",
+            "<desc",
+            "<link",
+            "<extensions",
+            "Garmin",
+            "12345",
+            "My house",
+            "39.1",
+            "hr>",
+        ] {
+            assert!(!kept.contains(gone), "{gone} in {kept}");
+        }
+        assert!(kept.contains(r#"<trkpt lat="39.0001" lon="-79.5001"><ele>1012.5</ele></trkpt>"#));
+        assert!(kept.contains(r#"<trkpt lat="39.0002" lon="-79.5002"/>"#));
+        assert_eq!(kept.matches("<trkseg>").count(), 2);
+        assert!(validate_gpx(&kept).is_ok());
+
+        let code = |response: &Response| body_json(response)["code"].as_str().unwrap().to_string();
+        let empty = send(b"");
+        assert_eq!((empty.status, code(&empty).as_str()), (400, "empty"));
+        let latin = send(b"<gpx>\xff</gpx>");
+        assert_eq!((latin.status, code(&latin).as_str()), (415, "not-utf8"));
+        let unsafe_file = send(b"<!DOCTYPE gpx><gpx></gpx>");
+        assert_eq!(
+            (unsafe_file.status, code(&unsafe_file).as_str()),
+            (415, "unsafe")
+        );
+        let not_gpx = send(b"<html>no route</html>");
+        assert_eq!((not_gpx.status, code(&not_gpx).as_str()), (415, "not-gpx"));
+        let big = send(&vec![b' '; 11 * 1024 * 1024]);
+        assert_eq!((big.status, code(&big).as_str()), (413, "too-large"));
+        assert!(body_json(&big)["maxMb"].as_u64().is_some());
+        let bad_discard = handle(
+            &f.state,
+            &authed(
+                req("DELETE", "/admin/api/track-upload?token=nope"),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            (bad_discard.status, code(&bad_discard).as_str()),
+            (400, "bad-token")
+        );
+
+        let save = |privacy: &str, token: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({"kind":"posts","fields":{"title":format!("Ridge {privacy} {}", &token[..4]),"date":"2026-01-03","profile":"field-journal","locationPrivacy":privacy},"body":"Notes.","trackToken":token}),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        for (privacy, sent, expected) in [
+            ("hidden", token, "track-needs-exact"),
+            ("exact", "zzzz", "bad-token"),
+            ("exact", &"a".repeat(64)[..], "track-expired"),
+        ] {
+            let refused = save(privacy, sent);
+            assert_eq!(refused.status, 422);
+            let refused = body_json(&refused);
+            assert_eq!(refused["code"], expected);
+            assert_eq!(refused["issues"][0]["code"], expected);
+            assert_eq!(refused["issues"][0]["field"], "route");
+            assert!(refused["error"].as_str().is_some());
+        }
+    }
+
+    #[test]
+    fn a_hidden_route_keeps_no_shape_in_the_file() {
+        let f = fixture("track-hidden-shape");
+        let session = login_ok(&f);
+        let shape = "0,50 500,20 1000,80";
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"hidden","routeShape":shape,"elevationProfile":shape},"body":"Notes."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(created.status, 201);
+        let created = body_json(&created);
+        let file = f.dir.join("content/posts/2026-01-03-shape.md");
+        let saved = fs::read_to_string(&file).unwrap();
+        assert!(!saved.contains("routeShape"), "{saved}");
+        assert!(
+            saved.contains("elevationProfile"),
+            "the climb drawing is hers to keep"
+        );
+
+        // A shape written by hand before, on a post that keeps its layout and
+        // doesn't send the key, still goes when the post is saved hidden.
+        fs::write(
+            &file,
+            format!("---\ntitle: Shape\ndate: 2026-01-03\nprofile: field-journal\nlocationPrivacy: trimmed\nrouteShape: {shape}\n---\nNotes.\n"),
+        )
+        .unwrap();
+        let current = fs::read_to_string(&file).unwrap();
+        let _ = created;
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-shape.md",
+                    json!({"fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"hidden"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = fs::read_to_string(&file).unwrap();
+        assert!(!saved.contains("routeShape"), "{saved}");
+        assert!(saved.contains("locationPrivacy: hidden"));
+        // Trimmed keeps its shape.
+        let current = saved;
+        let trimmed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-shape.md",
+                    json!({"fields":{"title":"Shape","date":"2026-01-03","profile":"field-journal","locationPrivacy":"trimmed","routeShape":shape},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(trimmed.status, 200);
+        assert!(fs::read_to_string(&file).unwrap().contains("routeShape"));
+    }
+
+    #[test]
+    fn a_kept_layout_save_reads_the_route_rules_from_the_file_it_keeps() {
+        // Studio sends only what changed: the profile and the date stay in the file, and
+        // the route rules still see them.
+        let f = fixture("track-keep");
+        let session = login_ok(&f);
+        let file = f.dir.join("content/posts/2026-01-03-kept.md");
+        fs::write(
+            &file,
+            "---\ntitle: Kept\ndate: 2026-01-03\ndraft: true\nprofile: field-journal\nlocationPrivacy: hidden\n---\nNotes.\n",
+        )
+        .unwrap();
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=kept.gpx"),
+            &session,
+            true,
+        );
+        request.body = br#"<gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let current = fs::read_to_string(&file).unwrap();
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-kept.md",
+                    json!({"fields":{"locationPrivacy":"exact","distanceKm":"3"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep","trackToken":token,"trackName":"kept.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let url = body_json(&saved)["trackUrl"].as_str().unwrap().to_string();
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&format!("route: {url}")), "{text}");
+        assert!(text.contains("profile: field-journal"));
+        // Still a draft in the file, so the route file is held, not public.
+        assert!(f
+            .dir
+            .join(site::HELD_TRACKS)
+            .join(url.trim_start_matches("/tracks/uploads/"))
+            .is_file());
+        assert!(!f.dir.join("static").join(&url[1..]).exists());
+        // Hidden again without the profile in the request: the shape and the route go.
+        let current = fs::read_to_string(&file).unwrap();
+        fs::write(
+            &file,
+            current.replace("distanceKm", "routeShape: 0,1 2,3\ndistanceKm"),
+        )
+        .unwrap();
+        let current = fs::read_to_string(&file).unwrap();
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-kept.md",
+                    json!({"fields":{"locationPrivacy":"hidden"},"body":"Notes.","etag":etag(&current),"frontMatter":"keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            hidden.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&hidden.body)
+        );
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains("routeShape") && !text.contains("route:"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_held_route_file_is_retired_when_its_post_stops_showing_it() {
+        let f = fixture("track-held-retire");
+        let session = login_ok(&f);
+        let mut request = authed(
+            req("POST", "/admin/api/track-upload?name=ridge.gpx"),
+            &session,
+            true,
+        );
+        request.body = br#"<gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#.to_vec();
+        let token = body_json(&handle(&f.state, &request))["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields":{"title":"Held","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"exact"},"body":"Notes.","trackToken":token,"trackName":"Held.gpx"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(created.status, 201);
+        let created = body_json(&created);
+        let url = created["trackUrl"].as_str().unwrap();
+        let held = f
+            .dir
+            .join(site::HELD_TRACKS)
+            .join(url.trim_start_matches("/tracks/uploads/"));
+        assert!(held.is_file());
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-03-held.md",
+                    json!({"fields":{"title":"Held","date":"2026-01-03","draft":"true","profile":"field-journal","locationPrivacy":"hidden"},"body":"Notes.","etag":created["etag"]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(hidden.status, 200);
+        assert!(!held.exists());
+        assert!(fsutil::walk(&f.dir.join(".openblog/trash/tracks"))
+            .iter()
+            .any(|path| path.extension().and_then(|value| value.to_str()) == Some("gpx")));
+    }
+
     #[test]
     fn portable_diagnostic_locations_match_unsaved_body_blank_lines_and_line_endings() {
         let f = fixture("portable-source-locations");
@@ -36436,6 +39417,8 @@ series: letters
         assert_eq!(dash["referrers"][0]["host"], "news.ycombinator.com");
         assert_eq!(dash["series"].as_array().unwrap().len(), 7);
         assert_eq!(dash["agentRequests"], 2);
+        assert_eq!(dash["counter"], "builtin");
+        assert!(dash["keptDays"].as_u64().is_some_and(|days| days >= 1));
         assert_eq!(dash["agents"][0]["requests"], 1);
         assert!(dash["agentPages"].as_array().unwrap().iter().any(|page| {
             page["path"] == "/posts/hello-world/"
@@ -36525,34 +39508,39 @@ series: letters
         );
     }
 
-    #[test]
-    fn serves_the_admin_page_with_a_strict_policy() {
-        let f = fixture("page");
-        let resp = handle(&f.state, &req("GET", "/admin"));
-        assert_eq!(resp.status, 200);
-        let csp = resp
+    /// The policy a response carries.
+    fn csp_of(response: &Response) -> String {
+        response
             .headers
             .iter()
             .find(|(k, _)| k == "Content-Security-Policy")
-            .unwrap()
-            .1
-            .clone();
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
+
+    fn header_of(response: &Response, name: &str) -> Option<String> {
+        response
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn serves_studio_with_a_strict_policy() {
+        let f = fixture("page");
+        let resp = handle(&f.state, &req("GET", "/admin/studio/"));
+        assert_eq!(resp.status, 200);
+        let csp = csp_of(&resp);
         assert!(
             csp.contains("default-src 'self'")
                 && csp.contains("frame-ancestors 'none'")
                 && !csp.contains("unsafe-inline")
+                && !csp.contains("wasm-unsafe-eval")
+                && !csp.contains("codepen.io"),
+            "{csp}"
         );
-        assert!(resp
-            .headers
-            .iter()
-            .any(|(k, v)| k == "X-Frame-Options" && v == "DENY"));
-        assert!(String::from_utf8_lossy(&resp.body)
-            .contains("<meta name=\"color-scheme\" content=\"light dark\">"));
-        let script = handle(&f.state, &req("GET", "/admin/admin.js"));
-        assert_eq!(script.status, 200);
-        let script = String::from_utf8_lossy(&script.body);
-        assert!(script.contains("ob-admin-scheme"));
-        assert!(script.contains("Dark mode"));
+        assert_eq!(header_of(&resp, "X-Frame-Options").as_deref(), Some("DENY"));
         let language_contract = crate::serve::route(
             &f.state,
             &req("GET", CODE_RUNNER_LANGUAGE_PATH),
@@ -36561,53 +39549,151 @@ series: letters
         assert_eq!(language_contract.status, 200);
         assert!(String::from_utf8_lossy(&language_contract.body)
             .contains("normalizeCodeRunnerLanguage"));
-        let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
-        assert_eq!(styles.status, 200);
-        assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
-        // The landing page builder's model is its own module beside the Admin script.
-        let landing = handle(&f.state, &req("GET", "/admin/landing.js"));
-        assert_eq!(landing.status, 200);
-        assert!(landing
-            .headers
-            .iter()
-            .any(|(name, value)| name.eq_ignore_ascii_case("content-type")
-                && value.starts_with("text/javascript")));
-        assert!(String::from_utf8_lossy(&landing.body).contains("SECTION_CATALOG"));
-        let look = handle(&f.state, &req("GET", "/admin/look.js"));
-        assert_eq!(look.status, 200);
-        assert!(String::from_utf8_lossy(&look.body).contains("CONTROL_ORDER"));
-        let paste = handle(&f.state, &req("GET", "/admin/paste.js"));
-        assert_eq!(paste.status, 200);
-        assert!(String::from_utf8_lossy(&paste.body).contains("pasteToMarkdown"));
+    }
+
+    #[test]
+    fn admin_redirects_to_studio() {
+        // R15 G121: the old Admin's address opens Studio. A 302 (never cached, so a rollback works
+        // at once) with the query dropped; the browser keeps the #… and Studio maps it.
+        let f = fixture("redirect");
+        for (method, path) in [
+            ("GET", "/admin"),
+            ("GET", "/admin/"),
+            ("GET", "/admin/?x=1"),
+            ("HEAD", "/admin"),
+            ("HEAD", "/admin/?x=1"),
+        ] {
+            let resp = crate::serve::route(&f.state, &req(method, path), &f.dir.join("dist"));
+            assert_eq!(resp.status, 302, "{method} {path}");
+            assert_eq!(
+                header_of(&resp, "Location").as_deref(),
+                Some("/admin/studio/"),
+                "{method} {path}"
+            );
+            assert!(resp.body.is_empty(), "{method} {path}");
+            assert_eq!(
+                header_of(&resp, "Cache-Control").as_deref(),
+                Some("no-store")
+            );
+            assert!(
+                csp_of(&resp).contains("default-src 'self'"),
+                "the 302 carries the policy too"
+            );
+            assert_eq!(header_of(&resp, "X-Frame-Options").as_deref(), Some("DENY"));
+        }
+        assert_eq!(handle(&f.state, &req("POST", "/admin")).status, 405);
+        assert_eq!(handle(&f.state, &req("POST", "/admin/")).status, 405);
+    }
+
+    #[test]
+    fn old_admin_files_are_gone() {
+        // R15 G122: none of the old Admin's 33 files is served. Each of their addresses, and any
+        // other old page, opens Studio instead; Studio's own files, the worker, the manifest and the
+        // icons are unchanged.
+        let f = fixture("old-files");
+        for file in [
+            "index.html",
+            "admin.js",
+            "block-forms.js",
+            "admin.css",
+            "landing.js",
+            "look.js",
+            "business.js",
+            "seasons.js",
+            "theme-designer.js",
+            "seasonal.js",
+            "trade-checklist.js",
+            "distribution.js",
+            "services.js",
+            "proof.js",
+            "paste.js",
+            "landing-history.js",
+            "lasting.js",
+            "checks.js",
+            "checks-panel.js",
+            "job-form.js",
+            "job-capture.js",
+            "capture-queue.js",
+            "capture-recorder.js",
+            "capture-assistant.js",
+            "voice.js",
+            "voice-session.js",
+            "voice-polished.js",
+            "social.js",
+            "quotes.js",
+            "greetings.js",
+            "announcements.js",
+            "job-share.js",
+            "voice-library.js",
+            "secrets.txt",
+        ] {
+            let resp = handle(&f.state, &req("GET", &format!("/admin/{file}")));
+            assert_eq!(resp.status, 302, "{file}");
+            assert_eq!(
+                header_of(&resp, "Location").as_deref(),
+                Some("/admin/studio/"),
+                "{file}"
+            );
+            assert!(resp.body.is_empty(), "{file}");
+        }
+        assert_eq!(handle(&f.state, &req("GET", "/admin/studio/")).status, 200);
         assert_eq!(
-            handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
+            handle(&f.state, &req("GET", "/admin/studio/no-such.js")).status,
             404
+        );
+        let worker = handle(&f.state, &req("GET", "/admin/sw.js"));
+        assert_eq!(worker.status, 200);
+        assert!(String::from_utf8_lossy(&worker.body).starts_with("self.STUDIO_RELEASE = "));
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/manifest.webmanifest")).status,
+            200
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/icon-192.png")).status,
+            200
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/nope.png")).status,
+            404
+        );
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/no-such-route")).status,
+            401
         );
     }
 
     #[test]
-    fn admin_page_serves_public_styles_when_the_site_has_a_base_path() {
-        let f = fixture("page-base-path");
-        let config_path = f.dir.join("openblog.json");
-        let mut config: Json =
-            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
-        config["url"] = json!("https://example.com/blog/");
-        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
-
-        let state = AppState::new(f.dir.clone(), None, false, true);
-        let response = handle(&state, &req("GET", "/admin"));
-        assert_eq!(response.status, 200);
-        let body = String::from_utf8(response.body).unwrap();
-        assert!(body.contains("href=\"/assets/base.css\""), "{body}");
-        assert!(body.contains("href=\"/themes/base/tokens.css\""), "{body}");
-
-        for path in ["/assets/base.css", "/themes/base/tokens.css"] {
-            let stylesheet = crate::serve::route(&state, &req("GET", path), &f.dir.join("dist"));
-            assert_eq!(stylesheet.status, 200, "{path}");
-            assert!(stylesheet
-                .headers
-                .iter()
-                .any(|(name, value)| name == "Content-Type" && value.starts_with("text/css")));
+    fn web_dir_admin_overrides_are_ignored_but_never_published() {
+        // Decided 3: files under `<paths.web>/admin/` no longer replace Admin's (icons still do), and a
+        // build never publishes the folder.
+        let f = fixture("old-overrides");
+        let config = site::load_config(&f.state.root).unwrap_or_default();
+        let web = f.state.root.join(&config.paths.web).join("admin");
+        fs::create_dir_all(web.join("icons")).unwrap();
+        fs::write(web.join("admin.js"), "window.OVERRIDE_SENTINEL = 1;").unwrap();
+        fs::write(web.join("index.html"), "<p>OVERRIDE_SENTINEL</p>").unwrap();
+        let own_icon = b"\x89PNG own icon".to_vec();
+        fs::write(web.join("icons/icon-192.png"), &own_icon).unwrap();
+        for path in ["/admin/", "/admin/admin.js", "/admin/index.html"] {
+            let resp = handle(&f.state, &req("GET", path));
+            assert_eq!(resp.status, 302, "{path}");
+            assert!(
+                !String::from_utf8_lossy(&resp.body).contains("OVERRIDE_SENTINEL"),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/icons/icon-192.png")).body,
+            own_icon
+        );
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("OVERRIDE_SENTINEL"),
+                "{} publishes the old override folder",
+                file.display()
+            );
         }
     }
 
@@ -36896,8 +39982,23 @@ series: letters
             );
         }
 
+        // Studio R14 G115: the list adds where it stands, never bindings, keys or drafts.
         let listed = list_shared(&f, &session);
-        assert_eq!(listed["publications"], json!([created]));
+        let listed = listed["publications"].as_array().unwrap();
+        assert_eq!(listed.len(), 1);
+        for (key, value) in created.as_object().unwrap() {
+            assert_eq!(&listed[0][key], value, "{key}");
+        }
+        assert_eq!(listed[0]["state"], "started");
+        for marker in [
+            "mikey-writer",
+            "participant-1",
+            "adminUser",
+            "bindings",
+            "markdown",
+        ] {
+            assert!(!listed[0].to_string().contains(marker), "{marker}");
+        }
     }
 
     #[test]
@@ -37170,7 +40271,11 @@ series: letters
         let token = issued["token"].as_str().unwrap().to_string();
         let secret = token.split_once('.').unwrap().1.to_string();
         assert!(token.starts_with(&id));
-        assert_eq!(issued["link"], format!("/admin/#/shared/accept/{token}"));
+        // Studio R14 G119: the link opens Studio's join page; the old form still works there.
+        assert_eq!(
+            issued["link"],
+            format!("/admin/studio/#/together/join/{token}")
+        );
         assert_eq!(issued["invitation"]["state"], "pending");
         // Neither the token nor its secret is on disk, and no content or email-like effect.
         assert!(tree_contains(&f.dir, &secret).is_empty());
@@ -41955,6 +45060,7 @@ series: letters
             users.users.push(crate::auth::UserRecord {
                 name: format!("acct{n:03}"),
                 hash: hash.clone(),
+                kind: None,
             });
             contributors.insert(
                 format!("key-{n:03}"),

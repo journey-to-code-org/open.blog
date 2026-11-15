@@ -1,0 +1,76 @@
+// "Write it up for me" (Studio R4, amends ADR 0304): in Write, for a job post. A sheet says what
+// goes and where before anything leaves (her words in this job, its service and town; never the
+// photos or the voice note), with "Make it sound like me" when she has a voice guide. What comes back
+// is untrusted: normalizeDraft bounds it, and it is shown as text in her boxes, never saved by itself.
+import { h } from "./dom.js";
+import { say } from "./words.js";
+import { draftIsWords, normalizeDraft } from "./capture-assistant-rules.js";
+import { companyName, writeUpDisclosure, writeUpTrouble } from "./job-words.js";
+
+/** Whether writing up is set up, and the voice guide that could go: `{ ready, status, guide }`. */
+export async function writeUpSetup(api) {
+  let status = null;
+  try {
+    status = await api.get("assistant/status");
+  } catch {
+    return { ready: false, status: null, guide: null };
+  }
+  if (!status?.configured) return { ready: false, status, guide: null };
+  let guide = null;
+  try {
+    const catalog = await api.get("assistant/context?content=none");
+    const usable = (catalog?.voiceGuides || []).filter((doc) => doc?.contextType === "voice" && doc.exists === true && doc.valid === true && typeof doc.id === "string");
+    const picked = usable.find((doc) => doc.visibility === "private") || usable[0];
+    if (picked) guide = { id: picked.id };
+  } catch {
+    // It writes without a guide; it just doesn't sound like her yet.
+  }
+  return { ready: true, status, guide };
+}
+
+/** About how many words: "about 240". */
+export const wordCount = (text) => String(text || "").trim().split(/\s+/).filter(Boolean).length;
+
+/**
+ * Ask first, in `sheet`, then write it up. Resolves `{ draft }`, `{ error }`, or null for Not now.
+ * `request` is `{ notes, photoAlts, trade, service, town }`.
+ */
+export function askToWriteUp({ api, sheet, setup, request, opener }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const company = companyName({ company: setup.status?.company, provider: setup.status?.providerType, destination: setup.status?.destination });
+    const like = setup.guide ? h("toggle-switch", { label: say("job.writeUpLikeMe"), checked: true }) : null;
+    const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
+    const go = h("action-button", {
+      onClick: async () => {
+        go.loading = true;
+        status.textContent = say("job.writeUpWorking");
+        try {
+          const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [], confirmed: true } });
+          const draft = normalizeDraft(reply?.draft);
+          // Words alone go into her boxes: a write-up carrying a link, a picture or markup is not used.
+          finish(draft && draftIsWords(draft) ? { draft } : { error: writeUpTrouble({}, { company }) });
+        } catch (error) {
+          finish({ error: writeUpTrouble(error, { company }) });
+        }
+        sheet.close();
+      },
+    }, say("job.writeUpGo"));
+    const later = h("action-button", { variant: "secondary", onClick: () => { finish(null); sheet.close(); } }, say("job.writeUpNotNow"));
+    sheet.show({
+      heading: say("job.writeUpTitle"),
+      opener,
+      children: [
+        h("p", { text: writeUpDisclosure({ words: wordCount(request.notes), destination: company }) }),
+        like, status, h("div", { class: "studio-sheet-actions" }, go, later),
+      ],
+      focus: () => go.querySelector("button")?.focus(),
+      onClose: () => finish(null),
+    });
+  });
+}

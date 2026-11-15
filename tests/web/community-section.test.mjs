@@ -9,7 +9,6 @@ import test from "node:test";
 
 const fixture = JSON.parse(readFileSync(new URL("../fixtures/community-features.json", import.meta.url), "utf8"));
 const golden = readFileSync(new URL("../fixtures/community-section.html", import.meta.url), "utf8");
-const { featureAuditNotices, featureStandingText } = await import("../../web/admin/admin.js");
 
 const escaped = (value) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 const SIGNALS = /popular|rank|score|upvote|likes|reactions|trending|\bmost\b|\btop\b|\bbest\b/i;
@@ -55,23 +54,6 @@ test("provenance says whose reflection it is, and a name appears only where the 
   assert.equal((golden.match(/approved by the editors\. It is featured here from/g) || []).length, 2);
   assert.ok(golden.includes("&lt;conversation&gt; &amp; a rhythm"), "the reader's words are escaped, never markup");
   assert.ok(golden.indexOf("2026-10-28") < golden.indexOf("2026-10-29"), "by the day each was featured");
-});
-
-test("every reason Admin states reads the same everywhere and carries no signal", () => {
-  for (const reason of fixture.reasons) {
-    const feature = { id: "a", post: "posts/x.md", featured: "2026-10-28", standing: reason.standing, reason: reason.id, explanation: reason.explanation };
-    const text = featureStandingText(feature);
-    assert.ok(text.includes(reason.explanation), `${reason.id}: ${text}`);
-    assert.doesNotMatch(text, SIGNALS);
-    const notices = featureAuditNotices({ features: [feature] });
-    assert.equal(notices.length, 1);
-    assert.equal(notices[0].kind, reason.standing);
-    assert.equal(notices[0].items[0].explanation, reason.explanation);
-    assert.doesNotMatch(notices[0].text, SIGNALS);
-  }
-  const hidden = featureStandingText({ standing: "hidden", explanation: fixture.reasons.find((r) => r.id === "source-gone").explanation });
-  assert.match(hidden, /the reader’s agreement still stand/);
-  assert.doesNotMatch(featureStandingText({ standing: "mustComeOff", explanation: "x" }), /restores/);
 });
 
 test("the editors' notes the fixture lists are plain text, and the refused ones name a claim", () => {

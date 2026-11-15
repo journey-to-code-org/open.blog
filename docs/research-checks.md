@@ -52,6 +52,15 @@ You can **acknowledge** a finding you have considered and decided needs no chang
 A finding that blocks a build, or that withholds a comparison until you check it again, is fixed
 rather than acknowledged.
 
+In Studio, the research checks of a post are in Write's **Before you publish** sheet, under
+**Research checks**: it always opens on a research post's first Publish or Schedule, and what the
+build refuses is counted under Needs fixing first and keeps Publish waiting. Acknowledging is
+**Mark as checked** (a toggle, with Undo), sent with the review's revision; a mark made on another
+computer in the meantime is refused with code `changed` and the list is read again, so nothing is
+lost. The counts read "Found by a check: 2 (1 checked). Might need a look: 0. Only you can check:
+3."; `openblog check`'s own sentence and each finding's code, validator, gate and place are in the
+sheet's details. See [Before you publish](admin.md#before-you-publish).
+
 ## What stays private
 
 The source library, notebook, claims, atlas and alignments files are private research under

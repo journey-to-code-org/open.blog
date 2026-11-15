@@ -1,0 +1,256 @@
+// What readers see's rules (Studio R12), ported from admin-boundary.test.mjs: the pure cases. The
+// view is in tests/browser/studio-research-public.spec.mjs.
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as rules from "../../web/studio/parts/boundary-rules.js";
+import { sayId } from "../../web/studio/parts/research-says.js";
+const { BOUNDARY_STORES,HIDDEN_PROJECTIONS,boundaryStoreWords,BOUNDARY_REASONS,boundaryReasonWords,boundaryItemHash,boundaryCounts,boundaryCountsText,boundaryGroups } = rules;
+
+// What will be public (A8.4, ADR 0125): one section per projection in the server's order, its
+// switch, every item it publishes with the fields it copies and the fields it keeps private,
+// every item it withholds with the reason in words and a link to where it is changed, what is
+// never published, and failures scoped to the projection or file they belong to.
+
+// ---------------------------------------------------------------- DOM shim
+
+class DomNode {
+  static ELEMENT_NODE = 1;
+  static TEXT_NODE = 3;
+
+  constructor(tag, owner) {
+    this.text = tag === "#text";
+    this.nodeType = this.text ? 3 : 1;
+    this.tagName = this.text ? "#text" : tag.toUpperCase();
+    this.owner = owner;
+    this.childNodes = [];
+    this.parentNode = null;
+    this.attributes = {};
+    this.dataset = {};
+    this.listeners = {};
+    this.className = "";
+    this.hidden = false;
+    this.disabled = false;
+    this.selected = false;
+    this.checked = false;
+    this.open = false;
+    this.nodeValue = "";
+    this._value = undefined;
+    this.classList = { contains: (name) => this.className.split(/\s+/).includes(name) };
+  }
+  get children() {
+    return this.childNodes.filter((node) => node.nodeType === 1);
+  }
+  get parentElement() {
+    return this.parentNode;
+  }
+  get value() {
+    if (this.tagName === "SELECT" && this._value === undefined) return this.children.find((child) => child.selected)?.value ?? "";
+    if (this.tagName === "OPTION" && this._value === undefined) return this.attributes.value ?? "";
+    return this._value ?? "";
+  }
+  set value(value) {
+    this._value = String(value);
+    if (this.tagName === "SELECT") for (const option of this.children) option.selected = option.value === this._value;
+  }
+  get textContent() {
+    return this.text ? this.nodeValue : this.childNodes.map((node) => node.textContent).join("");
+  }
+  set textContent(value) {
+    if (this.text) this.nodeValue = String(value);
+    else this.replaceChildren(this.owner.createTextNode(String(value)));
+  }
+  get isConnected() {
+    for (let node = this; node; node = node.parentNode) if (node === this.owner.body) return true;
+    return false;
+  }
+  adopt(node) {
+    if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1);
+    node.parentNode = this;
+    return node;
+  }
+  append(...nodes) {
+    for (const node of nodes.flat()) {
+      if (node === null || node === undefined || node === false) continue;
+      this.childNodes.push(this.adopt(node instanceof DomNode ? node : this.owner.createTextNode(String(node))));
+    }
+  }
+  replaceChildren(...nodes) {
+    for (const node of this.childNodes) node.parentNode = null;
+    this.childNodes = [];
+    this.append(...nodes);
+  }
+  replaceWith(...nodes) {
+    const parent = this.parentNode;
+    const index = parent.childNodes.indexOf(this);
+    for (const node of nodes) parent.adopt(node);
+    parent.childNodes.splice(index, 1, ...nodes);
+    this.parentNode = null;
+  }
+  remove() {
+    if (this.parentNode) this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1);
+    this.parentNode = null;
+  }
+  cloneNode(deep) {
+    const copy = new DomNode(this.text ? "#text" : this.tagName.toLowerCase(), this.owner);
+    Object.assign(copy, { nodeValue: this.nodeValue, className: this.className, attributes: { ...this.attributes }, dataset: { ...this.dataset }, id: this.id });
+    if (deep) for (const child of this.childNodes) copy.append(child.cloneNode(true));
+    return copy;
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if (name === "id") this.id = String(value);
+    if (name === "hidden") this.hidden = true;
+    if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
+  }
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
+  contains(node) {
+    for (let current = node; current; current = current.parentNode) if (current === this) return true;
+    return false;
+  }
+  matches(selector) {
+    if (this.text) return false;
+    return selector.split(",").map((part) => part.trim()).some((part) => {
+      if (part.startsWith("#")) return this.id === part.slice(1);
+      if (part.startsWith(".")) return this.classList.contains(part.slice(1));
+      const attribute = /^([a-z]*)\[([a-z-]+)\]$/.exec(part);
+      if (attribute) {
+        if (attribute[1] && this.tagName !== attribute[1].toUpperCase()) return false;
+        return attribute[2] in this.attributes;
+      }
+      return this.tagName === part.toUpperCase();
+    });
+  }
+  closest(selector) {
+    for (let node = this; node; node = node.parentNode) if (node.matches?.(selector)) return node;
+    return null;
+  }
+  querySelectorAll(selector) {
+    const found = [];
+    const visit = (node) => {
+      for (const child of node.children) {
+        if (child.matches(selector)) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+  addEventListener(name, listener) {
+    (this.listeners[name] ||= []).push(listener);
+  }
+  dispatch(name, event = {}) {
+    const payload = { type: name, target: this, currentTarget: this, preventDefault() {}, ...event };
+    return Promise.all((this.listeners[name] || []).map((listener) => listener(payload)));
+  }
+  dispatchEvent(event) {
+    this.dispatch(event.type, { target: this });
+    return true;
+  }
+  focus() {
+    this.owner.activeElement = this;
+  }
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    this.open = false;
+  }
+}
+
+function installDom() {
+  const previous = { Node: globalThis.Node, document: globalThis.document, HTMLElement: globalThis.HTMLElement };
+  const documentShim = {
+    activeElement: null,
+    createElement: (tag) => new DomNode(tag, documentShim),
+    createTextNode: (text) => Object.assign(new DomNode("#text", documentShim), { nodeValue: String(text) }),
+  };
+  documentShim.body = new DomNode("body", documentShim);
+  globalThis.Node = DomNode;
+  globalThis.HTMLElement = DomNode;
+  globalThis.document = documentShim;
+  return {
+    document: documentShim,
+    restore() {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete globalThis[name];
+        else globalThis[name] = value;
+      }
+    },
+  };
+}
+
+const withDom = (run) => async () => {
+  const dom = installDom();
+  try {
+    await run(dom);
+  } finally {
+    dom.restore();
+  }
+};
+
+const HOSTILE = "<img src=x onerror=alert(1)>";
+
+// A manifest exactly as `GET /admin/api/research/boundary` serializes it (see the Rust tests).
+const MANIFEST = () => ({
+  version: 1,
+  scope: { kind: "site" },
+  projections: [
+    {
+      projection: "citations", switch: "citations", enabled: true,
+      published: [{ kind: "source", id: "slings", label: "Slings edition", posts: ["cave"], fields: ["kind", "title"],
+        withheldFields: [{ field: "identifiers.url", reason: "unsafe-url", message: "Source `slings`: its web address is withheld because it names a private or local network address readers cannot reach." }] }],
+      withheld: [],
+    },
+    { projection: "claim-evidence", switch: "claimEvidence.publish", enabled: false, published: [],
+      withheld: [{ kind: "claim", id: "c2", posts: ["cave"], reason: "projection-off", message: "The site does not publish this; `claimEvidence.publish` is off, so nothing here reaches the public site." }] },
+    {
+      projection: "atlas", switch: "knowledgeAtlas.publish", enabled: true,
+      published: [{ kind: "entry", id: "plato-person", label: HOSTILE, url: "/atlas/plato-person/", fields: ["kind", "label", "summary"] }],
+      withheld: [
+        { kind: "entry", id: "the-good", label: "The Good", reason: "not-approved", message: "Entry `the-good` is not approved, so it stays private." },
+        { kind: "relationship", id: "politeia-discusses-good", reason: "private-dependency", message: "Relationship `politeia-discusses-good` joins entry `the-good`, which is not published, so it stays private until that entry is approved." },
+      ],
+    },
+    { projection: "comparisons", switch: "comparisons.publish", enabled: true, blocked: "passage comparisons cannot be published (broken); run `openblog check`.", published: [], withheld: [] },
+  ],
+  never: [{ store: "notebook", file: ".openblog/private/research/notebook.json", count: 3, what: "Every note and question." }],
+  unavailable: [{ store: "alignments", file: ".openblog/private/research/alignments.json", message: "not valid JSON" }],
+  refused: null,
+});
+
+const sections = (root) => root.querySelectorAll("section").filter((section) => section.dataset.boundaryProjection);
+
+const item = (root, key) => root.querySelectorAll("li").find((node) => node.dataset.boundaryItem === key);
+
+test("every withheld item links to where it is changed, by its own address", () => {
+  assert.equal(boundaryItemHash({ kind: "source", id: "a b" }), "#/research/sources/a%20b");
+  assert.equal(boundaryItemHash({ kind: "entry", id: "plato" }), "#/research/atlas/plato");
+  assert.equal(boundaryItemHash({ kind: "atlas-page", id: "plato" }), "#/research/atlas/plato");
+  assert.equal(boundaryItemHash({ kind: "relationship", id: "r/1" }), "#/research/atlas/relationships/r%2F1");
+  assert.equal(boundaryItemHash({ kind: "dating", id: "born" }), "#/research/atlas");
+  assert.equal(boundaryItemHash({ kind: "dating", id: "born", owner: { kind: "entry", id: "plato person" } }), "#/research/atlas/plato%20person");
+  assert.equal(boundaryItemHash({ kind: "dating", id: "born", owner: { kind: "relationship", id: "r/1" } }), "#/research/atlas/relationships/r%2F1");
+  assert.equal(boundaryItemHash({ kind: "comparison", id: "cave" }), "#/research/compare/cave");
+  assert.equal(boundaryItemHash({ kind: "comparison-page", id: "cave" }), "#/research/compare/cave");
+  // A claim and an evidence link are changed in their post's Claims and evidence, once the post is located.
+  const postPaths = new Map([["cave", "posts/2026-01-07-the cave.md"]]);
+  assert.equal(boundaryItemHash({ kind: "claim", id: "c1", posts: ["cave"] }, { postPaths }), "#/write/posts%2F2026-01-07-the%20cave.md?sheet=claims&claim=c1");
+  assert.equal(boundaryItemHash({ kind: "evidence-link", id: "l1", claim: "c1", posts: ["cave"] }, { postPaths }), "#/write/posts%2F2026-01-07-the%20cave.md?sheet=claims&claim=c1");
+  assert.equal(boundaryItemHash({ kind: "claim", id: "c1", posts: ["elsewhere"] }, { postPaths }), null, "an unknown post has no link");
+  assert.equal(boundaryItemHash({ kind: "claim", id: "c1" }), null);
+  assert.equal(boundaryItemHash({ kind: "evidence-link", id: "l1", posts: ["cave"] }), null);
+  for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published", "withdrawn", "stale-selection", "missing-target", "selection-cycle", "over-limit", "inconsistent"]) {
+    assert.ok(BOUNDARY_REASONS.includes(reason), `${reason} is known`);
+    assert.notEqual(boundaryReasonWords(reason), boundaryReasonWords("never-heard-of-it"), `${reason} has its own words`);
+    assert.doesNotMatch(boundaryReasonWords(reason), /score|verdict|false|true|wrong/i, "no reason judges the research");
+  }
+});
+

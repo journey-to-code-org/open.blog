@@ -114,16 +114,18 @@ test("Enter adds an ingredient and keys move it, announced", async ({ page }) =>
   writeFileSync(join(root, "content", PIE_REL), PIE);
 });
 
-test("a photo goes into her story with its description", async ({ page }) => {
+test("a photo goes into her story with its description, as a card", async ({ page }) => {
   await openPie(page);
-  await page.getByRole("button", { name: "Put a photo in" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "Put a photo in" });
-  await dialog.locator("input[type=file]").setInputFiles({ name: "pie-cooling.png", mimeType: "image/png", buffer: PNG });
-  await dialog.getByRole("button", { name: "Put it in" }).click();
-  await expect(dialog.getByText("Describe the photo first")).toBeVisible();
-  await dialog.getByRole("textbox", { name: "Describe the photo" }).fill("Pie cooling on the windowsill");
-  await dialog.getByRole("button", { name: "Put it in" }).click();
-  await expect(page.getByRole("textbox", { name: "Your story" })).toHaveValue(/Mama taught me this one\.\n\n!\[Pie cooling on the windowsill\]\(\/images\/uploads\/.+\.png\)/);
+  await page.getByRole("button", { name: "Put a photo in Your story" }).click();
+  const sheet = page.getByRole("dialog", { name: "Photo" });
+  await sheet.locator("input[type=file]").setInputFiles({ name: "pie-cooling.png", mimeType: "image/png", buffer: PNG });
+  await expect(sheet.locator("img.studio-form-photo")).toBeVisible();
+  await sheet.getByRole("button", { name: "Add it" }).click();
+  await expect(sheet.getByText("Describe the photo so everyone knows what it shows.")).toBeVisible();
+  await sheet.getByRole("textbox", { name: "Describe the photo" }).fill("Pie cooling on the windowsill");
+  await sheet.getByRole("button", { name: "Add it" }).click();
+  await expect(page.getByRole("group", { name: "Photo: Pie cooling on the windowsill" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Your story", exact: true })).toHaveValue("Mama taught me this one.");
   await page.keyboard.press("Control+s");
   await expect.poll(pie).toMatch(/Mama taught me this one\.\n\n!\[Pie cooling on the windowsill\]\(\/images\/uploads\/[^)]+\)\n\n## Ingredients/);
   writeFileSync(join(root, "content", PIE_REL), PIE);
@@ -162,11 +164,13 @@ test("Save on a published post keeps the changes here instead of putting them li
   writeFileSync(join(root, "content", PIE_REL), PIE);
 });
 
-test("photos show under the story and come out without touching the code", async ({ page }) => {
+test("a photo shows as a card in her story and comes out without touching the code", async ({ page }) => {
   writeFileSync(join(root, "content", PIE_REL), PIE.replace("Mama taught me this one.", "Mama taught me this one.\n\n![Pie on the sill](/images/uploads/2026/pie.png)"));
   await openPie(page);
-  await expect(page.getByRole("list", { name: "Photos in this box" }).getByText("Pie on the sill", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /^Take it out/ }).click();
+  const card = page.getByRole("group", { name: "Photo: Pie on the sill" });
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: /^Move/ }).click();
+  await page.getByRole("menuitem", { name: "Take it out" }).click();
   await expect(page.getByRole("textbox", { name: "Your story" })).toHaveValue("Mama taught me this one.");
   writeFileSync(join(root, "content", PIE_REL), PIE);
 });

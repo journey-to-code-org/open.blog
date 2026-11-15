@@ -3,6 +3,9 @@
 // them as it shows pages, plus a line under each row (`row`) and the server's order (`sort`). Each
 // names the old Admin model the editor (record-edit.js) uses for its rules. Studio slice 10a.
 
+import * as services from "./services-rules.js";
+import * as proof from "./proof-rules.js";
+
 const STARS = (rating) => (/^[1-5]$/.test(String(rating || "")) ? Number(rating) : 0);
 const PLATFORM_WORDS = { google: "Google", facebook: "Facebook", nextdoor: "Nextdoor", yelp: "Yelp", houzz: "Houzz", angi: "Angi", other: "Somewhere else" };
 
@@ -31,7 +34,7 @@ export const RECORDS = {
     add: "Add a service",
     empty: "Start with the work you're asked for most, like a roof repair.",
     newTitle: "New service",
-    model: "/admin/services.js",
+    model: services,
     sort: "title",
     row: (item) => (item.status === "draft" ? "Off your site" : ""),
     preview: true,
@@ -48,7 +51,7 @@ export const RECORDS = {
     add: "Add a review",
     empty: "Paste the link to a review a customer left you on Google or Facebook, and Studio copies it in.",
     newTitle: "New review",
-    model: "/admin/proof.js",
+    model: proof,
     sort: "server",
     row: (item) => [reviewLine(item), item.status === "draft" ? "Off your site" : ""].filter(Boolean).join(" · "),
     preview: false,

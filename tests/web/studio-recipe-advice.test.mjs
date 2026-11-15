@@ -36,7 +36,7 @@ test("the design's words for the list problems, with targets to the row", () => 
   assert.deepEqual(adviceFor(problem("no-steps")), { words: "There are no steps yet.", target: { list: "steps", index: 0 }, code: "no-steps" });
   assert.deepEqual(adviceFor(problem("empty-ingredient", { ingredient: 3 })), { words: "Ingredient 3 is empty. Write it or remove it.", target: { list: "ingredients", index: 2 }, code: "empty-ingredient" });
   assert.deepEqual(adviceFor(problem("empty-step", { step: 2 })).target, { list: "steps", index: 1 });
-  assert.deepEqual(adviceFor(problem("numbered-step", { step: 2 })), { words: "Step 2 starts with its own number. Take it out; Studio numbers the steps.", target: { list: "steps", index: 1 }, code: "numbered-step" });
+  assert.deepEqual(adviceFor(problem("numbered-step", { step: 2 })), { words: "Step 2 starts with its own number. Take it out; your blog numbers the steps.", target: { list: "steps", index: 1 }, code: "numbered-step" });
   for (const code of ["zero-quantity", "descending-range", "duplicate-ingredient", "mixed-unit-systems"]) {
     const advice = adviceFor(problem(code, { ingredient: 5 }));
     assert.deepEqual(advice.target, { list: "ingredients", index: 4 }, code);
@@ -59,7 +59,7 @@ test("the design's words for the fields, with Studio's field names", () => {
     words: "Time to cook can't be read as a length of time. Write it like 20 minutes.", target: { field: "cook" }, code: "time-not-exported",
   });
   assert.equal(adviceFor(problem("time-not-exported", { field: "prep" })).words, "Time to get ready can't be read as a length of time. Write it like 20 minutes.");
-  assert.equal(adviceFor(problem("time-not-exported", { field: "total" })).words, "Total time can't be read as a length of time. Write it like 20 minutes.");
+  assert.equal(adviceFor(problem("time-not-exported", { field: "total" })).words, "Time from start to table can't be read as a length of time. Write it like 20 minutes.");
   assert.deepEqual(adviceFor(problem("zero-time", { field: "prep" })).target, { field: "prep" });
   assert.equal(adviceFor(problem("incomplete-times", { field: "total" })).words, "Only one of the times is filled in. Add the other.");
   assert.deepEqual(adviceFor(problem("no-image")).target, { field: "cover" });

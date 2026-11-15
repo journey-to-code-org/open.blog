@@ -1,0 +1,247 @@
+// What New job, the waiting cards and About this job say, in her words (Studio R4,
+// docs/specs/studio/r4/ux.md). "This phone" is the phone in her hand (`deviceNoun`); nothing here
+// says upload, sync, offline, queue, storage or capture. DOM-free and tested
+// (tests/web/studio-job-words.test.mjs).
+import { companyName, helperProblem } from "./helper-rules.js";
+import { sayClock, sayWhen } from "./dates.js";
+import { product, say } from "./words.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  "job.writeUpTitle": { text: "Write it up for me", layer: "her" },
+  "job.writeUpLikeMe": { text: "Make it sound like me", layer: "her" },
+  "job.writeUpWorking": { text: "Writing it up…", layer: "her" },
+  "job.writeUpGo": { text: "Write it up", layer: "her" },
+  "job.writeUpNotNow": { text: "Not now", layer: "her" },
+  "job.newerVersion": { text: "This job was saved by a newer version of {product}'s pages. Reload to send it. If it still says this, tell {helper}.", layer: "her" },
+  // What only a voice note or a write-up can say (R8): every other failure is the writing helper's.
+  "job.noWordsHeard": { text: "No words were heard in it. Type a few instead.", layer: "her" },
+  "job.notesTooLong": { text: "That's more words than it can take. Shorten them a little.", layer: "her" },
+  "job.noNotes": { text: "Write a few words about the job first.", layer: "her" },
+  "job.noteStillHere": { text: "Your voice note is still here.", layer: "her" },
+  // W-b: sentences that name {product}.
+  "job.roomFull": { text: "The jobs waiting on this {noun} are using all the room {product} has here. Send them first. This one stays here.", layer: "her" },
+  "job.otherWindow": { text: "Another window updated {product}'s pages. Reload, then save again. This job stays here.", layer: "her" },
+  "job.micDenied": { text: "{product} isn't allowed to use the microphone on this {noun}. To change that:", layer: "her" },
+  "job.ledgerVersion": { text: "{product} was updated in a way this page doesn't understand yet. Reload, then try again.", layer: "her" },
+  "job.saidNo": { text: "{product} said no to this job.", layer: "her" },
+  "job.noAnswerLead": { text: "{product} didn't answer when it last tried", layer: "her" },
+  "job.deletedThere": { text: "This job went to {product} before, and was deleted there since.", layer: "her" },
+  "job.safariClear": { text: "Safari may clear jobs kept here if {product} isn't opened for a week. Send it, or save its photos to this {noun}.", layer: "her" },
+  "job.turnsLocal": { text: "{product} turns it into words on its own computer. Nothing leaves it.", layer: "her" },
+  "job.ownHelper": { text: "{product}'s helper", layer: "her" },
+  "job.noAnswer": { text: "{product} didn't answer.", layer: "her" },
+  "job.goesAsYours": { text: "It goes to {product} as yours.", layer: "her" },
+  "job.waitingInSafari": { text: "Saved a job in Safari instead? It's waiting there: open {product} in Safari to send it.", layer: "her" },
+  "job.lede": { text: "Take photos and say what you did. It's kept on this {noun} until there's a signal, then goes to {product} as a draft.", layer: "her" },
+  "job.cantKeep": { text: "Jobs send straight away instead, so save one where there's a signal. In a normal Safari window {product} can keep them.", layer: "her" },
+  "job.inApp": { text: "This page is open inside another app, which may not keep your jobs. Open {product} in Safari.", layer: "her" },
+  "job.addHomeScreen": { text: "Add {product} to your Home Screen so jobs waiting here are kept safe.", layer: "her" },
+  "job.notSetUp": { text: "{product} isn't set up for jobs", layer: "her" },
+  "job.writeUpOff": { text: "Writing it up isn't set up for {product}.", layer: "her" },
+};
+
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+const stem = (name) => String(name || "photo").replace(/\.[a-z0-9]{2,5}$/i, "");
+const quoted = (name) => `“${name}”`;
+const mb = (bytes) => Math.floor(bytes / (1024 * 1024));
+
+/** "This iPhone", "This phone", "This computer". */
+export const thisDevice = (noun = "phone") => `This ${noun}`;
+
+/** Why a job couldn't be kept on this phone (`roomProblem` codes and `write`). The job stays on the screen. */
+export function ROOM_WORDS(code, { limits = {}, noun = "phone", queued = 0, remove = 1 } = {}) {
+  if (code === "maxQueued") return `${thisDevice(noun)} is already holding ${plural(queued || limits.maxQueued || 5, "job")} that haven't sent. This one stays here until they go.`;
+  if (code === "maxCaptureBytes") return `This job has too many large photos to keep. Take out about ${remove}.`;
+  if (code === "maxQueueBytes") return say("job.roomFull", { noun });
+  if (code === "closed") return say("job.otherWindow");
+  return `${thisDevice(noun)} is out of room to keep it. Free up some space, or send the waiting jobs first. This one stays here.`;
+}
+
+/** What's wrong with a photo she picked (`photoProblem` codes). */
+export function PHOTO_WORDS(code, { name = "", limits = {} } = {}) {
+  if (code === "not-photo") return `${quoted(name || "That file")} isn't a photo.`;
+  if (code === "too-big") return `${quoted(stem(name))} is too big to use. The limit is ${mb(limits.maxPhotoBytes || 40 * 1024 * 1024)} MB a photo.`;
+  return "";
+}
+
+/** Photos past the most a job holds. */
+export function tooManyWords(names, max = 12) {
+  const left = names.map(stem);
+  return left.length === 1
+    ? `A job holds up to ${max} photos, so this one wasn't added: ${left[0]}.`
+    : `A job holds up to ${max} photos, so these ${left.length} weren't added: ${left.join(", ")}.`;
+}
+
+/** The voice note, by recorder state and by why it stopped. */
+export const RECORD_WORDS = Object.freeze({
+  idle: (maxSeconds = 180) => `Up to ${Math.round(maxSeconds / 60)} minutes.`,
+  unsupported: "Voice notes don't work here. Type a few words instead.",
+  starting: "Your phone may ask to use the microphone. Tap Allow.",
+  unavailable: "The microphone didn't start. If another app is using it, close that app and try again. Or type a few words.",
+  time: "Stopped at 3 minutes, the longest a voice note can be. It's kept.",
+  size: "Stopped: that's as long as a voice note can be. It's kept.",
+  error: "The recording stopped by itself. What you said up to then is kept.",
+  empty: "Nothing was recorded.",
+  left: "Your voice note stopped when you left. It's kept.",
+  replace: "Replace your voice note?",
+  thrown: "Your voice note is thrown away.",
+  denied: (noun = "iPhone") => say("job.micDenied", { noun }),
+  deniedAfter: "Or type a few words instead.",
+});
+
+/** "1:12 long." */
+export const lengthWords = (clockText) => `${clockText} long.`;
+
+/** How to let her blog use the microphone again, for the phone in her hand only. */
+export function micSteps(here = {}) {
+  if (here.apple) {
+    return ["Open the Settings app.", "Tap Apps, then Safari (on older iPhones, just Safari).", "Tap Microphone and choose Ask or Allow.", "Come back and tap Record again."];
+  }
+  if (here.android && here.standalone) return [say("notify.holdIcon"), "Tap App info.", "Tap Permissions, then Microphone, then Allow."];
+  if (here.android) return ["Tap the small icon at the left end of the address bar.", "Tap Permissions.", "Turn on Microphone."];
+  return ["Click the small icon at the left end of the address bar and allow the microphone."];
+}
+
+/** "Camera won't open?", for the phone in her hand only. */
+export function cameraHelp(here = {}) {
+  if (here.apple) return "Tap Choose photos, then Take Photo. Or take them in the Camera app and choose them here after.";
+  if (here.android) return "In the Settings app: Apps, then Chrome, then Permissions, then Camera, then Allow.";
+  return "Use Choose photos to pick photos you've already taken.";
+}
+
+/** What a refused job's card says, by the refusal's code. */
+export function refusedWords(code, noun = "phone") {
+  if (code === "capture-id") return `This job's label got damaged on this ${noun}, so it can't be sent. Save its photos, then throw it away.`;
+  if (code === "ledger-version") return say("job.ledgerVersion");
+  return `${say("job.saidNo")} ${say("common.tell")}`;
+}
+
+/** "4 photos, voice note. Saved today at 11:40 AM." Never sizes. */
+export function savedWords(record, now = new Date()) {
+  const parts = [];
+  if (record.photos.length) parts.push(plural(record.photos.length, "photo"));
+  if (record.audio) parts.push("voice note");
+  if (!parts.length) parts.push("Words only");
+  const what = parts.join(", ");
+  const when = sayWhen(record.createdAt, { now });
+  return `${what.charAt(0).toUpperCase()}${what.slice(1)}. Saved ${when ? when.charAt(0).toLowerCase() + when.slice(1) : "on this phone"}.`;
+}
+
+/**
+ * A waiting card's badge, its words and the variant, by `entryState`. `live` is the sender's
+ * knowledge in this window; `record` may be missing for one it can't read.
+ */
+export function waitingWords(state, { record = null, live = {}, step = "", now = new Date(), noun = "phone" } = {}) {
+  const at = live.triedAt ? sayClock(live.triedAt.toISOString?.() ?? live.triedAt) : "";
+  switch (state) {
+    case "sending":
+      return { badge: "Sending", variant: "info", words: live.elsewhere ? "Sending in another window…" : step || "Sending…" };
+    case "tried": {
+      const server = live.code === "server" || /^\[server\]/.test(record?.lastError || "");
+      const lead = server ? say("job.noAnswerLead") : "No signal when it last tried";
+      return { badge: "Waiting", variant: "neutral", words: `${lead}${at ? `, at ${at}` : ""}. It tries again by itself.` };
+    }
+    case "signin":
+      return { badge: "Needs you", variant: "warning", words: "Sign in again to send it." };
+    case "refused":
+      return { badge: "Didn't send", variant: "danger", words: `${refusedWords(live.code || codeOf(record), noun)} Nothing is lost: it's still on this ${noun}.` };
+    case "removed":
+      return { badge: "Needs you", variant: "warning", words: say("job.deletedThere") };
+    case "sent": {
+      const skipped = record?.sent?.skipped || [];
+      const photos = skipped.length
+        ? `${plural(skipped.length, "photo")} couldn't go: ${skipped.map((name) => quoted(stem(name))).join(", ")} ${skipped.length === 1 ? "is" : "are"} in a format websites can't show.`
+        : "";
+      const voice = record?.sent?.audio === "refused" ? "the voice note couldn't be kept." : "";
+      return { badge: "Sent", variant: "success", words: `It's a draft on ${product()}, but ${[photos, voice].filter(Boolean).join(" And ")}` };
+    }
+    case "someone-else":
+      return { badge: "Needs you", variant: "warning", words: `Saved while ${record?.by || "someone else"} was signed in on this ${noun}.` };
+    case "newer":
+      return { badge: "Needs you", variant: "warning", words: say("job.newerVersion") };
+    case "unreadable":
+      return { badge: "Can't read", variant: "danger", words: `Part of this job can't be read on this ${noun}, so it can't be sent.` };
+    default:
+      return { badge: "Waiting", variant: "neutral", words: "It sends by itself when there's a signal." };
+  }
+}
+
+const codeOf = (record) => /^\[([a-z0-9-]+)\]/.exec(String(record?.lastError || ""))?.[1] || "refused";
+
+/** The name of a job that can't be read: "A job kept on this iPhone", then "(2)", "(3)"… so each card and its More are told apart. */
+export const keptTitle = (index = 0, noun = "phone") => `A job kept on this ${noun}${index ? ` (${index + 1})` : ""}`;
+
+/** A job waiting more than 5 days in a Safari tab. */
+export const safariClearWords = (noun = "phone") => say("job.safariClear", { noun });
+
+/** "2 jobs waiting on this iPhone". */
+export const waitingCount = (count, noun = "phone") => `${plural(count, "job")} waiting on this ${noun}`;
+
+/** The status line while sending and after. */
+export function flushWords({ total = 0, done = 0, sent = 0, blocked = "", waiting = 0 } = {}) {
+  if (total && done < total && !blocked) return `Sending ${done + 1} of ${plural(total, "job")}…`;
+  if (blocked === "signin") return "Sign in again to send what's waiting.";
+  if (waiting) return `${plural(waiting, "job")} ${waiting === 1 ? "is" : "are"} still waiting for a signal.`;
+  if (sent) return "Sent.";
+  return "";
+}
+
+/** "Sent. Roof repair in Elkins is a draft on your blog." */
+export const sentWords = (title) => `Sent. ${title} is a draft on ${product()}.`;
+
+// The company a helper sends to, by name (moved to helper-rules.js in R8; kept here for R4's callers).
+export { companyName };
+
+/** Where the voice note goes to be turned into words: the place, never the model. */
+export function transcribeDisclosure(disclosure = {}) {
+  if (disclosure.engine === "local" || disclosure.leavesServer === false) return say("job.turnsLocal");
+  const where = companyName(disclosure);
+  return `Your voice note goes to ${where} to be turned into words. Only the recording goes: not your photos or your notes. ${where}'s own rules cover what it keeps.`;
+}
+
+/**
+ * Turning the voice note into words didn't work. Its own lines for what only it can say; every
+ * other failure in the writing helper's one table of words (R8, `helperProblem`).
+ */
+export function transcribeTrouble(error = {}, { company = "" } = {}) {
+  const code = error?.data?.code;
+  if (code === "not-configured") return "";
+  if (code === "empty-transcript") return say("job.noWordsHeard");
+  return `${helperProblem(error, { company }).words} ${say("job.noteStillHere")}`;
+}
+
+/** Writing it up didn't work: its own lines, then the writing helper's (R8). */
+export function writeUpTrouble(error = {}, { company = "" } = {}) {
+  const code = error?.data?.code;
+  if (code === "notes-too-long") return say("job.notesTooLong");
+  if (code === "no-notes") return say("job.noNotes");
+  // Nothing usable came back (no error at all): the same words as an answer that made no sense.
+  if (!error?.status && !code) return helperProblem({ status: 502, data: { code: "invalid-result" } }, { company }).words;
+  return helperProblem(error, { company }).words;
+}
+
+/** A job check problem in her words. `service` is the service's name, for an unknown one. */
+export function jobProblemWords(problem = {}, { service = "" } = {}) {
+  const { field = "", code = "" } = problem;
+  if (field === "job.trade") return "Choose your trade.";
+  if (field === "job.service") {
+    if (code === "unknown-service") return `${quoted(service || "That service")} isn't one of your services yet. Choose one, or add it under Services first.`;
+    return "Choose the service this job was.";
+  }
+  if (field === "job.place.town") return code === "missing" ? "Add the town." : "Just the town's name, not a street address or zip code.";
+  if (field === "job.place.region") return code === "missing" ? "Add the state." : "Just the state's name or its two letters.";
+  if (field === "job.started") return code === "missing" ? "Add the day you started." : "Pick the day you started from the calendar.";
+  if (field === "job.finished") return code === "order" ? "Finished can't be before Started." : code === "missing" ? "Add the day you finished." : "Pick the day you finished from the calendar.";
+  if (field === "job.costBand") return "Choose a price range from the list.";
+  if (field.startsWith("job.media")) return "A photo marked Before or After isn't on your site any more. Mark another.";
+  if (field === "job.review") return "That review isn't saved any more. Choose another.";
+  return `Something about this job needs fixing. ${say("common.tell")}`;
+}
+
+
+/** The write-up sheet's words: what goes, and where. */
+export function writeUpDisclosure({ words = 0, destination = "" } = {}) {
+  const where = String(destination || say("job.ownHelper")).trim();
+  return `Your words in this job (about ${words}), its service and town go to ${where}. It writes a title, a one-line summary and the four parts from what you said, and nothing more. Your photos and voice note don't go.`;
+}

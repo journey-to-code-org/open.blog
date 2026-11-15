@@ -106,3 +106,12 @@ test("Rebuild is in the details, and Home passes axe at 320 px", async ({ page }
   expect(results).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
+
+test("an old Admin address opens its Studio screen", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${origin}/admin/studio/#/greetings`);
+  await expect(page).toHaveURL(/#\/cards$/);
+  // Nothing is "not yet" any more (R14a): an old shared address opens Writing together.
+  await page.goto(`${origin}/admin/studio/#/shared`);
+  await expect(page).toHaveURL(/#\/together$/);
+});

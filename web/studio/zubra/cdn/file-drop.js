@@ -33,6 +33,13 @@ const css = `@layer theme, base, components, utilities;
   .drop-remove { width: 1.75rem; height: 1.75rem; border: 0; border-radius: 50%; background: none; color: inherit; font-size: 1.15rem; line-height: 1; cursor: pointer; }
   .drop-remove:hover { background: var(--accent, #f4f4f5); }
   .drop-remove:focus-visible { outline: 2px solid var(--ring, #a1a1aa); outline-offset: 1px; }
+  .drop-button { display: flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: 0.5rem 1rem; border: 1px solid var(--border, #d4d4d8); border-radius: var(--radius, 0.625rem); background: var(--secondary, #f4f4f5); color: var(--secondary-foreground, #18181b); font-weight: 600; text-align: center; cursor: pointer; }
+  .drop-button:hover { background: color-mix(in oklab, var(--secondary, #f4f4f5) 80%, var(--foreground, #18181b)); }
+  .drop-button:focus-within { outline: 2px solid var(--ring, #a1a1aa); outline-offset: 2px; }
+  .drop-button.drop-disabled { opacity: 0.55; cursor: not-allowed; }
+  .drop-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .drop-under { display: block; margin-top: 0.35rem; font-size: 0.85rem; color: color-mix(in oklab, var(--muted-foreground, #71717a) 75%, var(--foreground, #18181b)); }
+  .drop-under:empty { display: none; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; animation-iteration-count: 1 !important; } }
 }
 }
@@ -40,7 +47,7 @@ const css = `@layer theme, base, components, utilities;
 
 export class FileDrop extends HTMLElement {
   /** The attributes this element watches: attributeChangedCallback runs when one changes. */
-  static observedAttributes = ["label", "hint", "name", "accept", "multiple", "max-size", "disabled"];
+  static observedAttributes = ["label", "hint", "name", "accept", "multiple", "max-size", "disabled", "capture", "look"];
   /** What framework adapters (@zubra/runtime/react, /vue) read to wrap this element. */
   static zubra = {
     tag,
@@ -52,6 +59,8 @@ export class FileDrop extends HTMLElement {
       multiple: { attribute: "multiple", default: true, required: false },
       maxSize: { attribute: "max-size", default: 0, required: false },
       disabled: { attribute: "disabled", default: false, required: false },
+      capture: { attribute: "capture", default: "", required: false },
+      look: { attribute: "look", default: "zone", required: false },
     },
     events: ["fileschange"],
     slots: [],
@@ -63,7 +72,7 @@ export class FileDrop extends HTMLElement {
   // ElementInternals: the element's form value and validity, and :state() for CSS.
   #internals = this.attachInternals();
   // The props, each starting at its default; #given has the ones set from outside.
-  #props = { label: "Attachments", hint: "", name: "", accept: "", multiple: true, maxSize: 0, disabled: false };
+  #props = { label: "Attachments", hint: "", name: "", accept: "", multiple: true, maxSize: 0, disabled: false, capture: "", look: "zone" };
   #given = new Set();
   // What brings the DOM up to date: one function for each spot that changes.
   #updates = [];
@@ -78,7 +87,7 @@ export class FileDrop extends HTMLElement {
     });
     // A property set before this class was defined sits on the element itself, hiding the
     // accessor below: take it over.
-    for (const prop of ["label", "hint", "name", "accept", "multiple", "maxSize", "disabled"]) {
+    for (const prop of ["label", "hint", "name", "accept", "multiple", "maxSize", "disabled", "capture", "look"]) {
       if (Object.hasOwn(this, prop)) {
         const value = this[prop];
         delete this[prop];
@@ -159,6 +168,26 @@ export class FileDrop extends HTMLElement {
     this.#requestUpdate();
   }
 
+  get capture() {
+    return this.#props.capture;
+  }
+  set capture(value) {
+    this.#given.add("capture");
+    if (Object.is(value, this.#props.capture)) return;
+    this.#props.capture = value;
+    this.#requestUpdate();
+  }
+
+  get look() {
+    return this.#props.look;
+  }
+  set look(value) {
+    this.#given.add("look");
+    if (Object.is(value, this.#props.look)) return;
+    this.#props.look = value;
+    this.#requestUpdate();
+  }
+
   attributeChangedCallback(name, previous, raw) {
     // raw is the attribute's text, or null once it's removed.
     switch (name) {
@@ -182,6 +211,12 @@ export class FileDrop extends HTMLElement {
         break;
       case "disabled":
         this.disabled = raw !== null;
+        break;
+      case "capture":
+        this.capture = raw ?? "";
+        break;
+      case "look":
+        this.look = raw ?? "zone";
         break;
     }
   }
@@ -243,6 +278,12 @@ export class FileDrop extends HTMLElement {
       const turned = [...list].length - kept.length
       problem.value = turned ? `${turned === 1 ? "One file is" : `${turned} files are`} over ${element.maxSize} MB and ${turned === 1 ? "wasn't" : "weren't"} added.` : ""
       const chosen = element.multiple ? kept : kept.slice(0, 1)
+      if (element.look === "button") {
+        input.value.value = ""
+        files.value = []
+        emit('fileschange', chosen)
+        return
+      }
       const transfer = new DataTransfer()
       chosen.forEach((file) => transfer.items.add(file))
       input.value.files = transfer.files
@@ -262,8 +303,8 @@ export class FileDrop extends HTMLElement {
     // ---- the template: its nodes, and how each changing spot is kept up to date
     const content = clone(`
   <span class="drop-label"></span>
-  <label class="drop-zone">
-    <span class="drop-main"><!--text--><u>choose</u></span>
+  <label class="drop-box">
+    <span class="drop-main"><!--text--><!--if--><!--/if--></span>
     <span class="drop-hint"></span>
     <input type="file">
   </label>
@@ -271,45 +312,57 @@ export class FileDrop extends HTMLElement {
   <!--if--><!--/if-->
 `);
     const dropLabel = content.children[0];
-    const dropZone = content.children[1];
-    dropZone.addEventListener("dragover", (event) => {
+    const dropBox = content.children[1];
+    dropBox.addEventListener("dragover", (event) => {
       event.preventDefault();
       const handler = () => !element.disabled && (over.value = true);
-      if (typeof handler === "function") handler.call(dropZone, event);
+      if (typeof handler === "function") handler.call(dropBox, event);
     });
-    dropZone.addEventListener("dragleave", () => (over.value = false));
-    dropZone.addEventListener("drop", drop);
-    const multipleText = new Text();
-    dropZone.children[0].childNodes[0].replaceWith(multipleText);
-    const dropHint = dropZone.children[1];
-    const input2 = dropZone.children[2];
+    dropBox.addEventListener("dragleave", () => (over.value = false));
+    dropBox.addEventListener("drop", drop);
+    const dropMain = dropBox.children[0];
+    const lookText = new Text();
+    dropMain.childNodes[0].replaceWith(lookText);
+    const dropHint = dropBox.children[1];
+    const input2 = dropBox.children[2];
     input.value = input2;
     input2.addEventListener("change", (event) => use(event.target.files));
     const dropProblem = content.children[2];
     this.#updates = [
+      bind(() => element.look === "button", (value) => dropLabel.classList.toggle("drop-hidden", Boolean(value))),
       bind(() => `${inputId}-label`, (value) => attribute(dropLabel, "id", value)),
       bind(() => element.label ?? "", (value) => (dropLabel.textContent = value)),
-      bind(() => over.value, (value) => dropZone.classList.toggle("drop-over", Boolean(value))),
-      bind(() => element.disabled, (value) => dropZone.classList.toggle("drop-disabled", Boolean(value))),
-      bind(() => `Drop ${(element.multiple ? "files" : "a file") ?? ""} here, or `, (value) => (multipleText.data = value)),
+      bind(() => element.look !== "button", (value) => dropBox.classList.toggle("drop-zone", Boolean(value))),
+      bind(() => element.look === "button", (value) => dropBox.classList.toggle("drop-button", Boolean(value))),
+      bind(() => over.value, (value) => dropBox.classList.toggle("drop-over", Boolean(value))),
+      bind(() => element.disabled, (value) => dropBox.classList.toggle("drop-disabled", Boolean(value))),
+      bind(() => (element.look === "button") ? "true" : null, (value) => attribute(dropMain, "aria-hidden", value)),
+      bind(() => (element.look === "button" ? element.label : `Drop ${element.multiple ? "files" : "a file"} here, or `) ?? "", (value) => (lookText.data = value)),
+      // <zb-if test={look !== "button"}>
+      when(dropMain.childNodes[1], dropMain.childNodes[2], () => element.look !== "button", [() => {
+        const branch = clone(`<u>choose</u>`);
+        return { nodes: branch, update() { } };
+      }, null]),
+      bind(() => element.look === "button", (value) => dropHint.classList.toggle("drop-hidden", Boolean(value))),
       bind(() => hintId, (value) => attribute(dropHint, "id", value)),
       bind(() => (element.hint || (element.maxSize > 0 ? `Up to ${element.maxSize} MB${element.multiple ? " each" : ""}` : "")) ?? "", (value) => (dropHint.textContent = value)),
       bind(() => inputId, (value) => attribute(input2, "id", value)),
       bind(() => element.name || null, (value) => attribute(input2, "name", value)),
       bind(() => element.accept || null, (value) => attribute(input2, "accept", value)),
+      bind(() => element.capture || null, (value) => attribute(input2, "capture", value)),
       bind(() => element.multiple, (value) => input2.toggleAttribute("multiple", Boolean(value))),
       bind(() => element.disabled, (value) => input2.toggleAttribute("disabled", Boolean(value))),
       bind(() => `${inputId}-label`, (value) => attribute(input2, "aria-labelledby", value)),
       bind(() => hintId, (value) => attribute(input2, "aria-describedby", value)),
       bind(() => problem.value ?? "", (value) => (dropProblem.textContent = value)),
-      // <zb-if test={files.length}>
-      when(content.childNodes[7], content.childNodes[8], () => files.value.length, [() => {
-        const branch = clone(`<ul aria-label="Chosen files">
+      // <zb-if test={files.length && (look !== "button")}>
+      when(content.childNodes[7], content.childNodes[8], () => files.value.length && (element.look !== "button"), [() => {
+        const branch2 = clone(`<ul aria-label="Chosen files">
     <!--each--><!--/each-->
   </ul>`);
         const updates2 = [
           // <zb-each items={files} as="entry" key={entry.key}>
-          $list(branch.children[0].childNodes[1], branch.children[0].childNodes[2], () => files.value, (entry, index) => entry.key, (entry, index) => {
+          $list(branch2.children[0].childNodes[1], branch2.children[0].childNodes[2], () => files.value, (entry, index) => entry.key, (entry, index) => {
             const row = clone(`
       <li><span class="drop-name"></span><span class="drop-size"></span><button type="button" class="drop-remove">×</button></li>
     `);
@@ -325,7 +378,7 @@ export class FileDrop extends HTMLElement {
             return { nodes: row, update(next, at) { entry = next; index = at; for (const update of updates) update(); } };
           }),
         ];
-        return { nodes: branch, update() { for (const update of updates2) update(); } };
+        return { nodes: branch2, update() { for (const update of updates2) update(); } };
       }, null]),
     ];
     return content;

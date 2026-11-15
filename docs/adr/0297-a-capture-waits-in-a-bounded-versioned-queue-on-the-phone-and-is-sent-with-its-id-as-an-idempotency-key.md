@@ -69,3 +69,12 @@ wrote, and this one must survive what a future one writes.
 - The ledger entry is a second stored format (`v: 1`); it holds only a content path.
 - The queue holds photos that have not been sent to anyone. It is on the author's own device and is cleared
   only by sending or discarding.
+- **The store's name and version are permanent** (Studio R4, 2026-11-13): IndexedDB `openblog-capture`, version
+  1, store `captures`, key `id`, record `v: 1`. Studio reads and writes the same store as the old Admin, so a
+  capture kept before the update is sent by Studio. Neither may bump the version, delete the database or clear
+  the store; a page asked to close for another's upgrade closes. A record is removed only after `document`
+  answered with a path, or when the author throws it away; a record a build cannot read, or a newer one, is left
+  byte for byte. Studio adds only `by` (who saved it) and `sent` (`{ path, skipped, removed }`), which the old
+  Admin ignores, and keeps the job being made in a separate store (`studio-new-job`) so an unfinished one is
+  never sent. `GET capture?id=` says which photos, voice note and draft the server already has, so a resend
+  skips them.

@@ -96,7 +96,7 @@ function files(dir, keep) {
 
 test("nothing in a browser bundle talks to Supabase or to the hosted social function", () => {
   const browser = files(join(ROOT, "web"), (path) => /\.(m?js|html|css|json)$/.test(path));
-  assert.ok(browser.some((path) => path.endsWith(join("admin", "social.js"))), "the Admin social page is scanned");
+  assert.ok(browser.some((path) => path.endsWith(join("studio", "parts", "social-rules.js"))), "Studio's social rules are scanned");
   const forbidden = [
     [/supabase\.co\b/i, "a Supabase project address"],
     [/\/rest\/v1\b/, "the Supabase REST path"],

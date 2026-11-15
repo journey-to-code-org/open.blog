@@ -2,6 +2,20 @@
 // when an archived request goes, and Home's line. Customers' words are never handled here: they're
 // set as text where they're shown. DOM-free, tested. Studio slice 10b;
 // docs/specs/studio/slice-10bc/ux.md.
+import { say } from "./words.js";
+import { monthName } from "./dates.js";
+
+/** Word ids a site may change (docs/studio-words.md). */
+export const WORDS = {
+  "quote.hostChose": { text: "{helper} chose this, so it can't be changed here.", layer: "her" },
+  "quote.handled": { text: "{name}: handled.", layer: "her" },
+  "quote.backUnderNew": { text: "{name} is back under New.", layer: "her" },
+  "quote.undone": { text: "Undone. {name}'s request is back.", layer: "her" },
+  "quote.eraseAsk": { text: "Erase {name}'s request?", layer: "her" },
+  // W-b: sentences that name {product}.
+  "quote.tooOld": { text: "Your requests service needs updating before {product} can clean up.", layer: "her" },
+  "quote.cantOpen": { text: "{product} can't open your quote requests", layer: "her" },
+};
 
 const DAY = 24 * 60 * 60 * 1000;
 const STALE_PENDING_MS = 10 * 60 * 1000;
@@ -46,8 +60,8 @@ export function troubleBanner(requests, notifyEnabled, now = Date.now()) {
   const stuck = requests.filter((r) => emailTrouble(r, now));
   if (!stuck.length) return null;
   const heading = stuck.length === 1 ? "The email about 1 request didn't reach you." : `The email about ${stuck.length} requests didn't reach you.`;
-  if (!notifyEnabled) return { heading, text: "Emails to you are turned off. Tell the person who set up your site.", retry: false };
-  if (stuck.every((r) => (r.notifyAttempts || 0) >= MAX_NOTIFY_ATTEMPTS)) return { heading, text: `They were tried ${MAX_NOTIFY_ATTEMPTS} times. Tell the person who set up your site.`, retry: false };
+  if (!notifyEnabled) return { heading, text: `Emails to you are turned off. ${say("common.tell")}`, retry: false };
+  if (stuck.every((r) => (r.notifyAttempts || 0) >= MAX_NOTIFY_ATTEMPTS)) return { heading, text: `They were tried ${MAX_NOTIFY_ATTEMPTS} times. ${say("common.tell")}`, retry: false };
   return { heading, text: "The requests are safe here.", retry: true };
 }
 
@@ -60,11 +74,11 @@ export function eraseLine(eraseAfter, now = Date.now()) {
   return `Erased automatically in ${left === 1 ? "1 day" : `${left} days`}.`;
 }
 
-/** What a status change says. */
-export function statusWords(request, to, retentionDays) {
-  if (to === "handled") return `${request.name}: handled.`;
+/** What a status change says. Given `isolating` (parts/words.js), parts with the customer's name apart. */
+export function statusWords(request, to, retentionDays, speak = say) {
+  if (to === "handled") return speak("quote.handled", { name: String(request.name ?? "") }, ["name"]);
   if (to === "archived") return `Archived. It's under Archived.${retentionDays ? ` It's erased automatically ${retentionDays} days after you archive it.` : ""}`;
-  return `${request.name} is back under New.`;
+  return speak("quote.backUnderNew", { name: String(request.name ?? "") }, ["name"]);
 }
 
 /** "tel:+13045550101" from what the customer typed: only digits and a leading +. */
@@ -84,8 +98,67 @@ export function homeQuoteLine(requests) {
 /** A failure in her words; the server's text (which may name settings) goes in details. */
 export function quoteTrouble(error) {
   const status = error?.status ?? 0;
-  if (!status) return "Studio couldn't reach your site's server. Check your connection, then try again.";
-  if (status === 404 || status === 401) return "The quote form isn't connected properly. Tell the person who set up your site.";
+  if (!status) return "Your site's server couldn't be reached. Check your connection, then try again.";
+  if (status === 404 || status === 401) return `The quote form isn't connected properly. ${say("common.tell")}`;
   if (status === 502 || status === 503 || status === 504) return "Your quote requests aren't answering right now. Try again in a minute.";
   return "That didn't go through. Try again.";
+}
+
+/** A refusal while cleaning up archived requests; an older requests service is said plainly. */
+export function cleanupTrouble(error) {
+  if (error?.data?.code === "hosted-too-old") return `${say("quote.tooOld")} ${say("common.tell")}`;
+  return quoteTrouble(error);
+}
+
+// ---- R1: the spreadsheet and auto-erase sheets (docs/specs/studio/r1/ux.md) ----------------
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** "November 1" for "2026-11-01"; "" when it isn't a day. */
+export function dayWords(ymd) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ""));
+  const month = match ? Number(match[2]) : 0;
+  return month >= 1 && month <= 12 ? `${monthName(month)} ${Number(match[3])}` : "";
+}
+
+/** The To field's problem, or "": To before From. */
+export function exportDayProblem(from, to) {
+  return from && to && to < from ? `Pick a day on or after ${dayWords(from)}.` : "";
+}
+
+/** What a download says. `count` 0 means nothing was downloaded. */
+export function exportWords(count, from, to) {
+  if (!count) return "No requests in those days, so there's nothing to download.";
+  if (!from && !to) return count === 1 ? "Downloaded the 1 request." : `Downloaded all ${count} requests.`;
+  const days = from && to ? `from ${dayWords(from)} to ${dayWords(to)}` : from ? `from ${dayWords(from)} on` : `up to ${dayWords(to)}`;
+  return `Downloaded ${plural(count, "request", "requests")} ${days}.`;
+}
+
+/** How long archived requests stay, in her words. `source` "host" means where the site runs chose it. */
+export function retentionWords(days, source) {
+  if (!days) return "Archived requests stay until you erase them.";
+  const said = `Archived requests are erased ${plural(days, "day", "days")} after you archive them.`;
+  return source === "host" ? `${said} ${say("common.chose")}` : said;
+}
+
+/** The days field's problem, or "" (a whole number from 1 to 3650). */
+export function retentionDaysProblem(text) {
+  const value = String(text ?? "").trim();
+  return /^\d{1,4}$/.test(value) && Number(value) >= 1 && Number(value) <= 3650 ? "" : "Write a number of days from 1 to 3650.";
+}
+
+/** The question before erasing old requests now, from the dry run. */
+export function eraseOldQuestion({ wouldErase, photos }, days) {
+  const one = wouldErase === 1;
+  const what = photos ? `${one ? "It" : "They"} and ${photos === 1 ? `${one ? "its" : "their"} 1 photo` : `${one ? "its" : "their"} ${photos} photos`}` : one ? "It" : "They";
+  return {
+    heading: `Erase ${plural(wouldErase, "old request", "old requests")} now?`,
+    text: `${one ? "It was" : "They were"} archived more than ${plural(days, "day", "days")} ago. ${what} ${one && !photos ? "goes" : "go"} for good; this can't be undone.`,
+  };
+}
+
+/** What erasing old requests now says. */
+export function erasedOldWords({ erased, photosPending }) {
+  const said = `Erased ${plural(erased || 0, "old request", "old requests")}.`;
+  return photosPending ? `${said} ${plural(photosPending, "photo is", "photos are")} still being removed; nothing points to ${photosPending === 1 ? "it" : "them"}.` : said;
 }

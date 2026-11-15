@@ -1,0 +1,187 @@
+{
+  "cases": [
+    {
+      "body": "\n> [!NOTE]\n> This is a fictional product example, not an actual Lantern Gate Studios release or production\n> credit. It is intended to be replaced with the studio's real words and media.\n\nSeven travelers arrive at a sealed mountain gate as an old ward begins to fail. This companion page\nkeeps the episode, production context, and accessible transcript in creator-owned Markdown.\n\n## Chapters\n\n00:00 The road beneath the mountain\n00:42 A warning in the ash\n01:36 The gate answers\n02:28 Beyond the threshold\n\n## Production log\n\n- [x] Story beat and continuity review\n- [x] Shot list and animatic\n- [x] Voice and sound pass\n- [ ] Final color and accessibility review\n- [ ] Release copy and scheduled publication\n\n## Shot notes\n\nThe opening uses a wide silhouette before moving to individual reaction shots. The gate remains the\nvisual anchor, while ember light distinguishes forbidden magic from ordinary torchlight.\n\n## Transcript\n\n**Narrator:** The mountain had no door on any map, but every road bent toward it.\n\n**Mara:** Nobody touches the seal until we know who lit those runes.\n\n**Narrator:** From the other side came a sound like a great chain falling through the dark.",
+      "excerpt": "A fictional Lantern Gate Studios episode page demonstrating production status, credits, chapters, a transcript, and AI-assistance disclosure.",
+      "expected": {
+        "codes": [],
+        "description": "A fictional Lantern Gate Studios episode page demonstrating production status, credits, chapters, a transcript, and AI-assistance disclosure.\n\nRead the article: https://blog.example.org/posts/zhalendor-gate-of-embers/\n\nChapters\n00:00 The road beneath the mountain\n00:42 A warning in the ash\n01:36 The gate answers\n02:28 Beyond the threshold\n\nAI assistance: AI-assisted concept exploration and animation were directed, selected, edited, and assembled by human creators.",
+        "tags": [
+          "animation",
+          "fantasy",
+          "behind-the-scenes"
+        ],
+        "title": "Zhalendor — The Gate of Embers"
+      },
+      "fields": {
+        "aiDisclosure": "AI-assisted concept exploration and animation were directed, selected, edited, and assembled by human creators.",
+        "description": "A fictional Lantern Gate Studios episode page demonstrating production status, credits, chapters, a transcript, and AI-assistance disclosure.",
+        "duration": "3 min 20 sec",
+        "title": "Zhalendor — The Gate of Embers"
+      },
+      "name": "content/posts/2026-10-24-zhalendor-gate-of-embers.md",
+      "tags": [
+        "animation",
+        "fantasy",
+        "behind-the-scenes"
+      ],
+      "url": "https://blog.example.org/posts/zhalendor-gate-of-embers/"
+    },
+    {
+      "body": "No times here.",
+      "excerpt": "Just a walk.",
+      "expected": {
+        "codes": [],
+        "description": "Just a walk.\n\nRead the article: https://blog.example.org/posts/no-chapters/",
+        "tags": [],
+        "title": "A short walk"
+      },
+      "fields": {
+        "description": "Just a walk.",
+        "title": "A short walk"
+      },
+      "name": "case:no-chapters",
+      "tags": [],
+      "url": "https://blog.example.org/posts/no-chapters/"
+    },
+    {
+      "body": "Intro.\n\n- 0:00 Start\n- 0:20 Middle\n* 1:00 End\n\n```\n0:30 Not a chapter\n```",
+      "excerpt": "Intro. 0:00 Start 0:20 Middle 1:00 End",
+      "expected": {
+        "codes": [],
+        "description": "Intro. 0:00 Start 0:20 Middle 1:00 End\n\nRead the article: https://blog.example.org/posts/chapters/\n\nChapters\n0:00 Start\n0:20 Middle\n1:00 End\n\nAI assistance: Captions were drafted with help.",
+        "tags": [
+          "Walks",
+          "Long walks"
+        ],
+        "title": "Three parts"
+      },
+      "fields": {
+        "aiDisclosure": "Captions were drafted with help.",
+        "duration": "2:00",
+        "title": "Three parts"
+      },
+      "name": "case:chapters",
+      "tags": [
+        "Walks",
+        "Long walks"
+      ],
+      "url": "https://blog.example.org/posts/chapters/"
+    },
+    {
+      "body": "0:05 Late\n0:04 Back\n1:00 Last",
+      "excerpt": "0:05 Late 0:04 Back 1:00 Last",
+      "expected": {
+        "codes": [
+          "chapters-first-not-zero",
+          "chapters-out-of-order"
+        ],
+        "description": "0:05 Late 0:04 Back 1:00 Last\n\nRead the article: https://blog.example.org/posts/bad-chapters/\n\nChapters\n0:05 Late\n0:04 Back\n1:00 Last",
+        "tags": [],
+        "title": "Out of order"
+      },
+      "fields": {
+        "duration": "1:05",
+        "title": "Out of order"
+      },
+      "name": "case:bad-chapters",
+      "tags": [],
+      "url": "https://blog.example.org/posts/bad-chapters/"
+    },
+    {
+      "body": "0:00 One\n0:30 Two\n1:00 Three",
+      "excerpt": "0:00 One 0:30 Two 1:00 Three",
+      "expected": {
+        "codes": [
+          "chapters-too-short"
+        ],
+        "description": "0:00 One 0:30 Two 1:00 Three\n\nRead the article: https://blog.example.org/posts/short-last/\n\nChapters\n0:00 One\n0:30 Two\n1:00 Three",
+        "tags": [],
+        "title": "Short end"
+      },
+      "fields": {
+        "duration": "1:05",
+        "title": "Short end"
+      },
+      "name": "case:short-last",
+      "tags": [],
+      "url": "https://blog.example.org/posts/short-last/"
+    },
+    {
+      "body": "0:00 One\n0:30 Two\n1:00 Three",
+      "excerpt": "0:00 One 0:30 Two 1:00 Three",
+      "expected": {
+        "codes": [
+          "chapters-duration-missing"
+        ],
+        "description": "0:00 One 0:30 Two 1:00 Three\n\nRead the article: https://blog.example.org/posts/no-duration/\n\nChapters\n0:00 One\n0:30 Two\n1:00 Three",
+        "tags": [],
+        "title": "No length"
+      },
+      "fields": {
+        "title": "No length"
+      },
+      "name": "case:no-duration",
+      "tags": [],
+      "url": "https://blog.example.org/posts/no-duration/"
+    },
+    {
+      "body": "Words.",
+      "excerpt": "Words.",
+      "expected": {
+        "codes": [
+          "title-angle-brackets",
+          "description-angle-brackets"
+        ],
+        "description": "Less < more\n\nRead the article: https://blog.example.org/posts/brackets/",
+        "tags": [],
+        "title": "A <b> title"
+      },
+      "fields": {
+        "title": "A <b> title",
+        "videoDescription": "Less < more"
+      },
+      "name": "case:brackets",
+      "tags": [],
+      "url": "https://blog.example.org/posts/brackets/"
+    },
+    {
+      "body": "Words.",
+      "excerpt": "Words.",
+      "expected": {
+        "codes": [
+          "title-too-long"
+        ],
+        "description": "Words.\n\nRead the article: https://blog.example.org/posts/long/",
+        "tags": [],
+        "title": "A title that goes on and on and on, far past what YouTube takes for a title, more than a hundred letters"
+      },
+      "fields": {
+        "title": "A title that goes on and on and on, far past what YouTube takes for a title, more than a hundred letters",
+        "videoTitle": ""
+      },
+      "name": "case:long",
+      "tags": [],
+      "url": "https://blog.example.org/posts/long/"
+    },
+    {
+      "body": "The first lines of the post are what the summary is when there isn't one.\n\n0:00 Start\n0:15 Next\n0:45 Last",
+      "excerpt": "The first lines of the post are what the summary is when there isn't one. 0:00 Start 0:15 Next 0:45 Last",
+      "expected": {
+        "codes": [
+          "chapters-duration-missing"
+        ],
+        "description": "The first lines of the post are what the summary is when there isn't one. 0:00 Start 0:15 Next 0:45 Last\n\nRead the article: https://blog.example.org/posts/excerpt/\n\nChapters\n0:00 Start\n0:15 Next\n0:45 Last",
+        "tags": [],
+        "title": "No summary"
+      },
+      "fields": {
+        "title": "No summary"
+      },
+      "name": "case:excerpt",
+      "tags": [],
+      "url": "https://blog.example.org/posts/excerpt/"
+    }
+  ],
+  "note": "Written by `cargo test studio_words_for_youtube_fixture` with OPENBLOG_WRITE_FIXTURES=1 (crates/openblog-cli/src/video_release.rs). Do not edit."
+}

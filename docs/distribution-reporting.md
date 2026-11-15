@@ -11,7 +11,7 @@ It only reads. It sends nothing, asks no platform anything, and writes no file
 
 ## See it
 
-- In Admin: **Where it went** (in the Simple workspace, under **More pages**). Choose 7, 30 or 90 days of visits.
+- In Studio: **Sharing › Where each post went** (`#/sharing?view=posts`). Choose 30 days, 90 days or a year of visits.
 - In a terminal: `openblog outcomes`, or `openblog outcomes --json --days 90` for the same report as JSON.
 
 ## What each status means

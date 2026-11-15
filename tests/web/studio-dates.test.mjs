@@ -114,3 +114,16 @@ test("isFuture: instants, plain dates (start of the day in the zone), empty", ()
   assert.equal(isFuture("", now, timeZone), false);
   assert.equal(isFuture("nonsense", now, timeZone), false);
 });
+
+test("a future day with no time gets 8 AM her time; a past day and a chosen time stay", async () => {
+  const { defaultTime, joinInstant } = await import("../../web/studio/parts/dates.js");
+  const now = new Date("2026-11-13T20:00:00Z");
+  const zone = "America/New_York";
+  assert.equal(defaultTime("2026-11-27", "", now, zone), "08:00");
+  assert.equal(joinInstant({ date: "2026-11-27", time: defaultTime("2026-11-27", "", now, zone) }, zone), "2026-11-27T08:00:00-05:00");
+  assert.equal(defaultTime("2026-11-27", "17:30", now, zone), "17:30");
+  assert.equal(defaultTime("2026-03-03", "", now, zone), "");
+  // Today, after 8 AM: no time is made up for her.
+  assert.equal(defaultTime("2026-11-13", "", now, zone), "");
+  assert.equal(defaultTime("", "", now, zone), "");
+});

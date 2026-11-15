@@ -30,11 +30,9 @@ fn start(f: &Fixture, s: &(String, String), prompt: &str) -> Json {
 }
 
 fn first_prompt(f: &Fixture, s: &(String, String)) -> String {
-    let (_, catalog) = get(f, s, "/admin/api/voice/catalog");
-    catalog["packs"][0]["prompts"][0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    let (status, drawn) = call(f, s, "POST", "/admin/api/voice/draw", json!({}));
+    assert_eq!(status, 200, "{drawn}");
+    drawn["prompts"][0]["id"].as_str().unwrap().to_string()
 }
 
 /// Move the open session's deadline so it began `ago` seconds ago.
@@ -62,7 +60,6 @@ fn lock(f: &Fixture, s: &(String, String), session: &Json, text: &str) -> (u16, 
 fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin() {
     let f = fixture("voice-auth");
     let routes: &[(&str, &str, bool)] = &[
-        ("GET", "/admin/api/voice/catalog", false),
         ("GET", "/admin/api/voice/status", false),
         ("POST", "/admin/api/voice/draw", true),
         ("GET", "/admin/api/voice/session", false),
@@ -134,7 +131,6 @@ fn every_route_requires_a_session_and_a_write_the_csrf_token_and_the_same_origin
     // Deny by default: other verbs and names are not routes, and nothing was created.
     for (method, path) in [
         ("DELETE", "/admin/api/voice/samples"),
-        ("PATCH", "/admin/api/voice/catalog"),
         ("GET", "/admin/api/voice/other"),
         ("POST", "/admin/api/voice/samples/2026-10-28-a-rough/erase"),
         ("DELETE", "/admin/api/voice/samples/2026-10-28-a-rough"),
@@ -178,19 +174,15 @@ fn the_body_limits_are_set_before_any_body_is_read() {
 }
 
 #[test]
-fn the_catalog_and_the_draw_give_three_different_prompts_and_a_redraw_avoids_the_last() {
+fn the_draw_gives_three_different_prompts_and_a_redraw_avoids_the_last() {
     let f = fixture("voice-draw");
     let s = login_ok(&f);
-    let (status, catalog) = get(&f, &s, "/admin/api/voice/catalog");
+    let (status, first) = call(&f, &s, "POST", "/admin/api/voice/draw", json!({}));
     assert_eq!(status, 200);
-    assert!(catalog["packs"].as_array().unwrap().len() >= 10);
-    assert!(catalog["rule"]
+    assert!(first["rule"]
         .as_str()
         .unwrap()
         .contains("the way you would say it"));
-    assert_eq!(catalog["limits"]["defaultSeconds"], 180);
-    let (status, first) = call(&f, &s, "POST", "/admin/api/voice/draw", json!({}));
-    assert_eq!(status, 200);
     let ids = |v: &Json| -> Vec<String> {
         v["prompts"]
             .as_array()
@@ -216,7 +208,7 @@ fn the_catalog_and_the_draw_give_three_different_prompts_and_a_redraw_avoids_the
         "{first_ids:?} {again_ids:?}"
     );
     // A draw restricted to one pack stays in it; an unknown pack is not a pack.
-    let pack = catalog["packs"][2]["id"].as_str().unwrap();
+    let pack = first["prompts"][0]["pack"].as_str().unwrap();
     let (_, in_pack) = call(
         &f,
         &s,
@@ -769,11 +761,7 @@ fn an_invalid_file_is_listed_with_guidance_and_responses_hold_no_absolute_path_o
     let root = f.dir.display().to_string();
     let root_slashes = root.replace('\\', "/");
     let mut everything = vec![list.to_string(), rough.to_string()];
-    for path in [
-        "/admin/api/voice/catalog",
-        "/admin/api/voice/status",
-        "/admin/api/voice/session",
-    ] {
+    for path in ["/admin/api/voice/status", "/admin/api/voice/session"] {
         everything.push(get(&f, &s, path).1.to_string());
     }
     for text in &everything {
@@ -799,7 +787,10 @@ fn the_status_reports_an_open_session_and_the_number_of_samples_without_changing
     let f = fixture("voice-status");
     let s = login_ok(&f);
     let (_, empty) = get(&f, &s, "/admin/api/voice/status");
-    assert_eq!(empty, json!({ "session": { "open": false }, "samples": 0 }));
+    assert_eq!(
+        empty,
+        json!({ "session": { "open": false }, "samples": 0, "invitationDismissed": false })
+    );
     let prompt = first_prompt(&f, &s);
     start(&f, &s, &prompt);
     assert_eq!(
@@ -813,84 +804,6 @@ fn the_status_reports_an_open_session_and_the_number_of_samples_without_changing
         f.dir.join(SESSION_PATH).exists(),
         "reading the status does not lock"
     );
-}
-
-#[test]
-fn the_voice_scripts_are_served_to_the_admin_page_and_are_the_embedded_ones() {
-    let f = fixture("voice-assets");
-    for (path, marker) in [
-        ("/admin/voice.js", "createCountdown"),
-        ("/admin/voice-session.js", "ROUGH_ATTRIBUTES"),
-        ("/admin/voice-polished.js", "createPolishedEditor"),
-        ("/admin/voice-library.js", "createVoiceLibrary"),
-    ] {
-        let response = handle(&f.state, &req("GET", path));
-        assert_eq!(response.status, 200, "{path}");
-        assert!(
-            String::from_utf8_lossy(&response.body).contains(marker),
-            "{path}"
-        );
-        assert!(response
-            .headers
-            .iter()
-            .any(|(k, v)| k == "Content-Type" && v.starts_with("text/javascript")));
-    }
-}
-
-#[test]
-fn dismissing_the_voice_invitation_is_a_saved_preference_that_changes_nothing_else() {
-    let f = fixture("voice-invitation");
-    let s = login_ok(&f);
-    let (_, initial) = get(&f, &s, "/admin/api/preferences");
-    // An admin that never dismissed it has no such key: the stored shape is unchanged.
-    assert!(initial["preferences"]
-        .get("voiceInvitationDismissed")
-        .is_none());
-    let mut preferences = initial["preferences"].clone();
-    preferences["voiceInvitationDismissed"] = json!(true);
-    let (status, saved) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": initial["etag"], "preferences": preferences }),
-    );
-    assert_eq!(status, 200, "{saved}");
-    assert_eq!(saved["preferences"]["voiceInvitationDismissed"], true);
-    assert_eq!(
-        saved["preferences"]["preset"],
-        initial["preferences"]["preset"]
-    );
-    // It comes back on the next read, and it is in the admin's own private file only.
-    let (_, again) = get(&f, &s, "/admin/api/preferences");
-    assert_eq!(again["preferences"]["voiceInvitationDismissed"], true);
-    let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
-    assert!(!config.contains("voiceInvitation"));
-    // Saving it as false removes the key again, and the other preferences stay as they were.
-    let mut undone = again["preferences"].clone();
-    undone["voiceInvitationDismissed"] = json!(false);
-    let (status, back) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": again["etag"], "preferences": undone }),
-    );
-    assert_eq!(status, 200);
-    assert!(back["preferences"]
-        .get("voiceInvitationDismissed")
-        .is_none());
-    // The file still refuses keys it does not know.
-    let mut bad = back["preferences"].clone();
-    bad["voiceInvitationDismisse"] = json!(true);
-    let (status, _) = call(
-        &f,
-        &s,
-        "PUT",
-        "/admin/api/preferences",
-        json!({ "etag": back["etag"], "preferences": bad }),
-    );
-    assert_eq!(status, 400);
 }
 
 #[test]
@@ -1167,4 +1080,305 @@ fn the_guide_move_is_refused_while_a_content_write_holds_the_lock() {
         json!({ "to": "private" }),
     );
     assert_eq!(status, 200);
+}
+
+// ---------------------------------------------------------------------------
+// Studio R9: every refusal carries a code (G63), and the invitation's answer lives here (G64)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_voice_refusal_carries_a_code_beside_its_flag() {
+    let f = fixture("voice-codes");
+    let s = login_ok(&f);
+    let prompt = first_prompt(&f, &s);
+    let code = |answer: &(u16, Json)| answer.1["code"].as_str().unwrap_or("").to_string();
+
+    // A set the site doesn't offer.
+    let gone = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/draw",
+        json!({ "pack": "no-such-set" }),
+    );
+    assert_eq!((gone.0, code(&gone).as_str()), (404, "pack-gone"));
+    // Nothing open: a draft and a lock have no session to go to.
+    let none = call(
+        &f,
+        &s,
+        "PUT",
+        "/admin/api/voice/session/draft",
+        json!({ "sessionId": "x", "text": "words" }),
+    );
+    assert_eq!((none.0, code(&none).as_str()), (409, "no-session"));
+    assert_eq!(none.1["noSession"], true, "the flag stays one release");
+
+    let session = start(&f, &s, &prompt);
+    let again = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/session/start",
+        json!({ "promptId": prompt }),
+    );
+    assert_eq!((again.0, code(&again).as_str()), (409, "already-open"));
+    assert_eq!(again.1["alreadyOpen"], true);
+    let other = call(
+        &f,
+        &s,
+        "PUT",
+        "/admin/api/voice/session/draft",
+        json!({ "sessionId": "another", "text": "words" }),
+    );
+    assert_eq!((other.0, code(&other).as_str()), (409, "other-session"));
+    let long = "a".repeat(crate::voice_session::MAX_DRAFT_BYTES + 1);
+    let too_long = call(
+        &f,
+        &s,
+        "PUT",
+        "/admin/api/voice/session/draft",
+        json!({ "sessionId": session["sessionId"], "text": long }),
+    );
+    assert_eq!((too_long.0, code(&too_long).as_str()), (413, "too-long"));
+    let empty = lock(&f, &s, &session, "");
+    assert_eq!((empty.0, code(&empty).as_str()), (409, "empty"));
+    let scrap_other = call(
+        &f,
+        &s,
+        "DELETE",
+        "/admin/api/voice/session",
+        json!({ "sessionId": "another" }),
+    );
+    assert_eq!(
+        (scrap_other.0, code(&scrap_other).as_str()),
+        (409, "other-session")
+    );
+    age_session(&f, 400);
+    let late = call(
+        &f,
+        &s,
+        "PUT",
+        "/admin/api/voice/session/draft",
+        json!({ "sessionId": session["sessionId"], "text": "late words" }),
+    );
+    assert_eq!((late.0, code(&late).as_str()), (409, "time-up"));
+    call(
+        &f,
+        &s,
+        "DELETE",
+        "/admin/api/voice/session",
+        json!({ "sessionId": session["sessionId"] }),
+    );
+
+    // Pieces: gone, not polished, already there, a stale save, a bad title, a taken post name.
+    let missing = get(&f, &s, "/admin/api/voice/samples/2020-01-01-nope-rough");
+    assert_eq!((missing.0, code(&missing).as_str()), (404, "gone"));
+    let (_, rough) = locked_sample(&f, &s, "private");
+    let rough_id = rough["id"].as_str().unwrap();
+    let not_polished = call(
+        &f,
+        &s,
+        "POST",
+        &format!("/admin/api/voice/samples/{rough_id}/promote"),
+        json!({}),
+    );
+    assert_eq!(
+        (not_polished.0, code(&not_polished).as_str()),
+        (409, "not-polished")
+    );
+    let read_only = call(
+        &f,
+        &s,
+        "PUT",
+        &format!("/admin/api/voice/samples/{rough_id}"),
+        json!({ "revision": "x", "body": "changed" }),
+    );
+    assert_eq!((read_only.0, code(&read_only).as_str()), (409, "refused"));
+    let there = call(
+        &f,
+        &s,
+        "POST",
+        &format!("/admin/api/voice/samples/{rough_id}/visibility"),
+        json!({ "visibility": "private" }),
+    );
+    assert_eq!((there.0, code(&there).as_str()), (409, "already-there"));
+    let invalid = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/samples",
+        json!({ "roughOf": rough["file"], "title": "Two\nlines", "body": "words" }),
+    );
+    assert_eq!((invalid.0, code(&invalid).as_str()), (422, "invalid"));
+    let (status, polished) = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/samples",
+        json!({ "roughOf": rough["file"], "title": "A Coded Title", "body": "polished words" }),
+    );
+    assert_eq!(status, 201, "{polished}");
+    let polished_id = polished["id"].as_str().unwrap();
+    let stale = call(
+        &f,
+        &s,
+        "PUT",
+        &format!("/admin/api/voice/samples/{polished_id}"),
+        json!({ "revision": "stale", "title": "A Coded Title", "body": "other words" }),
+    );
+    assert_eq!((stale.0, code(&stale).as_str()), (409, "conflict"));
+    let promote = format!("/admin/api/voice/samples/{polished_id}/promote");
+    assert_eq!(call(&f, &s, "POST", &promote, json!({})).0, 201);
+    let taken = call(&f, &s, "POST", &promote, json!({}));
+    assert_eq!((taken.0, code(&taken).as_str()), (409, "slug-taken"));
+    // Changing the title gives the post a new name, so the advice she is given works.
+    let (_, current) = get(&f, &s, &format!("/admin/api/voice/samples/{polished_id}"));
+    let renamed = call(
+        &f,
+        &s,
+        "PUT",
+        &format!("/admin/api/voice/samples/{polished_id}"),
+        json!({ "revision": current["revision"], "title": "Another Title Altogether", "body": "polished words" }),
+    );
+    assert_eq!(renamed.0, 200, "{}", renamed.1);
+    assert_eq!(renamed.1["slug"], "another-title-altogether");
+    assert_eq!(call(&f, &s, "POST", &promote, json!({})).0, 201);
+
+    let word = call(
+        &f,
+        &s,
+        "POST",
+        "/admin/api/voice/erase",
+        json!({ "confirm": "no" }),
+    );
+    assert_eq!((word.0, code(&word).as_str()), (409, "confirm-word"));
+    // No refusal ever carries her words.
+    // (A conflict answers with the saved copy, so she can choose: that one is hers to read.)
+    for answer in [&invalid, &taken, &late, &too_long] {
+        assert!(
+            !answer.1.to_string().contains("polished words"),
+            "{}",
+            answer.1
+        );
+    }
+}
+
+#[test]
+fn the_invitation_s_answer_is_kept_per_account_and_an_old_dismissal_carries_over() {
+    let f = fixture("voice-invitation-g64");
+    let mut users = Users::load(&f.dir.join(".openblog/users.json")).unwrap();
+    users.set("grammi", "a long enough password").unwrap();
+    users.save(&f.dir.join(".openblog/users.json")).unwrap();
+    let mikey = login_ok(&f);
+    let grammi = login_as(&f, "grammi", "a long enough password");
+    let dismissed = |s: &(String, String)| {
+        get(&f, s, "/admin/api/voice/status").1["invitationDismissed"].clone()
+    };
+    assert_eq!(dismissed(&mikey), false);
+
+    // It needs the CSRF token, and a real answer.
+    let bare = handle(
+        &f.state,
+        &authed(
+            json_req(
+                "POST",
+                "/admin/api/voice/invitation",
+                json!({ "dismissed": true }),
+            ),
+            &mikey,
+            false,
+        ),
+    );
+    assert_eq!(bare.status, 403);
+    assert_eq!(
+        call(
+            &f,
+            &mikey,
+            "POST",
+            "/admin/api/voice/invitation",
+            json!({ "dismissed": "yes" })
+        )
+        .0,
+        400
+    );
+    let (status, saved) = call(
+        &f,
+        &mikey,
+        "POST",
+        "/admin/api/voice/invitation",
+        json!({ "dismissed": true }),
+    );
+    assert_eq!((status, saved["dismissed"].clone()), (200, json!(true)));
+    assert_eq!(dismissed(&mikey), true);
+    assert_eq!(dismissed(&grammi), false, "one account's answer is its own");
+
+    // The file is named by a hash, private, and holds only the answer.
+    let folder = f.dir.join(".openblog/private/voice/invitation");
+    let files: Vec<_> = fs::read_dir(&folder).unwrap().flatten().collect();
+    assert_eq!(files.len(), 1);
+    let name = files[0].file_name().to_string_lossy().into_owned();
+    assert!(name.len() == 69 && !name.contains("mikey"), "{name}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            files[0].metadata().unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(files[0].path()).unwrap(),
+        r#"{"dismissed":true,"v":1}"#
+    );
+
+    // Undo.
+    call(
+        &f,
+        &mikey,
+        "POST",
+        "/admin/api/voice/invitation",
+        json!({ "dismissed": false }),
+    );
+    assert_eq!(dismissed(&mikey), false);
+
+    // "No thanks" said in the old Admin still counts, until she answers here (G64, kept after R15:
+    // the old Admin's preferences file is still read, though nothing writes it).
+    let kept = crate::admin_preferences::preference_path(&f.dir, "grammi").unwrap();
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(
+        &kept,
+        r#"{"schemaVersion":1,"preset":"simple","density":"comfortable","editorMode":"visual","moduleOrder":[],"hiddenModules":[],"voiceInvitationDismissed":true}"#,
+    )
+    .unwrap();
+    assert_eq!(dismissed(&grammi), true);
+    call(
+        &f,
+        &grammi,
+        "POST",
+        "/admin/api/voice/invitation",
+        json!({ "dismissed": false }),
+    );
+    assert_eq!(dismissed(&grammi), false, "her newer answer wins");
+
+    // An erase leaves the answer where it is.
+    call(
+        &f,
+        &mikey,
+        "POST",
+        "/admin/api/voice/invitation",
+        json!({ "dismissed": true }),
+    );
+    let (status, erased) = call(
+        &f,
+        &mikey,
+        "POST",
+        "/admin/api/voice/erase",
+        json!({ "confirm": "erase" }),
+    );
+    assert_eq!(
+        (status, erased["clean"].clone()),
+        (200, json!(true)),
+        "{erased}"
+    );
+    assert_eq!(dismissed(&mikey), true);
 }

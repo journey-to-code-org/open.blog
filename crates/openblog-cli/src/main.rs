@@ -26,11 +26,13 @@ mod landing_history;
 mod landing_store;
 mod mentions;
 mod notebook_store;
+mod onboarding;
 mod outcomes;
 mod paths_exchange;
 mod photo;
 mod pinterest;
 mod portable_export;
+mod private_file;
 mod private_guard;
 mod publish;
 mod quote_relay;
@@ -50,6 +52,7 @@ mod source_store;
 mod studio_files;
 mod syndication;
 mod transaction;
+mod trash;
 mod url_context;
 mod video_release;
 mod voice_assistant;
@@ -88,9 +91,14 @@ COMMANDS
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
                                and publish scheduled posts on time
-    serve --admin              Also serve the login-protected editor at /admin
+    serve --admin              Also serve Studio, the sign-in protected editor, at /admin/
     user add|passwd|remove|list <name>
-                               Manage who can sign in to the admin editor
+                               Manage who can sign in to Studio
+    onboarding status | reset <user> | reset --all
+                               Where each account stands with Getting started,
+                               and showing it to an account again (docs/deploy.md)
+    user add --co-writer <name>
+                               A sign-in that opens only Writing together
     check                      Validate content and themes without writing anything
     export <slug>              Preview or write a portable Markdown article, the post's
                                cited references as CSL JSON or BibTeX, a recipe as
@@ -365,6 +373,7 @@ const SWITCHES: &[&str] = &[
     "forget-attempt",
     "upload",
     "lookup",
+    "co-writer",
 ];
 
 /// Switches that only one command takes, because another command takes the same name with a
@@ -844,6 +853,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             )
         }
         "user" => user_command(&root, &args),
+        "onboarding" => onboarding_command(&root, &args),
         "publish" => {
             let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
             let config = site::load_config(&root)?;
@@ -1179,7 +1189,13 @@ fn user_command_with(
                 println!("No users. Add one with `openblog user add <name>`.");
             }
             for u in &users.users {
-                println!("{}", u.name);
+                // Co-writer sign-ins reach only Writing together (Studio R14); one still
+                // waiting for its invited person to choose a password says so.
+                match (u.is_co_writer(), u.is_reserved()) {
+                    (true, true) => println!("{}  (co-writer, invited, not joined yet)", u.name),
+                    (true, false) => println!("{}  (co-writer)", u.name),
+                    _ => println!("{}", u.name),
+                }
             }
             Ok(())
         }
@@ -1201,7 +1217,11 @@ fn user_command_with(
                 // A new account under a reused name must not inherit an old binding.
                 revoke_shared_publication_bindings(root, name)?;
             }
-            users.set(name, &password)?;
+            if action == "add" && args.switches.contains("co-writer") {
+                users.add_co_writer(name, Some(&password))?;
+            } else {
+                users.set(name, &password)?;
+            }
             users.save(&path)?;
             println!(
                 "{} `{name}`. The admin users file is {}; keep it out of version control.",
@@ -1221,7 +1241,7 @@ fn user_command_with(
             println!("Removed `{name}`. Their open sessions end immediately.");
             revoke_shared_publication_bindings(root, name)
         }
-        _ => Err("usage: openblog user add|passwd|remove|list <name>".into()),
+        _ => Err("usage: openblog user add [--co-writer]|passwd|remove|list <name>".into()),
     }
 }
 
@@ -1376,6 +1396,8 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
     // did.
     let readiness = readiness::report_of_all(root, &site);
     let checked = check_site(root, &mut site, &themes, readiness.applies, json);
+    let words = check_studio_words(&site.config, json);
+    let onboarding = check_onboarding(&site.config, json);
     let refused = (readiness.blocking() > 0).then(|| {
         format!(
             "research readiness: {} finding(s) refuse the next build{}",
@@ -1384,7 +1406,12 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
         )
     });
     if json {
-        let error = checked.as_ref().err().or(refused.as_ref());
+        let error = checked
+            .as_ref()
+            .err()
+            .or(words.as_ref().err())
+            .or(onboarding.as_ref().err())
+            .or(refused.as_ref());
         print!("{}", check_envelope(Some(&readiness), error));
     } else {
         // After the checks above, whether or not they stopped early, so the
@@ -1392,7 +1419,134 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
         eprint!("{}", readiness.text_after(checked.is_err()));
     }
     checked?;
+    words?;
+    onboarding?;
     refused.map_or(Ok(()), Err)
+}
+
+/// Getting started (docs/deploy.md): the mode in effect and where it came from, and anything
+/// wrong with the switch. A problem in the site's own file fails the check; one in the server's
+/// environment is a warning (it belongs to that server, not to the site).
+fn check_onboarding(config: &openblog_core::config::SiteConfig, quiet: bool) -> Result<(), String> {
+    let environment = onboarding::environment_value();
+    let mode = onboarding::mode_for(environment.as_deref(), config);
+    if !quiet && (mode.source != onboarding::Source::Nothing || !mode.problems.is_empty()) {
+        eprintln!(
+            "getting started: {}, set by {}",
+            onboarding_words(&mode),
+            onboarding::source_words(&mode)
+        );
+    }
+    // The site's own value is checked even when the server's switch wins over it.
+    let site = onboarding::mode_from(None, config.studio.onboarding.as_ref());
+    if !quiet && mode.source == onboarding::Source::Environment {
+        for problem in &mode.problems {
+            eprintln!("warning: {problem}");
+        }
+    }
+    match site.problems.first() {
+        None => Ok(()),
+        Some(problem) => {
+            if !quiet {
+                eprintln!("error: {problem}");
+            }
+            Err(
+                "studio.onboarding in openblog.json isn't off or on; Getting started is off."
+                    .into(),
+            )
+        }
+    }
+}
+
+/// `off`, `on`, `on (round 2)` or `rehearse`.
+fn onboarding_words(mode: &onboarding::Mode) -> String {
+    match &mode.kind {
+        onboarding::Kind::On { round } if round != onboarding::DEFAULT_ROUND => {
+            format!("on (round {round})")
+        }
+        _ => mode.name().to_string(),
+    }
+}
+
+/// `openblog onboarding status | reset <user> | reset --all`: where each account stands with
+/// Getting started, and showing it to an account again. A reset removes that account's record
+/// and nothing else: its stories stay.
+fn onboarding_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
+    let config = site::load_config(root)?;
+    let users = auth::Users::load(&root.join(&config.admin.users_file))?;
+    let names: Vec<String> = users.users.iter().map(|user| user.name.clone()).collect();
+    let environment = onboarding::environment_value();
+    let mode = onboarding::mode_for(environment.as_deref(), &config);
+    match args.positional.first().map(String::as_str).unwrap_or("") {
+        "status" => {
+            println!(
+                "Getting started is {}, set by {}.",
+                onboarding_words(&mode),
+                onboarding::source_words(&mode)
+            );
+            for problem in &mode.problems {
+                println!("problem: {problem}");
+            }
+            if names.is_empty() {
+                println!("No users. Add one with `openblog user add <name>`.");
+            }
+            for account in onboarding::accounts(root, &names) {
+                println!("{}", onboarding::account_line(&account));
+            }
+            Ok(())
+        }
+        "reset" => {
+            let all = args.switches.contains("all");
+            let chosen: Vec<String> = match (all, args.positional.get(1)) {
+                (true, None) => names,
+                (false, Some(name)) if names.iter().any(|n| n == name) => vec![name.clone()],
+                (false, Some(name)) => return Err(format!("no user named `{name}`")),
+                _ => return Err("usage: openblog onboarding reset <user> | --all".into()),
+            };
+            for name in &chosen {
+                onboarding::remove(root, name, false)?;
+                println!(
+                    "{name} will see Getting started at the next sign-in. Their stories stay."
+                );
+            }
+            Ok(())
+        }
+        _ => Err("usage: openblog onboarding status | reset <user> | reset --all".into()),
+    }
+}
+
+/// Studio's words (docs/studio-words.md): each change in `studio.words` and in the host's file
+/// (`OPENBLOG_STUDIO_WORDS_PATH`) that Studio drops, said the way Studio's Home details say it. A
+/// problem in the site's own file fails the check; one in the host's file is a warning.
+fn check_studio_words(
+    config: &openblog_core::config::SiteConfig,
+    quiet: bool,
+) -> Result<(), String> {
+    use admin::studio_words;
+    let host_path = studio_words::host_path_from_env();
+    let (host, host_problems) = studio_words::read_host_file(host_path.as_deref());
+    let (_, problems) = studio_words::resolve(
+        &config.studio.words,
+        &host,
+        host_problems,
+        &config.author.name,
+    );
+    let mut site_problems = 0;
+    for problem in &problems {
+        if problem.place == "site" {
+            site_problems += 1;
+            if !quiet {
+                eprintln!("error: studio words: {}", problem.words);
+            }
+        } else if !quiet {
+            eprintln!("warning: studio words (server file): {}", problem.words);
+        }
+    }
+    match site_problems {
+        0 => Ok(()),
+        1 => Err("studio.words in openblog.json has 1 problem; Studio shows its own words there instead.".into()),
+        n => Err(format!("studio.words in openblog.json has {n} problems; Studio shows its own words there instead.")),
+    }
 }
 
 /// The JSON `check --json` prints: the report's own view, or an empty one
@@ -2397,6 +2551,38 @@ Mine.
             .unwrap()
             .find("ada")
             .is_some());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_co_writer_sign_in_is_made_from_the_command_line_and_keeps_its_kind() {
+        let root = std::env::temp_dir().join(format!("ob-user-cowriter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        scaffold::init(&root, Some("Co"), false).unwrap();
+        let users_path = root.join(".openblog/users.json");
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["add", "lee", "--co-writer"])).unwrap(),
+            || Ok("correct horse battery".into()),
+        )
+        .unwrap();
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["add", "mikey"])).unwrap(),
+            || Ok("correct horse battery".into()),
+        )
+        .unwrap();
+        // Changing the password keeps what the account may reach.
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["passwd", "lee"])).unwrap(),
+            || Ok("another correct horse".into()),
+        )
+        .unwrap();
+        let users = auth::Users::load(&users_path).unwrap();
+        assert!(users.find("lee").unwrap().is_co_writer());
+        assert!(!users.find("lee").unwrap().is_reserved());
+        assert!(!users.find("mikey").unwrap().is_co_writer());
         let _ = std::fs::remove_dir_all(&root);
     }
 

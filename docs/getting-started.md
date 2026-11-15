@@ -56,7 +56,7 @@ The static site is written to `dist/`.
 openblog serve --admin
 ```
 
-Use Admin for draft editing, scheduling, preview, and publishing workflows.
+Use Studio (`openblog serve --admin`, then `/admin/`) to write, schedule, check and publish.
 
 ## 7) Publish with Git
 
@@ -69,5 +69,5 @@ If your repository is configured for GitHub Pages, the deploy workflow will publ
 ## Next references
 
 - [CLI Overview](cli-reference.md)
-- [Admin Panel Overview](admin.md)
+- [Studio: running your blog](admin.md)
 - [Markdown Style Guide](content.md)

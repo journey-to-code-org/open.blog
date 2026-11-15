@@ -3,6 +3,7 @@
 // season per line, changed one at a time. Every save goes out like a post and leaves openblog.json
 // as it was written except the values that changed.
 import { h, toast } from "../parts/dom.js";
+import { say as word } from "../parts/words.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { askWhichToKeep } from "../parts/conflict.js";
@@ -34,7 +35,7 @@ export async function createDecorations({ api, meta }) {
   const barWords = h("p", { class: "studio-save-words", role: "status" });
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const bar = h("div", { class: "studio-write-bar studio-deco-bar", hidden: true }, barWords, saveButton);
-  const details = h("side-sheet", { label: "For the person who set up your site", side: "right" });
+  const details = h("side-sheet", { label: word("common.forHelper"), side: "right" });
   const pieces = await createDecorPieces({ api, meta });
   const element = h("section", { class: "studio-page studio-decorations", "aria-labelledby": "studio-deco-h" },
     banner, card, pieces.element,
@@ -74,7 +75,7 @@ export async function createDecorations({ api, meta }) {
     between.value = draft.theme;
     between.label = draft.seasons.enabled ? "Between seasons" : "Every day";
     const covered = coversEveryDay();
-    between.description = !draft.seasons.enabled ? "The look your house wears while the calendar is off."
+    between.description = !draft.seasons.enabled ? word("decorations.betweenOff")
       : covered ? "Your seasons cover every day, so this only shows when the calendar is off." : "Shows on days no season covers.";
     const found = problems(draft.seasons, looks.map((look) => ({ name: look.value, label: look.label })));
     const today = todayUtc();
@@ -116,7 +117,7 @@ export async function createDecorations({ api, meta }) {
         ...notes.map((problem) => h("p", { class: "studio-help studio-season-problem", text: problem.words })),
         ...overlapFix(index));
     }));
-    if (!list.length) rows.replaceChildren(h("li", {}, h("empty-state", { heading: "No seasons yet" }, "Add one, like Christmas from December 1 to January 6, and your house changes by itself.")));
+    if (!list.length) rows.replaceChildren(h("li", {}, h("empty-state", { heading: "No seasons yet" }, word("decorations.noSeasons"))));
     add.disabled = list.length >= MAX_WINDOWS;
   }
 
@@ -143,9 +144,9 @@ export async function createDecorations({ api, meta }) {
   }
 
   function changed() {
-    toggle.description = draft.seasons.enabled ? "Your house changes by itself on the days below."
-      : saved.seasons?.enabled ? `When you save, your house wears ${label(draft.theme)} every day. Your seasons are kept for when you turn this back on.`
-        : `Your house wears ${label(draft.theme)} every day.`;
+    toggle.description = draft.seasons.enabled ? word("decorations.byItself")
+      : saved.seasons?.enabled ? word("decorations.whenYouSave", { theme: label(draft.theme) })
+        : word("decorations.everyDay", { theme: label(draft.theme) });
     drawList();
     const dirty = isDirty();
     bar.hidden = !dirty;
@@ -167,11 +168,11 @@ export async function createDecorations({ api, meta }) {
     requestAnimationFrame(() => rows.children[Math.min(index, windows().length - 1)]?.querySelector(".studio-season-open")?.focus());
   }
 
-  function addSeason() {
+  function addSeason(look = "") {
     const list = windows();
     const last = list[list.length - 1];
     const start = last ? dayAfter(`2028-${last.end}`).slice(5) : "12-01";
-    list.push({ theme: draft.theme, start, end: start, fresh: true });
+    list.push({ theme: look || draft.theme, start, end: start, fresh: true });
     draft.seasons.windows = list;
     changed();
     say(`Season ${list.length} of ${list.length} added. Not saved yet.`);
@@ -251,7 +252,7 @@ export async function createDecorations({ api, meta }) {
   async function announce(reply, lead, { toast: say = true } = {}) {
     lastBuildError = reply.buildError || "";
     if (reply.changed === false) { toast("Nothing's changed. Your site already has this."); return null; }
-    if (reply.buildError) { toast("Saved, but your site couldn't be updated yet. Nothing is lost. Let the person who set up your site know.", { variant: "warning", duration: 0 }); return null; }
+    if (reply.buildError) { toast(`Saved, but your site couldn't be updated yet. Nothing is lost. ${word("common.letKnow")}`, { variant: "warning", duration: 0 }); return null; }
     const result = await sendOut(api, "Change the decorations");
     lastPublish = result;
     if (!say) return result;
@@ -323,7 +324,7 @@ export async function createDecorations({ api, meta }) {
     const here = result && result.sent === "none" && !servedHere(meta);
     const heading = `${label(choice.theme)} is up${here ? " here" : ""}.${before.wearing !== choice.theme ? ` ${label(before.wearing)} came down.` : ""}`;
     banner.replaceChildren(h("alert-banner", { variant: "success", dismissible: true, heading },
-      here ? "Your public site catches up when the person who set it up sends it out. " : "",
+      here ? `${word("common.catchesUp")} ` : "",
       h("cluster-layout", { gap: "0.5rem" }, undo)));
     requestAnimationFrame(() => { element.scrollIntoView?.({ block: "start" }); undo.querySelector("button")?.focus({ preventScroll: true }); });
   }
@@ -356,9 +357,16 @@ export async function createDecorations({ api, meta }) {
       adopt(await api.get("seasons"));
       pieces.load({ wearing: saved.wearing });
       // From Find anywhere: "Put a look up now" lands here and asks straight away.
-      if (new URLSearchParams(location.hash.split("?")[1] || "").get("do") === "putup") {
+      // And from Describe a new look (R9): ?do=putup&look=<name> asks about that look, and
+      // ?add=<name> starts a season with it. A name that isn't one of her looks does nothing.
+      const query = new URLSearchParams(location.hash.split("?")[1] || "");
+      const named = (name) => (looks.some((look) => look.value === name) ? name : "");
+      if (query.get("do") === "putup") {
         history.replaceState(null, "", "#/decorations");
-        putUp(saved.next?.theme || saved.wearing);
+        putUp(named(query.get("look")) || saved.next?.theme || saved.wearing);
+      } else if (named(query.get("add"))) {
+        history.replaceState(null, "", "#/decorations");
+        addSeason(named(query.get("add")));
       }
     } catch (error) {
       card.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your decorations didn't load" }, error.message,

@@ -1,0 +1,90 @@
+{
+  "note": "What the old Admin's capture modules (the old Admin's capture-queue.js, capture-assistant.js) were and wrote, frozen in R15 before they were deleted. Studio reads the same IndexedDB forever (ADR 0297). A photo's blob is { blobBytes }.",
+  "constants": {
+    "DB_NAME": "openblog-capture",
+    "STORE_NAME": "captures",
+    "RECORD_VERSION": 1,
+    "DB_VERSION": 1,
+    "QUEUE_LIMITS": {
+      "maxPhotos": 12,
+      "maxNotesChars": 8000,
+      "maxQueued": 5,
+      "maxCaptureBytes": 62914560,
+      "maxQueueBytes": 125829120
+    }
+  },
+  "record": {
+    "v": 1,
+    "id": "00000000000000000000000000000001",
+    "createdAt": "2026-11-13T16:40:00.000Z",
+    "fields": {
+      "trade": "roofing",
+      "service": "roof-repair",
+      "town": "Elkins",
+      "notes": "Words"
+    },
+    "photos": [
+      {
+        "name": "a.jpg",
+        "type": "image/jpeg",
+        "size": 100,
+        "blob": {
+          "blobBytes": 100
+        }
+      }
+    ],
+    "audio": null,
+    "attempts": 0,
+    "failed": false,
+    "lastError": ""
+  },
+  "recordWithDraft": {
+    "v": 1,
+    "id": "00000000000000000000000000000007",
+    "createdAt": "2026-11-12T10:00:00.000Z",
+    "fields": {
+      "trade": "roofing",
+      "service": "roof-repair",
+      "town": "Elkins",
+      "notes": "Words",
+      "draft": {
+        "title": "New roof",
+        "description": "",
+        "sections": {
+          "problem": "Leak",
+          "found": "",
+          "did": "Fixed",
+          "result": ""
+        }
+      }
+    },
+    "photos": [
+      {
+        "name": "a.jpg",
+        "type": "image/jpeg",
+        "size": 100,
+        "blob": {
+          "blobBytes": 100
+        }
+      }
+    ],
+    "audio": null,
+    "attempts": 0,
+    "failed": false,
+    "lastError": ""
+  },
+  "readsStudioRecord": "ok",
+  "plainNotes": {
+    "said": "# Heading\n> quote\n- list\n1. one\n<script>x</script> [link](javascript:x) &amp; ```\n---",
+    "plain": "\\# Heading\n\\> quote\n\\- list\n\\1. one\n&lt;script>x&lt;/script> \\[link](javascript:x) &amp;amp; ```\n\\---"
+  },
+  "draftBody": {
+    "sections": {
+      "problem": "Leak",
+      "found": "",
+      "did": "Fixed",
+      "result": "Dry"
+    },
+    "body": "## Problem\n\nLeak\n\n## What we found\n\n## What we did\n\nFixed\n\n## Result\n\nDry\n\n"
+  }
+}

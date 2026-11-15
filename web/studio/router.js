@@ -1,5 +1,8 @@
+import { researchRoute } from "./parts/research-rules.js";
+
 // Hash routes → screens. `#/`, `#/posts`, `#/write`, `#/write/<path>`, `#/sign-in`.
 // Before leaving a screen the router asks it (`leave()`), so unsaved work is never lost on the way.
+import { readersRoute } from "./parts/reader-rules.js";
 
 /**
  * "#/write/posts/x.md" → { name: "write", arg: "posts/x.md", query: {} };
@@ -20,6 +23,109 @@ export function parseRoute(hash) {
   return { name: name || "home", arg, query };
 }
 
+// The old Admin's addresses (bookmarks, links in notifications and invitations), and the Studio
+// screen each now opens. Kept forever (R15): the old Admin is gone, but bookmarks, notices queued on
+// other phones and old invitation links still carry its addresses (docs/admin.md, Old addresses).
+const OLD_RENAMED = {
+  overview: "", series: "collections", landing: "front-page", appearance: "look", seasons: "decorations", social: "sharing/accounts",
+  announcements: "sharing", greetings: "cards",
+};
+const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", services: "service", proof: "review" };
+/**
+ * The old editor's panes and the Write sheet each opens: Settings is About this post (R5); Social,
+ * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
+ * is Your route (R7), Assistant is the Writing helper (R8). Evidence is Your research (R11).
+ */
+/** Old names that are also Studio's own screens, so a not-yet page for one opens it as it is. */
+const STUDIO_OWN = new Set(["research", "paths", "reminders", "business", "quotes", "look", "voice", "services", "reviews", "notifications"]);
+export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "claims" });
+
+/**
+ * The Studio address for an old Admin address, or null when it is already Studio's own.
+ * "#/edit/posts/x.md" → "#/write/posts%2Fx.md"; "#/overview" → "#/"; "#/shared" → "#/together".
+ */
+export function legacyRoute(hash) {
+  const raw = String(hash || "").replace(/^#\/?/, "");
+  const [path, search = ""] = raw.split("?");
+  const [name, ...rest] = path.split("/");
+  const tail = search ? `?${search}` : "";
+  if (name === "edit" && rest.length) {
+    let file = rest.join("/");
+    try { file = decodeURIComponent(file); } catch { /* as typed */ }
+    const screen = OLD_FOLDERS[file.split("/")[0]] || "write";
+    // R5/R7: a post's old panes open their sheet (PANE_SHEETS); others open the post.
+    const sheet = screen === "write" && PANE_SHEETS[new URLSearchParams(search).get("pane")] ? `?sheet=${PANE_SHEETS[new URLSearchParams(search).get("pane")]}` : "";
+    return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
+  }
+  // The old Admin's kinds were "posts", "pages" and "series" (its KINDS); "page" is kept as R0 had it.
+  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" || rest[0] === "pages" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  // A trade site's services and reviews: #/services and #/reviews are Studio's own lists; the old
+  // form addresses open Studio's editor for one (#/service/new, #/service/<path>).
+  if ((name === "services" || name === "reviews") && rest.length) {
+    const one = name === "services" ? "service" : "review";
+    if (rest[0] === "new") return `#/${one}/new${tail}`;
+    if (rest[0] === "edit" && rest[1]) {
+      let file = rest.slice(1).join("/");
+      try { file = decodeURIComponent(file); } catch { /* as typed */ }
+      return `#/${one}/${encodeURIComponent(file)}${tail}`;
+    }
+    return `#/${name}${tail}`;
+  }
+  // R10: Readers. The old inbox, feedback, analytics and Studio's own Comments and Visitors open it.
+  const readers = readersRoute(name, rest, search);
+  if (readers) return readers;
+  // R1: "Where it went" is a view of Sharing, and Share this job lives under it.
+  if (name === "distribution") return `#/sharing?view=posts${search ? `&${search}` : ""}`;
+  // R2: the old accounts page, whatever was after it, is Your accounts.
+  if (name === "social") return `#/${OLD_RENAMED.social}`;
+  // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
+  if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
+  // R13: reading paths. #/paths and #/paths/new are Studio's own; the old editor address moves to #/path/<address>.
+  if (name === "paths") {
+    if (rest[0] === "edit" && rest[1]) return `#/path/${rest.slice(1).join("/")}${tail}`;
+    return !rest.length || (rest.length === 1 && rest[0] === "new") ? null : `#/paths${tail}`;
+  }
+  // R13: readings side by side. The old comparisons editor moves under Research; #/research/readings… is Studio's
+  // own, while plain #/research is still not yet.
+  if (name === "comparisons") {
+    if (rest[0] === "new" && rest.length === 1) return `#/research/readings/new${tail}`;
+    if (rest[0] === "edit" && rest[1]) return `#/research/reading/${rest.slice(1).join("/")}${tail}`;
+    return `#/research/readings${tail}`;
+  }
+  if (name === "research" && (rest[0] === "readings" || (rest[0] === "reading" && rest[1]))) return null;
+  if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
+  // R5: Contributors is People.
+  if (name === "contributors") return `#/people${tail}`;
+  // R4: Capture is New job, whatever came after it.
+  if (name === "capture") return `#/new-job${tail}`;
+  // R9: the old sample library is Your writing voice (#/voice), a sample is A piece, and Design a
+  // theme is Describe a new look under Look. The old session was #/voice, which is now the hub's
+  // own address: only a link that names a set (?pack=) is still known to be the old session's,
+  // and it opens Write a piece with that set. Write a piece is the hub's first button.
+  if (name === "voice" && rest[0] === "library") return rest.length > 1 ? `#/voice/piece/${rest.slice(1).join("/")}${tail}` : `#/voice${tail}`;
+  if (name === "voice" && !rest.length && new URLSearchParams(search).has("pack")) return `#/voice/write${tail}`;
+  if (name === "design") return `#/look/design${tail}`;
+  // R11: research's old addresses (#/sources, #/research/overview, #/atlas, #/compare...).
+  const research = researchRoute(name, rest, search);
+  if (research !== undefined) return research;
+  // R14a: shared reflections are Writing together. An invitation's token never reaches here: studio.js
+  // took it out of the address first (parts/join-rules.js); a malformed one opens Join, which says so.
+  if (name === "shared") {
+    if (rest[0] === "new") return `#/together/new${tail}`;
+    if (rest[0] === "accept") return `#/together/join${tail}`;
+    return `#/together${tail}`;
+  }
+  if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
+  // R15: More tools and the not-yet screen are gone. A bookmarked not-yet page opens the screen that
+  // replaced the part it named, and Home when there is none.
+  if (name === "tools") return "#/";
+  if (name === "not-yet") {
+    const named = rest[0] ? `#/${rest[0]}` : "";
+    return (named && legacyRoute(named)) || (named && STUDIO_OWN.has(rest[0]) ? named : "#/");
+  }
+  return null;
+}
+
 /** The address for a route; empty query values are left out. */
 export function routeHash(name, arg = "", query = {}) {
   const search = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== "" && value != null)).toString();
@@ -36,6 +142,12 @@ export function createRouter({ screens, onShow }) {
   // (Back, a link) isn't mistaken for "no change"; only the newest screen to finish is shown.
   let showing = 0;
   async function show(hash) {
+    // An old Admin address opens its Studio screen, and the address bar says so.
+    const studio = legacyRoute(hash);
+    if (studio) {
+      history.replaceState(null, "", studio);
+      hash = studio;
+    }
     const turn = ++showing;
     currentHash = hash;
     const route = parseRoute(hash);

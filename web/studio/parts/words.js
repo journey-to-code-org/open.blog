@@ -1,0 +1,282 @@
+// Studio's words: every sentence a site may change, by a stable id (docs/studio-words.md).
+//
+//   say("common.tell")                     → "Tell the person who set up your site."
+//   say("people.cantRemove", { name })     → per-call values fill {name}
+//
+// Defaults live beside the words they replace, in pure `parts/*-words.js` files that export
+// `WORDS`; this module gathers them (`catalog()`). A site's changes arrive in `meta.studioWords`
+// (checked by the server) and are put in place with `configureWords()` before the shell starts.
+// Changes are checked again here, and one that fails is ignored: the built-in words show.
+//
+// Three variables fill every sentence: `{helper}` (who helps her with the site), `{product}` (what
+// she calls her site) and `{owner}` (her name; may be empty, when an id's `bare` text is used).
+// A variable that starts a sentence starts with a capital. An unknown id throws: callers
+// pass a literal id, so the tests find every one. What `say()` returns is text: it is placed with
+// `textContent` or non-address attributes only, never as markup, an address or a style. Pure.
+import { WORDS as common } from "./common-words.js";
+import { WORDS as helper } from "./helper-words.js";
+import { WORDS as cards } from "./card-words.js";
+import { WORDS as decorations } from "./season-words.js";
+import { WORDS as jobs } from "./job-words.js";
+import { WORDS as kinds } from "./kind-words.js";
+import { WORDS as notify } from "./notify-words.js";
+import { WORDS as photo } from "./photo-words.js";
+import { WORDS as quotes } from "./quote-words.js";
+import { WORDS as recipe } from "./recipe-words.js";
+import { WORDS as share } from "./share-words.js";
+import { WORDS as social } from "./social-words.js";
+import { WORDS as add } from "./add-words.js";
+import { WORDS as pieces } from "./piece-words.js";
+import { WORDS as forms } from "./form-words.js";
+import { WORDS as ready } from "./ready-words.js";
+import { WORDS as review } from "./review-words.js";
+import { WORDS as route } from "./route-words.js";
+import { WORDS as video } from "./video-words.js";
+import { WORDS as writingHelper } from "./writing-helper-words.js";
+import { WORDS as writingVoice } from "./writing-voice-words.js";
+import { WORDS as design } from "./design-words.js";
+import { WORDS as start } from "./start-words.js";
+import { WORDS as readers } from "./reader-words.js";
+import { WORDS as readerNotes } from "./reader-notes-words.js";
+import { WORDS as visitors } from "./visitor-words.js";
+import { WORDS as readerSetup } from "./reader-setup-words.js";
+import { WORDS as paths } from "./path-words.js";
+import { WORDS as readings } from "./readings-words.js";
+import { WORDS as research } from "./research-words.js";
+import { WORDS as cite } from "./cite-words.js";
+import { WORDS as atlas } from "./atlas-words.js";
+import { WORDS as compare } from "./compare-words.js";
+import { WORDS as claims } from "./claims-words.js";
+import { WORDS as publicWords } from "./public-words.js";
+import { WORDS as together } from "./together-words.js";
+import { WORDS as part } from "./part-words.js";
+import { WORDS as arrange } from "./arrange-words.js";
+import { WORDS as talk } from "./conversation-words.js";
+import { WORDS as moments } from "./moment-words.js";
+import { WORDS as blog } from "./blog-words.js";
+import { WORDS as restore } from "./restore-words.js";
+import { HER_BANNED, bannedExcept } from "./plain-words.js";
+
+// Research's own vocabulary (R11 decision 2): a citation "key" and a claim's "context" are the
+// research author's words, allowed only in research's word sets.
+const RESEARCH_TERMS = { key: /\bkey\b/i, context: /\bcontext\b/i };
+const researchTerms = (words) => Object.fromEntries(Object.entries(words || {}).map(([id, entry]) => {
+  if (entry.layer !== "her") return [id, entry];
+  const extra = Object.entries(RESEARCH_TERMS).filter(([, re]) => re.test(entry.text)).map(([word]) => word);
+  return [id, extra.length ? { ...entry, allows: [...new Set([...(entry.allows || []), ...extra])] } : entry];
+}));
+
+/** The three variables and their built-in values. */
+export const DEFAULT_VARS = Object.freeze({ helper: "the person who set up your site", product: "your blog", owner: "" });
+export const GLOBAL_VARS = Object.freeze(Object.keys(DEFAULT_VARS));
+export const ID_PATTERN = /^[a-z]+(\.[a-zA-Z0-9]+)+$/;
+const VAR_MAX = 60;
+/** A length as the server counts it: characters (code points), so an emoji is one. */
+const charCount = (value) => [...String(value)].length;
+
+let merged = null;
+/** Every id with its default: `{ text, layer, max, bare?, vars }`. Built on first use. */
+export function catalog() {
+  if (merged) return merged;
+  const out = {};
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, start, readers, readerNotes, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms), together, part, arrange, talk, moments, blog, restore]) {
+    for (const [id, entry] of Object.entries(words || {})) {
+      if (id in out) throw new Error(`word id ${id} is defined twice`);
+      out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });
+    }
+  }
+  merged = Object.freeze(out);
+  return merged;
+}
+
+/** The variables a text uses, in order, once each. */
+export function varsIn(text) {
+  return [...new Set([...String(text).matchAll(/\{([a-zA-Z]+)\}/g)].map((m) => m[1]))];
+}
+
+/** The longest a changed text may be: its own `max`, else twice the default (at least 40), at most 240. */
+export function maxFor(entry) {
+  return entry.max ?? Math.min(240, Math.max(40, 2 * charCount(entry.text)));
+}
+
+let vars = { ...DEFAULT_VARS };
+let text = {};
+
+/** Why a changed text can't be used, or "" when it can (the client's re-check). */
+export function overrideProblem(id, value) {
+  const entry = catalog()[id];
+  if (!entry) return "not a word id";
+  if (typeof value !== "string") return "not text";
+  if (!value.trim() && !(entry.bare === "" && value === "")) return "empty";
+  if (charCount(value) > entry.max) return "too long";
+  if (/[<>]/.test(value)) return "has < or >";
+  const allowed = new Set([...GLOBAL_VARS, ...entry.vars]);
+  if (varsIn(value).some((name) => !allowed.has(name))) return "unknown variable";
+  if (entry.layer === "her" && bannedExcept(value, entry.allows)) return "a word she never sees";
+  return "";
+}
+
+/** Why a variable's value can't be used, or "". */
+export function varProblem(name, value) {
+  if (!GLOBAL_VARS.includes(name)) return "not a variable";
+  if (typeof value !== "string") return "not text";
+  if (charCount(value) > VAR_MAX) return "too long";
+  if (/[{}<>]/.test(value)) return "has a brace or < >";
+  if (name !== "owner" && !value.trim()) return "empty";
+  if (HER_BANNED.test(value)) return "a word she never sees";
+  return "";
+}
+
+/**
+ * Put a site's words in place, from `meta.studioWords` ({ vars, text }). Anything that fails the
+ * checks above is left out. Called with nothing, it goes back to the built-in words.
+ */
+export function configureWords(studioWords) {
+  vars = { ...DEFAULT_VARS };
+  text = {};
+  const given = studioWords && typeof studioWords === "object" ? studioWords : {};
+  for (const [name, value] of Object.entries(given.vars || {})) if (!varProblem(name, value)) vars[name] = value.trim();
+  for (const [id, value] of Object.entries(given.text || {})) if (!overrideProblem(id, value)) text[id] = value;
+}
+
+/** The variables in effect (for Details). */
+export const wordVars = () => ({ ...vars });
+
+const capital = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+
+/**
+ * What she calls her site (`{product}`), for the few sentences that stay code (built from counts
+ * or lists, or holding a word only the app's own name may use): `{ start: true }` when it starts a
+ * sentence. Every other sentence is a word id.
+ */
+export const product = ({ start = false } = {}) => (start ? capital(vars.product) : vars.product);
+
+/**
+ * Fill in the variables; one that starts a sentence (the text's start, or after . ! ? and a space)
+ * starts with a capital. Values named in `isolate` come back as `{ isolate: value }` parts, as they
+ * are (no capital): someone else's words, which the caller puts in a node of their own.
+ */
+function fillParts(words, values, isolate = []) {
+  const parts = [];
+  let out = "";
+  let from = 0;
+  for (const m of words.matchAll(/\{([a-zA-Z]+)\}/g)) {
+    out += words.slice(from, m.index);
+    from = m.index + m[0].length;
+    if (!(m[1] in values)) { out += m[0]; continue; }
+    const value = String(values[m[1]] ?? "");
+    if (isolate.includes(m[1])) {
+      if (out) parts.push(out);
+      out = "";
+      // A value may itself be parts (a list of names): its own text joins the sentence.
+      if (Array.isArray(values[m[1]])) {
+        for (const part of values[m[1]]) {
+          if (typeof part !== "string") parts.push(part);
+          else if (typeof parts.at(-1) === "string") parts[parts.length - 1] += part;
+          else parts.push(part);
+        }
+      } else {
+        parts.push({ isolate: value });
+      }
+      continue;
+    }
+    // After someone else's words, the sentence has started.
+    const before = parts.length && !out ? "x" : out;
+    out += /(^|[.!?]\s+)$/.test(before) ? capital(value) : value;
+  }
+  out += words.slice(from);
+  if (out) parts.push(out);
+  return parts;
+}
+
+const fillIn = (words, values) => fillParts(words, values).join("");
+
+/** The words of `id` to show, with the site's change if it has one. */
+function wordsFor(id, all) {
+  const entry = catalog()[id];
+  if (!entry) throw new Error(`say(): ${id} isn't a word id`);
+  const own = text[id];
+  let words = own ?? entry.text;
+  // With no name for her, words that need it give way: a site's change to the built-in words when
+  // those don't name her, else the id's `bare` words.
+  const usesOwner = (t) => varsIn(t).includes("owner");
+  if (!String(all.owner || "").trim() && usesOwner(words)) {
+    if (own !== undefined && !usesOwner(entry.text)) words = entry.text;
+    else if (entry.bare !== undefined) words = entry.bare;
+  }
+  return words;
+}
+
+/**
+ * The words for `id`, with the site's change if it has one, its variables filled in.
+ * @param {string} id a literal id, like "common.tell"
+ * @param {Record<string, string|number>} [values] values for the id's own variables
+ */
+export function say(id, values = {}) {
+  const all = { ...vars, ...values };
+  return fillIn(wordsFor(id, all), all);
+}
+
+/**
+ * The words for `id` as parts: text, and `{ isolate: value }` for each of the `isolate` variables
+ * (a reader's name, a title someone else wrote), so the caller can put each in its own
+ * direction-isolated node and a right-to-left mark in it can't reorder the sentence around it.
+ * `say()` joined is the same sentence. Pure.
+ * @param {string} id
+ * @param {Record<string, string|number>} [values]
+ * @param {string[]} [isolate] the names of the variables that hold someone else's words
+ */
+export function sayParts(id, values = {}, isolate = []) {
+  const all = { ...vars, ...values };
+  return fillParts(wordsFor(id, all), all, isolate.filter((name) => name in values));
+}
+
+/**
+ * A speaker for rule functions that put someone else's words in a sentence: they take
+ * `speak = say` and call `speak(id, values, isolate)`; given `isolating` they return parts
+ * (see `sayParts()`) for the page to place with `partsNodes()`.
+ */
+export const isolating = Object.assign((id, values = {}, isolate = []) => sayParts(id, values, isolate), { parts: true });
+
+/** Someone else's words as they are, from a speaker: a string from `say`, one part from `isolating`. */
+export const theirs = (value, speak = say) => (speak?.parts ? [{ isolate: String(value ?? "") }] : String(value ?? ""));
+
+const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Parts from `sayParts()` as one string, for the places that take only text (an `aria-label`, a
+ * toast, a dialog's name): someone else's words are wrapped in FSI…PDI with their own direction
+ * marks taken out, so they still can't reorder the sentence. On the page, use `partsNodes()`.
+ */
+export function partsText(parts) {
+  return [].concat(parts).map((part) => (typeof part === "string" ? part : `\u2068${String(part?.isolate ?? "").replace(BIDI_CONTROLS, "")}\u2069`)).join("");
+}
+
+/** The same parts as plain text, as `say()` would give them (for tests and comparisons). */
+export const partsPlain = (parts) => [].concat(parts).map((part) => (typeof part === "string" ? part : String(part?.isolate ?? ""))).join("");
+
+/**
+ * Home's details, "Words" (for {helper} only, never her layer): what a site's words change and what
+ * was dropped, from `meta.studioWords`. `null` when nothing is changed and nothing is wrong.
+ * @returns {{ summary: string, changes: string[], problems: string[] } | null}
+ */
+export function wordsInEffect(studioWords) {
+  const given = studioWords && typeof studioWords === "object" ? studioWords : {};
+  const from = given.from && typeof given.from === "object" ? given.from : {};
+  const isVar = (key) => key in (given.vars || {}) && GLOBAL_VARS.includes(key);
+  const value = (key) => (isVar(key) ? given.vars[key] : (given.text || {})[key]);
+  // Only what configureWords() really put in place; a change this page refuses is a problem.
+  const why = (key) => (isVar(key) ? varProblem(key, value(key)) : overrideProblem(key, value(key)));
+  const offered = Object.keys(from).filter((key) => typeof value(key) === "string").sort();
+  const keys = offered.filter((key) => !why(key));
+  const refused = offered.filter((key) => why(key)).map((key) => `${key} isn't used here: ${why(key)}.`);
+  const problems = [...(Array.isArray(given.problems) ? given.problems : []).map((p) => String(p?.words ?? "")).filter(Boolean), ...refused];
+  if (!keys.length && !problems.length) return null;
+  const count = (place) => keys.filter((key) => from[key] === place).length;
+  const site = count("site");
+  const server = count("server");
+  const parts = [site ? `${site} changed by this site` : "", server ? `${server} by the server's file` : ""].filter(Boolean);
+  const summary = parts.length ? `${parts.join(", ")}.` : "Nothing changed.";
+  const place = (p) => (p === "server" ? "server's file" : "site");
+  return { summary, changes: keys.map((key) => `${key}: ${value(key)} (${place(from[key])})`), problems };
+}

@@ -30,7 +30,7 @@ author action.
 Assistant requests carry a versioned guide to the actual publishing engine, including native quiz
 and runnable-code syntax, embeds, content profiles, scheduling, and source-ownership boundaries.
 Drafts and selected context remain untrusted data, external research stays off, inputs and outputs are
-bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.md#review-an-unsaved-document).
+bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.md#the-writing-helper).
 
 ## Voice samples
 
@@ -193,14 +193,14 @@ Paste the provider's tag into `snippets.head` (see below) and set `analytics.bui
 ## Embeds: comments, newsletters, any tag
 
 For first-party, text-only moderated comments on Netlify, enable hosted engagement in
-**Admin → Analytics**. Each post then receives an accessible comment list and form. Submissions are
+Studio's **Readers › How readers reach you**. Each post then receives an accessible comment list and form. Submissions are
 pending by default and only approved comments are public. Comment content is rendered as text rather
 than HTML. Supabase credentials remain in the function environment; Admin stores only a write-only
 moderation token.
 
 Set `comments: locked` on a post to keep approved discussion visible without accepting submissions,
-or `comments: hidden` to omit the discussion entirely. Comments are moderated in Admin's
-**Moderation inbox** with reader feedback, in every state of the one moderation policy: a removed
+or `comments: hidden` to omit the discussion entirely. Comments are moderated in Studio's
+**Readers** inbox with reader feedback, in every state of the one moderation policy: a removed
 or rejected comment can be reopened for a fresh decision, never approved straight away. The Netlify function checks the generated,
 deployed comment-policy manifest before comment access, so direct requests cannot bypass locked or hidden policies.
 

@@ -1,0 +1,25 @@
+// Words many screens share: how she is pointed to the person who helps her with her site. Each is
+// a word id a site can change (docs/studio-words.md); `{helper}` is "the person who set up your
+// site" unless the site names someone. Pure data, read with `say()` from words.js.
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
+export const WORDS = {
+  "common.tell": { text: "Tell {helper}.", layer: "her" },
+  "common.ask": { text: "Ask {helper}.", layer: "her" },
+  "common.letKnow": { text: "Let {helper} know.", layer: "her" },
+  "common.forHelper": { text: "For {helper}", layer: "her" },
+  "common.detailsFor": { text: "Details for {helper}", layer: "her" },
+  "common.canTurnOn": { text: "{helper} can turn it on.", layer: "her" },
+  "common.chose": { text: "{helper} chose this.", layer: "her" },
+  "common.canChange": { text: "{helper} can change that.", layer: "her" },
+  "common.catchesUp": { text: "Your public site catches up when {helper} sends it out.", layer: "her" },
+  "common.keepsHappening": { text: "Try again, and if it keeps happening, tell {helper}.", layer: "her" },
+  // R9: the box above anything sent to another company, and waiting on a helper.
+  "common.whatGoes": { text: "What goes to {company}", layer: "her" },
+  "common.wordForWord": { text: "Word for word", layer: "her" },
+  "common.stopWaiting": { text: "Stop waiting", layer: "her" },
+  "common.tryAgain": { text: "Try again", layer: "her" },
+  // W-b: sentences that name {product}.
+  "common.cantReach": { text: "{product} can't be reached right now. Check your connection, then try again.", layer: "her" },
+  "common.signedOut": { text: "You were signed out. Your words are safe; sign in and {product} will finish what it was doing.", layer: "her" },
+};

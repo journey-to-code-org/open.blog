@@ -131,6 +131,7 @@ fn review_body(context_ids: Json) -> Json {
         "source": { "title": "Unsaved", "metadata": { "draft": "true" }, "markdown": "Draft body needs voice." },
         "skillIds": ["voice-review"],
         "contextIds": context_ids,
+        "confirmed": true,
     })
 }
 
@@ -139,6 +140,7 @@ fn complete_body(context_ids: Json) -> Json {
         "source": { "title": "T", "metadata": {}, "markdown": "The lantern opened",
             "prefix": "The lantern", "suffix": " opened", "editorMode": "markdown" },
         "contextIds": context_ids,
+        "confirmed": true,
     })
 }
 
@@ -172,7 +174,7 @@ fn review_reads_selected_samples_on_the_server_and_labels_them_untrusted() {
     let mut body = review_body(json!([id]));
     body["voiceSamples"] =
         json!([{ "id": id, "content": "FORGED BY THE BROWSER", "characters": 1 }]);
-    let response = post(&f, &session, "/admin/api/assistant/review", body);
+    let response = post(&f, &session, "/admin/api/assistant/review", confirmed(body));
     assert_eq!(
         response.status,
         200,
@@ -216,7 +218,7 @@ fn completion_reads_selected_samples_on_the_server_too() {
         &f,
         &session,
         "/admin/api/assistant/complete",
-        complete_body(json!([format!("voice:portable:{file}")])),
+        confirmed(complete_body(json!([format!("voice:portable:{file}")]))),
     );
     assert_eq!(
         response.status,
@@ -257,7 +259,7 @@ fn a_sample_removed_after_the_catalog_showed_it_fails_the_request() {
         &f,
         &session,
         "/admin/api/assistant/review",
-        review_body(json!([id])),
+        confirmed(review_body(json!([id]))),
     );
     assert_eq!(gone.status, 400, "{}", String::from_utf8_lossy(&gone.body));
 }
@@ -299,7 +301,7 @@ fn an_unknown_invalid_or_malformed_sample_fails_closed_before_any_provider_call(
             &f,
             &session,
             "/admin/api/assistant/review",
-            review_body(json!([bad])),
+            confirmed(review_body(json!([bad]))),
         );
         assert_eq!(
             review.status,
@@ -311,7 +313,7 @@ fn an_unknown_invalid_or_malformed_sample_fails_closed_before_any_provider_call(
             &f,
             &session,
             "/admin/api/assistant/complete",
-            complete_body(json!([bad])),
+            confirmed(complete_body(json!([bad]))),
         );
         assert_eq!(
             complete.status,
@@ -325,10 +327,10 @@ fn an_unknown_invalid_or_malformed_sample_fails_closed_before_any_provider_call(
         &f,
         &session,
         "/admin/api/assistant/review",
-        review_body(json!([
+        confirmed(review_body(json!([
             format!("voice:private:{good}"),
             "voice:private:2026-10-31-never-written-rough.md"
-        ])),
+        ]))),
     );
     assert_eq!(mixed.status, 400);
 }
@@ -358,10 +360,17 @@ fn too_many_samples_or_too_many_characters_are_refused_with_a_sentence() {
         &f,
         &session,
         "/admin/api/assistant/review",
-        review_body(json!(many)),
+        confirmed(review_body(json!(many))),
     );
     assert_eq!(refused.status, 400);
     assert!(String::from_utf8_lossy(&refused.body).contains("at most 8"));
+    // Studio R8 (G55): the same refusal by code, with the numbers beside the sentence.
+    let coded = body_json(&refused);
+    assert_eq!(coded["code"], "over-budget");
+    assert_eq!(coded["samples"], 9);
+    assert_eq!(coded["characters"], 9 * "short words".chars().count());
+    assert_eq!(coded["budget"]["samples"], 8);
+    assert_eq!(coded["budget"]["characters"], 120_000);
 
     let long: Vec<String> = (1..=3)
         .map(|n| {
@@ -380,7 +389,7 @@ fn too_many_samples_or_too_many_characters_are_refused_with_a_sentence() {
         &f,
         &session,
         "/admin/api/assistant/review",
-        review_body(json!(long)),
+        confirmed(review_body(json!(long))),
     );
     assert_eq!(refused.status, 400);
     assert!(String::from_utf8_lossy(&refused.body).contains("at most 120000"));
@@ -459,7 +468,7 @@ fn the_voice_guide_route_proposes_a_guide_and_writes_nothing() {
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     assert_eq!(
         response.status,
@@ -520,7 +529,7 @@ fn the_proposal_is_shown_as_a_diff_against_the_saved_guide_and_saved_only_with_t
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:portable:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:portable:{file}")] })),
     );
     assert_eq!(
         response.status,
@@ -609,7 +618,7 @@ fn a_result_that_quotes_text_the_sample_does_not_contain_is_rejected_and_no_guid
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     provider.join().unwrap();
     assert_eq!(response.status, 502);
@@ -642,13 +651,21 @@ fn the_voice_guide_route_is_authenticated_csrf_protected_bounded_and_samples_onl
     let id = format!("voice:private:{file}");
     let body = json!({ "sampleIds": [id] });
     assert_eq!(
-        handle(&f.state, &json_req("POST", GUIDE_PATH, body.clone())).status,
+        handle(
+            &f.state,
+            &json_req("POST", GUIDE_PATH, confirmed(body.clone()))
+        )
+        .status,
         401
     );
     assert_eq!(
         handle(
             &f.state,
-            &authed(json_req("POST", GUIDE_PATH, body.clone()), &session, false)
+            &authed(
+                json_req("POST", GUIDE_PATH, confirmed(body.clone())),
+                &session,
+                false
+            )
         )
         .status,
         403
@@ -661,7 +678,7 @@ fn the_voice_guide_route_is_authenticated_csrf_protected_bounded_and_samples_onl
         json!({ "sampleIds": [id.clone()], "guide": "everyone" }),
         json!({}),
     ] {
-        let response = post(&f, &session, GUIDE_PATH, bad.clone());
+        let response = post(&f, &session, GUIDE_PATH, confirmed(bad.clone()));
         assert_eq!(
             response.status,
             400,
@@ -671,7 +688,7 @@ fn the_voice_guide_route_is_authenticated_csrf_protected_bounded_and_samples_onl
     }
     let _first = f.state.assistant_operations.try_acquire().unwrap();
     let _second = f.state.assistant_operations.try_acquire().unwrap();
-    assert_eq!(post(&f, &session, GUIDE_PATH, body).status, 429);
+    assert_eq!(post(&f, &session, GUIDE_PATH, confirmed(body)).status, 429);
 }
 
 #[test]
@@ -697,7 +714,7 @@ fn the_built_in_voice_guide_skill_runs_the_task_and_is_not_a_review_skill() {
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     assert_eq!(
         response.status,
@@ -730,7 +747,7 @@ fn the_built_in_voice_guide_skill_runs_the_task_and_is_not_a_review_skill() {
         &f,
         &session,
         "/admin/api/assistant/review",
-        json!({
+        json!({ "confirmed": true,
             "source": { "title": "T", "metadata": {}, "markdown": "Body" },
             "skillIds": ["voice-guide"],
             "contextIds": [],
@@ -785,7 +802,7 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
         &f,
         &session,
         "/admin/api/assistant/review",
-        body(Json::Null),
+        confirmed(body(Json::Null)),
     );
     assert_eq!(whole.status, 400);
     assert!(String::from_utf8_lossy(&whole.body).contains("complete-document review"));
@@ -801,7 +818,7 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
             &f,
             &session,
             "/admin/api/assistant/review",
-            body(bad.clone()),
+            confirmed(body(bad.clone())),
         );
         assert_eq!(refused.status, 400, "{bad}");
     }
@@ -811,7 +828,9 @@ fn voice_match_returns_anchored_suggestions_for_the_apply_path_and_advice_for_th
         &f,
         &session,
         "/admin/api/assistant/review",
-        body(json!({ "kind": "section", "start": start, "end": end })),
+        confirmed(body(
+            json!({ "kind": "section", "start": start, "end": end }),
+        )),
     );
     assert_eq!(
         response.status,
@@ -873,7 +892,7 @@ fn completion_includes_the_voice_guide_only_when_it_is_a_selected_context_item()
             &f,
             &session,
             "/admin/api/assistant/complete",
-            complete_body(ids),
+            confirmed(complete_body(ids)),
         );
         assert_eq!(
             response.status,
@@ -958,7 +977,7 @@ fn the_catalog_and_the_voice_guide_task_share_one_gap_summary() {
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     assert_eq!(
         response.status,
@@ -1004,7 +1023,7 @@ fn a_guide_built_from_private_samples_can_be_saved_as_private_but_never_as_porta
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     assert_eq!(response.status, 200);
     provider.join().unwrap();
@@ -1055,7 +1074,7 @@ fn a_guide_built_from_portable_samples_may_be_saved_as_portable() {
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:portable:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:portable:{file}")] })),
     );
     provider.join().unwrap();
     let result = body_json(&response);
@@ -1089,7 +1108,7 @@ fn a_sample_saying_ignore_previous_instructions_stays_untrusted_data() {
         &f,
         &session,
         "/admin/api/assistant/review",
-        review_body(json!([id])),
+        confirmed(review_body(json!([id]))),
     );
     assert_eq!(response.status, 200);
     provider.join().unwrap();
@@ -1132,7 +1151,7 @@ fn a_proposal_that_keeps_claims_from_a_private_guide_is_never_portable() {
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:portable:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:portable:{file}")] })),
     );
     provider.join().unwrap();
     let result = body_json(&response);
@@ -1208,7 +1227,7 @@ My own note at the top.
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:portable:{mistake}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:portable:{mistake}")] })),
     );
     provider.join().unwrap();
     assert_eq!(
@@ -1329,7 +1348,7 @@ fn a_saved_trait_quoting_a_sample_that_is_private_now_keeps_the_merge_off_portab
         &f,
         &session,
         GUIDE_PATH,
-        json!({ "sampleIds": [format!("voice:portable:{mistake}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:portable:{mistake}")] })),
     );
     provider.join().unwrap();
     let body = body_json(&response);

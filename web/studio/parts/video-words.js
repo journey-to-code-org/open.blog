@@ -1,0 +1,53 @@
+// The words of Words for YouTube (Studio R7): what YouTube won't take, in her words, and how to
+// copy. Pure data, read with `say()` from words.js (docs/studio-words.md). The rules they describe
+// are the engine's (`openblog video`), mirrored in video-rules.js.
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
+export const WORDS = {
+  "youtube.sheet": { text: "Words for YouTube", layer: "her" },
+  "youtube.lede": { text: "Paste these into YouTube when you put your video up. Nothing here changes your video.", layer: "her" },
+  "youtube.problems": { text: "Before YouTube will take these ({count})", layer: "her" },
+  "youtube.title": { text: "Title", layer: "her" },
+  "youtube.titleCount": { text: "{count} of 100 letters", layer: "her" },
+  "youtube.description": { text: "Description", layer: "her" },
+  "youtube.tags": { text: "Tags", layer: "her" },
+  "youtube.copyTitle": { text: "Copy title", layer: "her" },
+  "youtube.copyDescription": { text: "Copy description", layer: "her" },
+  "youtube.copyTags": { text: "Copy tags", layer: "her" },
+  "youtube.titleCopied": { text: "Title copied.", layer: "her" },
+  "youtube.descriptionCopied": { text: "Description copied. Paste it into YouTube.", layer: "her" },
+  "youtube.tagsCopied": { text: "Tags copied.", layer: "her" },
+  "youtube.copyRefused": { text: "Select the words and copy them.", layer: "her" },
+  "youtube.chapterHelp": { text: "Chapters are lines in your words that start with a time, like “0:00 Getting started”. The first starts at 0:00, and YouTube needs at least three, each 10 seconds or longer.", layer: "her" },
+  "youtube.chapters": { text: "{count} chapters, from the lines in your words that start with a time.", layer: "her" },
+  "youtube.oneChapter": { text: "1 chapter, from the line in your words that starts with a time.", layer: "her" },
+  "youtube.noChapters": { text: "No chapters. That's fine; YouTube shows the video without them.", layer: "her" },
+  "youtube.whereAt": { text: "Where it's at: {stage}", layer: "her" },
+  "youtube.change": { text: "Change", layer: "her" },
+  "youtube.keepPrivate": { text: "Keep the video private on YouTube until this post is on your site.", layer: "her" },
+  "youtube.noAddress": { text: "Save your post to add its address.", layer: "her" },
+  "youtube.showMe": { text: "Show me", layer: "her" },
+  "youtube.done": { text: "Done", layer: "her" },
+  "youtube.copyFind": { text: "Copy the YouTube description", layer: "her" },
+  "youtube.get": { text: "Get the words for YouTube", layer: "her" },
+  "youtube.rowReady": { text: "Words for YouTube: ready to copy · {chapters}", layer: "her" },
+  "youtube.rowProblems": { text: "Words for YouTube: {count} things YouTube won't take", layer: "her" },
+  "youtube.rowProblem": { text: "Words for YouTube: 1 thing YouTube won't take", layer: "her" },
+  // What YouTube won't take (releaseWords)
+  "youtube.titleMissing": { text: "Give your post a title first.", layer: "her" },
+  "youtube.titleTooLong": { text: "YouTube takes titles of up to 100 letters; this one has {count}. Shorten the title.", layer: "her" },
+  "youtube.titleBrackets": { text: "YouTube doesn't allow < or > in a title. Take them out of the title.", layer: "her" },
+  "youtube.descriptionTooLong": { text: "These words are too long for YouTube, which takes 5,000 at most, counting the chapters. Shorten the summary.", layer: "her" },
+  "youtube.descriptionBrackets": { text: "YouTube doesn't allow < or > in the description. Take them out of the summary, the chapters or the AI note.", layer: "her" },
+  "youtube.tagsTooLong": { text: "YouTube takes up to 500 letters of tags; yours have {count}. Use fewer or shorter tags.", layer: "her" },
+  "youtube.firstNotZero": { text: "The first chapter has to start at 0:00.", layer: "her" },
+  "youtube.tooFew": { text: "YouTube shows chapters only when there are at least 3. Add more, or take the times out.", layer: "her" },
+  "youtube.outOfOrder": { text: "The chapters' times have to go up, one after the other.", layer: "her" },
+  "youtube.durationMissing": { text: "Add how long the video is, so the last chapter can be checked.", layer: "her" },
+  "youtube.tooShort": { text: "Each chapter has to be at least 10 seconds long, the last one too.", layer: "her" },
+  "youtube.other": { text: "YouTube may not take these words as they are.", layer: "her" },
+  // Details
+  "youtube.detailsCli": { text: "Check or write out the full release with `openblog video {slug}`; uploading is in docs/video-production.md §Upload an approved release.", layer: "details" },
+  "youtube.detailsStatus": { text: "Release: {status} · digest {digest}", layer: "details" },
+  "youtube.detailsLocal": { text: "Worked out on this page with the engine's rules; the server's copy shows when there is a signal.", layer: "details" },
+};

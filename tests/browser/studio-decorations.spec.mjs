@@ -88,7 +88,7 @@ async function axeViolations(page) {
 test("today's look is said in words, and the screen passes axe at 320 px", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await signIn(page);
-  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(/^Your house (is|wears)/);
+  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(/^Your blog (is|wears)/);
   await expect(page.getByRole("switch", { name: "Change by itself with the calendar" })).toBeChecked();
   const paper = await labelOf(page, "paper");
   await expect(page.getByRole("button", { name: new RegExp(`^Season 1 of 2: ${escape(paper)}, December 1 to January 6`) })).toBeVisible();

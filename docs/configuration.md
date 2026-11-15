@@ -64,8 +64,8 @@ default, so you can edit values in place and delete the ones you do not need.
 - **`colorSchemeToggle`** controls the public light/dark button across all pages.
   `null` (or omitted) follows each page's theme, `true` shows the button and restores
   saved visitor choices, and `false` hides it and follows the system preference,
-  ignoring old manual choices. Edit this under **Admin → Appearance**; it does not
-  change the Admin's own color scheme. Theme authors can set the inherited
+  ignoring old manual choices. Edit this in Studio's **Look** (whether readers can switch to dark); it does
+  not change Studio's own colours, which follow the system. Theme authors can set the inherited
   `options.colorSchemeToggle` default in `theme.json`.
 - **`appearance`** is the owner's look: simple presets, never CSS. It is optional, and a site without it
   builds exactly as before. Every value is a choice or a hex color, and a bad value fails the build with
@@ -87,7 +87,7 @@ default, so you can edit values in place and delete the ones you do not need.
   ```
 
   The three looks for trades (`workshop`, `high-vis` and `blueprint`) meet the stricter AAA contrast bar, and
-  choosing one in Admin also sets `textSize` to `large` and `headingWeight` to `bold` unless you chose your own
+  choosing one in Studio's Look also sets `textSize` to `large` and `headingWeight` to `bold` unless you chose your own
   ([ADR 0400](adr/0400-three-looks-for-trades-meet-aaa-contrast-and-choose-large-text-and-bold-headings.md)).
 
   Leave out any field to keep the theme's own value. The engine compiles these into a short block of
@@ -112,10 +112,10 @@ default, so you can edit values in place and delete the ones you do not need.
   and an optional ORCID iD. Profile `url` accepts an HTTP(S) URL or site-root path; every
   `sameAs` entry must be an absolute HTTP(S) URL. Contributor IDs are referenced by post
   credit sidecars, so treat them as stable identifiers. They can also be managed under
-  **Site → Contributors** in Admin Studio. See
+  **People** in Studio. See
   [Work-specific credits](content.md#work-specific-credits).
 - **Landing page**: when `content/landing.json` exists, the home page is built from its sections instead of
-  `home.heading`, `home.intro` and `home.showSeries`. It is written by **Admin → Landing page**; see
+  `home.heading`, `home.intro` and `home.showSeries`. It is written by Studio's **Front page**; see
   [Landing page sections](content.md#landing-page-sections).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
@@ -123,7 +123,7 @@ default, so you can edit values in place and delete the ones you do not need.
 
 `business` states who you are once, and every page, the footer, the Landing page's **Business facts** section
 and the `LocalBusiness` structured data read it ([ADR 0305](adr/0305-business-facts-are-one-versioned-block-in-openblog-json-that-pages-the-footer-and-structured-data-all-read.md)).
-It is optional: a site without it builds exactly as before. Edit it under **Admin → Settings → Business facts**,
+It is optional: a site without it builds exactly as before. Edit it in Studio's **Business**,
 or by hand:
 
 ```json
@@ -236,7 +236,7 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
   the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
   go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
-  readers send, with comments, in Admin's **Moderation inbox**; approved notes, with your responses, are kept in
+  readers send, with comments, in Studio's **Readers**; approved notes, with your responses, are kept in
   `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
   publishes the post's `evidenceRevisions` notes (ADR 0083). `engagement.receipts` (off by
   default, and left out of the file while off) adds "Check, clarify or withdraw a note you sent"
@@ -249,7 +249,7 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   passage, from lists of what the site publishes, never a private id. Switch it on only once the
   hosted function stores evidence (`supabase/feedback.sql` run again and
   `OPENBLOG_CORRECTIONS_ENABLED`); it also lets you record a correction decision on such a note in
-  the **Moderation inbox** (ADR 0118).
+  the **Readers** inbox (ADR 0118).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -375,12 +375,14 @@ blog itself or that it did not create.
 
 ## Knowledge checks
 
-Knowledge checks and their local reader interactions need no configuration. Setting
-`generationEndpoint` enables optional author-time question generation and review in the admin
-editor when a private credential is saved from the Assistant panel or
-`OPENBLOG_LESSONS_API_KEY` is present in the server environment. Environment configuration takes
-precedence. `model` is an
-optional identifier passed through to that endpoint. See [The admin editor](admin.md#optional-question-generation)
+Knowledge checks and their local reader interactions need no configuration. `provider`, `model`
+and (for a custom https endpoint) `generationEndpoint` turn on the optional
+[writing helper](admin.md#the-writing-helper): question generation, review and suggestions as you
+type. They are set on Studio's **Writing helper** screen, together with the key, which is never
+written to `openblog.json`: it is write-only from the page (set or not set, replace, remove; never
+shown) and is refused over plain http except from the same computer. A key in the server
+environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`..., or `OPENBLOG_LESSONS_API_KEY` for a custom
+endpoint) takes precedence over a saved one. See [The admin editor](admin.md#optional-question-generation)
 for the endpoint contract and security boundary.
 
 ## Admin
@@ -453,7 +455,8 @@ in `content/webmentions.json`. See [Receive Webmentions](webmention.md#receive-w
 ## Knowledge Atlas
 
 `knowledgeAtlas.publish` (off by default) publishes the approved part of your private
-Knowledge Atlas: `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
+Knowledge Atlas (in Studio, **Research › Atlas**: an entry or link is approved with **Readers can see it**, and
+while this switch is off Studio says your blog doesn't publish the atlas yet): `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
 `/atlas.json`. Only entries you approved, and relationships you approved whose entries are both
 approved, are published, each with who asserts it, its evidence, confidence, doubt and any
 dissent; private notes, notebook passages and unapproved items never are. Datings you approved
@@ -474,8 +477,9 @@ See [Deploying](deploy.md).
 
 ## Passage comparisons
 
-`comparisons.publish` (off by default) publishes the passage alignments you approved in Admin's
-Compare tool: `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and the same data as
+`comparisons.publish` (off by default) publishes the passage alignments you approved in Studio's
+**Research › Compare** (Studio's Compare; while this switch is off, Compare says each
+approved alignment isn't published yet): `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and the same data as
 `/comparisons.json`. Every place names its version, editor, translator, scribe or interpreters,
 its locators and the rights statement you recorded for that version. Its wording is quoted
 exactly only when you state the version's rights as permission, open licence, public domain or
@@ -491,7 +495,7 @@ comparisons, and `build` and `check` warn when it cannot. See the
 ## Reading paths
 
 `readingPaths.publish` (off by default) is the switch for publishing [reading paths](specs/reading-paths.md),
-the ordered routes you curate in Admin under **Content → Reading paths**. While it is off you can write and
+the ordered routes you curate in Studio's **Reading paths**. While it is off you can write and
 preview paths freely; nothing publishes them and `/paths/` is not reserved. Turning it on reserves
 `/paths/`, so a page named `paths` or a `postPath` that puts a post there is refused by the build and by
 `check`; while it is off, `check` warns when you have path files beside such a page or post.
@@ -501,7 +505,7 @@ Listed paths are also linked from the posts and atlas entries they name, found b
 ## Interpretation comparisons
 
 `interpretations.publish` (off by default) is the switch for publishing the [interpretation comparisons](adr/0232-a-comparison-page-is-static-html-from-the-projection-with-levels-as-sections-a-selector-only-enhances.md)
-you write in `content/comparisons` or in Admin under **Content → Comparisons**. While it is off nothing
+you write in `content/comparisons` or in Studio's **Research › Readings side by side**. While it is off nothing
 publishes them and `/interpretations/` is not reserved. Turning it on reserves `/interpretations/`, so a page
 named `interpretations` or a `postPath` that puts a post there is refused by the build. Each published
 comparison with at least two shown readings is a page at `/interpretations/<slug>/`; `/interpretations/`
@@ -512,8 +516,8 @@ copied as static files.
 
 ## Curated research context
 
-`curatedContext.publish` (off by default) turns on the curated-selection projection: Admin's
-**What will be public** (and the build's research summary) then lists what your private
+`curatedContext.publish` (off by default) turns on the curated-selection projection: Studio's
+**For readers** (in Write › Your research) chooses what each post offers, and **Research › What readers see** (and the build's research summary) then lists what your private
 `.openblog/private/research/selections.json` would give readers and why anything is withheld.
 A selection can only pick what the atlas, comparison and source projections already publish (a
 source must already be cited by a published post or published by the atlas or a comparison); it
@@ -533,7 +537,7 @@ writes `curated-context.json`, a versioned public data file (the published selec
 attribution, doubt, evidence, provenance and the revision you selected, the context they need, and each
 post's items in your order with a canonical anchor for each), and each post you offered something gets a
 static **Research context** section after its text, complete without JavaScript. Both are read from the
-one public value that Admin's **What will be public** lists, so they never disagree and neither can reach
+one public value that Studio's **What readers see** lists, so they never disagree and neither can reach
 a private note. With the switch off, or nothing selected, the site builds exactly as before; a file over
 its bound is left out whole with a `boundary:` warning and the pages are unaffected. Portable copies, syndicated copies, full-content feeds and `llms-full.txt` carry it too, with a link back to the
 canonical section ([ADR 0202](adr/0202-portable-copies-carry-the-public-curated-context-as-labeled-sections-with-links-back-to-the-canonical-page.md)).
@@ -568,7 +572,7 @@ browser, and erase it (see [Export, import and privacy controls](specs/reader-an
 ## Claim evidence
 
 `claimEvidence.publish` (off by default) publishes the claims and evidence links you approved in
-Evidence Studio with the posts they are about: each such post gains a "Claims and evidence"
+Studio's **Claims and evidence** (in Write; the old Evidence Studio until it retires) with the posts they are about: each such post gains a "Claims and evidence"
 section listing, for every approved claim, its supporting and contradicting evidence side by side
 with the references, locations, your rationale, confidence and uncertainty, and the site gains
 `/claim-evidence.json` with the same data. Support is never published while a contradicting link
@@ -627,7 +631,7 @@ other way to take part is a participation kind, off until you switch it on in `p
   otherwise, and whenever the service cannot take it, the reader gets the suggestion to copy and
   send to `engagement.feedbackContact`. A site with no hosted service shows only that contact (and
   nothing when none is set). Editors read, decide and, for an accepted one, copy it into a private
-  research note in the **Moderation inbox**; its contact and unshown name are cleared after
+  research note in the **Readers** inbox; its contact and unshown name are cleared after
   `retention.closedDays`
   ([ADRs 0158](adr/0158-suggestions-are-sent-through-the-one-feedback-route-behind-their-own-opt-in-with-the-page-as-work.md)
   to [0160](adr/0160-editors-read-suggestions-in-the-one-inbox-and-copying-one-into-a-research-note-is-an-explicit-unverified-export.md)).
@@ -639,7 +643,7 @@ other way to take part is a participation kind, off until you switch it on in `p
   (`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, see [the function's guide](../netlify/functions/README.md));
   otherwise, and whenever the service cannot take it, the reader gets their reflection to copy and
   send to `engagement.feedbackContact`. Moderators approve exactly the text and the consent they
-  saw in the **Moderation inbox** (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
+  saw in the **Readers** inbox (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
   and [0114](adr/0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md)).
   Approving one writes its public part to `content/third-perspectives.json`, versioned with the
   site; posts where the kind is `open` or `locked` show those reflections in a "Third
@@ -656,9 +660,9 @@ other way to take part is a participation kind, off until you switch it on in `p
 - `author-response` lets the author of one section of a shared reflection answer a Third Perspective
   about it. Where it is `open` on a post whose body is an arranged shared reflection with a committed
   credits sidecar, the "Offer a Third Perspective" form also offers "One author's section", chosen by
-  author and place (never a side of the page). In Admin, only the contributor bound to that section
+  author and place (never a side of the page). In Studio, only the contributor bound to that section
   sees "Answer as ...", on a reflection that is shown, and the answer waits for a coordinator in the
-  **Moderation inbox**: it is never approved by the account that wrote it, only under a reflection
+  **Readers** inbox: it is never approved by the account that wrote it, only under a reflection
   that is shown now and about that very author's section, and its author can take it back. The
   hosted function needs `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives and no
   SQL ([the function's guide](../netlify/functions/README.md#author-responses-optional-no-sql); ADRs
@@ -686,7 +690,7 @@ What the hosted service keeps, and how it goes, once you run the optional
 - **Never stored:** a reader's IP address, user agent, e-mail address or any identifier that
   lasts beyond an hour. Rate limits keep a salted digest of the client for the hour only; page
   analytics keep a daily digest that changes every day. Service credentials stay in Netlify and
-  never reach Admin's browser or a page.
+  never reach Studio's page or the public site.
 - **Receipts:** a reader who sends passage feedback gets a private receipt once; only its digest
   is stored. With it they can check on the note, agree to be asked to clarify it, answer a
   clarification request, or withdraw it. Nothing is ever e-mailed.
@@ -698,11 +702,30 @@ What the hosted service keeps, and how it goes, once you run the optional
 - **Abuse reports:** anonymous, never published or counted, and taken only for an item that is
   public now. Upholding one removes the item in the same decision, or changes only the report if
   the item is already out of view.
-- **Retention:** nothing is deleted on a schedule. In **Moderation inbox → Retention**, check what
+- **Retention:** nothing is deleted on a schedule. In **Readers › How readers reach you** (keeping notes), check what
   retention would do under the periods above, then run it. Pending items expire, the text of
   closed items and upheld reports is purged after `closedDays`, withdrawn text at once, and
   records of decisions after `auditDays`. Comments are included only if you set `retention`
   yourself.
+
+## Studio's words
+
+`studio` holds the site's changes to the words Studio (the new Admin) uses with the person who
+writes: `{ "words": { "vars": { "helper": "Mikey", "owner": "Grammi" }, "text": { "cards.signOff":
+"Love, {owner}" } } }`. `vars` names who helps her (`helper`), what she calls the blog (`product`)
+and her name (`owner`, by default the first word of `author.name`); `text` changes sentences by
+word id. Absent, Studio uses its built-in words, which name no particular owner. A bad entry is
+dropped and reported in Studio's Home details and by `openblog check`; an unknown key under
+`studio` or `studio.words` stops the configuration loading. A host serving many sites can set the
+same in a file named by `OPENBLOG_STUDIO_WORDS_PATH`; the site wins per key. See
+[Studio's words](studio-words.md) for every id, the limits and examples.
+
+`studio.onboarding` is `"on"` or `"off"` (absent means off): whether Studio's **Getting started**
+shows by itself to an account that hasn't been through it. `openblog init` writes `"on"` for a new
+site; an existing site without the key is unchanged. The server's `OPENBLOG_STUDIO_ONBOARDING`
+wins over it when set, and is the only place for a round (`on:<round>`) or a practice run
+(`rehearse`); any other value here is reported and treated as off. See
+[Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
 
 ## Documentation section
 
@@ -736,7 +759,7 @@ While `enabled`, a build on a day inside a window wears that window's theme, and
 between seasons. Days are `MM-DD` in UTC, a window may cross the new year, and where two overlap the
 first one listed wins. Every theme a window names must exist, or the build stops and says which. A
 series, page or post with its own `theme` keeps it whatever the season. Off and not written back unless
-stated. Admin's **Seasons** screen edits it. See [Seasons](themes.md#seasons).
+stated. Studio's **Decorations** screen edits it. See [Seasons](themes.md#seasons).
 
 ### Decorations
 

@@ -46,6 +46,8 @@ const RESCHEDULE_FIELDS = ["version", "scheduledFor", "timeZone"];
 const CANCEL_FIELDS = ["version"];
 const RETRY_FIELDS = ["version"];
 const RESOLVE_FIELDS = ["version", "outcome", "providerPostId"];
+const OWNER_CHECKED = "owner-checked:";
+const ownerChecked = (value) => typeof value === "string" && value.startsWith(OWNER_CHECKED);
 const RESOLVE_OUTCOMES = ["published", "not-posted"];
 
 class RouteError extends Error {
@@ -94,7 +96,9 @@ const postView = (row, account) => ({
   retryable: row.status === "failed",
   resolvable: row.status === "unknown",
   lastErrorCode: row.last_error_code ?? null,
-  providerPostId: row.provider_post_id ?? null,
+  // Marked as shared by the owner without the provider's id (G7): no id to show, and said so.
+  providerPostId: ownerChecked(row.provider_post_id) ? null : row.provider_post_id ?? null,
+  ...(ownerChecked(row.provider_post_id) ? { checkedByOwner: true } : {}),
   publishedAt: row.published_at ? instant(row.published_at) : null,
   canceledAt: row.canceled_at ? instant(row.canceled_at) : null,
   createdBy: row.created_by,
@@ -364,7 +368,9 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
     const body = readBody(rawBody, RESOLVE_FIELDS, ["version", "outcome"]);
     const version = readVersion(body.version);
     if (!RESOLVE_OUTCOMES.includes(body.outcome)) throw new RouteError(400, "invalid-outcome", "Say whether it was posted or not posted.");
-    if (body.outcome === "published" && !validProviderPostId(body.providerPostId)) throw new RouteError(400, "invalid-provider-post-id", "Enter the post id the provider shows for it.");
+    // Without the provider's id (G7) the owner's word is kept as `owner-checked:<id>`: it passes
+    // the id check and the unique index, and postView reports it as checkedByOwner.
+    if (body.outcome === "published" && body.providerPostId !== undefined && body.providerPostId !== null && !validProviderPostId(body.providerPostId)) throw new RouteError(400, "invalid-provider-post-id", "Enter the post id the provider shows for it.");
     if (body.outcome === "not-posted" && body.providerPostId !== undefined) throw new RouteError(400, "unknown-field", "A post that was not posted has no post id.");
     const row = await postById(id);
     if (!row) throw new RouteError(404, "not-found", "That announcement does not exist.");
@@ -377,7 +383,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
       p_post_id: id,
       p_version: version,
       p_result: published ? "published" : "failed",
-      p_provider_post_id: published ? body.providerPostId : null,
+      p_provider_post_id: published ? body.providerPostId ?? `${OWNER_CHECKED}${id}` : null,
       p_error_code: published ? null : "reviewed-not-posted",
       p_error_detail: published ? null : `Checked by ${identity.actor}: it was not posted.`,
     });
@@ -428,7 +434,7 @@ export function createAnnouncements({ settings, fetchImpl = globalThis.fetch, no
         httpStatus: row.http_status ?? null,
         errorCode: row.error_code ?? null,
         errorDetail: row.error_detail ?? null,
-        providerPostId: row.provider_post_id ?? null,
+        providerPostId: ownerChecked(row.provider_post_id) ? null : row.provider_post_id ?? null,
       })),
     });
   };

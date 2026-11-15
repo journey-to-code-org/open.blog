@@ -7,7 +7,7 @@ says a reading is verified, correct, the consensus or the most authoritative: op
 that, and a page that claimed it would be claiming more than you can show.
 
 Publishing is opt-in. See [Interpretation comparisons](configuration.md#interpretation-comparisons)
-for the `interpretations.publish` switch and [Author an interpretation comparison](admin.md#author-an-interpretation-comparison)
+for the `interpretations.publish` switch and [Author an interpretation comparison](admin.md#research)
 for the Admin form. The decisions are recorded in
 [ADR 0226](adr/0226-a-comparison-is-its-own-public-content-type-and-one-versioned-file.md) and the ADRs
 after it.
@@ -72,7 +72,7 @@ never copied into the site. A page is built only from the public projection: app
 that your site already publishes, and source descriptions your published posts could cite. A draft
 comparison, an unapproved or stale AI draft, a note you keep in the file, a private source and an
 evidence link you have not approved appear on no page, in no search result and in no data file.
-Admin's **What will be public** lists the comparisons the next build publishes.
+Studio's **Research › What readers see** lists the comparisons the next build publishes.
 
 ## Accessibility
 

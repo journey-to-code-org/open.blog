@@ -5,6 +5,7 @@
 import { h, toast } from "./dom.js";
 import { wentOutWords } from "./publish.js";
 import { sayWhen } from "./dates.js";
+import { say, wordsInEffect } from "./words.js";
 
 /** What needs attention, from `GET status` and `GET publish`, in her words. Pure; exported for tests. */
 export function needs(status, publish) {
@@ -16,7 +17,7 @@ export function needs(status, publish) {
   if (publish?.repo && publish.remote && !publish.auto && (waiting || publish.ahead > 0)) {
     out.push({ id: "send", words: waiting === 1 ? "1 change is saved here but isn't on your public site yet." : waiting ? `${waiting} changes are saved here but aren't on your public site yet.` : "Some saved changes aren't on your public site yet.", action: "Put them on my site" });
   }
-  if (status?.filesMayVanish || publish?.filesMayVanish) out.push({ id: "vanish", words: "This server doesn't keep its files when it restarts. Ask the person who set up your site to fix that." });
+  if (status?.filesMayVanish || publish?.filesMayVanish) out.push({ id: "vanish", words: say("home.filesVanish") });
   return out;
 }
 
@@ -29,7 +30,7 @@ export function siteHealth({ api, meta }) {
   function draw() {
     const list = needs(status, publish);
     const more = h("details", { class: "studio-help" },
-      h("summary", { text: "For the person who set up your site" }),
+      h("summary", { text: say("common.forHelper") }),
       h("dl", { class: "studio-details" },
         ...row("Last updated", status?.lastBuilt ? `${sayWhen(status.lastBuilt)} (${status.lastBuilt})` : "Not since this server started"),
         ...(status?.lastError ? row("Last problem", status.lastError) : []),
@@ -42,6 +43,7 @@ export function siteHealth({ api, meta }) {
           ...row("Waiting to send", (publish.changed || []).join(", ") || "Nothing"),
           ...row("Ahead / behind", `${publish.ahead || 0} / ${publish.behind || 0}`),
         ] : row("Sending out", "No repository here, so nothing is sent out"))),
+      wordsPart(),
       h("action-button", { variant: "secondary", size: "sm", onClick: () => rebuild() }, "Rebuild the site now"));
     element.replaceChildren(
       h("h3", { id: "studio-health-h", text: "Your site" }),
@@ -51,6 +53,17 @@ export function siteHealth({ api, meta }) {
           item.action ? h("action-button", { variant: "secondary", onClick: () => act(item.id) }, item.action) : null)))
         : h("p", { class: "studio-lede", text: "Everything you've saved is on your site." }),
       more);
+  }
+
+  // The site's own words (docs/studio-words.md): what changed, and what was dropped and why.
+  function wordsPart() {
+    const words = wordsInEffect(meta?.studioWords);
+    if (!words) return null;
+    return h("div", { class: "studio-health-words" },
+      h("h4", { text: "Words" }),
+      h("p", { text: words.summary }),
+      words.changes.length ? h("ul", { class: "studio-mono" }, words.changes.map((line) => h("li", { text: line }))) : null,
+      words.problems.length ? h("ul", { class: "studio-health-word-problems" }, words.problems.map((line) => h("li", { text: line }))) : null);
   }
 
   function row(name, value) {
@@ -81,7 +94,7 @@ export function siteHealth({ api, meta }) {
       toast("Your site is up to date.");
     } catch (error) {
       lastProblem = `${error.status || "no connection"}: ${error.message || ""}`;
-      toast("Your site couldn't be updated. Your work is saved. Let the person who set up your site know; the details are under Your site.", { variant: "warning", duration: 0 });
+      toast(say("home.notUpdated"), { variant: "warning", duration: 0 });
     }
     await load();
   }

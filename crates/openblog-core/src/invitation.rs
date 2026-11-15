@@ -598,6 +598,27 @@ impl SharedPublication {
         next.checked().map_err(|_| InvitationError::Unavailable)
     }
 
+    /// The pending, unexpired invitation `token` opens, whoever holds it: what the join page shows
+    /// before anyone signs in (Studio R14 G112). Every refusal is the same `None`, and the stored
+    /// hashes are all compared without stopping early, as [`Self::find_pending`] does.
+    pub fn pending_for_token(&self, token: &str, now: i64) -> Option<&Invitation> {
+        if token_publication_id(token) != Some(self.publication_id.as_str()) {
+            return None;
+        }
+        let presented = hash_token(token);
+        let mut found = None;
+        for (index, invitation) in self.invitations.iter().enumerate() {
+            let stored = invitation.token_hash.as_deref().unwrap_or("");
+            if constant_time_eq(stored, &presented) {
+                found = Some(index);
+            }
+        }
+        let invitation = &self.invitations[found?];
+        (invitation.state == InvitationState::Pending
+            && invitation.status(now) == InvitationState::Pending)
+            .then_some(invitation)
+    }
+
     /// The pending, unexpired invitation that `token` opens for `account`. Compares against every
     /// stored hash without stopping early, so timing reveals nothing about which one matched.
     fn find_pending(&self, token: &str, account: &str, now: i64) -> Result<usize, InvitationError> {

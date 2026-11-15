@@ -96,10 +96,32 @@ export function createPushStore({ settings, fetchImpl, now = () => Date.now() })
 
 export const subscriptionOf = (row) => ({ endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } });
 
+/** Where a notice opens when it names nowhere: Studio's Home. */
+export const STUDIO_HOME = "/admin/studio/";
+
 /** A notice, bounded and plain: a title, a line of text, and where tapping it goes. */
-export function notice({ title, body = "", url = "/admin/", tag = null }) {
+export function notice({ title, body = "", url = STUDIO_HOME, tag = null }) {
   const clean = (value, max) => text(value).replace(/[\u0000-\u001F\u007F]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
-  return { title: clean(title, LIMITS.title) || "open.blog", body: clean(body, LIMITS.body), url: text(url).slice(0, 500), ...(tag ? { tag: clean(tag, 64) } : {}) };
+  return { title: clean(title, LIMITS.title) || "Something new on your blog", body: clean(body, LIMITS.body), url: text(url).slice(0, 500), ...(tag ? { tag: clean(tag, 64) } : {}) };
+}
+
+/**
+ * A post named the way she would say it, from its address (Studio R3, G23): "/posts/pumpkin-pie/" is
+ * “Pumpkin pie”, "/" is your front page. Never the raw path.
+ */
+export function pageWords(path) {
+  const parts = text(path).split(/[?#]/)[0].split("/").filter(Boolean);
+  let last = parts.at(-1) || "";
+  if (/^index\.html?$/i.test(last)) last = parts.at(-2) || "";
+  last = last.replace(/\.(html?|md)$/i, "");
+  try {
+    last = decodeURIComponent(last);
+  } catch {
+    // as written
+  }
+  const words = last.replace(/[-_\s]+/g, " ").replace(/[\u0000-\u001F\u007F]+/g, "").trim();
+  if (!words) return "your front page";
+  return `“${words[0].toUpperCase()}${words.slice(1)}”`;
 }
 
 /**

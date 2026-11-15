@@ -340,42 +340,4 @@ test("feeds, llms files, search data and portable copies carry no conversation, 
 
 // ---- Admin: take-off for a withdrawn answer
 
-async function signIn(page) {
-  await page.goto(`${origin}/admin/`);
-  const username = page.getByLabel("Username", { exact: true });
-  if (await username.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
-    await username.fill("writer");
-    await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page.locator('[data-action="logout"]')).toBeVisible();
-  }
-}
 const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-const queueStatus = (page) => page.locator(".oba-feedback-section").first().locator('p[role="status"]').first();
-
-test("Admin counts a published answer that must come off, apart from the reflection, and takes it off from the keyboard", async ({ page }) => {
-  let audit = { checked: 1, truncated: false, mustComeOff: [], unknown: [], answersMustComeOff: [{ id: ID(2), post: "posts/shared-tides.md", parent: ID(1) }] };
-  const taken = [];
-  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, { state: new URL(route.request().url()).searchParams.get("state"), kind: "", protocol: "protected", items: [], invalid: 0, next: null }));
-  await page.route(`${origin}/admin/api/engagement/third-perspectives/published`, (route) => json(route, 200, audit));
-  await page.route(`${origin}/admin/api/engagement/author-responses/unpublish`, async (route) => {
-    taken.push(route.request().postDataJSON());
-    audit = { ...audit, answersMustComeOff: [] };
-    return json(route, 200, { published: false, build: { ok: true, posts: 1 } });
-  });
-  await signIn(page);
-  for (const hash of ["pending", "approved"]) {
-    await page.goto(`${origin}/admin/#/moderation/${hash}`);
-    const notice = page.locator('[data-perspective-notice="answersMustComeOff"]');
-    await expect(notice).toContainText("1 published author response must come off its post");
-    await expect(notice).toContainText("The reader’s reflection stays.");
-    await expect(notice).toHaveAttribute("role", "alert");
-  }
-  await expect(page.locator('[data-perspective-notice="mustComeOff"]')).toHaveCount(0);
-  const button = page.locator('[data-perspective-notice="answersMustComeOff"]').getByRole("button", { name: "Take the answer off the post" });
-  await button.focus();
-  await page.keyboard.press("Enter");
-  await expect(queueStatus(page)).toContainText("Taken off its post.");
-  expect(taken).toEqual([{ id: ID(2) }]);
-  await expect(page.locator('[data-perspective-notice="answersMustComeOff"]')).toHaveCount(0);
-});

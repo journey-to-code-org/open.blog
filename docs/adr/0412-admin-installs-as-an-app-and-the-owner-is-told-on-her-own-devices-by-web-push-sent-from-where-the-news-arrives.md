@@ -43,11 +43,23 @@ app added to the Home Screen (iOS 16.4 and later).
   sent to only if its endpoint is one of the browsers' push services (Google, Mozilla, Apple, Microsoft),
   over https, with no credentials or port, so a stored device can never make the function request anywhere
   else. The key pair comes from `node scripts/push-keys.mjs`, and the pair is checked to belong together.
-- **What a notification says** is what arrived and from whom: a comment's author, the post's path and up to
-  90 characters of the comment; for feedback, its post; for a quote request, the same name, service and town
-  as the email (ADR 0383), never a phone number, address or description. The content is encrypted end to end
+- **What a notification says** is what arrived and from whom: a comment's author, the post named in words
+  (from the last part of its address, so `/posts/pumpkin-pie/` is “Pumpkin pie”, and `/` is "your front
+  page"; never the raw path) and up to 90 characters of the comment; for feedback, its post; for a quote
+  request, the same name, service and town as the email (ADR 0383), never a phone number, address or
+  description. The content is encrypted end to end
   for the device: the push service carries it without being able to read it. It does show on the device's
   lock screen, which is the owner's own.
+
+## Amendments
+
+- 2026-11-13 (Studio R3): a notification names its post in words instead of by its path (the decision
+  above), and a test says "Your blog can reach <device>" and counts as the last thing that device was
+  told. Tapping a notification opens Studio (`/admin/studio/#/comments`, `#/quotes`, `#/notifications`);
+  the worker turns older `/admin/#/…` addresses into Studio's, and asks an open Studio window to move
+  (so its unsaved-work guard asks first) instead of reloading it. The worker is Studio's file, still at
+  `/admin/sw.js` with scope `/admin/`, and a site can no longer replace it; the manifest keeps `id` and
+  `scope` `/admin/`, opens `/admin/studio/`, and is named after the site without "Admin".
 
 ## Consequences
 

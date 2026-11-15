@@ -1,6 +1,7 @@
 // Choosing a photo: add one from the phone or computer, or use one already on the site, and (when it
 // goes into her words) describe it. Shared by the cover photo, "Put a photo in" and Pictures.
 import { h } from "./dom.js";
+import { say } from "./words.js";
 import { use } from "../zubra.js";
 
 /** Upload one photo; resolves to its address. Throws an ApiError with the server's plain sentence. */
@@ -82,7 +83,7 @@ export async function choosePicture(api, { heading = "Put a photo in", describe 
 
     function chosen(img) {
       if (!describe) return finish({ url: img.url, description: "" });
-      const field = h("text-field", { label: "Describe the photo", description: "For people who can't see it, like “Pie cooling on the windowsill”." });
+      const field = h("text-field", { label: "Describe the photo", description: say("photo.altHelp") });
       const put = h("action-button", { onClick: () => {
         const description = String(field.value || "").trim();
         if (!description) {

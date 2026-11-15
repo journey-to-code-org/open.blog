@@ -225,7 +225,7 @@ other text after it, or another kind, leaves an ordinary quote that shows the ma
 #### Pieces: buttons, videos, maps and more
 
 Besides call-outs, a post can hold a few ready-made pieces, written as a `piece` fence of `field: value` lines
-(the Admin's **Add something** writes them for you). A value continues on lines indented by two spaces, and a
+(Write's **Add something** writes them for you). A value continues on lines indented by two spaces, and a
 list piece repeats its first field to start each item:
 
 ````markdown
@@ -257,7 +257,7 @@ the build. Videos and maps are lazy-loaded, titled, privacy-enhanced frames (`yo
 
 A `compare` fence pairs two photos, in any post (not only a job). One `key: value` per line; the picture and its
 description are required for each side, and the caption and label are optional (the labels are "Before" and
-"After" unless you change them). Admin's **Add something** writes it for you.
+"After" unless you change them). Write's **Add something** writes it for you.
 
 ````markdown
 ```compare
@@ -285,7 +285,7 @@ ordinary code block. Feeds and exports never carry the form.
 
 When `content/landing.json` exists, the home page is built from it instead of the fixed intro, post list and
 series (without the file the home page is built from `home.heading`, `home.intro` and `home.showSeries` as
-before). The Admin [Landing page](admin.md#the-landing-page) writes it; you can also edit it by hand:
+before). The Admin [Landing page](admin.md#front-page) writes it; you can also edit it by hand:
 
 ```json
 { "format": "openblog-landing", "version": 1, "sections": [
@@ -360,13 +360,12 @@ What does `draft: true` do?
 A question needs two to four choices and exactly one checked (`[x]`) answer. The final
 `>` explanation is optional. Prompts, choices, and explanations support emphasis,
 strikethrough, and inline code, but not links, images, raw HTML, or multiple lines.
-`openblog check` reports an invalid knowledge check instead of publishing it.
+`openblog check` reports an invalid knowledge check instead of publishing it. In Studio, the form for **A question for readers** (Add something) has **Write questions for me** when the [writing helper](admin.md#the-writing-helper) is set up, and the form for **Code readers can run** has **Draft it for me**; both fill the form for you to check, and nothing enters the post until **Add it**.
 
-In the admin editor, choose **Add knowledge check** to fill in a small form instead of
-writing the fence. You can add up to three questions at once. If the site owner configured
-generation, select some article text (or put the cursor in a section), open the same form,
-and choose **Generate draft**. Generated questions remain editable and are not added to
-the post until you choose **Insert**.
+In Write, choose **Add something › A question for readers** to fill in a small form instead of
+writing the fence: the question, two to four answers with the right one marked, and what to tell
+readers after. You can add up to three questions at once. **Write questions for me** in the form drafts them from your words
+through [the writing helper](admin.md#the-writing-helper).
 
 ### Code blocks
 
@@ -605,9 +604,11 @@ fn saturates() {
 - The build rejects `check` on anything but `rust runnable`, a missing `---checks` line, an empty
   starter, or a `---checks` section with no `#[test]`.
 
-The Admin's **Assistant → Interactions → Create runnable-code proposal** dialog can draft either a
-complete example or this challenge pattern from selected text or the current section. Every field is
-editable, insertion is explicit, and the form also works without an AI provider. These challenges do
+In Studio, **Add something › For the person who set up your site › Code readers can run** writes
+either a complete example or this challenge pattern from a form (title, what to try, the code, and for
+a challenge its expected result and a hint); every field is editable and nothing goes in until **Add
+it**. **Draft it for me** drafts one from your words through [the writing
+helper](admin.md#the-writing-helper); the form works without it. These challenges do
 not add hidden tests or grading: the reader runs the visible source and compares its behavior with the
 authored expected result.
 
@@ -620,13 +621,16 @@ is `/images/a.png`:
 ![A short description](/images/a.png)
 ```
 
-In the admin editor, images can be inserted with a button, dragged in, or pasted; they are
-saved under `static/images/uploads/<year>/`.
+In Studio, **Put a photo in** (beside **Add something** in Write) adds a photo, and a pasted or
+dropped photo opens it too; photos are saved under `static/images/uploads/<year>/`.
 
 ### Drafts
 
 `draft: true` hides a post everywhere. Preview drafts locally with
-`openblog serve --drafts`, or in the admin editor, where drafts have their own badge.
+`openblog serve --drafts`, or in Studio, where drafts have their own badge.
+
+A post can't be hidden from search engines on its own: there is no per-post `noindex`. A draft
+is how a post stays out of the site, its feeds and the sitemap.
 
 ### Scheduling
 
@@ -754,10 +758,10 @@ no published recipe gets none of it.
 moves to `/recipes/all/`, with its own navigation link, called **All recipes** if **Recipes** is
 already in use. If that address is yours too, there is no list of every recipe, and the recipe cards
 lead to the filters. A page at a filter's address means that filter is left out. Each case adds a
-warning, shown on Admin's Overview and in **Site preview**, saying what to change to get it back:
-the page's **Slug** in its Settings, because a new title keeps the old address. Moving the page
+warning, shown on Studio's Home, saying what to change to get it back:
+the page's address, because a new title keeps the old address. Moving the page
 moves the list back, so links shared in the meantime stop working. An old address in a page's
-`aliases` has no field in Admin, so that warning says to have someone change the file. A file at
+`aliases` has no field in Studio, so that warning says to have someone change the file. A file at
 `static/recipes/index.html` is not one of these: the generated page replaces it.
 
 To turn all of this off, set `recipes.listing` to `false` in

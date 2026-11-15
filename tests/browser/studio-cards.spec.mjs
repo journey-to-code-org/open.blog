@@ -143,7 +143,8 @@ test("a birthday card for Ricky starts on his birthday every year, previews, tes
   await page.getByRole("button", { name: "Schedule this card" }).click();
   await expect(page.getByRole("heading", { name: "Who gets a card?" })).toBeVisible();
   const scheduled = sent.at(-1);
-  expect(scheduled).toMatchObject({ contactId: RICKY, design: "birthday", sendOn: "1990-09-07", yearly: true, message: "Happy birthday {name}", signOff: "Love, Grammi", hour: 8, timeZone: "America/New_York" });
+  // No words of its own: the built-in sign-off is her name alone, the first word of the author's.
+  expect(scheduled).toMatchObject({ contactId: RICKY, design: "birthday", sendOn: "1990-09-07", yearly: true, message: "Happy birthday {name}", signOff: "Alex", hour: 8, timeZone: "America/New_York" });
 });
 
 test("unsaved words wait on the device, and leaving asks first", async ({ page }) => {

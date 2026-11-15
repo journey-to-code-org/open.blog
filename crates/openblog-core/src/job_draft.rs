@@ -120,6 +120,21 @@ fn markup_problem(text: &str) -> Option<&'static str> {
     if text.contains("![") {
         return Some("it contained an image");
     }
+    // A write-up goes into a post as words: never a link, however it is written, an address
+    // (a line that is only one becomes a player on the page) or code (Studio R8, B1).
+    if ["](", "][", "]:", "[["]
+        .iter()
+        .any(|mark| text.contains(mark))
+    {
+        return Some("it contained a link");
+    }
+    let lower = text.to_lowercase();
+    if lower.contains("://") || lower.contains("www.") || lower.contains("mailto:") {
+        return Some("it contained an address");
+    }
+    if text.contains('`') {
+        return Some("it contained code");
+    }
     for line in text.lines() {
         let line = line.trim();
         if line == "---" || line == "+++" || line == "..." {
@@ -265,5 +280,29 @@ mod tests {
         value["title"] = json!("   ");
         assert!(JobDraft::from_json(&value).is_err());
         assert!(JobDraft::from_json(&json!("text")).is_err());
+    }
+
+    /// Studio R8, B1: a write-up is words, never a link, an address or code.
+    #[test]
+    fn a_write_up_with_a_link_an_address_or_code_is_refused() {
+        for bad in [
+            "See [our site](https://evil.example).",
+            "See [our site][1].",
+            "[1]: /somewhere",
+            "Watch https://evil.example/video",
+            "Visit WWW.evil.example",
+            "mailto:someone",
+            "Run `this`",
+        ] {
+            let mut value = good();
+            value["sections"]["did"] = json!(bad);
+            assert!(JobDraft::from_json(&value).is_err(), "{bad}");
+            let mut value = good();
+            value["title"] = json!(bad);
+            assert!(JobDraft::from_json(&value).is_err(), "title: {bad}");
+        }
+        let mut value = good();
+        value["sections"]["did"] = json!("Replaced it.\n\n- new valve\n- new seal");
+        assert!(JobDraft::from_json(&value).is_ok(), "a plain list is words");
     }
 }

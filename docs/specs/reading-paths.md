@@ -156,7 +156,6 @@ Admin Studio edits paths under **Content → Reading paths** (`#/paths`), throug
 | `POST reading-paths/preview` | Checks an unsaved `path` or `source` and returns its projection. Writes nothing. |
 | `POST reading-paths` | Creates a path (`409` if the slug has a file). |
 | `PUT reading-paths` | Replaces a path, naming the `revision` read (`409` with the newer copy when stale). |
-| `POST reading-paths/reorder` | Applies a full `order` of step ids; `clearTransition` and `transitions` say what happens to a step that moves to or from the front. |
 | `DELETE reading-paths?slug=&revision=` | Moves the file to `.openblog/trash`. |
 
 Every route needs a session and every write a CSRF token; any other name is not found. A revision is

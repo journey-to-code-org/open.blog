@@ -721,7 +721,7 @@ mod tests {
         }
         let xml = rss(&site).unwrap();
         assert!(!xml.contains("<content:encoded>"));
-        assert!(xml.contains("<description>Hello x</description>"));
+        assert!(xml.contains("<description>Hello</description>"));
         assert!(xml.contains("<guid isPermaLink=\"true\">https://j.io/a/</guid>"));
         assert_eq!(site.posts[0].html, original);
         site.posts[0].title = "An updated title".into();
@@ -774,7 +774,7 @@ mod tests {
         assert!(feed["items"][0].get("authors").is_none());
         assert!(search_index(&site()).contains("\"version\":1"));
         let index = llms_index(&site()).unwrap();
-        assert!(index.contains("[A & B](https://j.io/a/): Hello x"));
+        assert!(index.contains("[A & B](https://j.io/a/): Hello"));
         assert!(index.contains("[Sitemap](https://j.io/sitemap.xml)"));
         let full = llms_full(&site()).unwrap();
         assert!(full.contains("## A & B"));

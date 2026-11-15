@@ -385,6 +385,25 @@ impl Policy {
         if let Some(relative) = path.strip_prefix(".openblog/private/admin-preferences/") {
             return token_file(relative, ".json");
         }
+        if let Some(relative) = path.strip_prefix(".openblog/pending-tracks/held/") {
+            // A route file held until its post is live, and the post it belongs to
+            // (G47): `<year>/<name>.gpx` and `<year>/<name>.gpx.owner`. Never pruned, so a
+            // restart must bring them back.
+            let Some((year, name)) = relative.split_once('/') else {
+                return false;
+            };
+            let stem = name
+                .strip_suffix(".gpx.owner")
+                .or_else(|| name.strip_suffix(".gpx"));
+            return year.len() == 4
+                && year.bytes().all(|b| b.is_ascii_digit())
+                && stem.is_some_and(|stem| {
+                    !stem.is_empty()
+                        && stem
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+                });
+        }
         if let Some(relative) = path.strip_prefix(".openblog/pending-tracks/") {
             return token_file(relative, ".gpx");
         }
@@ -1555,6 +1574,40 @@ mod tests {
     }
 
     #[test]
+    fn a_held_route_file_and_its_owner_are_kept_across_restarts() {
+        let policy = policy();
+        for path in [
+            ".openblog/pending-tracks/held/2026/ridge-walk.gpx",
+            ".openblog/pending-tracks/held/2026/ridge-walk.gpx.owner",
+            ".openblog/pending-tracks/held/2026/ridge_walk-2.gpx",
+        ] {
+            assert!(policy.allowed(path), "{path}");
+        }
+        for path in [
+            ".openblog/pending-tracks/held/ridge.gpx",
+            ".openblog/pending-tracks/held/26/ridge.gpx",
+            ".openblog/pending-tracks/held/2026/a/ridge.gpx",
+            ".openblog/pending-tracks/held/2026/ridge.txt",
+            ".openblog/pending-tracks/held/2026/ridge.gpx.tmp",
+            ".openblog/pending-tracks/held/2026/.gpx",
+            ".openblog/pending-tracks/held/2026/ri dge.gpx",
+        ] {
+            assert!(!policy.allowed(path), "{path}");
+        }
+        let fixture = Fixture::new();
+        let held = fixture.0.join(".openblog/pending-tracks/held/2026");
+        fs::create_dir_all(&held).unwrap();
+        fs::write(held.join("ridge.gpx"), "<gpx/>").unwrap();
+        fs::write(held.join("ridge.gpx.owner"), "posts/2026-01-03-ridge.md\n").unwrap();
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(
+            files[".openblog/pending-tracks/held/2026/ridge.gpx"],
+            b"<gpx/>"
+        );
+        assert!(files.contains_key(".openblog/pending-tracks/held/2026/ridge.gpx.owner"));
+    }
+
+    #[test]
     fn a_saved_review_is_kept_and_comes_back() {
         let policy = policy();
         assert!(policy.allowed("content/proof/dana-r-2026-10-20.md"));
@@ -1968,14 +2021,19 @@ Great job.
                 Duration::from_secs(60),
             )
             .unwrap();
-        let snapshot = crate::admin_preferences::load(&fixture.0, "author").unwrap();
+        // A private file the workspace keeps (the old Admin's preferences, written directly: nothing
+        // writes them through the API since R15), then any save Studio makes.
+        let kept = crate::admin_preferences::preference_path(&fixture.0, "author").unwrap();
+        std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+        std::fs::write(
+            &kept,
+            br#"{"schemaVersion":1,"voiceInvitationDismissed":true}"#,
+        )
+        .unwrap();
         let mut request = crate::http::Request {
-            method: "PUT".into(),
-            path: "/admin/api/preferences".into(),
-            body: serde_json::to_vec(&serde_json::json!({
-                "etag": snapshot.etag, "preferences": snapshot.preferences,
-            }))
-            .unwrap(),
+            method: "POST".into(),
+            path: "/admin/api/voice/invitation".into(),
+            body: serde_json::to_vec(&serde_json::json!({ "dismissed": true })).unwrap(),
             ..Default::default()
         };
         request
@@ -1999,11 +2057,7 @@ Great job.
         assert!(stored.contains("admin-preferences"));
         assert!(!stored.contains("users.json"));
         assert!(!stored.contains(&users.find("author").unwrap().hash));
-        assert!(
-            crate::admin_preferences::load(&fixture.0, "author")
-                .unwrap()
-                .stored
-        );
+        assert!(kept.is_file(), "nothing local was thrown away");
         assert_eq!(crate::admin::handle(&state, &request).status, 503);
         assert!(!fixture
             .0

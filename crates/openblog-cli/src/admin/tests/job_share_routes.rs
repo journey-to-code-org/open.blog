@@ -180,13 +180,182 @@ fn a_draft_or_a_post_that_is_not_a_job_is_not_shared() {
         "---\ntitle: Note\ndate: 2026-10-01\n---\nHi.\n",
     )
     .unwrap();
-    for path in ["posts/draft.md", "posts/note.md", "posts/missing.md"] {
+    for path in ["posts/draft.md", "posts/note.md"] {
         let response = get(&f, &session, path);
         assert_eq!(response.status, 422, "{path}");
         assert_eq!(body_json(&response)["code"], "not-shareable");
+    }
+    // A job that isn't there at all says so, so Studio offers nothing to open.
+    for path in ["posts/missing.md", "../outside.md"] {
+        let response = get(&f, &session, path);
+        assert_eq!(response.status, 404, "{path}");
+        assert_eq!(body_json(&response)["code"], "not-found");
     }
     assert_eq!(
         handle(&f.state, &authed(req("GET", PATH), &session, false)).status,
         400
     );
+}
+
+#[test]
+fn i_posted_it_can_be_taken_back_and_only_her_own_mark_goes() {
+    // G17: Undo after "I posted it" removes that mark and nothing else.
+    let f = job_site("job-share-undo");
+    let session = login_ok(&f);
+    let described = body_json(&get(&f, &session, "posts/floor.md"));
+    let digest = place(&described, "nextdoor")["digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        by_hand(
+            &f,
+            &session,
+            json!({"path": "posts/floor.md", "destination": "nextdoor"}),
+        )
+        .status,
+        400,
+        "marking needs the words that were shown"
+    );
+    let marked = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "digest": digest}),
+    );
+    assert_eq!(marked.status, 200);
+    let at = body_json(&marked)["record"]["at"].clone();
+    let undone = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true, "at": at}),
+    );
+    assert_eq!(
+        undone.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&undone.body)
+    );
+    assert_eq!(
+        body_json(&undone),
+        json!({"destination": "nextdoor", "record": null})
+    );
+    let again = body_json(&get(&f, &session, "posts/floor.md"));
+    assert_eq!(place(&again, "nextdoor")["record"], Json::Null);
+    // Nothing to take back is fine, and changes nothing.
+    let nothing = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true, "at": at}),
+    );
+    assert_eq!(nothing.status, 200);
+    // A post open.blog made (or may have made) is never forgotten from here.
+    let record_path = f.dir.join(crate::job_share::STATE_FILE);
+    fs::write(
+        &record_path,
+        json!({"version": 1, "jobs": {"posts/floor.md": {"facebook": {"status": "posted", "at": "2026-10-22T10:00:00Z", "digest": "d"}}}}).to_string(),
+    )
+    .unwrap();
+    let refused = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "facebook", "undo": true, "at": "2026-10-22T10:00:00Z"}),
+    );
+    assert_eq!(refused.status, 409);
+    assert_eq!(body_json(&refused)["code"], "not-by-hand");
+    let kept = body_json(&get(&f, &session, "posts/floor.md"));
+    assert_eq!(place(&kept, "facebook")["record"]["status"], "posted");
+}
+
+#[test]
+fn undoing_i_posted_it_puts_back_what_it_replaced_and_a_stale_undo_takes_nothing() {
+    let f = job_site("job-share-undo-restore");
+    let session = login_ok(&f);
+    let digest = place(&body_json(&get(&f, &session, "posts/floor.md")), "nextdoor")["digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // She had an older "I posted it" (of words since changed) and a kit made for Google.
+    let record_path = f.dir.join(crate::job_share::STATE_FILE);
+    let earlier =
+        json!({"status": "posted-by-hand", "at": "2026-10-20T09:00:00Z", "digest": "old-words"});
+    fs::write(
+        &record_path,
+        json!({"version": 1, "jobs": {"posts/floor.md": {"nextdoor": earlier}}}).to_string(),
+    )
+    .unwrap();
+    let marked = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "digest": digest}),
+    );
+    assert_eq!(marked.status, 200);
+    let at = body_json(&marked)["record"]["at"].clone();
+    // An undo must say which mark it takes back.
+    assert_eq!(
+        by_hand(
+            &f,
+            &session,
+            json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true}),
+        )
+        .status,
+        400
+    );
+    // An undo of an earlier mark never removes a newer one.
+    let stale = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true, "at": "2026-10-20T09:00:00Z"}),
+    );
+    assert_eq!(stale.status, 409);
+    assert_eq!(body_json(&stale)["code"], "marked-again");
+    assert_eq!(
+        place(&body_json(&get(&f, &session, "posts/floor.md")), "nextdoor")["record"]["digest"],
+        json!(digest)
+    );
+    // Undo puts back the record the mark replaced, exactly.
+    let undone = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "nextdoor", "undo": true, "at": at}),
+    );
+    assert_eq!(
+        undone.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&undone.body)
+    );
+    assert_eq!(body_json(&undone)["record"], earlier);
+    let again = body_json(&get(&f, &session, "posts/floor.md"));
+    assert_eq!(place(&again, "nextdoor")["record"], earlier);
+    assert_eq!(place(&again, "nextdoor")["changedSince"], true);
+    // A kit made before is put back too.
+    fs::write(
+        &record_path,
+        json!({"version": 1, "jobs": {"posts/floor.md": {"google-business-profile": {"status": "kit-made", "at": "2026-10-21T08:00:00Z", "digest": "k"}}}}).to_string(),
+    )
+    .unwrap();
+    let google = place(
+        &body_json(&get(&f, &session, "posts/floor.md")),
+        "google-business-profile",
+    )["digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let marked = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "google-business-profile", "digest": google}),
+    );
+    assert_eq!(
+        marked.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&marked.body)
+    );
+    let undone = by_hand(
+        &f,
+        &session,
+        json!({"path": "posts/floor.md", "destination": "google-business-profile", "undo": true, "at": body_json(&marked)["record"]["at"]}),
+    );
+    assert_eq!(body_json(&undone)["record"]["status"], "kit-made");
 }

@@ -639,6 +639,25 @@ impl DraftSet {
         }
     }
 
+    /// The newest revision of `participant`'s own draft they let the others read: a standing
+    /// offer, or one committed to a revealed exchange. Numbers only, never prose, so a caller can
+    /// say "changed since you shared it" without reading anyone's words (Studio R14 G115).
+    pub fn shared_revision(&self, participant: &str) -> Option<u64> {
+        let offered = self
+            .ready
+            .iter()
+            .filter(|r| r.participant_id == participant)
+            .map(|r| r.revision);
+        let committed = self
+            .exchanges
+            .iter()
+            .filter(|e| e.state == ExchangeState::Revealed)
+            .flat_map(|e| &e.commitments)
+            .filter(|c| c.participant_id == participant)
+            .map(|c| c.revision);
+        offered.chain(committed).max()
+    }
+
     pub fn is_ready(&self, participant: &str) -> bool {
         self.ready.iter().any(|r| r.participant_id == participant)
     }

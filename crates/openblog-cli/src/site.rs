@@ -308,109 +308,6 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ),
 ];
 
-/// The admin editor. Served only by `serve --admin`, never copied into the
-/// public site. A copy under `web/admin/` overrides the embedded one.
-pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
-    ("index.html", include_str!("../../../web/admin/index.html")),
-    ("admin.js", include_str!("../../../web/admin/admin.js")),
-    (
-        "block-forms.js",
-        include_str!("../../../web/admin/block-forms.js"),
-    ),
-    ("admin.css", include_str!("../../../web/admin/admin.css")),
-    ("landing.js", include_str!("../../../web/admin/landing.js")),
-    ("look.js", include_str!("../../../web/admin/look.js")),
-    (
-        "business.js",
-        include_str!("../../../web/admin/business.js"),
-    ),
-    ("seasons.js", include_str!("../../../web/admin/seasons.js")),
-    (
-        "theme-designer.js",
-        include_str!("../../../web/admin/theme-designer.js"),
-    ),
-    (
-        "seasonal.js",
-        include_str!("../../../web/admin/seasonal.js"),
-    ),
-    (
-        "trade-checklist.js",
-        include_str!("../../../web/admin/trade-checklist.js"),
-    ),
-    (
-        "distribution.js",
-        include_str!("../../../web/admin/distribution.js"),
-    ),
-    (
-        "services.js",
-        include_str!("../../../web/admin/services.js"),
-    ),
-    ("proof.js", include_str!("../../../web/admin/proof.js")),
-    ("paste.js", include_str!("../../../web/admin/paste.js")),
-    (
-        "landing-history.js",
-        include_str!("../../../web/admin/landing-history.js"),
-    ),
-    ("lasting.js", include_str!("../../../web/admin/lasting.js")),
-    ("checks.js", include_str!("../../../web/admin/checks.js")),
-    ("voice.js", include_str!("../../../web/admin/voice.js")),
-    (
-        "voice-session.js",
-        include_str!("../../../web/admin/voice-session.js"),
-    ),
-    ("social.js", include_str!("../../../web/admin/social.js")),
-    ("quotes.js", include_str!("../../../web/admin/quotes.js")),
-    (
-        "greetings.js",
-        include_str!("../../../web/admin/greetings.js"),
-    ),
-    (
-        "notifications.js",
-        include_str!("../../../web/admin/notifications.js"),
-    ),
-    ("sw.js", include_str!("../../../web/admin/sw.js")),
-    (
-        "voice-library.js",
-        include_str!("../../../web/admin/voice-library.js"),
-    ),
-    (
-        "announcements.js",
-        include_str!("../../../web/admin/announcements.js"),
-    ),
-    (
-        "job-share.js",
-        include_str!("../../../web/admin/job-share.js"),
-    ),
-    (
-        "voice-polished.js",
-        include_str!("../../../web/admin/voice-polished.js"),
-    ),
-    (
-        "checks-panel.js",
-        include_str!("../../../web/admin/checks-panel.js"),
-    ),
-    (
-        "job-form.js",
-        include_str!("../../../web/admin/job-form.js"),
-    ),
-    (
-        "job-capture.js",
-        include_str!("../../../web/admin/job-capture.js"),
-    ),
-    (
-        "capture-queue.js",
-        include_str!("../../../web/admin/capture-queue.js"),
-    ),
-    (
-        "capture-recorder.js",
-        include_str!("../../../web/admin/capture-recorder.js"),
-    ),
-    (
-        "capture-assistant.js",
-        include_str!("../../../web/admin/capture-assistant.js"),
-    ),
-];
-
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");
 
 /// The search engine compiled to WebAssembly, so a blog created with
@@ -1038,43 +935,22 @@ pub fn check_season_themes(config: &SiteConfig, themes: &ThemeSet) -> Result<(),
     }
 }
 
-/// An admin UI file: from `web/admin/` if present, else the embedded copy.
-/// Admin's app icons (ADR 0412): the site's own under `<paths.web>/admin/icons/`, or the built-in ones.
-pub const EMBEDDED_ADMIN_ICONS: &[(&str, &[u8])] = &[
-    (
-        "icon-192.png",
-        include_bytes!("../../../web/admin/icons/icon-192.png"),
-    ),
-    (
-        "icon-512.png",
-        include_bytes!("../../../web/admin/icons/icon-512.png"),
-    ),
-    (
-        "apple-touch-icon.png",
-        include_bytes!("../../../web/admin/icons/apple-touch-icon.png"),
-    ),
-];
-
+/// The installed app's icons (ADR 0412): the site's own under `<paths.web>/admin/icons/`, or
+/// Studio's (`web/studio/icons/`, embedded with Studio's files). Only names Studio has are served.
 pub fn admin_icon(root: &Path, config: &SiteConfig, name: &str) -> Option<Vec<u8>> {
-    let known = EMBEDDED_ADMIN_ICONS.iter().find(|(n, _)| *n == name)?;
+    if name.contains('/') || name.contains('\\') || !name.ends_with(".png") {
+        return None;
+    }
+    let known = crate::admin::studio_bytes(&format!("icons/{name}"))?;
     fs::read(root.join(&config.paths.web).join("admin/icons").join(name))
         .ok()
-        .or_else(|| Some(known.1.to_vec()))
-}
-
-pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
-    if let Ok(bytes) = fs::read(root.join(&config.paths.web).join("admin").join(rel)) {
-        return Some(bytes);
-    }
-    EMBEDDED_ADMIN
-        .iter()
-        .find(|(p, _)| *p == rel)
-        .map(|(_, c)| c.as_bytes().to_vec())
+        .or_else(|| Some(known.to_vec()))
 }
 
 /// The front-end assets the site's own `paths.web` folder adds to (or
 /// overrides in) the embedded ones, as paths under `assets/`: stylesheets,
-/// scripts and the WebAssembly build, never the Admin's.
+/// scripts and the WebAssembly build, never the Admin's: `admin/` (the installed app's icons, and
+/// any folder left from before the old Admin was retired) and `studio/` are never published.
 pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
     let web_dir = root.join(&config.paths.web);
     let mut found = Vec::new();
@@ -1359,6 +1235,13 @@ pub fn generate_site_with_boundary(
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
     let config = load_config(root)?;
     let sources = read_sources(root, &config)?;
+    // Held route files whose own post is live, read before the load takes the sources.
+    let held_live = held_tracks_gone_live(
+        root,
+        &config,
+        &sources.posts,
+        options.now.unwrap_or_else(crate::clock::now),
+    );
     // Evidence gaps in the private claims file, for the author only: printed
     // with the other evidence findings, never written to the output. They are
     // reviewed against the posts this build read, before the load takes them.
@@ -1435,15 +1318,40 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // even when a static or theme directory is configured to contain it.
     let private = fsutil::PrivateState::of(root).withhold(&comparison_files(root, config));
 
-    // 1. Static files (images, favicon, CNAME, ...) at the site root.
+    // 1. Static files (images, favicon, CNAME, ...) at the site root. An exact
+    // route file is copied only while a live post shows it (Studio R7 G47).
+    let live_tracks = live_track_files(&site, options.now.unwrap_or_else(crate::clock::now));
+    let mut tracks_in_static = HashSet::new();
     let static_dir = root.join(&config.paths.static_dir);
     for file in fsutil::walk(&static_dir) {
         if private.contains(&file) {
             continue;
         }
         let rel = fsutil::relative(&static_dir, &file);
+        if let Some(track) = rel.strip_prefix(TRACK_UPLOADS) {
+            if !live_tracks.contains(track) {
+                continue;
+            }
+            tracks_in_static.insert(track.to_string());
+            // A route file's name stays out of what's printed.
+            let bytes = fs::read(&file).map_err(|_| "cannot read a route file".to_string())?;
+            put(rel, &bytes).map_err(|_| "cannot write a route file".to_string())?;
+            continue;
+        }
         let bytes = fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         put(rel, &bytes)?;
+    }
+    // A post that went live on its day may name a file still held privately:
+    // the build takes it from there until the server moves it into `static`,
+    // only for the post that staged it (G47).
+    for track in &held_live {
+        if tracks_in_static.contains(track) {
+            continue;
+        }
+        let rel = format!("{TRACK_UPLOADS}{track}");
+        let held = root.join(HELD_TRACKS).join(track);
+        let bytes = fs::read(&held).map_err(|_| "cannot read a held route file".to_string())?;
+        put(rel, &bytes).map_err(|_| "cannot write a route file".to_string())?;
     }
 
     // 2. Front-end assets: base.css, the web components, and the WebAssembly build.
@@ -1508,6 +1416,98 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         boundary,
         readiness,
     })
+}
+
+/// Where exact route files live in `static`, as site paths.
+pub(crate) const TRACK_UPLOADS: &str = "tracks/uploads/";
+
+/// Where an exact route file waits, private, while its post is a draft or
+/// waits for its day (Studio R7 G47). Never pruned and never copied raw.
+pub(crate) const HELD_TRACKS: &str = ".openblog/pending-tracks/held";
+
+/// Beside each held route file, `<file>.owner` holds the path (in the content
+/// folder) of the post that staged it. Only that post going live takes the file
+/// up: another post naming it gets nothing (G47).
+pub(crate) fn held_owner_file(held: &Path) -> PathBuf {
+    let mut name = held.as_os_str().to_owned();
+    name.push(".owner");
+    PathBuf::from(name)
+}
+
+/// The post that staged a held route file, or `None` when none is recorded.
+pub(crate) fn held_track_owner(held: &Path) -> Option<String> {
+    let owner = fs::read_to_string(held_owner_file(held)).ok()?;
+    let owner = owner.trim();
+    (!owner.is_empty()).then(|| owner.to_string())
+}
+
+/// Record the post that a held route file belongs to.
+pub(crate) fn record_held_track_owner(held: &Path, owner: &str) -> Result<(), String> {
+    fsutil::write_file(&held_owner_file(held), format!("{owner}\n").as_bytes())
+}
+
+/// The route file (relative to `tracks/uploads/`) a post shows for download,
+/// with whether the post is live now: published, due, field journal, exact.
+pub(crate) fn post_route_file(
+    file: &SourceFile,
+    config: &SiteConfig,
+    now: DateTime,
+) -> Option<(String, bool)> {
+    if !file.contents.contains("/tracks/uploads/") {
+        return None;
+    }
+    let post = openblog_core::model::load_post(
+        file,
+        config,
+        openblog_core::markdown::RenderOptions::default(),
+    )
+    .ok()?;
+    let track = post
+        .field_journal
+        .as_ref()?
+        .route_url
+        .as_deref()?
+        .strip_prefix("/tracks/uploads/")?
+        .to_string();
+    Some((track, !post.draft && post.date <= now))
+}
+
+/// The held route files (relative to `tracks/uploads/`) whose own post, the
+/// one that staged it, is live now and still names it.
+pub(crate) fn held_tracks_gone_live(
+    root: &Path,
+    config: &SiteConfig,
+    posts: &[SourceFile],
+    now: DateTime,
+) -> Vec<String> {
+    let held_root = root.join(HELD_TRACKS);
+    if !held_root.is_dir() {
+        return Vec::new();
+    }
+    fsutil::walk(&held_root)
+        .into_iter()
+        .filter(|file| file.extension().and_then(|value| value.to_str()) == Some("gpx"))
+        .filter_map(|file| {
+            let track = fsutil::relative(&held_root, &file);
+            let owner = held_track_owner(&file)?;
+            let post = posts.iter().find(|post| post.path == owner)?;
+            (post_route_file(post, config, now)? == (track.clone(), true)).then_some(track)
+        })
+        .collect()
+}
+
+/// The route files (relative to `tracks/uploads/`) that live posts show for
+/// download: a published, due field-journal post with `locationPrivacy:
+/// exact`. Everything else under `tracks/uploads/` stays out of the site,
+/// even in a build that includes drafts.
+pub(crate) fn live_track_files(site: &Site, now: DateTime) -> HashSet<String> {
+    site.posts
+        .iter()
+        .filter(|post| !post.draft && post.date <= now)
+        .filter_map(|post| post.field_journal.as_ref()?.route_url.as_deref())
+        .filter_map(|url| url.strip_prefix("/tracks/uploads/"))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Paths whose changes should trigger a rebuild while serving.
@@ -2228,6 +2228,88 @@ The cave educates.
             search.contains("Hello"),
             "the public search index is still built"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_live_exact_post_puts_its_route_file_in_the_site() {
+        let root = temp_root("live-tracks");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::create_dir_all(root.join("static/tracks/uploads/2026")).unwrap();
+        fs::create_dir_all(root.join(HELD_TRACKS).join("2026")).unwrap();
+        fs::write(root.join(CONFIG_FILE), "{}").unwrap();
+        let post = |name: &str, extra: &str, route: &str| {
+            fs::write(
+                root.join(format!("content/posts/{name}.md")),
+                format!("---\ntitle: {name}\ndate: 2026-01-05\nprofile: field-journal\n{extra}route: /tracks/uploads/2026/{route}.gpx\n---\nNotes.\n"),
+            )
+            .unwrap();
+        };
+        let gpx = "<gpx><trk><trkseg><trkpt lat=\"1\" lon=\"1\"/><trkpt lat=\"2\" lon=\"2\"/></trkseg></trk></gpx>";
+        for name in ["live", "draft", "future", "hidden", "stray"] {
+            fs::write(
+                root.join(format!("static/tracks/uploads/2026/{name}.gpx")),
+                gpx,
+            )
+            .unwrap();
+        }
+        fs::write(root.join(HELD_TRACKS).join("2026/held.gpx"), gpx).unwrap();
+        fs::write(root.join(HELD_TRACKS).join("2026/held-draft.gpx"), gpx).unwrap();
+        record_held_track_owner(
+            &root.join(HELD_TRACKS).join("2026/held.gpx"),
+            "posts/2026-01-05-held.md",
+        )
+        .unwrap();
+        record_held_track_owner(
+            &root.join(HELD_TRACKS).join("2026/held-draft.gpx"),
+            "posts/2026-01-05-held-draft.md",
+        )
+        .unwrap();
+        // A live post naming a file held for another post gets nothing (G47).
+        post("2026-01-05-taker", "locationPrivacy: exact\n", "held-draft");
+        post("2026-01-05-live", "locationPrivacy: exact\n", "live");
+        post("2026-01-05-held", "locationPrivacy: exact\n", "held");
+        post(
+            "2026-01-05-draft",
+            "draft: true\nlocationPrivacy: exact\n",
+            "draft",
+        );
+        post(
+            "2026-01-05-held-draft",
+            "draft: true\nlocationPrivacy: exact\n",
+            "held-draft",
+        );
+        post("2026-01-05-hidden", "locationPrivacy: trimmed\n", "hidden");
+        fs::write(
+            root.join("content/posts/2099-01-05-future.md"),
+            "---\ntitle: Future\ndate: 2099-01-05\nprofile: field-journal\nlocationPrivacy: exact\nroute: /tracks/uploads/2026/future.gpx\n---\nNotes.\n",
+        )
+        .unwrap();
+        // Even a build that shows drafts and posts before their day leaves their files out.
+        for include_drafts in [false, true] {
+            build(
+                &root,
+                &BuildOptions {
+                    include_drafts,
+                    out_override: None,
+                    now: Some(DateTime::parse("2026-06-01T00:00:00Z").unwrap()),
+                },
+            )
+            .unwrap();
+            let mut built: Vec<String> = fsutil::walk(&root.join("dist/tracks"))
+                .iter()
+                .map(|path| fsutil::relative(&root.join("dist"), path))
+                .collect();
+            built.sort();
+            assert_eq!(
+                built,
+                vec![
+                    "tracks/uploads/2026/held.gpx".to_string(),
+                    "tracks/uploads/2026/live.gpx".to_string()
+                ],
+                "include_drafts: {include_drafts}"
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

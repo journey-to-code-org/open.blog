@@ -64,13 +64,27 @@ fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-fn bad_reply() -> Response {
-    Response::error(502, "The push function sent a reply Admin could not use")
+/// An error with a fixed message and a code Studio chooses its words by (G26).
+fn failure(status: u16, code: &str, message: &str) -> Response {
+    Response::json(status, &json!({ "error": message, "code": code }))
 }
 
-/// The function's own refusal, reduced to a status Admin may pass on and a fixed message.
+fn bad_reply() -> Response {
+    failure(
+        502,
+        "bad-reply",
+        "The push function sent a reply Admin could not use",
+    )
+}
+
+/// The function's own refusal, reduced to a status Admin may pass on, a fixed message and its code.
+/// The function refusing Admin's key is a 502 `hosted-key-rejected`, never a 401, which would read
+/// as the owner's own session running out.
 fn refusal(status: u16, body: &Json) -> Response {
-    let code = body.get("error").and_then(slug);
+    let code = match status {
+        401 => Some("hosted-key-rejected".to_string()),
+        _ => body.get("error").and_then(slug),
+    };
     let message = match (status, code.as_deref()) {
         (401, _) => "The push function did not accept Admin's key; check OPENBLOG_PUSH_ADMIN_KEY",
         (404, Some("not-enabled")) => {
@@ -133,11 +147,16 @@ fn hosted(
     let mut response = match result {
         Ok(response) => response,
         Err(ureq::Error::Timeout(_)) => {
-            return Err(Response::error(504, "The push function timed out"))
+            return Err(failure(
+                504,
+                "hosted-timeout",
+                "The push function timed out",
+            ))
         }
         Err(_) => {
-            return Err(Response::error(
+            return Err(failure(
                 502,
+                "hosted-unavailable",
                 "The push function could not be reached",
             ))
         }
@@ -161,13 +180,18 @@ fn object_body(req: &Request, allowed: &[&str]) -> Result<Json, Response> {
         return Ok(json!({}));
     }
     let body: Json = serde_json::from_slice(&req.body)
-        .map_err(|_| Response::error(400, "The request is not valid JSON"))?;
+        .map_err(|_| failure(400, "invalid-request", "The request is not valid JSON"))?;
     let Some(object) = body.as_object() else {
-        return Err(Response::error(400, "The request must be a JSON object"));
+        return Err(failure(
+            400,
+            "invalid-request",
+            "The request must be a JSON object",
+        ));
     };
     if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(Response::error(
+        return Err(failure(
             400,
+            "unknown-field",
             "The request has a field this route does not take",
         ));
     }
@@ -234,8 +258,15 @@ fn project_status(value: &Json) -> Option<Json> {
         .as_array()?
         .iter()
         .filter_map(project_device)
-        .take(20)
+        .take(100)
         .collect();
+    // How many devices the function takes (G26), so Studio says the real number; a function from
+    // before it said so took 20.
+    let limit = value
+        .pointer("/limits/devices")
+        .and_then(Json::as_u64)
+        .filter(|n| (1..=100).contains(n))
+        .unwrap_or(20);
     Some(json!({
         "enabled": true,
         "state": "on",
@@ -243,6 +274,7 @@ fn project_status(value: &Json) -> Option<Json> {
         "kinds": kinds,
         "otherApps": value.get("otherApps").and_then(Json::as_bool).unwrap_or(false),
         "devices": devices,
+        "limits": { "devices": limit },
     }))
 }
 
@@ -267,7 +299,7 @@ pub(super) fn route_with(
                 &json!({ "enabled": false, "state": "invalid", "problems": problems }),
             )
         }
-        _ => return Response::error(404, "Notifications are not set up"),
+        _ => return failure(404, "not-set-up", "Notifications are not set up"),
     };
     if req.method != "GET" {
         if let Err(response) = require_json(req) {
@@ -318,7 +350,7 @@ pub(super) fn route_with(
         }
         ("POST", ["test"]) => object_body(req, &["id"]).and_then(|body| {
             if !body.get("id").and_then(Json::as_str).is_some_and(is_uuid) {
-                return Err(Response::error(400, "Pick a device to test"));
+                return Err(failure(400, "device-required", "Pick a device to test"));
             }
             hosted(&config, "POST", "test", Some(&body), user).map(|reply| {
                 json!({ "sent": reply.get("sent").and_then(Json::as_bool).unwrap_or(false) })
@@ -332,33 +364,42 @@ pub(super) fn route_with(
     }
 }
 
-/// The installed app's manifest (ADR 0412): the site's own name, opening Admin in its own window.
-pub(super) fn manifest(config: &SiteConfig) -> Response {
+/// The installed app's manifest (ADR 0412, Studio R3 G20): the site's own name, opening Studio's Home
+/// in its own window. `id` and `scope` stay `/admin/`, so an app installed before Studio is the same
+/// app, updated (Chrome and Edge read a new `start_url` as an update), and the worker at
+/// `/admin/sw.js` still covers it. Colours are Studio's flour and ink.
+pub(super) fn manifest(config: &SiteConfig, trade: bool) -> Response {
     let title = config.title.trim();
-    let name = if title.is_empty() {
-        "Admin".to_string()
+    let name = if title.is_empty() { "My blog" } else { title };
+    let short = if title.is_empty() || title.chars().count() > 12 {
+        "My blog"
     } else {
-        format!("{title} Admin")
+        title
     };
-    let short: String = if title.is_empty() || title.chars().count() > 12 {
-        "Admin".into()
-    } else {
-        title.into()
-    };
-    let body = json!({
+    let mut body = json!({
         "name": name,
         "short_name": short,
         "id": "/admin/",
-        "start_url": "/admin/",
+        "start_url": "/admin/studio/",
         "scope": "/admin/",
         "display": "standalone",
-        "background_color": "#f7f3ec",
-        "theme_color": "#3a3226",
+        "background_color": "#f8f7f2",
+        "theme_color": "#f8f7f2",
         "icons": [
             { "src": "/admin/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-            { "src": "/admin/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+            { "src": "/admin/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+            { "src": "/admin/icons/badge-96.png", "sizes": "96x96", "type": "image/png", "purpose": "monochrome" }
         ]
     });
+    // A trade site's icon, touched and held, offers New job (Studio R4 G34).
+    if trade {
+        body["shortcuts"] = json!([{
+            "name": "New job",
+            "short_name": "New job",
+            "url": "/admin/studio/#/new-job",
+            "icons": [{ "src": "/admin/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+        }]);
+    }
     Response::new(
         200,
         "application/manifest+json; charset=utf-8",

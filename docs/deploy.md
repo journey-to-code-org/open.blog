@@ -2,14 +2,14 @@
 
 `openblog build` writes a complete static site to `dist/`. Anything that serves files can
 host it. The choice is between a static host (simplest, no server to run) and
-`openblog serve` on a machine you control (adds the admin editor, the view counter, and
+`openblog serve` on a machine you control (adds Studio, the editor, the view counter, and
 automatic publishing of scheduled posts).
 
 | | Static host (Pages, Netlify, S3, ...) | `openblog serve` |
 | --- | --- | --- |
 | Pages, feeds, search, themes | yes | yes |
 | Scheduled posts | on the next build after the date (schedule a build) | automatic, within seconds |
-| Admin editor | no (edit files, push) | yes, with `--admin` |
+| Studio (the editor) | no (edit files, push) | yes, with `--admin` |
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
 | Published Knowledge Atlas | only if you build locally and upload `dist/` | yes |
@@ -38,6 +38,17 @@ comparisons and warns.
 and evidence" sections and `/claim-evidence.json` come from `.openblog/private/research/claims.json`,
 which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes
 written in posts' front matter are published either way.
+
+## Scheduled builds
+
+A post with a future date is left out of every build until a build runs after its time. On
+`openblog serve` that happens by itself: the server rebuilds the moment a post comes due, and
+with `publish.auto` (and the built pages in `publish.paths`) sends the result out. A site built
+somewhere else (GitHub Pages, Netlify, Cloudflare, ...) shows a scheduled post only when that
+host builds again after its time, so give it a scheduled build: the Pages workflow below runs
+once an hour, and Netlify and the others take a build hook called on a schedule. Studio says
+which applies under When it appears and in About this post's details (`meta.schedule`:
+`self` or `next-send`; `GET publish` also gives `mode` and `nextDue`).
 
 ## GitHub Pages
 
@@ -102,6 +113,12 @@ in both rules when deploying your own Admin service. These are temporary (`302`)
 not proxy rewrites: the browser moves to Render, where login, cookies, and authenticated
 requests stay on the same origin. Public engagement routes under `/api/` stay on Netlify.
 
+On the Admin service itself, `/admin` and `/admin/` answer a second `302`, to `/admin/studio/`
+(Studio; the old Admin was retired, [ADR 0415](adr/0415-the-old-admin-is-retired-and-admin-redirects-to-studio.md)),
+and so does any old Admin file such as `/admin/admin.js`. `scripts/deployment-smoke.mjs` expects
+exactly that, then `200` for `/admin/studio/`, `/admin/sw.js` and `/admin/manifest.webmanifest`. Files
+under `<paths.web>/admin/` no longer replace the editor's own; only `admin/icons/` is still read.
+
 Keeping Admin requests off Netlify's proxy also avoids its 26-second proxy timeout for
 long-running operations. Do not change these rules to `200` rewrites without verifying
 Admin's Origin/Host checks and request timeouts. On Render, use `OPENBLOG_BEHIND_PROXY=1`
@@ -117,9 +134,9 @@ and lets the existing privacy-respecting view counter retain analytics across de
 Supabase secret API key (`SUPABASE_SECRET_KEY`) remains in Netlify and is never an Admin or
 public-site setting. Existing `SUPABASE_SERVICE_ROLE_KEY` deployments remain supported.
 
-After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
+After deployment, open Studio's **Readers › How readers reach you**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an
-Admin user approves them in the **Moderation inbox**, which also lists passage feedback (ADR 0105).
+owner approves them in Studio's **Readers**, which also lists passage feedback (ADR 0105).
 To offer every moderation decision, with versions and an audit trail for comments, run the
 additive [`supabase/moderation.sql`](../supabase/moderation.sql) (and `feedback.sql` again if you
 use feedback) and set `OPENBLOG_MODERATION_ENABLED=true` (ADR 0106); see the
@@ -225,7 +242,7 @@ sessions, analytics, provider/moderation/API keys, Git configuration/credentials
 Unknown configuration fields are rejected rather than risking storing an inline secret.
 Do not put secrets in authored documents, public settings, or the included context directories.
 Re-provision write-only credentials through environment variables or the host's secret
-setup after restart; saving one in Admin does not make that credential durable.
+setup after restart; saving one in Studio does not make that credential durable.
 
 **Acknowledgement and conflicts.** Every authenticated Admin mutation completes its local
 filesystem transaction and synchronous durable manifest revision before returning success.
@@ -347,6 +364,10 @@ openblog user add you
 openblog serve --admin --port 8080
 ```
 
+Accounts made with `openblog user add` are owner accounts. `openblog user add --co-writer <name>` makes a
+sign-in that reaches only Writing together (Studio R14); people you invite from Studio get one of those,
+and choose their own password from the link.
+
 Then put a reverse proxy with HTTPS in front (Caddy, nginx, Traefik, ...) and set, in
 `openblog.json`:
 
@@ -417,13 +438,13 @@ Blueprint from the repository, and Render asks for the settings marked `sync: fa
 
 ### Keep your work safe on Render
 
-With only the admin password filled in, nothing saved in Admin lasts. The service starts
+With only the admin password filled in, nothing saved in Studio lasts. The service starts
 again from its image at every restart and deploy, and Render's free plan has no disk. An
 instance that went idle has to be started again too, and we expect it to lose the files the
 same way, though we have not watched it happen. Saved posts, drafts, photos, settings, and
 view counts go, and Publish cannot push because it has no credential. While that is so,
-Admin shows the owner a notice on Overview, a short line on every other page, and a sentence
-after each save in the editor, the Landing page, and Customize look.
+Studio shows the owner a notice on Home and a sentence
+after each save.
 
 The person setting up the blog creates three things:
 
@@ -453,7 +474,7 @@ Set `OPENBLOG_FILES_RESET=1` there so Admin tells the owner until they are in.
 Then check it yourself, following step 4 of
 [the durable workspace guide](#durable-editorial-workspace-on-ephemeral-hosts). No one has
 run this setup against a live Render service and a real Supabase project from this
-repository; only tests against a stand-in for Supabase have. The notice in Admin goes away
+repository; only tests against a stand-in for Supabase have. The notice in Studio goes away
 once the workspace is on, but it does not prove the check passed. The three things to know
 afterwards:
 
@@ -490,12 +511,71 @@ site from the repository:
   to GitHub with a token scoped to that one repository, and `OPENBLOG_BEHIND_PROXY=1`. Point
   `OPENBLOG_GREETINGS_ENDPOINT`, `OPENBLOG_GIFTS_ENDPOINT` and the engagement endpoint at the
   functions' public `https://` address.
+  A health or smoke check of the editor should expect `/admin/` to answer `302` to `/admin/studio/`
+  and `/admin/studio/` to answer `200`.
 
 Build the functions' image from the repository root with `docker build -f service/Dockerfile .`.
 A site repository can pin both to one engine commit and build them itself, as
 [Grammi's House](https://github.com/mnichols08/grammis-house/tree/main/railway) does with its
 `railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
 (Railway's watch paths), or every save in the editor redeploys the editor.
+
+## Getting started for a new owner
+
+Studio can walk a new owner through a short **Getting started** the first time she signs in: turn
+on the writing helper (only when the site has no key), tell a few short stories, and let the helper
+learn how she sounds from them. One switch on the server decides whether it shows by itself:
+
+| `OPENBLOG_STUDIO_ONBOARDING` | What happens |
+| --- | --- |
+| `off` (or unset with nothing in `openblog.json`) | Never shows by itself. It still runs from her name's menu, and its reminder in Write is off. |
+| `on` | Shows once per account, at the first load that comes to Home, until that account reaches **You're ready** or chooses **Skip the rest**. |
+| `on:<round>` | As `on`, and once more for every account that finished a different round. The round is 1 to 32 of `a-z`, `0-9` and `-` (for example `on:2026-11-20`): change it to show Getting started to everyone again without a shell. |
+| `rehearse` | A **practice run** for whoever sets the site up: it opens at every load for every account and says so on every step. Stories and voice guides made in it are not kept and never appear in Your writing voice; no account is marked as finished. A key saved in it **is** kept (it belongs to the site). |
+
+- **The server's environment beats the site's file.** The variable, when set, wins over
+  `studio.onboarding` in `openblog.json` (which takes only `"off"` or `"on"`; a new site made with
+  `openblog init` says `"on"`). An empty variable counts as not set. A value that isn't one of the
+  four is treated as `off`, with one warning line when the server starts, in `openblog check`,
+  and under **For the person who set up your site › Getting started** on Studio's Home. It never
+  falls back to the file.
+- **Set it in the host's settings, not in a file.** open.blog reads no `.env` file. On Railway or
+  Render add the variable to the service (changing it redeploys the editor); with `openblog serve`
+  export it in the shell or the unit file that starts the server. It is read once, at start.
+- **Handing a site over.** Set `rehearse`, sign in as the owner's account and go through it
+  yourself. Then set `on` (or a new round, `on:<today>`): at the next start the server deletes the
+  practice run (`onboarding: cleared practice` in its log) and the owner gets the real one at her
+  next sign-in. Leaving `rehearse` on by mistake loses nothing of hers, but nothing she tells is
+  kept either, and the strip on every step says so.
+- **Skipping the key step.** With `ANTHROPIC_API_KEY` (or the key of whichever company the helper
+  uses) in the server's environment, or a key already saved, Getting started has two steps and
+  never mentions a key. Without one, she can paste a key (kept on the server, never shown again)
+  or leave it for you.
+- **Stories told out loud** are offered only when something on the server can turn a recording
+  into words: `OPENBLOG_TRANSCRIBE_COMMAND` (a program on the server; nothing leaves it), a helper
+  whose company takes audio, or `OPENAI_API_KEY` in the server's environment, used for audio only.
+  `GEMINI_API_KEY` works the same way when `OPENBLOG_TRANSCRIBE_MODEL` names the model to use.
+  The recording is deleted from the server as soon as it has been heard, whatever the outcome.
+- **Where it is kept.** Each account's place is a small private file under
+  `.openblog/private/onboarding/` (never in Git, never built); her stories are ordinary private
+  voice pieces. On a host whose disk is reset, keep `.openblog` on the volume (or use the
+  workspace store), or Getting started comes back and the stories are gone; Home's details say so.
+- **From a shell:** `openblog onboarding status` lists every account; `openblog onboarding reset
+  <user>` (or `--all`) shows it again at that account's next sign-in. Home's details offer the same
+  as **Show it again at next sign-in**, with Undo. Neither touches her stories.
+
+See [Getting started](admin.md#getting-started) for what the owner sees.
+
+## Studio's words for every site on a host
+
+A host serving many sites can set Studio's words once for all of them: point each site's server at
+the same JSON file with `OPENBLOG_STUDIO_WORDS_PATH` (for example
+`OPENBLOG_STUDIO_WORDS_PATH=/etc/openblog/studio-words.json` holding
+`{ "vars": { "helper": "Hillside Web Care" } }`). The variable is read when the server starts; the
+file is read each time Studio opens, so editing it needs no restart. A site's own `studio.words`
+wins per key. A file that can't be read, isn't JSON, is over 64 KiB or has more than 500 entries
+is set aside as a whole and reported in Studio's Home details and by `openblog check` as a
+warning. See [Studio's words](studio-words.md).
 
 ## A theme that is not in the repository
 

@@ -10,6 +10,7 @@ import { postHref } from "../parts/post-list.js";
 import { takeOffQuestion, takeOffSite } from "../parts/take-off.js";
 import { wentOutWords } from "../parts/publish.js";
 import { toast } from "../parts/dom.js";
+import { say } from "../parts/words.js";
 
 const STATUSES = ["all", "draft", "scheduled", "published"];
 
@@ -28,6 +29,8 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-posts-h" },
     h("h2", { id: "studio-posts-h", class: "studio-visually-hidden", tabindex: "-1", text: "Your posts" }),
     h("div", { class: "studio-posts-top" }, lede, h("action-button", { href: "#/write" }, "Write something new")),
+    // R14a: until she takes part in one, Writing together isn't in the navigation; it starts here.
+    !(meta?.together?.takingPart > 0) && meta?.together?.canStart ? h("a", { class: "studio-more-link", href: "#/together/new", text: say("together.startFromPosts") }) : null,
     h("div", { class: "studio-tools" }, find, filter), list);
 
   function draw() {
@@ -55,6 +58,8 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   // Each row ends with More: open it, take it off the site, or delete it (with Undo).
   function rowMenu(post) {
     const items = [{ value: "open", label: "Open it" }];
+    // A published job can be shared where customers look (R1; `profile` from G15).
+    if (post.status === "published" && post.profile === "job") items.push({ value: "share", label: "Share this job" });
     if (post.status === "published" || post.status === "scheduled") items.push({ value: "takeoff", label: "Take it off my site" });
     items.push({ value: "delete", label: "Delete" });
     return h("dropdown-menu", { class: "studio-row-menu", items, onItemselect: (e) => rowChoice(post, e.detail) },
@@ -64,6 +69,7 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   async function rowChoice(post, value) {
     const title = post.title || "this post";
     if (value === "open") go(postHref(post.path));
+    if (value === "share") go(`#/sharing/job/${encodeURIComponent(post.path)}`);
     if (value === "takeoff") await takeOff(post);
     if (value === "delete") {
       const deleted = await undo.deletePost({ path: post.path, title, state: post.status, ask, takeOff: () => takeOff(post, true) });

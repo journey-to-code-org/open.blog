@@ -1,0 +1,225 @@
+// The words of Getting started (Studio R9b, docs/specs/studio/onboarding/ux.md): the first-run
+// path (turn on the writing helper, tell a few short stories, let the helper learn how she
+// sounds), Home's card and details, and the one gentle reminder in Write. Pure data, read with
+// `say()` from words.js.
+//
+// On her layer it is "getting started", "story", "tell", "type it", "say it out loud", "kept
+// private". "Key" is said in the key step only, explained in one sentence. The machinery's words
+// (onboarding, flag, environment, round, rehearse, record, transcript) are only in `details` ids.
+// No default names a person, a family, a food or a site.
+
+const her = (text, extra = {}) => ({ text, layer: "her", ...extra });
+const details = (text, extra = {}) => ({ text, layer: "details", ...extra });
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
+const ENTRIES = {
+  // ---- the frame
+  "start.title": her("Getting started"),
+  "start.welcome": her("Welcome, {owner}", { bare: "Welcome" }),
+  "start.welcomeLede": her("A few minutes to get {product} ready for you. You can skip any part."),
+  "start.stepOf": her("Step {n} of {total}"),
+  "start.stepName": her("Getting started, step {n} of {total}"),
+  "start.stepAnnounce": her("Step {n} of {total}: {step}."),
+  "start.stepHelper": her("Turn on your writing helper"),
+  "start.stepStories": her("Tell a few short stories"),
+  "start.stepVoice": her("Let your helper learn how you sound"),
+  "start.back": her("Back"),
+  "start.finishLater": her("Finish later"),
+  "start.laterToast": her("It'll be here when you come back."),
+  "start.more": her("More"),
+  "start.moreName": her("More: Getting started"),
+  "start.skipRest": her("Skip the rest"),
+  "start.skipRestDone": her("Okay. Getting started is in the menu if you want it."),
+  "start.next": her("Next"),
+  "start.resumed": her("Picked up where you left off."),
+  "start.noSignal": her("Getting started needs a signal. Anything you were writing is kept on this phone."),
+  "start.loadFailed": her("Getting started didn't load."),
+  "start.backToPost": her("Back to your post"),
+  "start.practice": details("Practice run: stories and voice guides made here aren't kept. A key you save is kept."),
+  "start.practiceNoSave": details("Practice: not saved"),
+
+  // ---- turn on your writing helper (the one step that says "key")
+  "start.keyHeading": her("Turn on your writing helper"),
+  "start.keyLede": her("{product} has a writing helper that can read your posts over and suggest changes, using {company}'s AI. To turn it on, it needs a key from {company}."),
+  "start.keyWhat": her("A key is a long code, like a password, that lets {product} use {company}'s helper. {company} charges the account the key belongs to."),
+  "start.keyLabel": her("Paste the key"),
+  "start.keyHelp": her("It's kept on {product}'s computer and never shown again, not even here."),
+  "start.keyWhere": her("Where do I get a key?"),
+  "start.keyStep1": her("Go to {site} and sign in, or make an account."),
+  "start.keyStep2": her("Under Billing, add a way to pay."),
+  "start.keyStep3": her("Open API keys and choose Create key."),
+  "start.keyStep4": her("Copy it and paste it here."),
+  "start.keyWhereOther": her("{helper} can tell you where to get one."),
+  "start.keySkip": her("Skip — {helper} will set this up"),
+  "start.keySave": her("Save the key"),
+  "start.keySaveAnyway": her("Save it anyway"),
+  "start.keyInsecure": her("This page isn't sent privately, so a key can't be typed here. {helper} can set it up."),
+  "start.keyNeedsHelper": her("Your writing helper needs {helper} to finish setting it up."),
+  "start.keyEmpty": her("Paste the key first."),
+  "start.keyShape": her("That doesn't look like a {company} key. Check you pasted the key, not a password."),
+  "start.keyTooLong": her("That's too long to be a key."),
+  "start.keySaving": her("Saving the key…"),
+  "start.keyChecking": her("Checking the key with {company}…"),
+  "start.keyAccepted": her("{company} accepted the key. Your writing helper is on."),
+  "start.keyNext": her("Next: tell a few stories"),
+  "start.keyRejected": her("{company} didn't accept that key. Check you copied all of it, then paste it again."),
+  "start.keyCheckLater": her("The key is saved, but it couldn't be checked just now. Your helper will try it when you use it."),
+  "start.keyChanged": her("These settings were changed somewhere else, so the key wasn't saved. Paste it again."),
+  "start.keyNoSignal": her("Saving a key needs a signal. Nothing was saved."),
+  "start.keyNotSaved": her("The key wasn't saved. Try again in a moment."),
+  "start.keySignedOut": her("You were signed out, so the key wasn't saved. Sign in, then paste it again."),
+  "start.keyLeaveAsk": her("Leave without saving the key?"),
+  "start.keyLeaveText": her("It isn't kept anywhere."),
+  "start.keyLeaveStay": her("Stay"),
+  "start.keyLeaveGo": her("Leave"),
+  "start.keyState": details("Company: {company}. Model: {model}. Sends to: {destination}. Key: {state}"),
+
+  // ---- tell a few short stories
+  "start.storiesHeading": her("Tell a few short stories"),
+  "start.storiesLede": her("Your writing helper learns how you sound from your own stories, so its suggestions sound like you. Tell three short ones, the way you'd tell them to a friend."),
+  "start.storiesPrivate": her("They're kept private on {product}'s computer. They never appear on {product}, and nothing is sent anywhere unless you say so."),
+  "start.storiesProgress": her("{n} of 3 told"),
+  "start.chooseLegend": her("What would you like to tell about?"),
+  "start.howLegend": her("How would you like to tell it?"),
+  "start.typeIt": her("Type it"),
+  "start.sayIt": her("Say it out loud"),
+  "start.typeItHelp": her("Typing: you get three minutes. Spelling isn't fixed, so it reads like you."),
+  "start.sayItHelp": her("Out loud: up to three minutes. A computer writes down what you say."),
+  "start.skipStories": her("Skip stories for now"),
+  "start.storySaved": her("Kept. That's {n} of 3."),
+  "start.storyRowTyped": her("{title} · typed · {words}"),
+  "start.storyRowSpoken": her("{title} · told out loud · {words}"),
+  "start.storiesKept": her("Your stories so far"),
+  "start.readIt": her("Read it"),
+  "start.readItName": her("Read it: {title}"),
+  "start.readClose": her("Close"),
+  "start.storyThrow": her("Throw this one away"),
+  "start.storyThrowName": her("Throw this one away: {title}"),
+  "start.storyThrowAsk": her("Throw away this story?"),
+  "start.storyThrowText": her("It's taken off {product}'s computer. It can't be brought back."),
+  "start.storyThrowYes": her("Throw it away"),
+  "start.storyThrowNo": her("Keep it"),
+  "start.storyThrown": her("Thrown away."),
+  "start.storyGone": her("That story was already thrown away."),
+  "start.storyBusy": her("That story is still being told somewhere else."),
+  "start.storyRefused": her("That one couldn't be kept. Choose another to tell."),
+  "start.tellAnother": her("Tell another"),
+  "start.enough": her("That's enough for now"),
+  "start.storiesDone": her("That's three. Thank you."),
+
+  // ---- say it out loud
+  "start.sayHeading": her("Before you start"),
+  "start.sayLocalHeading": her("Where your recording goes"),
+  "start.sayGoesProvider": her("Your recording, when you finish."),
+  "start.sayGoesOnly": her("Only the recording goes, not your posts, photos or other stories. {company}'s own rules cover what it keeps."),
+  "start.sayGoesLocal": her("{product} turns your recording into words on its own computer. Nothing leaves it."),
+  "start.sayNotKept": her("The recording isn't kept after that; the words are."),
+  "start.sayType": her("Type it instead"),
+  "start.sayStart": her("Start recording"),
+  "start.recStarting": her("Your phone may ask to use the microphone. Tap Allow."),
+  "start.recording": her("Recording {time} of 3:00"),
+  "start.recStop": her("Stop"),
+  "start.recStopName": her("Stop recording"),
+  "start.recListen": her("Your recording"),
+  "start.recLength": her("{time} long."),
+  "start.recUse": her("Use this recording"),
+  "start.recAgain": her("Tell it again"),
+  "start.recAgainAsk": her("Throw away this recording and tell it again?"),
+  "start.recAgainYes": her("Tell it again"),
+  "start.recKeep": her("Keep it"),
+  "start.recTime": her("Stopped at 3 minutes, the longest a story can be. It's kept."),
+  "start.recDenied": her("{product} isn't allowed to use the microphone on this {phone}. To change that:"),
+  "start.recOrType": her("Or type it instead."),
+  "start.recUnavailable": her("The microphone didn't start. If another app is using it, close that app and try again. Or type it instead."),
+  "start.recTryAgain": her("Try again"),
+  "start.recError": her("The recording stopped by itself. What you said up to then is kept."),
+  "start.recLeft": her("Your recording stopped when you left. It's kept on this phone."),
+  "start.recCant": her("Recording doesn't work here. Type it instead."),
+  "start.turning": her("Turning it into words…"),
+  "start.turningStill": her("Still working. Long stories take longer."),
+  "start.heard": her("Here's what you said"),
+  "start.heardNote": her("A computer wrote this from your voice, so a few words may be wrong. It's kept as you said it. You can polish a copy later in Your writing voice."),
+  "start.heardRegion": her("Your story, as you said it"),
+  "start.heardNothing": her("No words were heard in it. Tell it again, or type it."),
+  "start.recTooBig": her("That recording is too big to send. Tell a shorter one."),
+  "start.recUnreadable": her("That recording can't be read. Tell it again, or type it."),
+  "start.sayGone": her("Out loud isn't available any more. Type it instead."),
+  "start.turnFailed": her("That couldn't be turned into words, but your recording is still on this phone. Try again, or type it."),
+  "start.sayNoSignal": her("Turning it into words needs a signal. Your recording is kept on this phone."),
+  "start.signOutRecording": her("Sign out and throw away your unsaved writing, and a recorded story that hasn't been turned into words?"),
+  "start.sayEngine": details("Heard by: {engine}. {seconds} seconds, {bytes} bytes."),
+
+  // ---- let your helper learn how you sound
+  "start.voiceHeading": her("Let your helper learn how you sound"),
+  "start.voiceLede": her("Your helper reads your stories and writes down how you sound, quoting your own words. You see it before anything is saved."),
+  "start.voiceFrom": her("Learn from these stories"),
+  "start.voiceRowTyped": her("{title} · typed · {words}"),
+  "start.voiceRowSpoken": her("{title} · told · {words}"),
+  "start.voiceSkip": her("Not now"),
+  "start.voiceLearn": her("Let my helper learn"),
+  "start.voiceSaved": her("Saved. Your helper's suggestions will sound more like you."),
+  "start.voiceKeyProblem": her("{company} didn't accept the key for {product}, so your helper can't learn yet. Your stories are kept."),
+
+  // ---- done
+  "start.doneHeading": her("You're ready"),
+  "start.doneHelperOn": her("Your writing helper is on."),
+  "start.doneHelperOff": her("Your writing helper isn't on yet. {helper} will set it up."),
+  "start.doneStories": her("{n} stories kept, private."),
+  "start.doneStoriesOne": her("1 story kept, private."),
+  "start.doneStoriesNone": her("No stories yet. You can tell some any time under Your writing voice."),
+  "start.doneVoice": her("Your helper has learned how you sound."),
+  "start.doneVoiceLater": her("When your writing helper is on, it can learn from your stories under Your writing voice."),
+  "start.doneSeeStories": her("See your stories"),
+  "start.doneHome": her("Go to Home"),
+  "start.doneWrite": her("Write your first post"),
+  "start.doneWriteAgain": her("Write a post"),
+  "start.markDone": her("Done:"),
+  "start.markNotYet": her("Not yet:"),
+
+  // ---- Home: the card, and details for {helper}
+  "home.startCardHeading": her("Finish getting started"),
+  "home.startCardText": her("Step {n} of {total}: {step}."),
+  "home.startCardGo": her("Continue"),
+  "home.storyKept": her("A recorded story is kept on this phone."),
+  "home.storyKeptOpen": her("Open"),
+  "start.menu": her("Getting started"),
+  "start.findStories": her("Tell a few stories"),
+  "start.detailsHeading": details("Getting started"),
+  "start.detailsMode": details("Getting started is {value}, set by {source}."),
+  "start.problemMode": details("{problem}"),
+  "start.filesReset": details("Getting started can't remember where she got to on this server."),
+  "start.showAgain": details("Show it again at next sign-in"),
+  "start.showAgainName": details("Show it again at next sign-in: {user}"),
+  "start.shownAgain": details("Next time, {user} will see Getting started."),
+  "start.shownAgainUndo": details("Undo"),
+  "start.shownAgainUndone": details("Undone: {user} is back where they were."),
+  "start.resetKeeps": details("Their stories stay; erase them under Your writing voice."),
+  "start.resetGone": details("That account isn't on this site any more."),
+  "start.resetFailed": details("That didn't work. Try again in a moment."),
+
+  // ---- the reminder in Write
+  "write.storyNudgeHeading": her("Want your helper to sound like you?"),
+  "write.storyNudgeText": her("Tell it a few short stories, typed or out loud. It learns how you talk and write, so its suggestions sound like you, not like a computer. It takes about ten minutes, and the stories never appear on {product}.", { max: 240 }),
+  "write.storyNudgeYes": her("Tell a few stories now"),
+  "write.storyNudgeLater": her("Not now"),
+  "write.storyNudgeStop": her("Don't ask again"),
+  "write.storyNudgeLaterDone": her("Okay. It's under Getting started whenever you want it."),
+  "write.storyNudgeStopped": her("Okay, it won't ask again. Getting started is in the menu if you change your mind."),
+  "write.storyNudgeUndo": her("Undo"),
+};
+
+// "key" is said in one place on her layer: Getting started's key step, where a sentence explains
+// it (and "API keys" there is the name another app shows her), and in the line for a key the
+// company refused. Each such id names the word in `allows`; no other id may.
+const KEY_IDS = /^start\.(key[A-Z0-9]|voiceKeyProblem$)/;
+const allowed = (id, entry) => [
+  ...(entry.allows || []),
+  ...(KEY_IDS.test(id) && /\bkey\b/i.test(entry.text) ? ["key"] : []),
+  ...(id === "start.keyStep3" ? ["api"] : []),
+];
+
+/** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string, allows?: string[] }>} */
+export const WORDS = Object.fromEntries(Object.entries(ENTRIES).map(([id, entry]) => {
+  const allows = entry.layer === "her" ? allowed(id, entry) : [];
+  return [id, allows.length ? { ...entry, allows } : entry];
+}));

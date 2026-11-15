@@ -82,3 +82,34 @@ fn a_shared_job_shows_up_against_its_post_with_its_evidence() {
     assert_eq!(row["destination"], "nextdoor");
     assert_eq!(row["evidence"], "author");
 }
+
+#[test]
+fn meta_says_the_site_has_shared_something_once_a_record_holds_a_row() {
+    // G16: Sharing shows "Where it went" on a site without social accounts once anything went out.
+    let f = fixture("distribution-shared");
+    let session = login_ok(&f);
+    let meta = |f: &Fixture| {
+        body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        ))
+    };
+    assert_eq!(meta(&f)["siteUses"]["shared"], false);
+    fs::create_dir_all(f.dir.join(".openblog")).unwrap();
+    fs::write(
+        f.dir.join(crate::job_share::STATE_FILE),
+        json!({"version": 1, "jobs": {}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        meta(&f)["siteUses"]["shared"],
+        false,
+        "an empty record is not sharing"
+    );
+    fs::write(
+        f.dir.join(crate::job_share::STATE_FILE),
+        json!({"version": 1, "jobs": {"posts/hello.md": {"nextdoor": {"status": "posted-by-hand", "at": "2026-10-22T10:00:00Z", "digest": "d"}}}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(meta(&f)["siteUses"]["shared"], true);
+}

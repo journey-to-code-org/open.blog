@@ -63,3 +63,11 @@ saved or published until they save.
 - Photo descriptions are not sent yet, because Capture has no field for them; the request and the disclosure
   already carry the list for when it does.
 - Re-asking is allowed and cheap to undo; each ask goes through the same concurrency permit and disclosure.
+
+## Amendment (Studio R4, 2026-11-13)
+
+Drafting moves from the phone to Write: **Write it up for me**, on a job post, sends the words in the job, its
+service and town (and the voice guide when the author leaves **Make it sound like me** on) after a sheet that
+says so, and fills the title, the summary and the four parts as unsaved edits with one Undo. New job on the phone
+no longer drafts, so a capture made in Studio never carries `fields.draft`; one kept by the old Admin with a draft
+still sends it, bounded, as before.

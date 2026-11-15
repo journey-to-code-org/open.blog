@@ -4,10 +4,10 @@ A finished [job](jobs.md) can go where people look for tradespeople: your Google
 Page and Nextdoor. open.blog prepares the same job for each of them: one line about the work, the service and town,
 the job's first after photo and a link to the job's page. You see exactly what would go before anything does.
 
-In Admin, open a published job in Write and choose **Share this job** (under the Job form in the document's
-settings). The same is a command on your computer: `openblog job-share`.
+In Studio, open **Sharing › Share this job** for a published job (`#/sharing/job/<path>`; Write and Posts offer it on
+a published job). The same is a command on your computer: `openblog job-share`.
 
-## In Admin
+## In Studio
 
 **Share this job** shows, for each place, the words, the link, the photo, anything to fix and where it stands: not
 shared yet, posted, posted by hand, or, for a Facebook Page, the state of its announcement (Scheduled, Published,
@@ -15,8 +15,8 @@ Failed and so on, as on the Announcements screen).
 
 - **Copy the words**, **Save the photo** and **Open Nextdoor** (or Facebook, or your Business Profile) let you post
   it yourself. Then press **I posted it** so the screen remembers. If the job changes afterwards, the screen says so.
-- **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected under
-  Connected accounts, and the job has no after photo. It schedules the job's words and link on your Page five
+- **Post to** your Page appears for Facebook when social publishing is set up, your Facebook Page is connected in
+  Studio's **Your accounts** (Sharing, then **Manage your accounts**), and the job has no after photo. It schedules the job's words and link on your Page five
   minutes ahead, through the same queue as your other announcements. open.blog posts to a Page without a photo, so
   a job with an after photo goes to Facebook by hand. Once the job is scheduled or posted there, the button is not
   offered again; it comes back only if that announcement failed or was canceled.
@@ -86,7 +86,7 @@ If the job changed after you looked, the digest no longer matches and nothing is
 open.blog does not send it again until you have looked on your profile and run the same command with
 `--forget-attempt`.
 
-A job already on your profile, whether open.blog posted it or you pressed **I posted it** in Admin, is never sent
+A job already on your profile, whether open.blog posted it or you pressed **I posted it** in Studio, is never sent
 there again, and a new kit does not undo **I posted it**
 ([ADR 0397](adr/0397-a-job-already-at-a-place-is-never-sent-there-again-by-a-send-a-kit-or-a-reopened-screen.md)).
 
@@ -97,7 +97,7 @@ on it has Google's approval yet ([ADR 0393](adr/0393-a-job-reaches-google-busine
 
 Nextdoor is always posted by hand: it lets only approved partners post through its API
 ([ADR 0394](adr/0394-nextdoor-is-a-by-hand-kit-because-its-publish-api-is-for-approved-partners.md)). A job with no
-after photo can go to your Facebook Page from Admin's **Share this job**, through your connected Page; a job with a
+after photo can go to your Facebook Page from Studio's **Share this job**, through your connected Page; a job with a
 photo, or a site without social publishing, posts to Facebook by hand. The command does not post to Facebook
 ([ADR 0396](adr/0396-a-job-is-shared-from-admin-reaches-a-facebook-page-through-the-announcements-and-never-carries-a-located-photo.md)).
 

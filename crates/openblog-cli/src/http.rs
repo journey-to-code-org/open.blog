@@ -261,16 +261,15 @@ fn read_line<R: BufRead>(reader: &mut R, started: Instant) -> Result<Option<Stri
         .map_err(|_| err(400, "non-UTF-8 header"))
 }
 
-pub fn write_response(
-    mut stream: &TcpStream,
-    response: &Response,
-    head_only: bool,
-) -> std::io::Result<()> {
-    let reason = match response.status {
+/// The words after a status code on the response's first line.
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
         200 => "OK",
         201 => "Created",
         204 => "No Content",
         301 => "Moved Permanently",
+        // `/admin/` and every old Admin page open Studio this way (R15).
+        302 => "Found",
         303 => "See Other",
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -288,7 +287,15 @@ pub fn write_response(
         503 => "Service Unavailable",
         505 => "HTTP Version Not Supported",
         _ => "Error",
-    };
+    }
+}
+
+pub fn write_response(
+    mut stream: &TcpStream,
+    response: &Response,
+    head_only: bool,
+) -> std::io::Result<()> {
+    let reason = reason_phrase(response.status);
     let mut head = format!("HTTP/1.1 {} {}\r\n", response.status, reason);
     let mut has_length = false;
     for (name, value) in &response.headers {
@@ -331,6 +338,15 @@ pub fn percent_decode(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_redirect_says_found() {
+        assert_eq!(super::reason_phrase(302), "Found");
+        assert_eq!(super::reason_phrase(301), "Moved Permanently");
+        assert_eq!(super::reason_phrase(404), "Not Found");
+        assert_eq!(super::reason_phrase(599), "Error");
+    }
+
     use super::*;
     use std::net::{TcpListener, TcpStream};
     use std::thread;

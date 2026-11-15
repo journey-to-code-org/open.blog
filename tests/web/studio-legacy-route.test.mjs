@@ -1,0 +1,147 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { legacyRoute, parseRoute } from "../../web/studio/router.js";
+
+test("Studio's own addresses are left alone", () => {
+  for (const hash of ["#/", "#/posts", "#/write/posts%2Fx.md", "#/readers/shown", "#/cards/new", "#/front-page", "#/look"]) assert.equal(legacyRoute(hash), null, hash);
+});
+
+test("an old editor address opens the right Studio editor by folder", () => {
+  assert.equal(legacyRoute("#/edit/posts/pecan-pie.md"), "#/write/posts%2Fpecan-pie.md");
+  // R7: the editor's checking panes open their sheets; Evidence waits for R12.
+  for (const [pane, sheet] of [["settings", "about"], ["social", "ready"], ["optimize", "ready"], ["accessibility", "ready"], ["release", "youtube"], ["field", "route"]]) {
+    assert.equal(legacyRoute(`#/edit/posts/pie.md?pane=${pane}`), `#/write/posts%2Fpie.md?sheet=${sheet}`, pane);
+  }
+  // R11: the old Evidence pane is Your research (R12 makes it Claims and evidence).
+  assert.equal(legacyRoute("#/edit/posts/pie.md?pane=evidence"), "#/write/posts%2Fpie.md?sheet=claims");
+  assert.equal(legacyRoute("#/edit/pages/about.md?pane=social"), "#/page/pages%2Fabout.md", "only a post's panes have sheets");
+  assert.equal(legacyRoute("#/edit/posts%2Fpecan-pie.md"), "#/write/posts%2Fpecan-pie.md");
+  assert.equal(legacyRoute("#/edit/pages/about.md"), "#/page/pages%2Fabout.md");
+  assert.equal(legacyRoute("#/edit/series/cookies.md"), "#/collection/series%2Fcookies.md");
+  assert.equal(legacyRoute("#/edit/services/roof-repair.md"), "#/service/services%2Froof-repair.md");
+  assert.equal(legacyRoute("#/edit/proof/pat.md"), "#/review/proof%2Fpat.md");
+  assert.equal(parseRoute(legacyRoute("#/edit/posts/a b.md")).arg, "posts/a b.md");
+});
+
+test("renamed screens, new things and the old inbox's states", () => {
+  assert.equal(legacyRoute("#/overview"), "#/");
+  assert.equal(legacyRoute("#/new/recipe"), "#/write/new/recipe");
+  assert.equal(legacyRoute("#/new/post"), "#/write");
+  assert.equal(legacyRoute("#/series"), "#/collections");
+  assert.equal(legacyRoute("#/landing"), "#/front-page");
+  assert.equal(legacyRoute("#/appearance"), "#/look");
+  assert.equal(legacyRoute("#/seasons"), "#/decorations");
+  assert.equal(legacyRoute("#/greetings"), "#/cards");
+  assert.equal(legacyRoute("#/analytics"), "#/readers/visitors");
+  assert.equal(legacyRoute("#/moderation/pending?kind=comment"), "#/readers?kind=comment");
+  assert.equal(legacyRoute("#/moderation/approved"), "#/readers/shown");
+  assert.equal(legacyRoute("#/moderation/removed"), "#/readers/taken-down");
+});
+
+test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
+  // R11: bare #/research is Research home, Studio's own; the atlas is Studio's own since R12.
+  assert.equal(legacyRoute("#/research"), null);
+  assert.equal(legacyRoute("#/research/atlas"), null, "the atlas is Studio's own since R12");
+});
+
+test("R14a: shared reflections are Writing together, and an invitation opens Join with no token in it", () => {
+  assert.equal(legacyRoute("#/shared"), "#/together");
+  assert.equal(legacyRoute("#/shared/new"), "#/together/new");
+  assert.equal(legacyRoute("#/shared/shared-0a1b2c3d4e5f"), "#/together");
+  assert.equal(legacyRoute("#/shared?x=1"), "#/together?x=1");
+  // studio.js takes a well-formed token out first; anything that still reaches the router opens
+  // Join, which says the link doesn't work, and the address keeps no token.
+  assert.equal(legacyRoute(`#/shared/accept/shared-0a1b2c3d4e5f.${"a".repeat(64)}`), "#/together/join");
+  assert.equal(legacyRoute("#/together"), null);
+});
+
+test("R9: the sample library is Your writing voice, a sample is A piece, and Design a theme is Describe a new look", () => {
+  assert.equal(legacyRoute("#/voice/library"), "#/voice");
+  assert.equal(legacyRoute("#/voice/library/2026-10-20-a-mistake-rough"), "#/voice/piece/2026-10-20-a-mistake-rough");
+  assert.equal(legacyRoute("#/voice/library/2026-10-20-a-rough?visibility=private"), "#/voice/piece/2026-10-20-a-rough?visibility=private");
+  assert.equal(legacyRoute("#/design"), "#/look/design");
+  assert.equal(legacyRoute("#/design?x=1"), "#/look/design?x=1");
+  // The old session was #/voice, which is now the hub's own address: a link that names a set is
+  // the old session's and opens Write a piece with it; a bare one opens the hub.
+  assert.equal(legacyRoute("#/voice?pack=stories"), "#/voice/write?pack=stories");
+  for (const own of ["#/voice", "#/voice/write", "#/voice/write?pack=stories", "#/voice/piece/2026-10-20-a-rough", "#/voice/guide", "#/look/design", "#/look"]) {
+    assert.equal(legacyRoute(own), null, `${own} is Studio's own`);
+  }
+  // Nothing voice- or design-related opens "not yet" any more.
+  for (const old of ["#/voice", "#/voice/library", "#/design"]) assert.doesNotMatch(String(legacyRoute(old)), /not-yet/);
+});
+
+test("R5: Contributors is People, and a post's Settings pane is About this post", () => {
+  assert.equal(legacyRoute("#/contributors"), "#/people");
+  assert.equal(legacyRoute("#/people"), null, "Studio's own address stays");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=settings"), "#/write/posts%2F2026-11-06-pie.md?sheet=about");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=evidence"), "#/write/posts%2F2026-11-06-pie.md?sheet=claims", "Evidence opens Claims and evidence (R12)");
+  assert.equal(legacyRoute("#/edit/pages/about.md?pane=settings"), "#/page/pages%2Fabout.md");
+});
+
+test("R4: Capture, whatever came after it, is New job, and the query stays", () => {
+  assert.equal(legacyRoute("#/capture"), "#/new-job");
+  assert.equal(legacyRoute("#/capture/anything/else"), "#/new-job");
+  assert.equal(legacyRoute("#/capture?from=checklist"), "#/new-job?from=checklist");
+  assert.equal(legacyRoute("#/new-job"), null, "Studio's own address stays");
+});
+
+test("R3: Notifications is Studio's own; anything after it goes, the query stays", () => {
+  assert.equal(legacyRoute("#/notifications"), null);
+  assert.equal(legacyRoute("#/notifications?sheet=home-screen"), null);
+  assert.equal(legacyRoute("#/notifications/devices"), "#/notifications");
+  assert.equal(legacyRoute("#/notifications/x/y?sheet=home-screen"), "#/notifications?sheet=home-screen");
+  // Old notice addresses the worker hands over as Studio's keep landing on their screens.
+  assert.equal(legacyRoute("#/moderation"), "#/readers");
+  assert.equal(legacyRoute("#/feedback"), "#/readers");
+  assert.equal(legacyRoute("#/quotes"), null);
+});
+
+test("R1: Where it went is a view of Sharing, and Share this job lives under it", () => {
+  assert.equal(legacyRoute("#/distribution"), "#/sharing?view=posts");
+  assert.equal(legacyRoute("#/distribution?days=90"), "#/sharing?view=posts&days=90");
+  assert.notEqual(legacyRoute("#/distribution"), "#/not-yet/distribution");
+  assert.equal(legacyRoute("#/share/posts%2Foak-floor.md"), "#/sharing/job/posts%2Foak-floor.md");
+  assert.equal(legacyRoute("#/share/posts/oak-floor.md"), "#/sharing/job/posts/oak-floor.md");
+  assert.equal(parseRoute(legacyRoute("#/share/posts%2Foak floor.md")).arg, "job/posts/oak floor.md");
+  assert.equal(legacyRoute("#/share"), "#/sharing");
+  assert.deepEqual(parseRoute(legacyRoute("#/distribution")), { name: "sharing", arg: "", query: { view: "posts" } });
+  assert.equal(legacyRoute("#/sharing/job/posts%2Fx.md"), null, "Studio's own address is left alone");
+});
+
+test("R2: the old accounts page, and anything after it, opens Your accounts; announcements still open Sharing", () => {
+  for (const old of ["#/social", "#/social/", "#/social/connections", "#/social/linkedin/x?y=1", "#social", "#/social?connection=11111111-1111-4111-8111-111111111111"]) {
+    assert.equal(legacyRoute(old), "#/sharing/accounts", old);
+  }
+  assert.equal(legacyRoute("#/announcements"), "#/sharing");
+  assert.equal(legacyRoute("#/sharing/accounts"), null, "Studio's own address is left alone");
+  assert.equal(legacyRoute("#/sharing/accounts?connection=11111111-1111-4111-8111-111111111111"), null);
+});
+
+test("R10: Studio's earlier Comments and Visitors addresses open Readers", () => {
+  assert.equal(legacyRoute("#/comments"), "#/readers");
+  assert.equal(legacyRoute("#/comments/shown"), "#/readers/shown");
+  assert.equal(legacyRoute("#/visitors/7"), "#/readers/visitors/7");
+});
+
+test("R13: reading paths are Studio's own; the old editor address moves, whatever else was after paths goes to the list", () => {
+  assert.equal(legacyRoute("#/paths"), null);
+  assert.equal(legacyRoute("#/paths/new"), null);
+  assert.equal(legacyRoute("#/paths/edit/start-here"), "#/path/start-here");
+  assert.equal(legacyRoute("#/paths/edit/start-here?x=1"), "#/path/start-here?x=1");
+  assert.equal(legacyRoute("#/paths/something/else"), "#/paths");
+  assert.equal(legacyRoute("#/paths/something?x=1"), "#/paths?x=1");
+  assert.equal(legacyRoute("#/path/start-here"), null);
+});
+
+test("R13: comparisons move under Research > Readings; Studio's own readings addresses stay; plain research is Research home", () => {
+  assert.equal(legacyRoute("#/comparisons"), "#/research/readings");
+  assert.equal(legacyRoute("#/comparisons/new"), "#/research/readings/new");
+  assert.equal(legacyRoute("#/comparisons/edit/the-cave"), "#/research/reading/the-cave");
+  assert.equal(legacyRoute("#/comparisons/edit/the-cave?x=1"), "#/research/reading/the-cave?x=1");
+  assert.equal(legacyRoute("#/comparisons/other/thing"), "#/research/readings");
+  assert.equal(legacyRoute("#/research/readings"), null);
+  assert.equal(legacyRoute("#/research/readings/new"), null);
+  assert.equal(legacyRoute("#/research/reading/the-cave"), null);
+  assert.equal(legacyRoute("#/research"), null, "Research home is Studio's own since R11");
+});

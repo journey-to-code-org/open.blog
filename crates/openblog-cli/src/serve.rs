@@ -91,6 +91,16 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         options.admin,
     );
     state.workspace_enabled = workspace.is_some();
+    // Started for other machines to reach (the container's `--host 0.0.0.0`): it is deployed, and
+    // a request from this computer is then a proxy's, not a person's (admin `request_is_private`).
+    state.listens_beyond_this_computer = !matches!(
+        options
+            .host
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']'),
+        "localhost" | "127.0.0.1" | "::1"
+    );
     state.workspace = Mutex::new(workspace);
     let state = Arc::new(state);
     admin::register(&state);
@@ -101,6 +111,12 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
 
     let config = site::load_config(root)?;
     if options.admin {
+        // Getting started (Studio R9b): say once what is wrong with the switch, and, in any mode
+        // but `rehearse`, clear what a practice run kept.
+        crate::onboarding::at_start(
+            root,
+            &crate::onboarding::mode_for(state.onboarding_env.as_deref(), &config),
+        );
         let users = crate::auth::Users::load(&root.join(&config.admin.users_file))?;
         if users.users.is_empty() {
             println!("\nNo admin users yet. Create one with:  openblog user add <name>");

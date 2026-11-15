@@ -31,9 +31,14 @@ new "Title"                Create content/posts/<date>-<slug>.md
 build                      Build the site into dist/
 serve                      Build, serve at http://localhost:8080, rebuild on change,
                            and publish scheduled posts on time
-serve --admin              Also serve the login-protected editor at /admin
+serve --admin              Also serve Studio, the sign-in protected editor, at /admin/
 user add|passwd|remove|list <name>
-                           Manage who can sign in to the admin editor
+                           Manage who can sign in to Studio
+onboarding status | reset <user> | reset --all
+                           Where each account stands with Getting started,
+                           and showing it to an account again (docs/deploy.md)
+user add --co-writer <name>
+                           A sign-in that opens only Writing together
 check                      Validate content and themes without writing anything
 export <slug>              Preview or write a portable Markdown article, the post's
                            cited references as CSL JSON or BibTeX, a recipe as

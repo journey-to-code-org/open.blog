@@ -1,20 +1,21 @@
 // Look: how every page looks, whatever the season: a ready-made look, the main color, the lettering,
 // the size of the writing, corners, spacing, page width, headings, and whether readers can switch to
 // dark. Each choice can go back to the theme's own. See it, then Save. Studio slice 7. The words and
-// rules are the old Admin's look model (/admin/look.js); the server owns every rule (it may soften a
+// rules are parts/look-rules.js (moved from the old Admin); the server owns every rule (it may soften a
 // color so writing stays easy to read, and says so).
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { ask } from "../parts/dialogs.js";
 import { showPreview } from "../parts/preview.js";
 import { sendOut, wentOutWords } from "../parts/publish.js";
+import * as M from "../parts/look-rules.js";
+import { say as word } from "../parts/words.js";
+import { offerOldDraft } from "../parts/old-draft.js";
 
-const MODEL = "/admin/look.js";
 const OWN = "";
 
 export async function createLook({ api, meta }) {
   await use("select-field", "action-button", "alert-banner", "skeleton-block");
-  const M = await import(MODEL);
   let reply = null; // GET look
   let saved = {};
   let draft = {};
@@ -28,8 +29,14 @@ export async function createLook({ api, meta }) {
   const saveButton = h("action-button", { onClick: () => save() }, "Save");
   const see = h("action-button", { variant: "secondary", onClick: (e) => preview(e.currentTarget) }, "See how it looks");
   const reset = h("action-button", { variant: "ghost", onClick: () => { draft = {}; darkDraft = null; draw(); } }, "Use the theme's own for everything");
+  // R9: the way to Describe a new look, only while the writing helper is set up.
+  const designCard = h("section", { class: "studio-section studio-look-design", "aria-labelledby": "studio-look-design-h", hidden: true },
+    h("h3", { id: "studio-look-design-h", text: word("look.designHeading") }),
+    h("p", { class: "studio-help", text: word("look.designText") }),
+    h("div", { class: "studio-row" }, h("action-button", { variant: "secondary", href: "#/look/design" }, word("look.designOpen"))));
+  if (meta.quizGeneration) api.get("assistant/status").then((status) => { designCard.hidden = status?.configured !== true; }, () => {});
   const element = h("section", { class: "studio-page studio-look", "aria-labelledby": "studio-look-h" },
-    heading, lede, banner, controls, reset, h("div", { class: "studio-write-bar" }, see, saveButton));
+    heading, lede, banner, controls, reset, designCard, h("div", { class: "studio-write-bar" }, see, saveButton));
 
   const dirty = () => Boolean(reply) && (!M.lookSame(draft, saved) || darkDraft !== (dark?.colorSchemeToggle ?? null));
   const honored = (id) => !reply?.honored || reply.honored.includes(id);
@@ -152,9 +159,9 @@ export async function createLook({ api, meta }) {
         return false;
       }
       banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Not saved" },
-        error.status === 422 ? "Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell the person who set up your site."
+        error.status === 422 ? word("look.notAccepted")
           : error.status ? "Something went wrong on your site. Your choices are still here; try again in a moment." : "Check your connection and try again. Your choices are still here.",
-        error.status ? h("details", { class: "studio-help" }, h("summary", { text: "For the person who set up your site" }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
+        error.status ? h("details", { class: "studio-help" }, h("summary", { text: word("common.forHelper") }), h("p", { class: "studio-mono", text: `${error.status}: ${error.message}` })) : null));
       return false;
     } finally {
       saveButton.loading = false;
@@ -173,6 +180,12 @@ export async function createLook({ api, meta }) {
       dark = appearance;
       if (!keep) darkDraft = appearance ? appearance.colorSchemeToggle ?? null : null;
       draw();
+      // R15: choices the old Admin kept unsaved on this phone, offered back once.
+      if (!keep) {
+        offerOldDraft({ host: banner, screen: "look", user: api.user, saved, same: M.lookSame,
+          isContent: (value) => typeof value === "object" && !Array.isArray(value),
+          restore: (look) => { draft = M.lookFrom(look); draw(); } });
+      }
       return true;
     } catch (error) {
       controls.replaceChildren(h("alert-banner", { variant: "danger", heading: "How your site looks didn't load" }, "Check your connection and try again.", h("action-button", { variant: "secondary", onClick: () => load() }, "Try again")));

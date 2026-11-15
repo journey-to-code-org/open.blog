@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // QA probes for Studio slices 10b and 10c (Requests, Reminders, Sharing, Home lines). Hosted
 // services point nowhere; their answers are mocked at the Admin API. Tests named "regression:" hold
 // today and should keep holding; tests named "bug:" fail on 5d7e95e because of a real defect.
@@ -369,7 +373,7 @@ test("regression: after an unknown outcome (timeout), Studio says it may have go
   const sent = await mockSharing(page, { onCreate: (body, n) => (n === 2 ? { stored: true, status: 504, body: { error: "The hosted social function timed out." } } : null) });
   await signIn(page, "#/sharing/new");
   await page.getByRole("button", { name: "Share it" }).click();
-  await expect(page.locator(".studio-share-new p[role=status]")).toContainText("Studio didn't hear back from Bluesky; it may have it.");
+  await expect(page.locator(".studio-share-new p[role=status]")).toContainText("Your blog didn't hear back from Bluesky; it may have it.");
   await page.clock.setFixedTime(new Date("2026-11-13T15:01:10Z"));
   await page.getByRole("button", { name: "Share it" }).click();
   await expect(page.locator(".studio-share-new p[role=status]")).toHaveText("Choose at least one account to share to.");

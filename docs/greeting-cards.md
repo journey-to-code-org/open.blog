@@ -1,15 +1,15 @@
 # Greeting cards
 
-Write a card in Admin, pick the day, and it goes out by email on that day: once, or every year on a
+Write a card in Studio, pick the day, and it goes out by email on that day: once, or every year on a
 birthday. Cards are optional and off by default; a site without them works exactly the same.
 
 The address book and the cards are kept in your site's private Supabase project, never in your
 repository or on a page, so a public site can hold them. A small hosted function sends each card when its
-time comes, even when your computer and Admin are off ([ADR 0411](adr/0411-greeting-cards-live-in-the-sites-private-workspace-and-go-out-on-their-day-through-a-transactional-email-service.md)).
+time comes, even when your computer and the editor are off ([ADR 0411](adr/0411-greeting-cards-live-in-the-sites-private-workspace-and-go-out-on-their-day-through-a-transactional-email-service.md)).
 
 ## Writing a card
 
-Open **Greeting cards** in Admin.
+Open **Cards** in Studio (`#/cards`).
 
 1. Add the people you send cards to under **Address book**: a name, an email address, and a birthday if
    you'd like birthday cards.

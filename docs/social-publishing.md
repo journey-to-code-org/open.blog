@@ -14,7 +14,7 @@ the order of things, start at [Rolling it out, step by step](#rolling-it-out-ste
 
 Nothing in a browser talks to Supabase. The flow is:
 
-1. You sign in to Admin as usual. Admin checks its own session and CSRF token on every route and denies by default.
+1. You sign in to Studio as usual. Admin (the server) checks its own session and CSRF token on every route and denies by default.
 2. Admin calls the hosted social function with a server-held key and names the signed-in Admin user in the
    `X-OpenBlog-Actor` header. That name is recorded for audit; it grants nothing.
 3. The hosted function holds the Supabase `service_role` key. It acts for exactly one site, `OPENBLOG_SITE_ID`,
@@ -50,6 +50,12 @@ policies, the public roles have no access, and only the hosted function (`servic
 row carries your site scope and relations include it, so a row cannot point at another site's account or post.
 Nothing is deleted by the function: cancelling and disconnecting are updates. The only exception is retention, which
 you turn on yourself (see the [operations runbook](#retention-optional-deletes-data)).
+
+Run `supabase/social-return.sql` right after it, and before you deploy a function that writes it. It adds one
+nullable column, `return_to`, to `openblog_social_connections`: the Studio address a sign-in goes back to (see
+[Back to Studio after signing in](#back-to-studio-after-signing-in)), held by a check to
+`https://<host>/admin/studio/` (or `http://` to `localhost`, `127.0.0.1` or `[::1]`). It is additive and can be run
+twice; `supabase/social-return-rollback.sql` takes the column away again.
 
 To undo it, remove `OPENBLOG_SOCIAL_ENABLED`, stop the worker, export what you want to keep (the commands are in
 the file) and run `supabase/social-rollback.sql`. It drops only the `openblog_social_*` tables. Revoke access at
@@ -95,7 +101,8 @@ Create an app with each provider you want and set these in the function's enviro
 | `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS` | Optional. `true` also asks for `r_organization_admin` and `w_organization_social`, to post as an organization. |
 | `OPENBLOG_SOCIAL_<PROVIDER>_PKCE` | Optional. `true` sends a PKCE (S256) challenge. Off by default; turn it on only if the provider documents it for your app type. |
 
-Register exactly this redirect URL in each provider app (Admin shows it too): `<CALLBACK_BASE>/callback/linkedin`
+Register exactly this redirect URL in each provider app (Studio shows it too, with **Copy**, in the details of each
+**Connect** sheet): `<CALLBACK_BASE>/callback/linkedin`
 and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the redirect or the scopes that are sent.
 
 **Verify these when you set up, because providers change them.** The defaults are a starting point, not a promise:
@@ -106,17 +113,39 @@ and `<CALLBACK_BASE>/callback/facebook`. Nothing in a request can change the red
   organization scopes are refused and only the member is offered.
 - Facebook: confirm the Graph version, and that `pages_show_list` and `pages_manage_posts` are available to your
   app. Until Meta approves **Advanced access** through App Review, only people with a role on the app can
-  connect a Page that is not their own. Admin cannot read review status from the API and says so.
+  connect a Page that is not their own. Studio cannot read review status from the API and says so in its details.
 
 Each attempt expires after ten minutes, works once, and at most ten may be open. If the author declines a
-permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Admin are the ones
+permission, the attempt fails with a plain message and nothing is stored. The scopes shown in Studio are the ones
 the provider actually granted. Client secrets are sent in the request body to the provider, never in a URL.
+
+### Back to Studio after signing in
+
+The provider always sends the browser to the function's callback (`<CALLBACK_BASE>/callback/<provider>`). From there
+the function sends it on to the Studio it started from, in the same tab, so the owner lands back on **Your accounts**
+and chooses where posts go. How that address is made, so nothing else can choose it:
+
+1. Studio's **Connect** (or **Reconnect**) goes to Admin. Admin reads the function's `GET status`; only when it says
+   `returns: true` (the function says so once `supabase/social-return.sql` has run, schema version 5) does Admin name
+   a return address, built from the request's own `Origin` (which must match the
+   `Host` it reached) plus the fixed path `/admin/studio/`, and only for `https`, or `http` to `localhost`,
+   `127.0.0.1` or `[::1]`. A browser cannot send one; the field is refused. Admin's reply says `returns: true` only
+   when it named one with that start, and Studio goes in the same tab only then; otherwise it offers a new tab.
+2. The function checks it again (that exact shape, at most 300 characters) and stores it on the attempt's row
+   (`return_to`, from `supabase/social-return.sql`).
+3. The callback finds the row by its single-use `state` and answers `303` to
+   `<return_to>#/sharing/accounts?connection=<id>`, whatever the outcome (said yes, said no, ran out, failed). The id is
+   in the fragment, so it never reaches a server log. A state it does not know, or a row without a return address,
+   gets the fixed page, which says what happened and to go back to your blog.
+
+Studio on plain `http` to a public address, or a function from before this change, gets no return address: Studio then
+opens the provider in a new tab and checks again when the owner comes back to it.
 
 ## Connecting Bluesky (app password)
 
 Bluesky is off until you set `OPENBLOG_SOCIAL_BLUESKY_ENABLED=true` in the function's environment
 ([ADR 0357](adr/0357-a-bluesky-account-is-connected-from-an-app-password-session-and-only-the-session-is-kept.md)).
-There is no app to register and no redirect: Admin asks for your handle (such as `name.bsky.social`) and an **app
+There is no app to register and no redirect: Studio's **Your accounts** asks for your handle (such as `name.bsky.social`) and an **app
 password**, and the function signs in once with them.
 
 | Variable | Purpose |
@@ -126,12 +155,12 @@ password**, and the function signs in once with them.
 
 1. In Bluesky, open **Settings, Privacy and security, App passwords** and add one (it looks like
    `xxxx-xxxx-xxxx-xxxx`). Do not allow direct messages for it; posting does not need them.
-2. In Admin, open **Social accounts**, type your handle and the app password under **Bluesky**, and choose
-   **Connect Bluesky**.
-3. Choose the account under **Connections in progress**. Nothing is connected until you do.
+2. In Studio, open **Sharing**, then **Manage your accounts**, and choose **Connect Bluesky**. Type your Bluesky
+   name and paste the app password.
+3. Pick the account and choose **Connect**. Nothing is connected until you do.
 
-What happens to the password: Admin and the function both refuse anything that is not shaped like an app password, so
-your account password is never sent. The app password is used for that one sign-in and is never stored, logged or
+What happens to the password: Studio, Admin and the function all refuse anything that is not shaped like an app
+password, so your account password is never sent. The app password is used for that one sign-in and is never stored, logged or
 shown again; the field is emptied as soon as you submit. What is kept is the session Bluesky returns (an access token
 and a refresh token), encrypted like any other provider token. The access token is refreshed shortly before it
 expires; Bluesky rotates the refresh token each time. If nothing posts for the refresh token's whole lifetime, or you
@@ -160,35 +189,36 @@ connected; to move, register an application on the new instance, change the sett
 | `OPENBLOG_SOCIAL_MASTODON_API_VERSION` | Optional. Only `v1`, the default: the REST API is versioned by path, not by date. |
 
 1. On the instance, signed in as any account, open **Preferences, Development, New application**. Name it, set the
-   **Redirect URI** to exactly `<CALLBACK_BASE>/callback/mastodon` (Admin shows it), and tick only
+   **Redirect URI** to exactly `<CALLBACK_BASE>/callback/mastodon` (Studio shows it under the details of
+   **Connect Mastodon**), and tick only
    `read:accounts`, `write:statuses`, `read:statuses` and `write:media`. Save, then copy the client key and secret.
 2. Set the variables above in the function's environment, and `OPENBLOG_SOCIAL_CALLBACK_BASE` if it is not set yet.
-3. In Admin, open **Social accounts**. Under **Mastodon** the instance, the visibility and whether the cover is
-   attached are shown; choose **Connect Mastodon**, sign in at the instance and approve. Then choose the account under
-   **Connections in progress**. Nothing is connected until you do.
+3. In Studio, open **Sharing**, then **Manage your accounts**, and choose **Connect Mastodon**. The sheet says the
+   instance, who sees the posts and whether the photo goes with them. Sign in at the instance and approve; you come
+   back to Studio to pick the account. Nothing is connected until you do.
 
 The permissions: `read:accounts` (to name the account) and `write:statuses` (to post) are required; a grant without
 them is refused and its token revoked. `read:statuses` lets the worker look up a post whose outcome it did not see,
-and `write:media` lets it upload the cover; without them that part is skipped and Admin says so when you connect.
-Admin also tells you when the instance takes fewer than 500 characters per post. Mastodon tokens do not expire:
-an account stays connected until you disconnect it in Admin (which revokes the token at the instance) or remove the
-application under **Preferences, Account, Authorized apps** in Mastodon. **Reconnect…** asks the instance to sign in
-again and works only for the same account. Admin follows a Mastodon sign-in address only when it is that instance's
-own `/oauth/authorize`.
+and `write:media` lets it upload the cover; without them that part is skipped and Studio says so when you connect.
+Studio also tells you when the instance takes fewer than 500 characters per post. Mastodon tokens do not expire:
+an account stays connected until you disconnect it in Studio (which revokes the token at the instance) or remove the
+application under **Preferences, Account, Authorized apps** in Mastodon. **Reconnect** asks the instance to sign in
+again and works only for the same account. Studio and Admin follow a Mastodon sign-in address only when it is that
+instance's own `/oauth/authorize`.
 
 ## Choosing where to post
 
 After the author authorizes, the function asks the provider where the grant can post
 ([ADR 0300](adr/0300-destinations-are-discovered-from-the-grant-and-offered-only-when-the-provider-confirms-them.md)).
-Admin lists each destination and chooses one; nothing is connected until it does, and the choice is made once.
+Studio lists each destination and you choose one; nothing is connected until you do, and the choice is made once.
 
 - **LinkedIn** offers the member, and the organizations they administer when you set
   `OPENBLOG_SOCIAL_LINKEDIN_ORGANIZATIONS=true` and LinkedIn has approved the Community Management API for your app.
-  Admin tells apart "not asked for", "not granted", "LinkedIn refused the lookup" (usually no approval), "could not
+  Studio tells apart "not asked for", "not granted", "LinkedIn refused the lookup" (usually no approval), "could not
   be listed" and "you administer none"; it never reads a refusal as an empty list.
 - **Facebook** offers a Page only if `pages_manage_posts` was granted, your role on the Page includes creating
   content, and Facebook returned access for it. A Page whose role Facebook did not report is shown but not
-  offered. Meta's App Review status cannot be read from the API, so Admin always reminds you to confirm it.
+  offered. Meta's App Review status cannot be read from the API, so Studio always reminds you (in its details) to confirm it.
 - A destination that is already connected cannot be connected twice; use **Reconnect** on it.
 
 **Reconnect** signs in again and replaces the stored credential, but only for the same LinkedIn identity or the
@@ -201,15 +231,16 @@ would also cut off your other Pages: remove the app under **Settings > Business 
 want the grant gone. Revoke the app in the provider's settings as well when you retire the site.
 
 An account shows as **Needs reconnecting** when a provider dropped the grant, its tokens were erased, or its tokens
-(and refresh token) have run out, and as **Expiring** within seven days of that moment. LinkedIn tokens refresh
-themselves while a refresh token is valid. Admin shows each account's provider id and name, its status, its dates and
+(and refresh token) have run out, and as **Sign in again by** that day within seven days of it. LinkedIn tokens refresh
+themselves while a refresh token is valid. Studio shows each account's provider id and name, its status, its dates and
 the permissions that were granted, never a token.
 
-## Connected accounts in Admin
+## Your accounts in Studio
 
-Admin has a **Social accounts** page (`#/social`, and in the navigation once social settings exist)
+Studio has a **Your accounts** screen (`#/sharing/accounts`, reached from **Sharing** by **Manage your accounts**;
+its old address opens it too)
 ([ADR 0301](adr/0301-connected-accounts-are-managed-through-admin-routes-that-rebuild-every-reply-from-known-fields.md)).
-It is the only place you connect, reconnect or disconnect an account. Tell the machine that runs `openblog serve --admin`
+It is where you connect, reconnect or disconnect an account. Tell the machine that runs `openblog serve --admin`
 where the function is and give it the Admin key, as environment variables (never in `openblog.json`):
 
 | Variable | Purpose |
@@ -217,23 +248,32 @@ where the function is and give it the Admin key, as environment variables (never
 | `OPENBLOG_SOCIAL_ENDPOINT` | The function's address, such as `https://blog.example.com/api/social`. `https:` only (plain `http:` is allowed to `127.0.0.1` or `localhost` for local development). No credentials, query or fragment. |
 | `OPENBLOG_SOCIAL_ADMIN_KEY` | The same value as the function's `OPENBLOG_SOCIAL_ADMIN_KEY`. At least 32 characters. |
 
-With neither set, Admin has no Social accounts entry and the page only explains how to turn the feature on. If one is
-set but wrong, the page names the setting at fault and sends nothing.
+With neither set, the screen only says sharing isn't set up (and the person who set up the site can turn it on). If
+one is set but wrong, it says so and its details name the setting at fault; nothing is sent.
 
-What you can do on the page:
+What you can do there:
 
-- **Connect**: each provider shows the permissions it will ask for in plain words (optional ones marked) and the
-  exact redirect address to register in the provider's app. **Connect** gives a link that opens the provider in a new
-  tab; approve access there, return to Admin, press **I have finished, check now** (or just return to the tab), then
-  choose where posts may go. The link is not kept after a reload; cancel and start again if you lose it.
-- **Choose a destination**: destinations the provider did not confirm are shown disabled, with the reason.
-- **Reconnect**: appears on every account and leads when access ran out or was withdrawn. Sign in as the same account.
-- **Disconnect**: asks first, then erases the stored tokens and keeps the account in your history.
+- **Connect**: each place the site offers has a **Connect** button. Its sheet says, in plain words, what the provider
+  will ask to let your site do, and **Continue to Facebook** takes you there in the same tab. Sign in and say yes, and
+  you come straight back to **Where should Facebook posts go?** (see [Back to Studio after signing in](#back-to-studio-after-signing-in)).
+  Without a way back, the sheet gives an **Open Facebook** link for a new tab and **I've said yes** for when you return.
+  The details under each sheet show the permission codes (optional ones marked), the exact redirect address with
+  **Copy**, the API version and PKCE.
+- **Choose where posts go**: places the provider did not confirm are shown but can't be picked, each with the reason.
+  Nothing is connected until you choose **Connect** with one picked.
+- **Not finished**: an attempt you started and didn't finish (you went Back, or ran out of time) says so, with
+  **Start again** and **Don't connect**.
+- **Reconnect**: shown when access runs out soon (the badge says the day to sign in again by) or was withdrawn. Sign
+  in to the same account you used the first time; a different one changes nothing. Shares that failed while it
+  wasn't working can then be tried again from the account's card.
+- **Disconnect** (under the account's **More**): asks once, says how many waiting shares won't go out, then erases the
+  stored sign-in. There is no undo; you can connect it again.
 
-Each account shows its status as words (Connected, Expiring soon, Needs reconnecting, Disconnected), its dates, who
-connected it, its provider id and the permissions the provider granted. Admin never receives a token: the page is
-rebuilt from known fields on the Admin server, so even a faulty function reply cannot put one in front of you.
-The page works with the keyboard and a screen reader and has no sideways scroll at 320 px.
+Each account shows its health as words (Connected, Sign in again by a day, Needs reconnecting), how many shares wait
+for it, and, in its details, its provider id, who connected it and when, its dates and the permissions the provider
+granted. Studio never receives a token: every reply is rebuilt from known fields on the Admin server, so even a faulty
+function reply cannot put one in front of you. An app password is emptied from its field before anything is sent. The
+screen works with the keyboard and a screen reader and has no sideways scroll at 320 px.
 
 ## Scheduling announcements
 
@@ -263,7 +303,7 @@ idempotent: submitting the same composer twice (a double click, a retry after a 
 Scheduling uses the same settings as connected accounts (`OPENBLOG_SOCIAL_ENDPOINT`, `OPENBLOG_SOCIAL_ADMIN_KEY`, above)
 on the machine that runs Admin, and the same hosted function: `netlify/functions/social.mjs` serves the announcement
 routes beside the account routes, behind the same admin key, and answers 404 to everything unless the hosted settings
-(including `OPENBLOG_SOCIAL_ENABLED=true`) are valid. A rejected key shows in Admin as a setup problem, not as a sign-out.
+(including `OPENBLOG_SOCIAL_ENABLED=true`) are valid. A rejected key shows in Studio as a setup problem, not as a sign-out.
 
 ### Routes
 
@@ -273,12 +313,12 @@ Admin (`/admin/api/social/`, session and CSRF like every Admin route): `posts`, 
 (ADR 0318). Hosted (the same names under the endpoint, admin key only): the same set except
 `posts` and `preview`, which Admin answers itself.
 
-### The Social screen
+### Sharing in Studio
 
-With the settings above in place, Admin shows an **Announcements** tab
+With the settings above in place, Studio shows **Sharing**
 ([ADR 0310](adr/0310-the-social-screen-is-a-labelled-form-with-a-server-checked-preview-and-times-in-the-authors-zone.md)):
-a composer (destination, post, caption, date and time, preview) and the list of announcements with edit and cancel.
-See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
+**Share a post** (the post, the accounts, the words and a time, with how it looks on each) and the list of shares, each
+with Change and Cancel. See [Studio](admin.md#announce-a-post-on-social-media-optional) for how it is used. It only offers connected accounts,
 so connecting one is a separate step. Check it in a browser at 320px wide before you rely on it: it should never scroll
 sideways.
 
@@ -507,7 +547,7 @@ after 5 minutes, 15 minutes, an hour, six hours and a day. If it is there, the a
 its post id. If the provider says conclusively that it is not there, and the attempt is at least 15 minutes old, it
 becomes `failed` (`not-delivered`) and you can use **Try again**. If the lookup cannot tell, or the destination cannot
 be looked up, the announcement stays `unknown` with `needs-review` and waits for you: open the account, see whether
-the post is there, and choose **Check the result** in Admin. To find stuck work in the database:
+the post is there, and choose **Check it** in Studio's Sharing. To find stuck work in the database:
 `select id, status, last_error_code, updated_at from openblog_social_posts where status in ('unknown','failed');`.
 
 **Settings** (optional, bounded; a value out of range is ignored): `OPENBLOG_SOCIAL_MAX_ATTEMPTS` (default 5, 1 to 10)
@@ -517,7 +557,7 @@ sent and nothing relies on it.
 
 **What is recorded.** Each attempt keeps its number, times, outcome, HTTP status, a short code and a fixed sentence,
 and the provider's post id. It never keeps a token, a header, a request or anything the provider wrote, so the history
-is safe to show in Admin and to paste in a bug report.
+is safe to show in Studio and to paste in a bug report.
 
 ## Rolling it out, step by step
 
@@ -528,10 +568,10 @@ working, and readers, builds, feeds, exports and cross-posting never change. The
 
 | Gate | Do | Check | Undo |
 | --- | --- | --- | --- |
-| 1. Storage | Run `supabase/social.sql` in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1`. | `supabase/social-rollback.sql` |
+| 1. Storage | Run `supabase/social.sql`, then `supabase/social-return.sql`, in the Supabase SQL editor. | `select version from openblog_social_schema;` shows `1` and `5`. | `supabase/social-return-rollback.sql`, then `supabase/social-rollback.sql` |
 | 2. Hosted function | Set the [settings](#settings-hosted-function-only) on the Netlify site (generate each key as in [Rotating secrets](#rotating-secrets)) and redeploy. | `curl -s -o /dev/null -w '%{http_code}' https://YOUR-SITE/api/social/status` answers `401` (on, and wants a key), not `404` (off). If it is `404`, the function log names the setting at fault. | Remove `OPENBLOG_SOCIAL_ENABLED` and redeploy. |
-| 3. Admin | On the machine that runs `openblog serve --admin`, set `OPENBLOG_SOCIAL_ENDPOINT` and the same `OPENBLOG_SOCIAL_ADMIN_KEY`, then restart Admin. | Admin shows **Social accounts**; it lists no provider yet. | Unset both and restart Admin. |
-| 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own and choose a destination. | **Disconnect** it in Admin, remove the client settings, and remove the app in the provider's settings. |
+| 3. Admin | On the machine that runs `openblog serve --admin`, set `OPENBLOG_SOCIAL_ENDPOINT` and the same `OPENBLOG_SOCIAL_ADMIN_KEY`, then restart Admin. | Studio shows **Sharing**, and **Your accounts** there says no account can be connected yet. | Unset both and restart Admin. |
+| 4. Providers | Create the LinkedIn and Meta apps, register the redirect addresses and add the products and permissions in [Connecting LinkedIn and Facebook](#connecting-linkedin-and-facebook-oauth); set the client id, secret and `OPENBLOG_SOCIAL_CALLBACK_BASE`; redeploy. | **Connect** an account you own in Studio's **Your accounts**; you come back to Studio to choose where posts go. | **Disconnect** it in Studio, remove the client settings, and remove the app in the provider's settings. |
 | 5. Scheduling | Nothing to install. | Schedule an announcement in the **Announcements** tab. It stays **Scheduled**: nothing sends it yet. | Cancel it. |
 | 6. Delivery | Run `supabase/social-queue.sql`, and `supabase/social-history.sql` if you want the exact history. | Call the worker once by hand: `curl -s -X POST -H "Authorization: Bearer $OPENBLOG_SOCIAL_WORKER_KEY" https://YOUR-SITE/api/social-worker` answers with counts, and a due announcement to an account you own is published. | `supabase/social-history-rollback.sql`, then `supabase/social-queue-rollback.sql` |
 | 7. Schedule | Store the two Vault secrets, then run `supabase/social-cron.sql` (see [The delivery worker](#the-delivery-worker)). | `select status, start_time from cron.job_run_details order by start_time desc limit 3;` shows a successful run each minute. | `supabase/social-cron-rollback.sql` |
@@ -551,7 +591,7 @@ To turn the whole feature off and remove it, in this order. Each step is safe to
 
 1. **Stop it.** Remove `OPENBLOG_SOCIAL_ENABLED` from the Netlify site and redeploy. Every social route and the worker
    now answer 404 and touch nothing; scheduled announcements simply wait.
-2. **Hide it in Admin.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
+2. **Hide it in Studio.** Unset `OPENBLOG_SOCIAL_ENDPOINT` and `OPENBLOG_SOCIAL_ADMIN_KEY` on the Admin machine and
    restart Admin.
 3. **Keep what you need.** Export the announcements and their history (the commands are at the top of
    `supabase/social-rollback.sql`).
@@ -628,11 +668,12 @@ announcements per account. If you schedule many announcements to one account, sp
 
 | What you see | Likely cause | What to do |
 | --- | --- | --- |
-| Admin has no **Social accounts** entry | `OPENBLOG_SOCIAL_ENDPOINT` or `OPENBLOG_SOCIAL_ADMIN_KEY` is not set where Admin runs. | Set both and restart Admin (gate 3). |
+| Studio's **Your accounts** says sharing isn't set up | `OPENBLOG_SOCIAL_ENDPOINT` or `OPENBLOG_SOCIAL_ADMIN_KEY` is not set where Admin runs. | Set both and restart Admin (gate 3). |
+| After Facebook says yes, the browser stays on a page that says to go back to your blog | Studio runs on plain `http` at a public address, `supabase/social-return.sql` was not run, or the function is from before the way back. | Serve Studio over `https`, run the file, redeploy the function; until then Studio's new-tab way still works. |
 | Admin says the function rejected its key | The admin key differs between Admin and the function. | Set the same value in both places. |
 | Admin says social publishing is not enabled there, or the routes answer 404 | `OPENBLOG_SOCIAL_ENABLED` is not exactly `true`, or a hosted setting is invalid. | Read the function log: it names each setting at fault, never its value. |
 | A provider is missing under **Connect** | Its client id or secret is missing or malformed, or `OPENBLOG_SOCIAL_CALLBACK_BASE` is missing. | Admin lists the setting at fault; fix it and redeploy. |
-| The provider says the redirect address does not match | The app does not list `<CALLBACK_BASE>/callback/linkedin` or `/callback/facebook` exactly. | Copy the address Admin shows into the provider's app. |
+| The provider says the redirect address does not match | The app does not list `<CALLBACK_BASE>/callback/linkedin` or `/callback/facebook` exactly. | Copy the address Studio shows (details of the **Connect** sheet) into the provider's app. |
 | No LinkedIn organization, or no Facebook Page, is offered | LinkedIn has not approved the Community Management API; the Page role lacks content creation; `pages_manage_posts` was declined; or Meta's App Review is pending. | See [Choosing where to post](#choosing-where-to-post). |
 | Announcements stay **Scheduled** after their time (`backlog-overdue` when operations are on) | The queue (gate 6) or the schedule (gate 7) is missing, a Vault secret is missing or wrong, or the worker key differs. | `select status, return_message from cron.job_run_details order by start_time desc limit 5;` and `select status_code, created from net._http_response order by created desc limit 5;` A `401` means the Vault key differs from `OPENBLOG_SOCIAL_WORKER_KEY`. pg_net keeps responses for six hours. |
 | One network's announcements wait while the other's go (`provider-not-configured`) | That provider has no settings on this deployment. | Add its settings and redeploy, or cancel them. |
@@ -671,12 +712,12 @@ when there is an alert, so point your log drain or alerting at `"event":"openblo
 | `backlog-overdue` | Announcements the worker could take now are more than `OPENBLOG_SOCIAL_BACKLOG_ALERT_MINUTES` (default 15, 1 to 1440) late. Announcements of an account paused after a rate limit are not counted here (they show as `waiting_on_pause` and wait for the pause to end). | The worker is not running or not keeping up: check `select * from cron.job_run_details order by start_time desc limit 5;`, the Vault secrets, and the function's log. |
 | `expired-leases` | A run stopped mid-delivery. | Nothing: the next run returns it to the queue, or marks it Needs checking if it may have posted. If it repeats, raise the function timeout or lower the batch. |
 | `provider-not-configured` | Announcements wait for a provider whose settings this deployment does not have, so the worker leaves them in the queue. | Add the provider's settings and redeploy, or cancel them in Admin. |
-| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Admin, then **Try again** its failed announcements. |
-| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check the result** in Admin. |
-| `failed-recently` | Something failed in the last day. | Read its History in Admin. |
+| `accounts-need-reconnect` | A provider refused an account's sign-in. | Reconnect it in Studio's **Your accounts**, then **Try again** its failed announcements. |
+| `needs-review` | An outcome may have posted and could not be looked up. | Check the account and use **Check it** in Studio's Sharing. |
+| `failed-recently` | Something failed in the last day. | Read its History in Studio's Sharing. |
 | `stale-connections` | An unfinished account connection expired. | Nothing: the sweep cleaned it up. |
 
-Admin's Social screen shows the same health under **Delivery health**, whether or not `OPENBLOG_SOCIAL_OPS` is set,
+Studio's Sharing shows the same health in its details, whether or not `OPENBLOG_SOCIAL_OPS` is set,
 once the file is installed. To check by hand: `select * from openblog_social_health('<your site id>', 900);` (add a third argument such as
 `array['facebook']` to count a provider without settings apart, as the worker does).
 
@@ -690,7 +731,7 @@ and LinkedIn's API Terms of Use (section 4) ask you to keep provider data only a
 period you can justify (for example 365) and export first if you want an archive:
 `copy (select * from openblog_social_attempts) to stdout with csv header;`.
 
-A person asking for their data to be deleted is a manual step: disconnect the account in Admin, then in the SQL editor
+A person asking for their data to be deleted is a manual step: disconnect the account in Studio's **Your accounts**, then in the SQL editor
 delete its rows (replace the id):
 `delete from openblog_social_attempts where post_id in (select id from openblog_social_posts where account_id = '<id>');`
 then the same for `openblog_social_post_events` (if installed), `openblog_social_posts`, `openblog_social_credentials`
@@ -707,7 +748,7 @@ says how many were canceled.
 
 - Late queue: `select id, status, scheduled_for, next_attempt_at, last_error_code from openblog_social_posts where status = 'scheduled' and coalesce(next_attempt_at, scheduled_for) < now() - interval '15 minutes';`
 - Expired leases without waiting for a run: `select * from openblog_social_sweep('<your site id>');`
-- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Admin.
+- Needs checking: `select id, last_error_code, updated_at from openblog_social_posts where status = 'unknown';` and settle each in Studio's Sharing.
 
 ## How delivery safety is tested
 

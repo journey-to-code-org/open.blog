@@ -20,11 +20,20 @@ export function nothingToSave({ dirty, path, state, intent, force = false }) {
   return !force && !dirty && Boolean(path) && !(intent === "publish" && state === "draft") && !(intent === "draft" && state === "scheduled");
 }
 
-/** Send the save: a new post is created; an existing one sends only what changed, kept as written. */
-export function sendPost(api, doc, fields, body) {
+/**
+ * Send the save: a new post is created; an existing one sends only what changed, kept as written.
+ * `credits` rides beside the fields only when who wrote it changed (`undefined` leaves the credit
+ * file alone), always with the `creditEtag` the post was opened with (R5); `track` is the staged
+ * route file (R7).
+ */
+export function sendPost(api, doc, fields, body, { credits, track = {} } = {}) {
+  const who = credits === undefined ? {} : { credits, creditEtag: doc.creditEtag ?? null };
+  // R7: an exact route file staged for this post goes with any save; the server keeps it private
+  // until the post is live (G47). `track` is { trackToken, trackName } or {}.
+  const route = track.trackToken ? { trackToken: track.trackToken, trackName: track.trackName || "route.gpx" } : {};
   return doc.path
-    ? api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields: onlyChanges(doc.fields, fields), body, etag: doc.etag, frontMatter: "keep" } })
-    : api.call("POST", "document", { json: { kind: "posts", fields, body } });
+    ? api.call("PUT", `document?path=${encodeURIComponent(doc.path)}`, { json: { fields: onlyChanges(doc.fields, fields), body, etag: doc.etag, frontMatter: "keep", ...who, ...route } })
+    : api.call("POST", "document", { json: { kind: "posts", fields, body, ...who, ...route } });
 }
 
 /** The post after the server's reply: its file, version, fields (removed ones gone) and state. */
@@ -36,6 +45,7 @@ export function afterSave(doc, reply, fields) {
     etag: reply.etag,
     fields: kept,
     url: reply.url || doc.url,
+    creditEtag: reply.creditEtag === undefined ? doc.creditEtag : reply.creditEtag,
     state: reply.status === "scheduled" ? "scheduled" : reply.status === "published" ? "published" : "draft",
   };
 }

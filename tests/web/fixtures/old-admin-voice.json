@@ -1,0 +1,13 @@
+{
+  "note": "What the old Admin's voice.js kept in localStorage (two saves), frozen in R15 before it was deleted. Studio reads and writes the same keys and bytes.",
+  "values": [
+    [
+      "ob-voice-draft:grammi",
+      "{\"v\":1,\"sessionId\":\"a@1\",\"deadline\":\"2026-10-28T09:03:00Z\",\"text\":\"typed in the old Admin\",\"savedAt\":77}"
+    ],
+    [
+      "ob-voice-polished:grammi:a-rough.md",
+      "{\"v\":1,\"base\":\"rev1\",\"title\":\"Old\",\"body\":\"polished there\",\"savedAt\":78}"
+    ]
+  ]
+}

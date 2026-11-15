@@ -47,6 +47,13 @@ These terms describe private collaboration before publication. They do not repla
 attribution terms under [Evidence and identity](#evidence-and-identity), and they do not make
 collaboration state part of a document or post.
 
+**Co-writer account**:
+An Admin user whose `kind` is `co-writer`: someone invited to write together, whose sign-in the server
+lets reach only the collaboration routes their reflections authorize (ADR 0413). Every other account,
+including every account made before co-writers existed, is an owner account. "Shared reflection" stays
+the domain term; "Writing together" is Studio's name for it.
+_Avoid_: Guest Admin, limited Admin user, reader account
+
 **Shared publication**:
 A collaboration effort, identified by a stable opaque publication ID, that brings one or more
 ordered source references and one or more ordered participants toward a possible published work.
@@ -574,8 +581,19 @@ An ordered relationship between one contributor and one published work, with one
 explicitly named roles.
 _Avoid_: Contributor profile, global job title
 
+**Admin**:
+The editing server that `openblog serve --admin` adds: its sessions, its CSRF checks and its
+`/admin/api/*` routes. Owners never see the word; they use Studio, its face.
+_Avoid_: old Admin (retired in Studio R15, ADR 0415; say "before Studio" where history matters)
+
+**Studio**:
+Admin's face in the browser (`web/studio/`, at `/admin/studio/`; `/admin/` redirects there): one
+screen per job, in the owner's words, with the person who set the site up one step deeper. Its
+words come from `say()` ids a site may change.
+_Avoid_: the admin editor, Admin Studio, the new Admin
+
 **Admin user**:
-An authenticated account that signs in to Admin Studio for one site. It proves who is editing; by
+An authenticated account that signs in to Studio for one site. It proves who is editing; by
 itself it grants no public credit, authorship, or participation in a shared publication.
 _Avoid_: Contributor, Participant, Author
 
@@ -999,7 +1017,7 @@ followed across entries.
 _Avoid_: Chronology error, conflict resolution, verdict, inferred influence
 
 **Chronology explorer**:
-Admin Studio's text view of the chronology index: dated aspects in one display order, grouped by
+Studio's text view of the chronology index: dated aspects in one display order, grouped by
 century, decade or year at the author's choice, with relative datings as sentences and
 chronology prompts as checks that link to the dating. It is lists and words only, private to the
 author, and never resolves or ranks datings.
@@ -1044,8 +1062,8 @@ frame with a link beside it that becomes only the link in a portable export (ADR
 _Avoid_: Widget, shortcode, embed code, custom HTML
 
 **Landing page builder**:
-The Admin view at `#/landing` where an owner changes the landing page without code: sections are cards with
-Edit, Move up, Move down, Hide or Show and Delete buttons, added from a picker that describes each type in
+Studio's **Front page** (`#/front-page`), where an owner changes the landing page without code: sections are
+lines with Change, Move, Hide and Take it out, added from a picker that describes each type in
 plain words, and edited in a plain form. Nothing is written until Save, a deletion can be undone, and no field
 takes HTML or CSS (ADR 0249).
 _Avoid_: Page editor, theme editor, drag-and-drop designer
@@ -1087,7 +1105,7 @@ imply it, and a path that would lose a transition is withheld whole (ADR 0210, A
 _Avoid_: Link, edge, influence chain
 
 **Path editor**:
-Admin Studio's place to curate reading paths (`#/paths`): it offers only published posts and public atlas
+Studio's place to curate reading paths (`#/paths`): it offers only published posts and public atlas
 entries, marks a step that is no longer published as one readers will not see, requires a relationship and the
 author's own reason for every step after the first, reorders by Move up and Move down, and previews the one
 public projection. Saves name the revision read and are written atomically in canonical form (ADRs 0213, 0214).
@@ -1807,15 +1825,10 @@ _Avoid_: Pending (moderation), disputed, contested
 ## Admin workspace
 
 **Workspace preferences**:
-One admin login's private, schema-versioned presentation choices for Admin Studio: preset,
-optional-tool order and visibility, density, and default writing mode. They never change a
-document, site configuration, or any public or exported output.
+Retired with Personalize in Studio R15 (ADR 0415): the old per-login presentation files under
+`.openblog/private/admin-preferences/` stay on disk, are never written, and are read only for an
+earlier "No thanks" to the voice invitation. Studio has one layout.
 _Avoid_: Settings or configuration when site-wide `openblog.json` behavior is meant
-
-**Workspace preset**:
-A named starting arrangement of optional tools (Simple, Guided, Advanced) or Custom, where the
-admin chooses each optional tool's visibility. Every preset keeps every capability reachable.
-_Avoid_: Mode or role; a preset never grants or removes permissions
 
 **Essential control**:
 An Admin control no workspace preference can hide or reorder: Write, Site preview, Settings,
@@ -2644,8 +2657,8 @@ capability (ADR 0316).
 _Avoid_: Slider, image diff, gallery
 
 **Capture**:
-Photos and a few lines gathered on site in Admin's Capture
-view (`#/capture`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
+Photos and a few lines gathered on site in Studio's **New job**
+(`#/new-job`) and saved as one unpublished job draft: the Job form's own keys, the job scaffold, the notes
 under its first heading and the photos after it. A capture is not a new kind of content; it is a faster way into
 a job post. The view remembers the last trade, service and eight towns on the device (ADR 0296).
 _Avoid_: Quick post, field note
@@ -2808,7 +2821,7 @@ author's time zone says how it was chosen and is not stored.
 _Avoid_: Local time, publish date (a post's own date)
 
 **Social screen**:
-The Admin tab (`#/announcements`) where an author composes, previews, schedules, edits and cancels announcements. It exists
+Studio's **Sharing** (`#/sharing`), where an author composes, previews, schedules, changes and cancels announcements. It exists
 only when social publishing is set up, talks only to Admin's own routes, and shows times in the author's zone.
 _Avoid_: Social dashboard, composer (the form is one part of the screen)
 
@@ -2857,7 +2870,7 @@ credential and clearing its needs-reauth flag.
 _Avoid_: Refresh (a silent token renewal), re-add
 
 **Connected accounts screen**:
-The Admin page (`#/social`) where an author connects, reviews, reconnects and disconnects social accounts. It shows
+Studio's **Your accounts** (`#/sharing/accounts`), where an author connects, reviews, reconnects and disconnects social accounts. It shows
 only what the Admin server rebuilt from the hosted function's reply, and appears in the navigation only when the
 Admin server has social settings.
 _Avoid_: Integrations, social settings

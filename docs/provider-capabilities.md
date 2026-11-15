@@ -156,7 +156,7 @@ that checks it against these manifests, and `--approve` records your consent to 
 
 ## Where each post went
 
-`openblog outcomes` and Admin's **Where it went** read every destination's private record and show, per post, its
+`openblog outcomes` and Studio's **Where each post went** read every destination's private record and show, per post, its
 status and what it rests on, without asking any provider. See [Where your posts went](distribution-reporting.md).
 
 ## Images for a destination

@@ -122,7 +122,7 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
 
     // Reconnect: a new handshake bound to this account. It can finish only for the same provider
     // identity. An app-password provider signs in again with the handle and app password given.
-    async reconnect(id, actor, signIn = null) {
+    async reconnect(id, actor, signIn = null, returnTo = undefined) {
       const row = await readAccount(id);
       if (row.status === "disconnected") throw new SocialOAuthError(409, "disconnected", "This account was disconnected. Connect it as a new account.");
       if (providers?.[row.provider]?.login === "app-password") {
@@ -130,7 +130,7 @@ export function createAccounts({ connector, settings, providers, fetchImpl = glo
         return connector.appPassword({ provider: row.provider, identifier: signIn.identifier, password: signIn.password, actor, reauthAccountId: row.id });
       }
       if (signIn) throw new SocialOAuthError(400, "invalid-request", "That provider is reconnected through its own sign-in page.");
-      return connector.start({ provider: row.provider, actor, reauthAccountId: row.id });
+      return connector.start({ provider: row.provider, actor, reauthAccountId: row.id, returnTo });
     },
   };
 }

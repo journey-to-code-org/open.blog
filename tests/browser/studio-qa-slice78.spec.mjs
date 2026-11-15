@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { removeTree } from "./teardown.mjs";
 
+// The worker keeps Studio's files since R4 (G35); a page it controls sends its requests past page.route,
+// so the stand-ins here would be skipped. These tests don't need it.
+test.use({ serviceWorkers: "block" });
+
 // QA probes for Studio slices 7 (Look) and 8 (Comments): edges the slice specs don't cover.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binary = join(repository, "target", "debug", "openblog");
@@ -38,7 +42,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { if (server?.exitCode === null) { const s = once(server, "exit"); server.kill(); await s; } removeTree(root); });
 
-async function signIn(page, hash = "#/comments") {
+async function signIn(page, hash = "#/readers") {
   await page.goto(`${origin}/admin/studio/${hash}`);
   const name = page.getByRole("textbox", { name: "Your name", exact: true });
   if (await name.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
@@ -78,7 +82,8 @@ async function mockInbox(page, items, { onPatch, onGet, patchDelay = 0 } = {}) {
   });
   return decisions;
 }
-const statusLine = (page) => page.locator(".studio-comments p[role=status]");
+const setupStatus = (page) => page.locator("main p.studio-help[role=status]").filter({ hasText: /^Comments are/ });
+const statusLine = (page) => page.locator("main p[role=status]");
 async function axe(page, label) {
   await page.evaluate(axeSource);
   const v = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] } })).violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`));
@@ -90,27 +95,27 @@ test("Q1 switch PUT keeps captcha and the file as written", async ({ page }) => 
   await mockInbox(page, []);
   let putBody;
   page.on("request", (r) => { if (r.method() === "PUT" && r.url().includes("engagement/settings")) putBody = r.postDataJSON(); });
-  await signIn(page);
-  const toggle = page.getByRole("switch", { name: "Let people leave comments" });
+  await signIn(page, "#/readers/setup");
+  const toggle = page.getByRole("switch", { name: "Let readers leave comments" });
   await expect(toggle).toBeChecked();
   await toggle.click();
   await page.getByRole("button", { name: "Turn them off" }).click();
-  await expect(statusLine(page).filter({ hasText: /^Comments are off\./ })).toBeVisible();
+  await expect(setupStatus(page).filter({ hasText: /^Comments are off\./ })).toBeVisible();
   const after = readFileSync(configPath, "utf8");
   console.log("PUT BODY", JSON.stringify(putBody));
   console.log("FILE ENGAGEMENT AFTER", JSON.stringify(JSON.parse(after).engagement));
   console.log("TEXT SAME EXCEPT comments?", after === written.replace('"comments": true', '"comments": false'));
   expect(JSON.parse(after).engagement.captcha).toEqual({ provider: "turnstile", siteKey: "0x4AAAAAAA-public_key", scope: "every-comment" });
   await toggle.click();
-  await expect(statusLine(page).filter({ hasText: /^Comments are on\./ })).toBeVisible();
+  await expect(setupStatus(page).filter({ hasText: /^Comments are on\./ })).toBeVisible();
   writeFileSync(configPath, written);
 });
 
 test("Q2 flipping again while the first flip is still going out", async ({ page }) => {
   await mockInbox(page, []);
-  await signIn(page);
+  await signIn(page, "#/readers/setup");
   await page.route("**/admin/api/publish", async (route) => { await new Promise((d) => setTimeout(d, 2500)); return route.continue(); });
-  const toggle = page.getByRole("switch", { name: "Let people leave comments" });
+  const toggle = page.getByRole("switch", { name: "Let readers leave comments" });
   await expect(toggle).toBeChecked();
   await toggle.click();
   await page.getByRole("button", { name: "Turn them off" }).click();
@@ -120,7 +125,7 @@ test("Q2 flipping again while the first flip is still going out", async ({ page 
   await page.waitForTimeout(4000);
   const shown = await toggle.isChecked();
   const file = JSON.parse(readFileSync(configPath, "utf8")).engagement.comments;
-  console.log("Q2 switch shows", shown, "file says", file, "status", await statusLine(page).textContent());
+  console.log("Q2 switch shows", shown, "file says", file, "status", await setupStatus(page).textContent());
   await page.screenshot({ path: `${SHOTS}/q2-switch.png`, fullPage: true });
   writeFileSync(configPath, written);
   expect(shown).toBe(file);
@@ -212,7 +217,7 @@ test("Q7 hostile names and titles; erase dialog words", async ({ page }) => {
   const dialogs = []; page.on("dialog", (d) => { dialogs.push(d.message()); d.dismiss(); });
   await mockInbox(page, items);
   await page.setViewportSize({ width: 320, height: 800 });
-  await signIn(page, "#/comments/not-shown");
+  await signIn(page, "#/readers/not-shown");
   await expect(page.locator(".studio-comment")).toHaveCount(1);
   await page.locator(".studio-row-menu").getByRole("button").click();
   await page.getByRole("menuitem", { name: "Erase it for good" }).click();

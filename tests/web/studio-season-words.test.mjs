@@ -16,11 +16,11 @@ test("long dates in her words", () => {
 
 test("today's sentence: a season, put up early, the everyday look, and the calendar off", () => {
   assert.deepEqual(todaySentence({ theme: "grammis", seasons: calendar, wearing: "thanksgiving", next: { day: "2026-12-01", theme: "christmas" } }, label, { today: "2026-11-13", now }),
-    ["Your house is decorated for Thanksgiving.", "On Tuesday, December 1 it changes to Christmas."]);
+    ["Your blog is decorated for Thanksgiving.", "On Tuesday, December 1 it changes to Christmas."]);
   assert.deepEqual(todaySentence({ theme: "grammis", seasons: { ...calendar, upNow: { theme: "christmas", until: "2027-01-06" } }, wearing: "christmas", next: { day: "2027-01-07", theme: "january" } }, label, { today: "2026-11-13", now }),
-    ["Your house is decorated for Christmas, put up early. It stays up through Wednesday, January 6, 2027.", "On Thursday, January 7, 2027 it changes to January: snowy morning."]);
+    ["Your blog is decorated for Christmas, put up early. It stays up through Wednesday, January 6, 2027.", "On Thursday, January 7, 2027 it changes to January: snowy morning."]);
   assert.deepEqual(todaySentence({ theme: "grammis", seasons: { ...calendar, windows: [] }, wearing: "grammis", next: null }, label, { today: "2026-11-13", now }),
-    ["Your house is wearing its everyday look: No decorations (just the house)."]);
+    ["Your blog is wearing its everyday look: No decorations (just the house)."]);
   assert.deepEqual(todaySentence({ theme: "grammis", seasons: { ...calendar, enabled: false }, wearing: "grammis", next: null }, label, { today: "2026-11-13", now }),
-    ["Your house wears No decorations (just the house) every day. The calendar is off."]);
+    ["Your blog wears No decorations (just the house) every day. The calendar is off."]);
 });

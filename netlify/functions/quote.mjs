@@ -21,7 +21,7 @@ import { createStore } from "../lib/quote-store.mjs";
 import { tellOwner } from "../lib/push-store.mjs";
 import { createNotifier, MAX_ATTEMPTS, notifySettings, resendTransport, retryFailed } from "../lib/quote-notify.mjs";
 import { timingSafeEqual } from "node:crypto";
-import { erasePreview, eraseConfirmed, exportCsv, listRequests, retentionSetting, retentionSweep, setRetention, setStatus } from "../lib/quote-admin.mjs";
+import { RETENTION_CAN, erasePreview, eraseConfirmed, exportCsv, listRequests, retentionPreview, retentionSetting, retentionSweep, setRetention, setStatus } from "../lib/quote-admin.mjs";
 
 const HOUR = 60 * 60 * 1000;
 const SECURITY = {
@@ -92,7 +92,9 @@ const sameKey = (given, wanted) => {
 };
 
 // Routes under /api/quote/ for the owner. `segments` ends with one of:
-//   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase | POST retention/run
+//   GET requests | POST requests/<id>/status | GET export | POST erase/preview | POST erase
+//   | GET retention (the days in force and what this function can do: { dryRun, eraseBefore })
+//   | POST retention/run ({ dryRun } counts and gives `before`; { before } erases only up to it)
 //   | POST retention ({ days }: the owner's retention choice, ADR 0387)
 async function manage({ settings, env, method, segments, query, body, store, now, notifyEnabled }) {
   const at = segments.indexOf("quote") + 1;
@@ -110,6 +112,10 @@ async function manage({ settings, env, method, segments, query, body, store, now
     const { days, source } = await retention();
     return json(200, await listRequests({ store, settings, query, days, source, notifyEnabled }));
   }
+  if (method === "GET" && parts.length === 1 && parts[0] === "retention") {
+    const { days, source } = await retention();
+    return json(200, { retentionDays: days, retentionSource: days ? source : null, ...RETENTION_CAN });
+  }
   if (method === "POST" && parts.length === 1 && parts[0] === "retention") {
     const days = input().days;
     return json(200, await setRetention({ store, env, days: days === null || days === undefined ? null : days }));
@@ -121,7 +127,13 @@ async function manage({ settings, env, method, segments, query, body, store, now
     const value = input();
     return json(200, await eraseConfirmed({ store, settings, ids: value.ids, token: value.token, now }));
   }
-  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") return json(200, await retentionSweep({ store, settings, days: (await retention()).days, now }));
+  if (method === "POST" && parts.length === 2 && parts[0] === "retention" && parts[1] === "run") {
+    const days = (await retention()).days;
+    // { dryRun: true } counts what would go and erases nothing (G12).
+    const value = input();
+    if (value.dryRun === true) return json(200, await retentionPreview({ store, settings, days, now }));
+    return json(200, await retentionSweep({ store, settings, days, now, before: value.before }));
+  }
   return json(404, { error: "not-found" });
 }
 
@@ -229,7 +241,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
       // it is bounded so the visitor's answer never waits on a slow provider (ADR 0386).
       if (notify) await notify({ id, values, photoCount: stored.length, store });
       // The same minimal facts as the email (ADR 0383): no phone, address or description.
-      await tellOwner({ env, fetchImpl, kind: "quote", notice: { title: "New quote request", body: [values.name, values.service, values.town].filter(Boolean).join(" · "), url: "/admin/#/quotes", tag: `quote-${id}` } });
+      await tellOwner({ env, fetchImpl, kind: "quote", notice: { title: "New quote request", body: [values.name, values.service, values.town].filter(Boolean).join(" · "), url: "/admin/studio/#/quotes", tag: `quote-${id}` } });
       return reply(201, "received", { status: "received" });
     } catch (error) {
       if (error instanceof QuoteError) {

@@ -21,14 +21,14 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   turned off for the whole blog or one post, and numbers for a single block.
 - **Feeds and metadata built in.** RSS, JSON Feed, sitemap, Open Graph, JSON-LD, canonical
   links, and a small JSON of your latest posts for embedding on another site.
-- **Publishing studio.** `openblog serve --admin` adds a login-protected, writing-first
-  editor with publishing-faithful themed previews, Open Graph cards, transparent SEO and
-  answer-readiness guidance, structured accessibility and research-evidence review,
-  source-preserving formatting, uploads, drafts, and scheduling. An optional author-time
-  Assistant can review drafts, apply exact suggestions with undo, propose knowledge checks,
-  runnable Rust/web examples, configured-runner language lessons, and small coding challenges, and provide opt-in autocomplete through a
-  provider you configure. It edits the same
-  Markdown files; front matter stays in Settings and is never rendered in the preview.
+- **Studio.** `openblog serve --admin` adds Studio, a sign-in protected, writing-first editor
+  at `/admin/` that works on a phone, with no signal and from the keyboard: your words with
+  photos and pieces as cards in place, one **Before you publish** checklist (the real shared
+  card, accessibility, search and research checks), drafts that save themselves, scheduling,
+  your front page, look and seasonal decorations, readers' notes, sharing to your accounts, jobs
+  from a phone, research and writing together. An optional writing helper reads a post over,
+  suggests words and drafts questions or code examples, always saying what goes to which company
+  first and never changing your words without a press. It edits the same Markdown files.
 - **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages
   workflow deploys, and the repository is the backup. Drafts stay out of commits.
 - **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts
@@ -82,7 +82,7 @@ To write from a browser:
 
 ```sh
 openblog user add you          # create a login
-openblog serve --admin         # editor at http://localhost:8080/admin
+openblog serve --admin         # Studio at http://localhost:8080/admin/
 ```
 
 ## A post
@@ -142,8 +142,8 @@ GitHub. New here? Start with [Getting started](docs/getting-started.md). The mai
 - [Configuration](docs/configuration.md): every setting in `openblog.json`
 - [Themes and the design system](docs/themes.md) and
   [adding web components to a theme](docs/theme-components.md)
-- [The admin editor](docs/admin.md): login, editing, scheduling, optional AI assistance,
-  and running it safely
+- [Studio: running your blog](docs/admin.md): signing in, every screen, scheduling, the
+  optional writing helper, running it safely, and the old addresses
 - [Sharing, views, analytics, and embeds](docs/features.md)
 - [SEO and answer discovery](docs/seo.md)
 - [Accessibility checks and manual review](docs/accessibility.md)

@@ -51,7 +51,7 @@ cardTitle: Lemon tart with a crisp, never soggy crust
 cardDescription: A sharp lemon curd in a shortcrust you can make the day before.
 ```
 
-In Admin, a post's settings have **Words for a Pinterest Pin** under the cover photo: **Pin title** and **Pin
+In Studio, Write's **About this post** has **Words for a Pinterest Pin** with the cover photo: **Pin title** and **Pin
 description** are saved as `cardTitle` and `cardDescription`. Leave them empty to use the post's title and summary.
 **Photo by**, under **Describe the picture**, is saved as `coverCredit`. Admin does not yet set `cardImage`,
 `cardImageAlt`, `cardImageCredit` or a credit link; write those in the post's front matter.

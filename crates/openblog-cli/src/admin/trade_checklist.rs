@@ -4,7 +4,21 @@
 //! facts, a first service, a first job, a first review and a place to share jobs. Every step is
 //! worked out from the files each time the route is asked, never from what the owner clicked, so a
 //! step is ticked exactly when the site really has it and unticks if it is taken away. The route
-//! only reads; dismissing the card is a workspace preference (`tradeChecklistDismissed`).
+//! only reads. Hiding the card is the one thing remembered: `PUT /admin/api/trade-checklist
+//! {dismissed}` keeps it in `.openblog/trade-checklist.json` (Studio R1, G13; it was a workspace
+//! preference, which goes with the old Admin).
+
+/// Where hiding the card is remembered, under the site's private folder.
+pub(crate) const DISMISSED_FILE: &str = ".openblog/trade-checklist.json";
+
+/// Whether the owner hid the card. A missing or unreadable file means it shows.
+fn dismissed(state: &AppState) -> bool {
+    fs::read_to_string(state.root.join(DISMISSED_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Json>(&text).ok())
+        .and_then(|value| value.get("dismissed").and_then(Json::as_bool))
+        .unwrap_or(false)
+}
 
 use super::*;
 use crate::job_share::{self, State, Status};
@@ -42,9 +56,9 @@ pub(crate) fn steps(facts: &Facts) -> Vec<Step> {
             facts
                 .newest_job
                 .as_ref()
-                .map(|path| format!("#/edit/{}", url_component(path)))
+                .map(|path| format!("#/write/{}", url_component(path)))
         } else {
-            Some("#/capture".to_string())
+            Some("#/new-job".to_string())
         }
     };
     vec![
@@ -71,11 +85,13 @@ pub(crate) fn steps(facts: &Facts) -> Vec<Step> {
         Step {
             id: "destination",
             done: facts.google_on || facts.job_shared,
-            // Sharing starts from a published job, in Write; there is nothing to open before one.
+            // Sharing starts from a published job (Studio sends it to Share this job); there is
+            // nothing to open before one. Studio addresses since R15 (G124); Studio still reads the
+            // old `#/edit/…` and `#/capture` a kept answer may hold.
             href: facts
                 .newest_job
                 .as_ref()
-                .map(|path| format!("#/edit/{}", url_component(path))),
+                .map(|path| format!("#/write/{}", url_component(path))),
         },
     ]
 }
@@ -156,6 +172,7 @@ pub(super) fn get(state: &AppState) -> Response {
         200,
         &json!({
             "applies": facts.trade_site,
+            "dismissed": dismissed(state),
             "done": done,
             "total": steps.len(),
             "steps": steps
@@ -164,6 +181,42 @@ pub(super) fn get(state: &AppState) -> Response {
                 .collect::<Vec<_>>(),
         }),
     )
+}
+
+/// Hide the card, or show it again: `{dismissed: true|false}`, nothing else.
+pub(super) fn put(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > 256 {
+        return Response::error(413, "The request is too large");
+    }
+    let dismissed = match serde_json::from_slice::<Json>(&req.body) {
+        Ok(Json::Object(body)) if body.len() == 1 => match body.get("dismissed") {
+            Some(Json::Bool(value)) => *value,
+            _ => return Response::error(400, "Say dismissed: true or false"),
+        },
+        _ => return Response::error(400, "Say dismissed: true or false"),
+    };
+    let path = state.root.join(DISMISSED_FILE);
+    let written = if dismissed {
+        if let Some(parent) = path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                return Response::error(500, &format!("cannot create the private folder: {error}"));
+            }
+        }
+        write_atomic(&path, "{\n  \"dismissed\": true\n}\n")
+    } else {
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("cannot forget the hidden checklist: {error}")),
+        }
+    };
+    match written {
+        Ok(()) => Response::json(200, &json!({ "dismissed": dismissed })),
+        Err(error) => Response::error(500, &error),
+    }
 }
 
 #[cfg(test)]
@@ -184,7 +237,7 @@ mod tests {
         let ids: Vec<&str> = steps.iter().map(|step| step.id).collect();
         assert_eq!(ids, ["business", "service", "job", "review", "destination"]);
         assert!(steps.iter().all(|step| !step.done));
-        assert_eq!(by_id(&steps, "job").1.as_deref(), Some("#/capture"));
+        assert_eq!(by_id(&steps, "job").1.as_deref(), Some("#/new-job"));
         assert_eq!(by_id(&steps, "destination").1, None);
     }
 
@@ -200,11 +253,11 @@ mod tests {
         assert!(!by_id(&steps, "service").0);
         assert_eq!(
             by_id(&steps, "job"),
-            (true, Some("#/edit/posts%2Fnew%20oak.md".into()))
+            (true, Some("#/write/posts%2Fnew%20oak.md".into()))
         );
         assert_eq!(
             by_id(&steps, "destination"),
-            (false, Some("#/edit/posts%2Fnew%20oak.md".into()))
+            (false, Some("#/write/posts%2Fnew%20oak.md".into()))
         );
         for facts in [
             Facts {
