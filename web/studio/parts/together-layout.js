@@ -85,7 +85,10 @@ export async function createLayoutSheet({ api, id, onChange }) {
       can ? h("div", { class: "studio-sheet-footer" }, h("p", { class: "studio-help", text: say("layout.clearsAgreement") }), h("action-button", { onClick: () => save() }, say("layout.save")))
         : h("p", { class: "studio-help", text: say("layout.readOnly") }),
       h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), h("pre", { class: "studio-mono", tabindex: "0", text: JSON.stringify(data.structure ?? null, null, 2) })));
-    if (focusSelector) requestAnimationFrame(() => (body.querySelector(`${focusSelector}`)?.querySelector?.("button, input") || body.querySelector(focusSelector))?.focus?.());
+    // Focus goes back at once, so a second Alt+Arrow (or a held key) is not lost on the page while the
+    // list is redrawn; and again on the next frame, in case a part draws itself late.
+    const refocus = () => (body.querySelector(`${focusSelector}`)?.querySelector?.("button, input") || body.querySelector(focusSelector))?.focus?.();
+    if (focusSelector) { refocus(); requestAnimationFrame(() => { if (!body.contains(document.activeElement)) refocus(); }); }
   }
 
   async function save(undoing = null) {

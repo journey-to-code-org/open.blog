@@ -91,7 +91,13 @@ export async function createSheet({ label, wide = true }) {
     const open = () => {
       if (current !== shown) return; // closed, or replaced, while the last close settled
       element.open = true;
-      requestAnimationFrame(() => focus?.());
+      // Unless she is already in a field of the sheet: she may have tapped one before this frame,
+      // and moving her then sends what she types to the wrong field.
+      requestAnimationFrame(() => {
+        const at = document.activeElement;
+        if (at && element.contains(at) && at.matches("input, textarea, select, [contenteditable]")) return;
+        focus?.();
+      });
     };
     if (settling) settling.then(open);
     else open();
