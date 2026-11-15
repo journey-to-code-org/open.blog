@@ -28,7 +28,7 @@ Studio screen: **Sharing** (`#/sharing`), with **Share this job** (`#/sharing/jo
 | `docs/trades.md` | 55 | Step 5: "choose **Share this job**" (in the checklist under Admin's home) | Directive | Sharing › Share this job |
 | `docs/social-publishing.md` | 17 | "You sign in to Admin as usual." | Pointer | Sharing (Studio's own sign-in) |
 | `docs/social-publishing.md` | 318 | "Admin shows an **Announcements** tab" | Directive | Sharing › Announcements |
-| `docs/social-publishing.md` | 321 | "See [Admin](admin.md#announce-a-post-on-social-media-optional) for how it is used." | Directive | Sharing › Announcements (link target) |
+| `docs/social-publishing.md` | 321 | "See Admin (admin.md, Announce a post on social media) for how it is used." | Directive | Sharing › Announcements (link target) |
 | `docs/admin.md` | 1348–1381 | Section "Announce a post on social media (optional)": the Announcements tab, Schedule, Edit, Cancel, Try again, Check the result | Directive | Sharing › Announcements |
 | `docs/admin.md` | 1350 | "Admin shows an **Announcements** tab" | Directive | Sharing › Announcements |
 | `docs/admin.md` | 1375 | "then choose **Check the result**" | Directive | Sharing › Announcements (Needs checking) |
