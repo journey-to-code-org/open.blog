@@ -42,9 +42,10 @@ export function generateView({ api, kind, company, source, asked = {}, hasTyping
     details.hidden = true;
     status.textContent = quiz ? say("hgen.writing") : say("hgen.codeWriting");
     try {
+      // `confirmed`: this runs only from her press of the button under the list of what goes.
       const reply = quiz
-        ? await api.call("POST", "quiz/generate", { json: { context: source.text, count: Number(count.value) || 2 } })
-        : await api.call("POST", "assistant/code-interaction", { json: { context: source.text, kind: asked.kind, language: asked.language } });
+        ? await api.call("POST", "quiz/generate", { json: { context: source.text, count: Number(count.value) || 2, confirmed: true } })
+        : await api.call("POST", "assistant/code-interaction", { json: { context: source.text, kind: asked.kind, language: asked.language, confirmed: true } });
       const values = quiz ? quizFromGenerated(reply) : interactionFromGenerated(reply, asked);
       if (!values || (Array.isArray(values) && !values.length)) {
         status.textContent = helperProblem({ status: 502, data: { code: "invalid-result" } }, { company }).words;

@@ -214,6 +214,7 @@ test("controlled provider response renders through the mounted Review UI without
           source: { title: "Unsaved title", metadata: { draft: "true" }, markdown: "Draft body" },
           skillIds: ["copy-review"],
           contextIds: ["private:author"],
+          confirmed: true,
         },
       },
     });

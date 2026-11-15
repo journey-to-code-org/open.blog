@@ -95,7 +95,10 @@ fn webm() -> Vec<u8> {
 
 fn speak(f: &Fixture, s: &(String, String), query: &str, audio: Vec<u8>) -> Response {
     let mut r = authed(
-        req("POST", &format!("/admin/api/voice/spoken?{query}")),
+        req(
+            "POST",
+            &format!("/admin/api/voice/spoken?{query}&confirmed=true"),
+        ),
         s,
         true,
     );
@@ -746,7 +749,7 @@ fn a_practice_request_is_refused_on_every_voice_route_unless_the_server_is_rehea
             &s,
             "POST",
             "assistant/voice-guide",
-            json!({ "sampleIds": ["voice:private:x-rough.md"], "practice": true }),
+            json!({ "confirmed": true, "sampleIds": ["voice:private:x-rough.md"], "practice": true }),
         ),
         get(&f, &s, "voice/session?practice=1"),
         get(&f, &s, "voice/samples?practice=1"),
@@ -1069,7 +1072,10 @@ fn a_story_told_out_loud_becomes_a_rough_piece_and_the_recording_is_never_kept()
 
     // Signed in, with the CSRF token.
     let mut bare = authed(
-        req("POST", "/admin/api/voice/spoken?promptId=a-meal-you-love"),
+        req(
+            "POST",
+            "/admin/api/voice/spoken?promptId=a-meal-you-love&confirmed=true",
+        ),
         &s,
         false,
     );

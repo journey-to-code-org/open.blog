@@ -22,7 +22,7 @@ fn post(f: &Fixture, session: &(String, String), body: Json) -> Response {
     handle(
         &f.state,
         &authed(
-            json_req("POST", "/admin/api/assistant/job-draft", body),
+            json_req("POST", "/admin/api/assistant/job-draft", confirmed(body)),
             session,
             true,
         ),
@@ -41,13 +41,17 @@ fn job_draft_requires_a_session_and_the_csrf_token() {
     assert_eq!(
         handle(
             &f.state,
-            &json_req("POST", "/admin/api/assistant/job-draft", body.clone())
+            &json_req(
+                "POST",
+                "/admin/api/assistant/job-draft",
+                confirmed(body.clone())
+            )
         )
         .status,
         401
     );
     let no_csrf = authed(
-        json_req("POST", "/admin/api/assistant/job-draft", body),
+        json_req("POST", "/admin/api/assistant/job-draft", confirmed(body)),
         &session,
         false,
     );

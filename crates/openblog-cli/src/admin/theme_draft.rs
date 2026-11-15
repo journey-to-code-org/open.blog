@@ -114,6 +114,9 @@ pub(super) fn draft(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(response) => return response,
     };
+    if let Err(response) = super::provider_confirmed(&body) {
+        return response;
+    }
     let description = match body["description"].as_str() {
         Some(text) if text.chars().count() <= MAX_DESCRIPTION_CHARS && !text.contains('\0') => {
             text.trim().to_string()

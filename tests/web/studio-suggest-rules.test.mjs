@@ -35,9 +35,13 @@ test("the request carries her unsaved words, bounded on each side of the caret, 
   const form = { title: "Pie", body: "Story.\n\nThe crust wants cold butter", fields: { tags: ["pie"], trackToken: "tok-1", routeShape: "0,0", _mine: 1 } };
   const request = completionRequest({ prefix: "The crust wants cold butter", suffix: " and a light hand." }, form, ["private:author", "private:author"]);
   assert.deepEqual(request, {
+    // Not turned on, not said: the server refuses a request that doesn't say `confirmed: true` (S1).
+    confirmed: false,
     source: { title: "Pie", metadata: { tags: ["pie"] }, markdown: form.body, prefix: "The crust wants cold butter", suffix: " and a light hand.", editorMode: "markdown" },
     contextIds: ["private:author"],
   });
+  assert.equal(completionRequest({ prefix: "x" }, form, [], { turnedOn: true }).confirmed, true, "after she turned them on for this post and visit");
+  for (const not of [undefined, 1, "true", {}]) assert.equal(completionRequest({ prefix: "x" }, form, [], { turnedOn: not }).confirmed, false, String(not));
   const long = completionRequest({ prefix: `${"a".repeat(MAX_SIDE)}🏮END`, suffix: `START🏮${"b".repeat(MAX_SIDE)}` }, form, []);
   assert.equal(Array.from(long.source.prefix).length, MAX_SIDE);
   assert.equal(long.source.prefix.endsWith("🏮END"), true, "the words nearest her caret are the ones kept");

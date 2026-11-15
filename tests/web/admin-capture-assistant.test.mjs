@@ -194,7 +194,7 @@ test("a draft request sends words and ids only, and an unusable reply applies no
   const api = { call: async (method, path, options) => { sent.push({ method, path, json: options.json }); return { draft: DRAFT }; } };
   const draft = await requestDraft({ api, notes: "n", fields: { trade: "plumbing" }, contextIds: ["private:voice"] });
   assert.deepEqual(draft, DRAFT);
-  assert.deepEqual(sent[0], { method: "POST", path: "assistant/job-draft", json: { notes: "n", photoAlts: [], trade: "plumbing", service: "", town: "", contextIds: ["private:voice"] } });
+  assert.deepEqual(sent[0], { method: "POST", path: "assistant/job-draft", json: { notes: "n", photoAlts: [], trade: "plumbing", service: "", town: "", contextIds: ["private:voice"], confirmed: true } });
   await assert.rejects(requestDraft({ api: { call: async () => ({ draft: { title: "", sections: {} } }) }, notes: "n" }), /usable draft/);
 });
 
@@ -261,7 +261,7 @@ test("the draft is requested only after the disclosure, fills editable fields, a
   named(box.element, "Send to the Assistant").click();
   await flush();
   const request = calls.find((call) => call.path === "assistant/job-draft");
-  assert.deepEqual(request.json, { notes: "swapped a heater. leaked at the drain.", photoAlts: [], trade: "plumbing", service: "", town: "Dunmore", contextIds: ["private:voice"] });
+  assert.deepEqual(request.json, { notes: "swapped a heater. leaked at the drain.", photoAlts: [], trade: "plumbing", service: "", town: "Dunmore", contextIds: ["private:voice"], confirmed: true });
   assert.equal(field(box, "title").value, "Water heater swap in Dunmore");
   assert.equal(field(box, "did").value, "Fitted a new tank.");
   assert.deepEqual(box.getDraft(), DRAFT);

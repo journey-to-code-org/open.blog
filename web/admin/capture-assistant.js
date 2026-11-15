@@ -242,7 +242,7 @@ export async function loadDraftSetup(api) {
 /** Ask for a draft. Resolves to a normalized draft; anything unusable is an error and nothing is applied. */
 export async function requestDraft({ api, notes, fields = {}, photoAlts = [], contextIds = [] }) {
   const reply = await api.call("POST", "assistant/job-draft", {
-    json: { notes, photoAlts, trade: fields.trade || "", service: fields.service || "", town: fields.town || "", contextIds },
+    json: { notes, photoAlts, trade: fields.trade || "", service: fields.service || "", town: fields.town || "", contextIds, confirmed: true },
   });
   const draft = normalizeDraft(reply?.draft);
   if (!draft) throw new Error("The Assistant did not return a usable draft. Your notes are unchanged.");

@@ -61,7 +61,7 @@ test("Write questions for me: says what goes, fills the form, can be put back, a
 
   await sheet(page).getByRole("button", { name: "Write them", exact: true }).click();
   await expect(sheet(page).locator(".studio-generated")).toBeVisible();
-  expect(sent).toEqual([{ context: "## Making the crust\n\nKeep the butter cold and work fast.", count: 2 }]);
+  expect(sent).toEqual([{ context: "## Making the crust\n\nKeep the butter cold and work fast.", count: 2, confirmed: true }]);
   await expect(sheet(page).locator(".studio-generated")).toContainText("Written. Check each answer before you add it. Your helper can be wrong.");
   await expect(sheet(page).getByRole("textbox", { name: "The question", exact: true }).first()).toHaveValue("What keeps a crust flaky?");
   await expect(sheet(page).getByRole("textbox", { name: "Answer 3", exact: true })).toHaveValue("See https://evil.example/now");
@@ -121,7 +121,7 @@ test("Draft it for me fills Code readers can run, with the kind and language she
   await expect(sheet(page).locator(".studio-goes")).toContainText("Nothing runs here");
   await axeClean(page, "Draft it for me", "side-sheet.studio-add-sheet");
   await sheet(page).getByRole("button", { name: "Draft it", exact: true }).click();
-  expect(sent).toEqual([{ context: "## Making the crust\n\nKeep the butter cold and work fast.", kind: "example", language: "rust" }]);
+  expect(sent).toEqual([{ context: "## Making the crust\n\nKeep the butter cold and work fast.", kind: "example", language: "rust", confirmed: true }]);
   await expect(sheet(page).getByRole("textbox", { name: "Title", exact: true })).toHaveValue("Count the layers");
   await expect(sheet(page).locator(".studio-generated")).toContainText("Drafted. Read the code before you add it. It can be wrong, and nothing has run.");
   await expect(sheet(page).getByRole("combobox", { name: "Language" })).toHaveValue("rust");

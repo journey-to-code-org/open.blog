@@ -198,7 +198,7 @@ fn an_author_goes_from_a_draw_to_an_erased_library_through_the_admin_api() {
         &f,
         &s,
         GUIDE,
-        json!({ "sampleIds": [format!("voice:private:{rough_file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{rough_file}")] })),
     );
     assert_eq!(
         response.status,
@@ -253,7 +253,7 @@ fn an_author_goes_from_a_draw_to_an_erased_library_through_the_admin_api() {
         &f,
         &s,
         "/admin/api/assistant/review",
-        json!({
+        json!({ "confirmed": true,
             "source": { "title": "T", "metadata": { "draft": "true" }, "markdown": "A draft body." },
             "skillIds": ["voice-review"],
             "contextIds": [format!("voice:private:{rough_file}"), "private:voice"],
@@ -531,8 +531,9 @@ fn hostile_ids_and_fields_never_leave_the_voice_folders() {
                     "contextIds": [bad],
                 })
             };
-            let reply = post(&f, &s, path, body);
+            let reply = post(&f, &s, path, confirmed(body));
             assert_eq!(reply.status, 400, "{path} {bad}");
+            assert_ne!(body_json(&reply)["code"], "not-confirmed", "{path} {bad}");
         }
     }
     assert_eq!(fs::read(&outside).unwrap(), config);
@@ -707,7 +708,7 @@ fn a_guide_quoting_private_samples_never_reaches_a_portable_file_by_any_route() 
         &f,
         &s,
         GUIDE,
-        json!({ "sampleIds": [format!("voice:private:{file}")] }),
+        confirmed(json!({ "sampleIds": [format!("voice:private:{file}")] })),
     );
     assert_eq!(response.status, 200);
     provider.join().unwrap();
@@ -894,7 +895,7 @@ fn a_sample_written_at_the_terminal_is_listed_and_used_by_the_admin() {
 
     let (endpoint, captured, provider) = capturing_provider(guide_json(&file));
     set_quiz_endpoint(&f, &endpoint);
-    let response = post(&f, &s, GUIDE, json!({ "sampleIds": [id] }));
+    let response = post(&f, &s, GUIDE, confirmed(json!({ "sampleIds": [id] })));
     assert_eq!(
         response.status,
         200,

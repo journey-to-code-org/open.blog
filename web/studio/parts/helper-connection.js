@@ -208,7 +208,8 @@ export function createConnection({ api, onChanged }) {
     status.textContent = say("hsetup.checking");
     const where = formCompany({ provider: providerId(settings?.provider), generationEndpoint: settings?.generationEndpoint });
     try {
-      await api.call("POST", "assistant/check", { json: {} });
+      // Check it was pressed: that is the word the server asks for (nothing of the site goes).
+      await api.call("POST", "assistant/check", { json: { confirmed: true } });
       status.textContent = say("hsetup.accepted", { company: where });
     } catch (error) {
       const problem = helperProblem(error, { company: where });

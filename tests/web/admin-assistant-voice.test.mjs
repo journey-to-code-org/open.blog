@@ -140,7 +140,7 @@ test("proposing a guide names the selected samples and writes nothing; a failure
   editor.renderVoiceGuideProposal = () => {};
   await editor.proposeVoiceGuide();
   assert.deepEqual(calls.map((call) => [call.method, call.path]), [["POST", "assistant/voice-guide"]]);
-  assert.deepEqual(calls[0].request.json, { sampleIds: ["voice:private:a-rough.md"] });
+  assert.deepEqual(calls[0].request.json, { sampleIds: ["voice:private:a-rough.md"], confirmed: true });
   assert.match(editor.ui.voiceGuideStatus.textContent, /Nothing is saved until you choose Save/);
 
   const failing = guideEditor(async () => {

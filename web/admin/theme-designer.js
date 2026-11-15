@@ -179,7 +179,7 @@ export function createThemeDesigner({ api, makeFrame }) {
     draftButton.disabled = changeButton.disabled = true;
     say(changing ? "Asking the Assistant to change it…" : "Asking the Assistant for a theme… this can take a little while.");
     try {
-      const answer = await api.call("POST", "theme-draft", { json: { description: text, previous: changing ? renamed(draft, name.value || draft.label) : null, base: base.value || null } });
+      const answer = await api.call("POST", "theme-draft", { json: { description: text, previous: changing ? renamed(draft, name.value || draft.label) : null, base: base.value || null, confirmed: true } });
       if (destroyed) return;
       show(answer);
       if (changing) change.value = "";

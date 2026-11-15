@@ -75,9 +75,23 @@ export async function stopSite(site) {
   if (site?.dir) removeTree(site.dir);
 }
 
-/** Fail the test if the page reaches a provider-backed route the test didn't answer itself. */
+/** Every route the server asks `confirmed: true` of (S1): the ones above, and the two that send a recording. */
+const CONFIRMED_ROUTES = /\/admin\/api\/(assistant\/(review|complete|check|code-interaction|job-draft|voice-guide|theme-draft|transcribe)|quiz\/generate|theme-draft|voice\/spoken)(\?|$)/;
+
+/**
+ * Fail the test if the page reaches a provider-backed route the test didn't answer itself, or
+ * sends anything to one without saying `confirmed: true` (the word the server asks for, which the
+ * page says only after she saw what goes and pressed the button that sends it).
+ */
 export async function guardProviders(page) {
   const unstubbed = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || !CONFIRMED_ROUTES.test(request.url())) return;
+    let said = false;
+    if (/\/voice\/spoken\?/.test(request.url())) said = new URL(request.url()).searchParams.get("confirmed") === "true";
+    else try { said = request.postDataJSON()?.confirmed === true; } catch { said = false; }
+    if (!said) unstubbed.push(`not confirmed: POST ${request.url()}`);
+  });
   await page.route(PROVIDER_ROUTES, (route) => {
     if (route.request().method() === "GET") return route.fallback();
     unstubbed.push(`${route.request().method()} ${route.request().url()}`);

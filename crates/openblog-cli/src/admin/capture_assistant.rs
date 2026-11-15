@@ -230,11 +230,8 @@ pub(super) fn transcribe(state: &AppState, req: &Request) -> Response {
     let Some(id) = body["captureId"].as_str() else {
         return Response::error(400, "Name the capture to transcribe");
     };
-    if body["confirmed"] != true {
-        return Response::error(
-            400,
-            "Confirm what will be sent before the recording is transcribed",
-        );
+    if let Err(response) = super::provider_confirmed(&body) {
+        return response;
     }
     let (path, bytes, extension) = match stored_note(state, id) {
         Ok(note) => note,
@@ -321,6 +318,9 @@ pub(super) fn job_draft(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid job draft request"),
     };
+    if let Err(response) = super::provider_confirmed(&body) {
+        return response;
+    }
     let notes = match body["notes"].as_str() {
         Some(notes)
             if notes.chars().count() <= capture::MAX_NOTES_CHARS && !notes.contains('\0') =>

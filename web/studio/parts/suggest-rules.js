@@ -43,10 +43,14 @@ const head = (text, max) => Array.from(String(text ?? "")).slice(0, max).join(""
 
 /**
  * The body of `POST assistant/complete`: her title, the post's details without anything that says
- * where she was, her words, and the box's text before and after her caret.
+ * where she was, her words, and the box's text before and after her caret. `turnedOn` is whether
+ * she turned suggestions on for this post and visit: it is sent as `confirmed`.
  */
-export function completionRequest(capture = {}, form = {}, contextIds = []) {
+export function completionRequest(capture = {}, form = {}, contextIds = [], { turnedOn = false } = {}) {
   return {
+    // Her word that these may go: true only once she turned suggestions on for this post, this visit
+    // (after reading what goes). The server refuses a request that doesn't say it.
+    confirmed: turnedOn === true,
     source: {
       title: String(form.title ?? ""),
       metadata: helperSource(form),

@@ -183,7 +183,7 @@ export async function createDesign(context) {
       fill(working, h("span", { text: `${say("design.still")} ` }), h("button", { type: "button", class: "studio-link-button", onClick: () => { waiting = null; button.loading = false; working.textContent = say("design.stopped"); } }, say("common.stopWaiting")));
     }, STILL_MS);
     try {
-      const answer = await api.post("theme-draft", { description: String(field.value).trim(), previous: changing && entry ? renamed(entry.draft, name.value || entry.draft.label) : null, base: base.value || null });
+      const answer = await api.post("theme-draft", { description: String(field.value).trim(), previous: changing && entry ? renamed(entry.draft, name.value || entry.draft.label) : null, base: base.value || null, confirmed: true });
       if (waiting !== turn) return; // she stopped waiting: nothing changes
       const next = { draft: answer.draft, theme: answer.theme, changes: answer.changes || [], notes: answer.notes || [], extends: answer.extends, suggested: { light: { ...answer.draft.light }, dark: { ...answer.draft.dark } } };
       history = pushDraft(history, next);

@@ -120,7 +120,7 @@ export function createSuggest({ api, write }) {
     controller = new AbortController();
     try {
       // `retry: false`: a session that ran out never interrupts her typing with a dialog.
-      const reply = await api.call("POST", "assistant/complete", { json: completionRequest(at, form, ids), retry: false, signal: controller.signal });
+      const reply = await api.call("POST", "assistant/complete", { json: completionRequest(at, form, ids, { turnedOn: on }), retry: false, signal: controller.signal });
       failures = 0;
       if (!on || !captureIsCurrent(key, keyNow())) return;
       const text = plainCompletion(reply?.completion);

@@ -1184,7 +1184,7 @@ fn authenticated_api_routes(
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req, session),
-        ("POST", "assistant/check") => check_assistant_provider(state, session),
+        ("POST", "assistant/check") => check_assistant_provider(state, req, session),
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
@@ -4168,6 +4168,28 @@ fn etag(text: &str) -> String {
 /// A refusal with a short `code` a screen can say in its own words, and the sentence as the detail.
 pub(crate) fn coded_error(status: u16, code: &str, message: &str) -> Response {
     Response::json(status, &json!({ "error": message, "code": code }))
+}
+
+/// Every route that sends anything to the helper's provider (another company, or the site's own
+/// transcriber) starts here: the request must say `confirmed: true`, which a page sends only after
+/// the author has seen what goes and pressed the button that sends it. Otherwise 400
+/// `not-confirmed`, before anything else is read. A test lists the provider-calling handlers and
+/// fails when one does not call this before its provider.
+pub(crate) fn provider_confirmed(body: &Json) -> Result<(), Response> {
+    if body["confirmed"] == true {
+        return Ok(());
+    }
+    Err(coded_error(
+        400,
+        "not-confirmed",
+        "Confirm what will be sent before anything goes to the writing helper",
+    ))
+}
+
+/// [`provider_confirmed`] for a route whose body is not JSON (a recording): `?confirmed=true`.
+pub(crate) fn provider_confirmed_in_query(req: &Request) -> Result<(), Response> {
+    let confirmed = req.query.get("confirmed").map(String::as_str) == Some("true");
+    provider_confirmed(&json!({ "confirmed": confirmed }))
 }
 
 fn etag_bytes(bytes: &[u8]) -> String {
@@ -12509,7 +12531,17 @@ const ASSISTANT_CHECK_INTERVAL: Duration = Duration::from_secs(10);
 /// `POST assistant/check` (G57): one small call to the provider that carries nothing of the site,
 /// to learn whether it accepts the key. Under the shared limit, and at most once per 10 s per
 /// session. The answer is `{ ok, checkedAt }` or a coded failure; never the key.
-fn check_assistant_provider(state: &AppState, session: &auth::Session) -> Response {
+fn check_assistant_provider(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid check request"),
+    };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     {
         let mut checks = lock(&state.assistant_checks);
         let now = std::time::Instant::now();
@@ -12555,6 +12587,9 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid review request"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let source = &body["source"];
     let title = match source["title"].as_str() {
         Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
@@ -12742,6 +12777,9 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid completion request"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let source = &body["source"];
     let title = match source["title"].as_str() {
         Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
@@ -13034,6 +13072,9 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let context = body["context"].as_str().unwrap_or("").trim();
     let count = body["count"].as_u64().unwrap_or(0);
     if let Err(response) = interaction_context_bounds(context) {
@@ -13115,6 +13156,9 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
+    if let Err(response) = provider_confirmed(&body) {
+        return response;
+    }
     let context = body["context"].as_str().unwrap_or("").trim();
     if let Err(response) = interaction_context_bounds(context) {
         return response;
@@ -21040,6 +21084,13 @@ mod tests {
         };
         r.headers.insert("host".into(), "localhost:8080".into());
         r
+    }
+
+    /// A request to a provider route as a page sends it after the author saw what goes and
+    /// pressed the button that sends it (S1): the same body, saying so.
+    fn confirmed(mut body: Json) -> Json {
+        body["confirmed"] = json!(true);
+        body
     }
 
     fn json_req(method: &str, path: &str, body: Json) -> Request {
@@ -33628,7 +33679,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/quiz/generate",
-                    json!({ "context": "Unsaved lesson", "count": 1 }),
+                    json!({ "confirmed": true, "context": "Unsaved lesson", "count": 1 }),
                 ),
                 &session,
                 true,
@@ -33702,7 +33753,11 @@ What I read:
             handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/review", request_body.clone()),
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/review",
+                        confirmed(request_body.clone())
+                    ),
                     &session,
                     false,
                 ),
@@ -33713,7 +33768,11 @@ What I read:
         let response = handle(
             &f.state,
             &authed(
-                json_req("POST", "/admin/api/assistant/review", request_body),
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    confirmed(request_body),
+                ),
                 &session,
                 true,
             ),
@@ -33814,7 +33873,7 @@ What I read:
                     json_req(
                         "POST",
                         "/admin/api/assistant/complete",
-                        request_body.clone()
+                        confirmed(request_body.clone())
                     ),
                     &session,
                     false,
@@ -33826,7 +33885,11 @@ What I read:
         let response = handle(
             &f.state,
             &authed(
-                json_req("POST", "/admin/api/assistant/complete", request_body),
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    confirmed(request_body),
+                ),
                 &session,
                 true,
             ),
@@ -33867,7 +33930,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -33916,7 +33979,7 @@ What I read:
             let response = handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/complete", body),
+                    json_req("POST", "/admin/api/assistant/complete", confirmed(body)),
                     &session,
                     true,
                 ),
@@ -33938,7 +34001,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -33994,7 +34057,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/complete",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": {
                             "title": "Draft",
                             "metadata": {},
@@ -34037,7 +34100,7 @@ What I read:
             json_req(
                 "POST",
                 "/admin/api/assistant/code-interaction",
-                json!({ "context": "A section about Rust ownership.", "kind": "challenge" }),
+                json!({ "confirmed": true, "context": "A section about Rust ownership.", "kind": "challenge" }),
             )
         };
         assert_eq!(handle(&f.state, &request()).status, 401);
@@ -34080,7 +34143,11 @@ What I read:
             let response = handle(
                 &f.state,
                 &authed(
-                    json_req("POST", "/admin/api/assistant/code-interaction", body),
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/code-interaction",
+                        confirmed(body),
+                    ),
                     &session,
                     true,
                 ),
@@ -34099,7 +34166,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/code-interaction",
-                    json!({ "context": "Section", "kind": "example" }),
+                    json!({ "confirmed": true, "context": "Section", "kind": "example" }),
                 ),
                 &session,
                 true,
@@ -34131,7 +34198,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/code-interaction",
-                    json!({ "context": "Section", "kind": "example" }),
+                    json!({ "confirmed": true, "context": "Section", "kind": "example" }),
                 ),
                 &session,
                 true,
@@ -34172,7 +34239,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/review",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
                         "skillIds": ["copy-review"],
                         "contextIds": []
@@ -34216,7 +34283,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/assistant/review",
-                    json!({
+                    json!({ "confirmed": true,
                         "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
                         "skillIds": ["copy-review"],
                         "contextIds": []
@@ -35721,7 +35788,7 @@ What I read:
             json_req(
                 "POST",
                 "/admin/api/quiz/generate",
-                json!({ "context": "A short article section.", "count": 1 }),
+                json!({ "confirmed": true, "context": "A short article section.", "count": 1 }),
             )
         };
         assert_eq!(handle(&f.state, &request()).status, 401);
@@ -35746,7 +35813,7 @@ What I read:
                 json_req(
                     "POST",
                     "/admin/api/quiz/generate",
-                    json!({ "context": "A short article section.", "count": 1 }),
+                    json!({ "confirmed": true, "context": "A short article section.", "count": 1 }),
                 ),
                 &session,
                 true,

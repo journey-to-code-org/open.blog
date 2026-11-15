@@ -47,7 +47,7 @@ fn every_route_requires_a_session_and_the_csrf_token() {
     let session = login_ok(&f);
     for path in ["theme-draft", "theme-draft/preview", "theme-draft/save"] {
         let url = format!("/admin/api/{path}");
-        let body = json!({ "description": WORDS, "draft": draft() });
+        let body = json!({ "confirmed": true, "description": WORDS, "draft": draft() });
         assert_eq!(
             handle(&f.state, &json_req("POST", &url, body.clone())).status,
             401,
@@ -77,7 +77,7 @@ fn the_words_reach_the_provider_as_untrusted_data_and_the_answer_is_a_readable_p
         &f,
         &session,
         "theme-draft",
-        json!({ "description": hostile }),
+        json!({ "confirmed": true, "description": hostile }),
     );
     assert_eq!(
         response.status,
@@ -128,7 +128,12 @@ fn a_provider_answer_with_anything_more_is_rejected_whole() {
     for bad in [with_css, injected] {
         let (endpoint, _captured, provider) = capturing_provider(bad.to_string());
         set_quiz_endpoint(&f, &endpoint);
-        let response = post(&f, &session, "theme-draft", json!({ "description": WORDS }));
+        let response = post(
+            &f,
+            &session,
+            "theme-draft",
+            json!({ "confirmed": true, "description": WORDS }),
+        );
         provider.join().unwrap();
         assert_eq!(response.status, 502, "{bad}");
         let message = body_json(&response)["error"].as_str().unwrap().to_string();
@@ -157,7 +162,7 @@ fn input_is_refused_before_any_provider_is_contacted() {
         json!({ "description": WORDS, "previous": { "label": "x", "scripts": [] } }),
     ] {
         assert_eq!(
-            post(&f, &session, "theme-draft", body.clone()).status,
+            post(&f, &session, "theme-draft", confirmed(body.clone())).status,
             400,
             "{body}"
         );
@@ -303,12 +308,17 @@ fn delete(f: &Fixture, session: &(String, String), path: &str) -> Response {
 fn theme_draft_refusals_carry_codes() {
     let f = fixture("theme-draft-codes");
     let session = login_ok(&f);
-    let empty = post(&f, &session, "theme-draft", json!({ "description": "  " }));
+    let empty = post(
+        &f,
+        &session,
+        "theme-draft",
+        json!({ "confirmed": true, "description": "  " }),
+    );
     assert_eq!(
         (empty.status, code_of(&empty).as_str()),
         (400, "no-description")
     );
-    let none = post(&f, &session, "theme-draft", json!({}));
+    let none = post(&f, &session, "theme-draft", json!({ "confirmed": true }));
     assert_eq!(
         (none.status, code_of(&none).as_str()),
         (400, "no-description")
@@ -317,7 +327,7 @@ fn theme_draft_refusals_carry_codes() {
         &f,
         &session,
         "theme-draft",
-        json!({ "description": "a".repeat(1001) }),
+        json!({ "confirmed": true, "description": "a".repeat(1001) }),
     );
     assert_eq!((long.status, code_of(&long).as_str()), (400, "too-long"));
     assert_eq!(body_json(&long)["max"], 1000);

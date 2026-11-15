@@ -71,6 +71,9 @@ pub(super) fn generate_voice_guide(state: &AppState, req: &Request) -> Response 
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid voice guide request"),
     };
+    if let Err(response) = super::provider_confirmed(&body) {
+        return response;
+    }
     let sample_ids = match selected_ids(
         &body,
         "sampleIds",
