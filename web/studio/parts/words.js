@@ -37,6 +37,10 @@ import { WORDS as writingVoice } from "./writing-voice-words.js";
 import { WORDS as design } from "./design-words.js";
 import { WORDS as research } from "./research-words.js";
 import { WORDS as cite } from "./cite-words.js";
+import { WORDS as atlas } from "./atlas-words.js";
+import { WORDS as compare } from "./compare-words.js";
+import { WORDS as claims } from "./claims-words.js";
+import { WORDS as publicWords } from "./public-words.js";
 import { HER_BANNED, bannedExcept } from "./plain-words.js";
 
 /** The three variables and their built-in values. */
@@ -52,7 +56,7 @@ let merged = null;
 export function catalog() {
   if (merged) return merged;
   const out = {};
-  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, research, cite]) {
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, research, cite, atlas, compare, claims, publicWords]) {
     for (const [id, entry] of Object.entries(words || {})) {
       if (id in out) throw new Error(`word id ${id} is defined twice`);
       out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });

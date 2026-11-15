@@ -67,8 +67,11 @@ an AI citation, or verification of the work.
 ## Evidence Studio and command-line checks
 
 Before a research post goes up, Studio lists its research checks in **Before you publish** (see
-[Acknowledging](research-checks.md#acknowledging) for **Mark as checked**). The old admin's
-**Evidence** view (`Alt+9`) stays until it retires. It uses the publishing engine's audit
+[Acknowledging](research-checks.md#acknowledging) for **Mark as checked**), with **What readers will
+see from this post**; claims and their evidence are in Write's **Claims and evidence**
+(`?sheet=claims`; the old `#/edit/<post>?pane=evidence` opens it), and the whole site's research is
+in **Research › What readers see**. The old admin's **Evidence** view (`Alt+9`) stays until it
+retires. It uses the publishing engine's audit
 of the current unsaved document and groups findings as Detected, Potential, or Needs review.
 It also shows the authored DOI (normalized to a resolver URL when valid), valid absolute
 license URL, and number of linked references. The

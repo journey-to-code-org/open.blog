@@ -381,3 +381,152 @@ fn a_checked_citation_reads_as_readers_will_see_it_in_the_posts_language() {
     assert_eq!(missing["label"], "Republic");
     assert_eq!(missing["locale"], "en");
 }
+
+// ---- G93 on R12's routes: the atlas, claims, alignments, choices for readers, what readers see
+
+#[test]
+fn the_atlas_claims_alignments_and_choices_code_their_refusals_too() {
+    let f = fixture("research-g93-r12");
+    let session = login_ok(&f);
+    let get = |path: &str| {
+        let response = handle(&f.state, &authed(req("GET", path), &session, false));
+        assert_eq!(
+            response.status,
+            200,
+            "{path}: {}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    };
+    let atlas = get("/admin/api/research/atlas");
+    let revision = atlas["revision"].as_str().unwrap().to_string();
+
+    // 409: an atlas save on an old revision.
+    let (status, stale) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/atlas/entries",
+        json!({ "revision": "stale", "entry": { "id": "plato", "kind": "person", "label": "Plato", "visibility": "private" } }),
+    );
+    assert_eq!(status, 409, "{stale}");
+    assert_eq!(stale["code"], "changed");
+    assert_eq!(stale["conflict"], true);
+
+    // 422: an entry the atlas refuses keeps its diagnostics' own codes.
+    let (status, invalid) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/atlas/entries",
+        json!({ "revision": revision, "entry": { "id": "Not A Key", "kind": "person", "label": "X", "visibility": "private" } }),
+    );
+    assert_eq!(status, 422, "{invalid}");
+    assert_eq!(invalid["code"], "invalid");
+    assert!(invalid["diagnostics"][0]["code"].is_string());
+
+    // 400: an alignment without a revision, and a claim anchor without its post.
+    let (status, bad) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/alignments",
+        json!({ "alignment": {} }),
+    );
+    assert_eq!(status, 400, "{bad}");
+    assert_eq!(bad["code"], "bad-request");
+    let (status, bad) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/claims/anchor",
+        json!({}),
+    );
+    assert_eq!(status, 400, "{bad}");
+    assert_eq!(bad["code"], "bad-request");
+
+    // 409: an alignment and a claim on old revisions.
+    let (status, stale) = source_call(
+        &f,
+        &session,
+        "DELETE",
+        "/admin/api/research/alignments",
+        json!({ "revision": "stale", "id": "nothing" }),
+    );
+    assert_eq!(status, 409, "{stale}");
+    assert_eq!(stale["code"], "changed");
+
+    // The views a screen reads carry no code, and a saved entry on a site that doesn't publish the
+    // atlas carries no build either.
+    for path in [
+        "/admin/api/research/alignments",
+        "/admin/api/research/boundary",
+    ] {
+        assert!(get(path).get("code").is_none(), "{path} answers as before");
+    }
+    let (status, saved) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/atlas/entries",
+        json!({ "revision": revision, "entry": { "id": "plato", "kind": "person", "label": "Plato", "visibility": "private" } }),
+    );
+    assert_eq!(status, 201, "{saved}");
+    assert!(saved.get("code").is_none());
+    assert!(
+        saved.get("build").is_none(),
+        "nothing is rebuilt when the site doesn't publish its atlas"
+    );
+}
+
+#[test]
+fn a_save_that_rebuilds_the_published_atlas_says_how_it_went() {
+    let f = fixture("research-g93-build");
+    edit_config(&f, |config| {
+        config["knowledgeAtlas"] = json!({ "publish": true })
+    });
+    let session = login_ok(&f);
+    let response = handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/research/atlas"), &session, false),
+    );
+    let revision = body_json(&response)["revision"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, saved) = source_call(
+        &f,
+        &session,
+        "POST",
+        "/admin/api/research/atlas/entries",
+        json!({ "revision": revision, "entry": { "id": "plato", "kind": "person", "label": "Plato", "visibility": "approved" } }),
+    );
+    assert_eq!(status, 201, "{saved}");
+    let ok = saved["build"]["ok"].as_bool().expect("a build outcome");
+    assert_eq!(
+        saved["build"]["code"],
+        if ok { "built" } else { "build-failed" }
+    );
+}
+
+#[test]
+fn an_unreadable_atlas_is_coded_unreadable_and_left_alone() {
+    let f = fixture("research-g93-atlas-unreadable");
+    let session = login_ok(&f);
+    let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "{ not json").unwrap();
+    let response = handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/research/atlas"), &session, false),
+    );
+    assert_eq!(response.status, 422);
+    let body = body_json(&response);
+    assert_eq!(body["code"], "unreadable");
+    assert_eq!(body["codes"], json!(["invalid-json"]));
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "{ not json",
+        "nothing was repaired or written"
+    );
+}

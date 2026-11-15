@@ -254,6 +254,8 @@ export function createWordBox({ label, name = label, place = name, rows = 8, des
     /** Where she was: an offset in the text (the end when she hasn't been in it yet). */
     caret: () => (caret ? caret.at : text.replace(/\s+$/, "").length),
     selection: () => caret?.selection || "",
+    /** Where the selected words are in the text, `{ start, end }`, or null before she has been in it (R12 claims). */
+    selectionRange: () => (caret ? { start: caret.at - caret.selection.length, end: caret.at } : null),
     /** The line she typed "/" on is where the caret is. */
     focus(where = {}) { focusAfterRender(where.at !== undefined || where.card !== undefined ? where : { segment: where.segment || "first", end: where.end }); },
     redraw: () => render(),

@@ -6,7 +6,9 @@
 import { fill, h } from "./dom.js";
 import { say } from "./words.js";
 import { ask } from "./dialogs.js";
-import { draftResearchItems, languageTag, rightsAsk, rightsOf, rightsText } from "./draft-research-rules.js";
+import { contextLinkMarkdown, contextLinkWarning, draftResearchItems, languageTag, rightsAsk, rightsOf, rightsText } from "./draft-research-rules.js";
+import { entryKindWords } from "./atlas-rules.js";
+import { sayId } from "./research-says.js";
 import { citationLocatorsFromPassage } from "./cite-rules.js";
 import { MAX_PASSAGE_LOCATORS, locatorText, placeRows, rowsToLocators } from "./notebook-rules.js";
 import { sourceLabel } from "./source-rules.js";
@@ -33,6 +35,7 @@ export function createYourResearch(ctx) {
   const search = h("text-field", { label: say("yours.search"), type: "search", onValuechange: (e) => { query = String(e.detail ?? ""); paint(); } });
   const show = h("select-field", { label: say("yours.show"), value: filter,
     options: [{ value: "all", label: say("yours.showAll") }, { value: "passages", label: say("yours.showPassages") }, { value: "sources", label: say("yours.showSources") },
+      { value: "context", label: say("yours.showContext") },
       { value: "interpretations", label: say("yours.showInterpretations") }, { value: "notes", label: say("yours.showNotes") }],
     onValuechange: (e) => { filter = String(e.detail || "all"); paint(); } });
   const list = h("div", { class: "studio-yours-list" }, search, show, count, results);
@@ -45,7 +48,8 @@ export function createYourResearch(ctx) {
 
   const sources = () => (Array.isArray(data?.library?.sources) ? data.library.sources : []);
   const sourceOf = (id) => sources().find((source) => source.id === id) || null;
-  const TYPES = { passage: () => say("yours.typePassage"), source: () => say("yours.typeSource"), interpretation: () => say("yours.typeInterpretation"), note: () => say("yours.typeNote") };
+  const TYPES = { passage: () => say("yours.typePassage"), source: () => say("yours.typeSource"), atlas: () => say("yours.typeAtlas"), comparison: () => say("yours.typeComparison"),
+    interpretation: () => say("yours.typeInterpretation"), note: () => say("yours.typeNote") };
   const typeWords = (type) => TYPES[type]?.() || "";
 
   function paintParts() {
@@ -59,7 +63,6 @@ export function createYourResearch(ctx) {
 
   function paint() {
     if (detail) return;
-    // Atlas entries and aligned passages are R12's, shown once it draws them.
     const items = data ? draftResearchItems(data, query, filter).filter((item) => item.type in TYPES) : [];
     count.textContent = data ? say("yours.count", { count: items.length }) : "";
     if (!data) return;
@@ -121,6 +124,21 @@ export function createYourResearch(ctx) {
         h("p", { class: "studio-help", text: say("yours.interpretationNever") }),
         h("div", { class: "studio-row" }, h("action-button", { variant: "secondary", onClick: () => citeOnly({ key: record.source, locators: placeRows(record.locators).map((row) => ({ kind: row.kind, value: row.value, ...(row.to ? { to: row.to } : {}) })) }, tell) }, say("yours.citeInterpreted"))),
       ];
+    } else if (item.type === "atlas" || item.type === "comparison") {
+      // R12: a link to a published page, never to anything private (CONTEXT_URL).
+      const atlas = item.type === "atlas";
+      const publishes = atlas ? data?.atlas?.publish === true : data?.comparisons?.publish === true;
+      const why = sayId(contextLinkWarning(record, { area: atlas ? "atlas" : "comparisons", publish: publishes }));
+      const linkIt = (label, url) => link(contextLinkMarkdown(label, url), tell);
+      body = [
+        h("h3", { tabindex: "-1", class: "studio-stranger", dir: "auto", text: item.title }),
+        h("status-badge", { variant: record.url ? "success" : "neutral" }, record.url ? say("yours.published") : say("yours.notPublished")),
+        atlas ? h("p", { class: "studio-help", text: [entryKindWords(record.kind), String(record.id)].filter(Boolean).join(" · ") }) : null,
+        record.url ? h("div", { class: "studio-row" }, h("action-button", { class: "studio-primary", onClick: () => linkIt(record.label || record.id, record.url) }, atlas ? say("yours.linkEntry") : say("yours.linkComparison"))) : h("p", { class: "studio-help", text: why }),
+        atlas && record.url && Array.isArray(record.datings) && record.datings.length ? h("ul", { class: "studio-research-also" }, record.datings.map((dating) => h("li", {},
+          h("action-button", { variant: "secondary", size: "sm", onClick: () => linkIt(dating.text, record.url) }, say("yours.linkDating", { date: String(dating.text || "") }))))) : null,
+        h("a", { class: "studio-more-link", href: atlas ? `#/research/atlas/${encodeURIComponent(record.id)}` : `#/research/compare/${encodeURIComponent(record.id)}`, text: atlas ? say("yours.openAtlas") : say("yours.openCompare") }),
+      ];
     } else {
       body = [
         h("h3", { tabindex: "-1", text: item.title }),
@@ -131,6 +149,12 @@ export function createYourResearch(ctx) {
     }
     fill(view, backButton, ...body, said);
     requestAnimationFrame(() => view.querySelector("h3")?.focus());
+  }
+
+  function link(markdown, tell) {
+    if (!markdown) { tell(say("yours.notApproved")); return; }
+    const refused = ctx.link?.(markdown);
+    tell(refused || say("yours.linked"));
   }
 
   async function check(citation) {

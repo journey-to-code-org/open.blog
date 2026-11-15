@@ -117,3 +117,14 @@ test("rights that ask once, and language tags safe for a lang attribute", () => 
   assert.equal(languageTag("en-GB"), "en-GB");
   assert.equal(languageTag("en\" onload=x"), "");
 });
+
+test("an atlas entry or comparison is linked only once it's published, and says why not (R12)", async () => {
+  const { contextLinkWarning, contextLinkMarkdown } = await import("../../web/studio/parts/draft-research-rules.js");
+  assert.equal(contextLinkWarning({ url: "/atlas/plato/" }), "");
+  assert.equal(contextLinkWarning({ approved: false }), "yours.notApproved", "nothing private is linked");
+  assert.equal(contextLinkWarning({ approved: true }, { area: "atlas", publish: false }), "yours.siteOff");
+  assert.equal(contextLinkWarning({ approved: true }, { area: "comparisons", publish: false }), "yours.siteOffCompare");
+  assert.equal(contextLinkWarning({ approved: true }, { area: "atlas", publish: true }), "yours.cantPublish");
+  assert.equal(contextLinkMarkdown("Plato", "/atlas/plato/"), "[Plato](/atlas/plato/)");
+  assert.equal(contextLinkMarkdown("Plato", "https://example.com/"), "", "only a published research page");
+});

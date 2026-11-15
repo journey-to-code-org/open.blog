@@ -36,7 +36,7 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence is Your research (R11).
  */
-export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "research" });
+export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "claims" });
 const NOT_YET = new Set(["comparisons", "paths", "shared"]);
 
 /**
