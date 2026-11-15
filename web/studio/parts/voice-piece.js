@@ -309,7 +309,8 @@ export async function createVoicePiece({ api, user = "", rough, polished = null,
       return choice === "go";
     },
     keys(key) { if (key === "s" || key === "enter") { save(); return true; } return false; },
-    destroy() { alive = false; clock.clearTimeout(timer); },
+    /** `forget`: the piece itself is gone, so the copy kept on this phone goes too. */
+    destroy({ forget = false } = {}) { alive = false; clock.clearTimeout(timer); if (forget) drafts.clear(); },
     go,
   };
 }

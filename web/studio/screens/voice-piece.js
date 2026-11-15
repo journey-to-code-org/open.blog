@@ -1,22 +1,46 @@
 // A piece (Studio R9, #/voice/piece/<id>): read a rough draft, polish a copy, make a post from it.
 // The same rough-and-polish block as after writing (parts/voice-piece.js). A polished piece opens
 // with focus in its editor, a rough one on the heading.
-import { fill, h } from "../parts/dom.js";
+import { fill, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { say } from "../parts/words.js";
+import { ask } from "../parts/dialogs.js";
 import { createVoicePiece } from "../parts/voice-piece.js";
 import { dateText, voiceProblem } from "../parts/voice-rules.js";
 
 export async function createVoicePieceScreen(context, id = "") {
   const { api } = context;
-  await use("action-button", "alert-banner", "breadcrumb-trail", "skeleton-block");
+  await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "skeleton-block");
   const heading = h("h2", { id: "studio-piece-h", class: "studio-question", tabindex: "-1", text: say("voice.pieceTitle") });
   const meta = h("p", { class: "studio-meta" });
   const host = h("div", { class: "studio-voice-host" }, h("skeleton-block", { lines: 6 }));
   const bar = h("div", { class: "studio-write-bar", hidden: true });
   const crumb = h("breadcrumb-trail", { items: [{ label: say("voice.home"), href: "#/" }, { label: say("voice.title"), href: "#/voice" }, { label: say("voice.pieceTitle"), href: "" }] });
-  const element = h("section", { class: "studio-page studio-voice-piece-page", "aria-labelledby": "studio-piece-h" }, crumb, heading, meta, host, bar);
+  // R9b (G78): More › Throw this piece away… Shown once the piece is read.
+  const said = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
+  const more = h("dropdown-menu", { label: say("voice.more"), class: "studio-row-menu", hidden: true, items: [{ value: "throw", label: say("voice.pieceThrow") }], onItemselect: (event) => { if (event.detail === "throw") throwAway(); } });
+  const element = h("section", { class: "studio-page studio-voice-piece-page", "aria-labelledby": "studio-piece-h" }, h("div", { class: "studio-voice-top" }, crumb, more), heading, meta, said, host, bar);
   let piece = null;
+  let roughId = "";
+  let titleNow = "";
+
+  async function throwAway() {
+    const choice = await ask({ heading: say("voice.pieceThrowAsk", { title: titleNow }), text: say("voice.pieceThrowText"),
+      choices: [{ label: say("voice.pieceThrowYes"), value: "go", variant: "danger" }, { label: say("voice.pieceThrowNo"), value: "stay" }], focus: 1 });
+    if (choice !== "go") return;
+    try {
+      await api.call("DELETE", `voice/samples/${encodeURIComponent(roughId)}`);
+    } catch (error) {
+      if (error?.status === 401) throw error;
+      const code = voiceProblem(error).code;
+      if (code !== "gone") { said.textContent = code === "in-session" ? say("voice.pieceThrowBusy") : say("voice.pieceThrowFailed"); return; }
+    }
+    // Nothing of it is left to ask about on the way out.
+    piece?.destroy({ forget: true });
+    piece = null;
+    toast(say("voice.pieceThrown"));
+    context.go("#/voice");
+  }
   let focusEditor = false;
 
   const backLink = () => h("a", { class: "studio-more-link", href: "#/voice", text: say("voice.backToList") });
@@ -55,6 +79,9 @@ export async function createVoicePieceScreen(context, id = "") {
     const usable = polished && typeof polished.body === "string" ? polished : null;
     const date = dateText((usable || rough).date);
     meta.textContent = usable ? say("voice.pieceBoth", { date }) : say("voice.pieceRough", { date });
+    roughId = String(rough.id || id);
+    titleNow = title;
+    more.hidden = false;
     piece = await createVoicePiece({ api, user: api.user, rough, polished: usable, go: context.go });
     fill(host, piece.element, backLink());
     fill(bar, piece.saveButton);

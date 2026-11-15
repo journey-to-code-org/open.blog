@@ -37,6 +37,7 @@ import { createVoiceWriteScreen } from "./voice-write.js";
 import { createVoicePieceScreen } from "./voice-piece.js";
 import { createVoiceGuideScreen } from "./voice-guide.js";
 import { createDesign } from "./design.js";
+import { createStart } from "./start.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -95,6 +96,9 @@ export const SCREENS = [
     : route.arg === "guide" ? createVoiceGuideScreen(context, route)
       : route.arg.startsWith("piece/") ? createVoicePieceScreen(context, route.arg.slice(6))
         : createVoiceHub(context)) },
+  // R9b: Getting started. #/start is the step she is on; #/start/helper|stories|voice|done each
+  // step. `chrome: "focus"` hides the navigation and Find (the account menu stays).
+  { name: "start", area: "start", chrome: "focus", create: (context, route) => createStart(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },

@@ -8,7 +8,8 @@ import { say } from "./words.js";
 
 /** The companies a site can use, with the model each starts with. */
 export const PROVIDERS = Object.freeze({
-  anthropic: { label: "Anthropic Claude", company: "Anthropic", defaultModel: "claude-sonnet-5-5", destination: "https://api.anthropic.com", prefix: "sk-ant-" },
+  // `keysAt`: where an owner makes a key, named in Getting started's steps (never in a word id).
+  anthropic: { label: "Anthropic Claude", company: "Anthropic", defaultModel: "claude-sonnet-5-5", destination: "https://api.anthropic.com", prefix: "sk-ant-", keysAt: "console.anthropic.com" },
   "open-ai": { label: "OpenAI", company: "OpenAI", defaultModel: "gpt-6-luna", destination: "https://api.openai.com", prefix: "sk-" },
   gemini: { label: "Google Gemini", company: "Google", defaultModel: "gemini-3.8-flash", destination: "https://generativelanguage.googleapis.com", prefix: "AIza" },
   xai: { label: "xAI Grok", company: "xAI", defaultModel: "grok-4.7", destination: "https://api.x.ai", prefix: "xai-" },

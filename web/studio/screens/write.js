@@ -32,6 +32,7 @@ import { createWriteReady } from "../parts/write-ready.js";
 import { createWriteHelper } from "../parts/write-helper.js";
 import { saveRouteProblem } from "../parts/route-rules.js";
 import { say } from "../parts/words.js";
+import { createStoryNudge } from "../parts/story-nudge.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -135,6 +136,18 @@ export async function createWrite(context, arg, route = {}) {
   });
   sheets.card.after(helper.card);
   suggestions.element.after(helper.line);
+  // R9b: the reminder to tell a few stories, on a new post only, and never once she has typed.
+  let typedHere = false;
+  element.addEventListener("input", () => { typedHere = true; }, true);
+  const nudge = createStoryNudge({
+    api, meta, isNew: () => Boolean(starting) && !doc.path, typed: () => typedHere, focusTitle: () => title.querySelector("input")?.focus(),
+    go: async () => {
+      // Anything typed is saved as a draft first, as usual; then she comes back to this post.
+      if (!(await leave())) return;
+      context.go(`#/start/stories?back=${encodeURIComponent(doc.path ? `#/write/${encodeURIComponent(doc.path)}` : location.hash || "#/write")}`);
+    },
+  });
+  element.querySelector(".studio-write-grid")?.prepend(nudge.element);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
   // ---- reading the form
@@ -602,6 +615,7 @@ export async function createWrite(context, arg, route = {}) {
     paint();
     helper.refresh();
     element.removeAttribute("aria-busy");
+    nudge.load().catch(() => {});
     await asking;
   }
 

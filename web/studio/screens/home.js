@@ -12,6 +12,7 @@ import { createReadyList, recipeNotesBanner } from "../parts/home-ready.js";
 import { homeJobsCard } from "../parts/home-jobs.js";
 import { tradeSite } from "../parts/record-kinds.js";
 import { homeVoice } from "../parts/home-voice.js";
+import { homeStart } from "../parts/home-start.js";
 
 export async function createHome({ api, meta, posts, jobs }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
@@ -22,10 +23,14 @@ export async function createHome({ api, meta, posts, jobs }) {
   // R4: jobs kept on this phone, on any site, only when something is waiting.
   const waitingJobs = jobs ? homeJobsCard(jobs) : null;
   // R9: writing kept only on this phone, and the one-time invitation to Your writing voice.
-  const voice = homeVoice({ api, meta });
-  const extras = () => [waitingJobs, notes, ready?.element];
+  // R9b: Getting started's card, a recorded story kept on this phone, and every account's line
+  // for whoever helps. While Getting started is on, it asks about stories, not Home's invitation.
+  const start = homeStart({ api, meta });
+  const voice = homeVoice({ api, meta, onboardingOwnsIt: () => start.owns() });
+  const extras = () => [start.element, waitingJobs, notes, ready?.element];
   async function loadExtras() {
     ready?.load();
+    start.load();
     voice.load();
     try {
       const banner = await recipeNotesBanner(api);

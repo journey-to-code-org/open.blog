@@ -232,6 +232,7 @@ export function gapLines(gaps, coverage = []) {
 export const STAGE_BADGES = Object.freeze({
   rough: Object.freeze({ symbol: "◇", id: "voice.badgeRough" }),
   polished: Object.freeze({ symbol: "◆", id: "voice.badgePolished" }),
+  spoken: Object.freeze({ symbol: "◎", id: "voice.badgeSpoken" }),
 });
 
 /**
@@ -260,7 +261,7 @@ export function groupLibrary({ samples = [], coverage = [] }) {
       const files = [row.rough, row.polished].filter(Boolean);
       const latest = [...files].sort(newest)[0];
       const best = row.polished || row.rough;
-      return { ...row, id: (row.rough || row.polished).id, badges: [row.rough && "rough", row.polished && "polished"].filter(Boolean), words: best.words, visibility: best.visibility, date: latest.date, sort: latest };
+      return { ...row, id: (row.rough || row.polished).id, badges: [row.rough && "rough", row.polished && "polished", row.rough?.told === "spoken" && "spoken"].filter(Boolean), words: best.words, visibility: best.visibility, date: latest.date, sort: latest };
     });
     return rows.sort((a, b) => newest(a.sort, b.sort));
   };

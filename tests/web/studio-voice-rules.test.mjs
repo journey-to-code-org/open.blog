@@ -197,8 +197,8 @@ test("coverage, gaps and dates are code, in plain words", () => {
   assert.deepEqual(gapLines({}), []);
   assert.equal(dateText("2026-11-12T09:00:00Z"), "Nov 12, 2026");
   assert.equal(dateText("nope"), "");
-  assert.deepEqual(Object.keys(STAGE_BADGES), ["rough", "polished"]);
-  assert.notEqual(STAGE_BADGES.rough.symbol, STAGE_BADGES.polished.symbol, "a shape as well as a word");
+  assert.deepEqual(Object.keys(STAGE_BADGES), ["rough", "polished", "spoken"]);
+  assert.equal(new Set(Object.values(STAGE_BADGES).map((badge) => badge.symbol)).size, 3, "a shape as well as a word");
 });
 
 test("the rough box refuses every correction a page can refuse", () => {

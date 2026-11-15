@@ -7,6 +7,7 @@ import { showSignIn } from "./screens/signin.js";
 import { listenForInstall } from "./parts/install-state.js";
 import { configureWords } from "./parts/words.js";
 import { clearVoiceCopies } from "./parts/voice-copies.js";
+import { clearRecordings } from "./parts/story-store.js";
 
 // The browser's "Install" question can come at any moment from the start: keep it for Add to Home
 // Screen (Studio R3).
@@ -67,11 +68,14 @@ async function start() {
     // R9: someone signed in here. Voice writing another person left on this phone goes; her own
     // (a sign-in that ran out mid-piece) is kept and offered back. As the old Admin did.
     clearVoiceCopies(() => globalThis.localStorage, { keepUser: api.user });
+    // R9b: and a recorded story someone else left here; her own is kept.
+    await clearRecordings({ keepUser: api.user }).catch(() => {});
   }
   const meta = await api.get("meta");
   remember(api.user, meta);
   configureWords(meta.studioWords);
-  await startShell(root, api, meta);
+  // `fresh`: this `meta` came from the server just now (Getting started never opens from the kept copy).
+  await startShell(root, api, meta, { fresh: true });
 }
 
 start();

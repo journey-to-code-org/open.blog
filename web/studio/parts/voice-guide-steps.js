@@ -42,10 +42,11 @@ function clipped(text, tag = "span") {
  * - `guide`: `{ id, visibility }` of the guide that exists, or null.
  * - `words`: `{ from, propose, proposeNew, row(piece), saved, practiceSave }` to rename the list and the button (R9b's stories).
  * - `practice`: propose for real, never save (R9b's practice run); `extra` rides on the request.
- * - `barStart`: nodes put at the start of step 1's bar (R9b's Back and Not now).
+ * - `barStart`: nodes put at the start of step 1's bar (R9b's Not now).
+ * - `exact(ids)`: the Word for word text for the ticked pieces, when they aren't the site's own.
  * - `onSaved(visibility)`, `onDiscarded()`, `onProblem(problem)`.
  */
-export async function createGuideSteps({ api, status, pieces = [], catalog = {}, guide = null, words = {}, practice = false, extra = {}, barStart = [], onSaved = () => {}, onDiscarded = () => {}, onProblem = () => {}, onStep = () => {} }) {
+export async function createGuideSteps({ api, status, pieces = [], catalog = {}, guide = null, words = {}, practice = false, extra = {}, barStart = [], exact = null, onSaved = () => {}, onDiscarded = () => {}, onProblem = () => {}, onStep = () => {} }) {
   await use("action-button", "alert-banner", "status-badge", "loading-spinner", "modal-dialog");
   const id = `studio-guide-${++uid}`;
   const company = companyName(status || {});
@@ -94,6 +95,8 @@ export async function createGuideSteps({ api, status, pieces = [], catalog = {},
     }
     // Word for word: the text of each ticked piece and of the guide, read only, asked for when opened.
     goes.words(async () => {
+      // `exact(ids)`: a host with its own library (a practice run) reads its own text.
+      if (exact) return exact(selection().ids);
       const ids = [...selection().ids, ...(guide ? [guide.id] : [])];
       const texts = [];
       for (const contextId of ids) {
