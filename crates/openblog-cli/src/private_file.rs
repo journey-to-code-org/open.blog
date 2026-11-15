@@ -71,3 +71,12 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Remove the file; one that isn't there is fine.
+pub fn remove(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("could not remove a private record: {error}")),
+    }
+}

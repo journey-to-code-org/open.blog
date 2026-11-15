@@ -101,6 +101,12 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
 
     let config = site::load_config(root)?;
     if options.admin {
+        // Getting started (Studio R9b): say once what is wrong with the switch, and, in any mode
+        // but `rehearse`, clear what a practice run kept.
+        crate::onboarding::at_start(
+            root,
+            &crate::onboarding::mode_for(state.onboarding_env.as_deref(), &config),
+        );
         let users = crate::auth::Users::load(&root.join(&config.admin.users_file))?;
         if users.users.is_empty() {
             println!("\nNo admin users yet. Create one with:  openblog user add <name>");

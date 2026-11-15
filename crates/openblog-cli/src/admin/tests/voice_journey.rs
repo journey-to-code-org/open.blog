@@ -578,7 +578,8 @@ fn a_rough_draft_cannot_be_changed_replaced_or_moved_over_by_any_route() {
         assert!(!reply.to_string().contains(MARK));
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
-    assert!((400..500).contains(&call(&f, &s, "DELETE", &url, json!({})).0));
+    // (Throwing a whole piece away is its own route since Studio R9b, G78: it removes the rough
+    // draft and its polished copy and never changes one. Its tests are in onboarding_routes.)
     // A second session on the same prompt cannot replace it, nor can a polished create name it.
     let (_, again) = call(
         &f,

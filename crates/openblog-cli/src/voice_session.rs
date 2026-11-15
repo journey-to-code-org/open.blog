@@ -56,6 +56,9 @@ pub struct Session {
     pub surface: String,
     /// Where the rough draft will be kept when locked.
     pub visibility: Visibility,
+    /// The account writing it, when a signed-in surface began it (Studio R9b, G79): the rough
+    /// draft then says `by` and `told: typed`. A terminal session has none.
+    pub by: Option<String>,
 }
 
 impl Session {
@@ -247,6 +250,10 @@ fn read(root: &Path) -> Result<Option<Session>> {
         draft: text("draft")?,
         surface: text("surface")?,
         visibility: Visibility::parse(&text("visibility")?).ok_or_else(unusable)?,
+        by: value["by"]
+            .as_str()
+            .filter(|by| !by.is_empty() && by.len() <= 128 && !by.chars().any(char::is_control))
+            .map(str::to_string),
     };
     if DateTime::parse(&session.started_at).is_none()
         || DateTime::parse(&session.deadline).is_none()
@@ -272,7 +279,7 @@ fn write(root: &Path, session: &Session) -> Result<()> {
         .ok_or_else(|| StoreError::Failed("The session record has no folder.".into()))?;
     fs::create_dir_all(directory)
         .map_err(|error| StoreError::Failed(format!("Cannot create the voice folder: {error}")))?;
-    let value = json!({
+    let mut value = json!({
         "format": SESSION_FORMAT,
         "version": SESSION_VERSION,
         "promptId": session.prompt_id,
@@ -285,6 +292,10 @@ fn write(root: &Path, session: &Session) -> Result<()> {
         "surface": session.surface,
         "visibility": session.visibility.as_str(),
     });
+    // Only when there is one: a record without it is exactly what earlier releases wrote.
+    if let Some(by) = &session.by {
+        value["by"] = json!(by);
+    }
     let text = serde_json::to_string_pretty(&value)
         .map_err(|error| StoreError::Failed(error.to_string()))?
         + "\n";
@@ -344,6 +355,30 @@ pub fn start(
     time_limit_seconds: u32,
     now: DateTime,
 ) -> std::result::Result<Session, StartError> {
+    start_by(
+        root,
+        catalog,
+        prompt_id,
+        surface,
+        visibility,
+        time_limit_seconds,
+        now,
+        None,
+    )
+}
+
+/// [`start`], naming the account that is writing (`by`), so the rough draft says who wrote it.
+#[allow(clippy::too_many_arguments)]
+pub fn start_by(
+    root: &Path,
+    catalog: &Catalog,
+    prompt_id: &str,
+    surface: &str,
+    visibility: Visibility,
+    time_limit_seconds: u32,
+    now: DateTime,
+    by: Option<&str>,
+) -> std::result::Result<Session, StartError> {
     if !voice::is_kebab(surface) || surface.len() > 20 {
         return Err(StartError::Refused(
             "The surface must be a short lowercase name such as cli or admin.".into(),
@@ -386,6 +421,7 @@ pub fn start(
         draft: String::new(),
         surface: surface.to_string(),
         visibility,
+        by: by.map(str::to_string),
     };
     write(root, &session)?;
     // The record holds the whole draft and always lives under the private folder.
@@ -485,7 +521,11 @@ pub fn lock(
             rough_of: None,
         },
         body: text,
-        extra: std::collections::BTreeMap::new(),
+        extra: session
+            .by
+            .as_deref()
+            .map(|by| voice_store::who_and_how(by, "typed"))
+            .unwrap_or_default(),
     };
     let written =
         voice_store::write_rough(root, visibility.unwrap_or(session.visibility), &sample)?;

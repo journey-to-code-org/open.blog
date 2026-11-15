@@ -132,6 +132,10 @@ pub struct Listed {
     pub rough_of: Option<String>,
     pub revision: String,
     pub bytes: usize,
+    /// The account that wrote it (front matter `by`), when the piece says. Older pieces don't.
+    pub by: Option<String>,
+    /// `typed` or `spoken` (front matter `told`), when the piece says. Older pieces are typed.
+    pub told: Option<String>,
 }
 
 /// A sample and its listing entry.
@@ -219,6 +223,8 @@ fn listed_from(visibility: Visibility, file: &str, bytes: &[u8]) -> Loaded {
         rough_of: None,
         revision: revision(bytes),
         bytes: bytes.len(),
+        by: None,
+        told: None,
     };
     let invalid = |guidance: String, base: Listed| Loaded {
         listed: Listed {
@@ -276,10 +282,37 @@ fn listed_from(visibility: Visibility, file: &str, bytes: &[u8]) -> Loaded {
             words: Some(sample.voice.words),
             date: Some(sample.date.clone()),
             rough_of: sample.voice.rough_of.clone(),
+            by: extra_word(&sample, "by"),
+            told: extra_word(&sample, "told").filter(|told| told == "typed" || told == "spoken"),
             ..base
         },
         sample: Some(sample),
     }
+}
+
+/// A short one-line word from a sample's own extra front matter (`by`, `told`), or `None`.
+fn extra_word(sample: &VoiceSample, key: &str) -> Option<String> {
+    match sample.extra.get(key) {
+        Some(openblog_core::frontmatter::Value::Scalar(text))
+            if !text.is_empty() && text.len() <= 128 && !text.chars().any(char::is_control) =>
+        {
+            Some(text.clone())
+        }
+        _ => None,
+    }
+}
+
+/// The extra front matter that says who wrote a piece and how: `by: <user>`, `told: typed |
+/// spoken` (Studio R9b, G79). Pieces written before carry neither.
+pub fn who_and_how(
+    by: &str,
+    told: &str,
+) -> std::collections::BTreeMap<String, openblog_core::frontmatter::Value> {
+    use openblog_core::frontmatter::Value as Field;
+    let mut extra = std::collections::BTreeMap::new();
+    extra.insert("by".to_string(), Field::Scalar(by.to_string()));
+    extra.insert("told".to_string(), Field::Scalar(told.to_string()));
+    extra
 }
 
 /// Every sample file in both folders, valid or not, ordered by file name then visibility. Read
@@ -318,6 +351,8 @@ pub fn list(root: &Path) -> Vec<Listed> {
                     rough_of: None,
                     revision: String::new(),
                     bytes: 0,
+                    by: None,
+                    told: None,
                 }),
             }
         }
@@ -474,6 +509,76 @@ pub fn write_rough(root: &Path, visibility: Visibility, sample: &VoiceSample) ->
             })
         }
     }
+}
+
+/// Write a rough draft that was told out loud (Studio R9b, G75): the same file a session's lock
+/// writes, made in one step from a transcript, with no session and no clock. Written once: a
+/// rough draft that exists for this prompt and day (in either folder) is never replaced, and a
+/// session open for the same prompt refuses it, so the two can never both claim the file.
+pub fn write_rough_spoken(
+    root: &Path,
+    visibility: Visibility,
+    sample: &VoiceSample,
+) -> Result<Written> {
+    if sample.voice.stage != VoiceStage::Rough {
+        return refused("Only a rough draft is written this way.");
+    }
+    let bytes = write_text(sample)?;
+    let file = sample.file_name().map_err(StoreError::Refused)?;
+    let path = path_of(root, visibility, &file)?;
+    refuse_linked_folder(root, visibility)?;
+    let _lock = lock(root)?;
+    if open_session_key(root).is_some_and(|(prompt, _)| prompt == sample.voice.prompt) {
+        return refused("A piece on this prompt is being written, so this one was not saved.");
+    }
+    let other = path_of(root, visibility.other(), &file)?;
+    if read_bounded(&path)?.is_some() || read_bounded(&other)?.is_some() {
+        return refused("You already told this one today. Choose another, or come back tomorrow.");
+    }
+    create_new(&path, &bytes)?;
+    keep_private_out_of_git(root, visibility);
+    Ok(Written {
+        visibility,
+        file,
+        revision: revision(&bytes),
+        created: true,
+    })
+}
+
+/// The message for a piece that can't be thrown away while it is still being told.
+pub const PIECE_IN_SESSION: &str = "That piece is still being written somewhere else.";
+
+/// Throw one piece away (Studio R9b, G78): its rough draft and, if it has one, its polished copy,
+/// in the folder they are in. Nothing else is touched (the voice guide keeps what it learned).
+/// Refused while a session is open for the same prompt. Returns the files that went.
+pub fn delete_piece(root: &Path, visibility: Visibility, rough_file: &str) -> Result<Vec<String>> {
+    let Some((_, prompt, VoiceStage::Rough)) = voice::parse_file_name(rough_file) else {
+        return refused("Name the piece by its rough draft.");
+    };
+    refuse_linked_folder(root, visibility)?;
+    let _lock = lock(root)?;
+    if open_session_key(root).is_some_and(|(open, _)| open == prompt) {
+        return refused(PIECE_IN_SESSION);
+    }
+    let mut gone = Vec::new();
+    let names = [
+        Some(rough_file.to_string()),
+        voice::polished_file_name(rough_file),
+    ];
+    for name in names.into_iter().flatten() {
+        let path = path_of(root, visibility, &name)?;
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {
+                fsutil::retry_transient(|| fs::remove_file(&path))
+                    .map_err(|error| failed("Cannot remove the piece", error))?;
+                gone.push(name);
+            }
+            Ok(_) => return refused("That piece is not a regular file, so it was left alone."),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(failed("Cannot inspect the piece", error)),
+        }
+    }
+    Ok(gone)
 }
 
 /// Create or update the polished draft of an existing rough draft. The polished file takes its

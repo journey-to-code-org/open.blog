@@ -28,6 +28,8 @@ pub(super) fn request_limit(req: &Request, name: &str) -> usize {
         ("PUT", "voice/session/draft")
         | ("POST", "voice/session/lock")
         | ("POST", "voice/samples") => MAX_TEXT_REQUEST_BYTES,
+        // A recording, and a little room: the route itself answers `too-large` in words.
+        ("POST", "voice/spoken") => MAX_SPOKEN_BYTES + 1024,
         ("PUT", rest) if matches!(sample_route(rest), Some(SampleRoute::One(_))) => {
             MAX_TEXT_REQUEST_BYTES
         }
@@ -160,6 +162,40 @@ fn refusal_code(message: &str) -> &'static str {
     }
 }
 
+/// Whether a request asks for the practice run's library (`practice: true` in a body, or
+/// `?practice=1`): Getting started in `rehearse` mode (Studio R9b, G74).
+fn practice_in_body(body: &Json) -> bool {
+    body["practice"] == true
+}
+
+fn practice_in_query(req: &Request) -> bool {
+    matches!(
+        req.query.get("practice").map(String::as_str),
+        Some("1" | "true")
+    )
+}
+
+/// The folder a voice route works in: the site, or, for a practice run, a library of its own
+/// under the private onboarding folder, so no practice story is ever among the real pieces. A
+/// practice request is refused unless the server is rehearsing: nothing can be hidden there.
+pub(super) fn store_root(state: &AppState, practice: bool) -> Result<PathBuf, Response> {
+    if !practice {
+        return Ok(state.root.clone());
+    }
+    if !super::onboarding::mode(state).practice() {
+        return Err(coded_error(
+            409,
+            "practice-only",
+            "A practice run is only kept while the server is rehearsing Getting started",
+        ));
+    }
+    let root = crate::onboarding::practice_voice_root(&state.root);
+    fs::create_dir_all(&root).map_err(|error| {
+        Response::error(500, &format!("Cannot make the practice folder: {error}"))
+    })?;
+    Ok(root)
+}
+
 fn catalog_of(state: &AppState) -> Catalog {
     voice_store::load_catalog(&state.root)
 }
@@ -217,6 +253,9 @@ fn listed_json(catalog: &Catalog, item: &Listed) -> Json {
         "roughOf": item.rough_of,
         "revision": item.revision,
         "bytes": item.bytes,
+        // Who wrote it and how, when the piece says (G79); older pieces say neither.
+        "by": item.by,
+        "told": item.told,
     })
 }
 
@@ -332,6 +371,10 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
         Ok(pack) => pack,
         Err(response) => return response,
     };
+    let root = match store_root(state, practice_in_body(&body)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let mut catalog = catalog_of(state);
     if let Some(pack) = &pack {
         if catalog.pack(pack).is_none() {
@@ -340,7 +383,7 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
         catalog.packs.retain(|p| &p.id == pack);
     }
     let today = clock::now().rfc3339()[..10].to_string();
-    let written_today: Vec<String> = voice_store::list(&state.root)
+    let written_today: Vec<String> = voice_store::list(&root)
         .into_iter()
         .filter(|item| {
             item.stage == Some(VoiceStage::Rough)
@@ -356,7 +399,7 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
     if open.prompts().count() >= voice::draw::DRAW_SIZE {
         catalog = open;
     }
-    let library: Vec<LibraryEntry> = voice_store::library(&state.root);
+    let library: Vec<LibraryEntry> = voice_store::library(&root);
     let seed = match seed() {
         Ok(seed) => seed,
         Err(error) => return Response::error(500, &error),
@@ -471,9 +514,9 @@ pub(super) fn set_invitation(state: &AppState, req: &Request, user: &str) -> Res
     }
 }
 
-fn locked_json(state: &AppState, catalog: &Catalog, locked: &voice_session::Locked) -> Json {
+fn locked_json(root: &std::path::Path, catalog: &Catalog, locked: &voice_session::Locked) -> Json {
     let written = &locked.written;
-    let sample = voice_store::read(&state.root, written.visibility, &written.file)
+    let sample = voice_store::read(root, written.visibility, &written.file)
         .ok()
         .map(|loaded| sample_json(catalog, written.visibility, &written.file, &loaded));
     json!({
@@ -488,15 +531,19 @@ fn locked_json(state: &AppState, catalog: &Catalog, locked: &voice_session::Lock
 /// `GET voice/session`: where the session stands. This is the resume: with time left the original
 /// deadline and the saved draft come back; when the time ran out the rough draft is locked from the
 /// saved text (or the empty session is discarded), so a reload never grants extra time.
-pub(super) fn get_session(state: &AppState) -> Response {
+pub(super) fn get_session(state: &AppState, req: &Request) -> Response {
+    let root = match store_root(state, practice_in_query(req)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let catalog = catalog_of(state);
-    match voice_session::resume(&state.root, &catalog, clock::now()) {
+    match voice_session::resume(&root, &catalog, clock::now()) {
         Ok(Resume::NoSession) => Response::json(200, &json!({ "state": "none" })),
         Ok(Resume::Active {
             session,
             remaining_seconds,
         }) => Response::json(200, &session_json(&catalog, &session, remaining_seconds)),
-        Ok(Resume::Locked(locked)) => Response::json(200, &locked_json(state, &catalog, &locked)),
+        Ok(Resume::Locked(locked)) => Response::json(200, &locked_json(&root, &catalog, &locked)),
         Ok(Resume::Discarded { prompt_id }) => {
             Response::json(200, &json!({ "state": "discarded", "promptId": prompt_id }))
         }
@@ -522,7 +569,7 @@ pub(super) fn get_session(state: &AppState) -> Response {
 /// `POST voice/session/start`: begin the one session. The body is `{ promptId, visibility?,
 /// timeLimitSeconds? }`; a private session is the default. A session already open is a 409 that
 /// says whether it ran out of time, so the page can offer to lock or scrap it.
-pub(super) fn start(state: &AppState, req: &Request) -> Response {
+pub(super) fn start(state: &AppState, req: &Request, user: &str) -> Response {
     let body = match body_object(req, MAX_SMALL_REQUEST_BYTES) {
         Ok(body) => body,
         Err(response) => return response,
@@ -541,16 +588,21 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
             None => return Response::error(400, "`timeLimitSeconds` must be a whole number"),
         },
     };
+    let root = match store_root(state, practice_in_body(&body)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let catalog = catalog_of(state);
     let now = clock::now();
-    match voice_session::start(
-        &state.root,
+    match voice_session::start_by(
+        &root,
         &catalog,
         prompt_id,
         "admin",
         visibility,
         seconds,
         now,
+        Some(user),
     ) {
         Ok(session) => {
             let remaining = session.remaining_seconds(now);
@@ -558,7 +610,7 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
         }
         Err(StartError::AlreadyOpen { prompt_id, expired }) => {
             // The page names this session if the author chooses to scrap it.
-            let open_id = match voice_session::status(&state.root, now) {
+            let open_id = match voice_session::status(&root, now) {
                 Ok(Status::Active { session, .. } | Status::Expired { session }) => {
                     Some(session_id(&session))
                 }
@@ -586,12 +638,16 @@ pub(super) fn start(state: &AppState, req: &Request) -> Response {
 }
 
 /// Check that the page is talking about the session that is open.
-fn same_session<'a>(state: &AppState, body: &'a Json) -> Result<&'a str, Response> {
+fn same_session<'a>(
+    state: &AppState,
+    root: &std::path::Path,
+    body: &'a Json,
+) -> Result<&'a str, Response> {
     let wanted = match &body["sessionId"] {
         Json::String(id) => id.as_str(),
         _ => return Err(Response::error(400, "Name the session as `sessionId`")),
     };
-    match voice_session::status(&state.root, clock::now()) {
+    match voice_session::status(root, clock::now()) {
         Ok(Status::None) => Err(Response::json(
             409,
             &json!({
@@ -636,12 +692,16 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
             "That draft is longer than a sample can hold",
         );
     }
-    let wanted = match same_session(state, &body) {
+    let root = match store_root(state, practice_in_body(&body)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
+    let wanted = match same_session(state, &root, &body) {
         Ok(wanted) => wanted,
         Err(response) => return response,
     };
     let now = clock::now();
-    if let Ok(Status::Expired { .. }) = voice_session::status(&state.root, now) {
+    if let Ok(Status::Expired { .. }) = voice_session::status(&root, now) {
         return Response::json(
             409,
             &json!({
@@ -651,7 +711,7 @@ pub(super) fn save_draft(state: &AppState, req: &Request) -> Response {
             }),
         );
     }
-    match voice_session::save_draft(&state.root, Some(wanted), text, now) {
+    match voice_session::save_draft(&root, Some(wanted), text, now) {
         Ok(Status::Active {
             remaining_seconds, ..
         }) => Response::json(
@@ -700,20 +760,24 @@ pub(super) fn lock_session(state: &AppState, req: &Request) -> Response {
         Ok(visibility) => visibility,
         Err(response) => return response,
     };
-    let wanted = match same_session(state, &body) {
+    let root = match store_root(state, practice_in_body(&body)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
+    let wanted = match same_session(state, &root, &body) {
         Ok(wanted) => wanted,
         Err(response) => return response,
     };
     let catalog = catalog_of(state);
     match voice_session::lock(
-        &state.root,
+        &root,
         Some(wanted),
         &catalog,
         text.as_deref(),
         visibility,
         clock::now(),
     ) {
-        Ok(locked) => Response::json(200, &locked_json(state, &catalog, &locked)),
+        Ok(locked) => Response::json(200, &locked_json(&root, &catalog, &locked)),
         Err(StoreError::Refused(message)) if message.starts_with("Nothing was written") => {
             Response::json(
                 409,
@@ -744,20 +808,24 @@ pub(super) fn scrap(state: &AppState, req: &Request) -> Response {
             &json!({ "error": message, "otherSession": true, "code": "other-session" }),
         )
     };
+    let root = match store_root(state, practice_in_body(&body)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let wanted = match &body["sessionId"] {
         Json::String(id) => Some(id.as_str()),
         Json::Null => None,
         _ => return Response::error(400, "Name the session as `sessionId`"),
     };
     if wanted.is_none() {
-        match voice_session::status(&state.root, clock::now()) {
+        match voice_session::status(&root, clock::now()) {
             Ok(Status::None) => return Response::json(200, &json!({ "state": "none" })),
             Ok(_) => return other(voice_session::SCRAP_OTHER_SESSION),
             // A damaged record can be scrapped without a name; a newer one is refused below.
             Err(_) => {}
         }
     }
-    match voice_session::scrap(&state.root, wanted) {
+    match voice_session::scrap(&root, wanted) {
         Ok(()) => Response::json(200, &json!({ "state": "none" })),
         Err(StoreError::Refused(message)) if message == voice_session::SCRAP_OTHER_SESSION => {
             other(&message)
@@ -836,12 +904,22 @@ fn locate(
     file: &str,
     wanted: Option<Visibility>,
 ) -> Result<(Visibility, voice_store::Loaded), Response> {
+    locate_in(state, &state.root, file, wanted)
+}
+
+/// [`locate`] in a given library (the site's, or a practice run's).
+fn locate_in(
+    state: &AppState,
+    root: &std::path::Path,
+    file: &str,
+    wanted: Option<Visibility>,
+) -> Result<(Visibility, voice_store::Loaded), Response> {
     let mut found = Vec::new();
     for visibility in [Visibility::Portable, Visibility::Private] {
         if wanted.is_some_and(|w| w != visibility) {
             continue;
         }
-        match voice_store::read(&state.root, visibility, file) {
+        match voice_store::read(root, visibility, file) {
             Ok(loaded) => found.push((visibility, loaded)),
             Err(StoreError::Refused(message)) if message == "There is no such voice sample." => {}
             Err(error) => return Err(store_error(state, error)),
@@ -872,9 +950,13 @@ fn query_visibility(req: &Request) -> Result<Option<Visibility>, Response> {
 
 /// `GET voice/samples`: every sample file, newest first, with the coverage of each pack. Invalid
 /// files are listed with guidance, never hidden.
-pub(super) fn list(state: &AppState) -> Response {
+pub(super) fn list(state: &AppState, req: &Request) -> Response {
+    let root = match store_root(state, practice_in_query(req)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let catalog = catalog_of(state);
-    let mut items = voice_store::list(&state.root);
+    let mut items = voice_store::list(&root);
     items.sort_by(|a, b| {
         (b.date.as_deref(), &b.file, b.visibility).cmp(&(a.date.as_deref(), &a.file, a.visibility))
     });
@@ -919,8 +1001,8 @@ pub(super) fn list(state: &AppState) -> Response {
             "coverage": packs,
             // The same gap list `openblog voice --list` prints and the voice-guide request carries.
             "gaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
-                &state.root,
-                crate::voice_assistant::read_guide(&state.root)
+                &root,
+                crate::voice_assistant::read_guide(&root)
                     .as_ref()
                     .map(|(_, text)| text.as_str()),
             )),
@@ -937,8 +1019,12 @@ pub(super) fn get(state: &AppState, req: &Request, id: &str) -> Response {
         Ok(wanted) => wanted,
         Err(response) => return response,
     };
+    let root = match store_root(state, practice_in_query(req)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
     let file = format!("{id}.md");
-    let (visibility, loaded) = match locate(state, &file, wanted) {
+    let (visibility, loaded) = match locate_in(state, &root, &file, wanted) {
         Ok(found) => found,
         Err(response) => return response,
     };
@@ -951,7 +1037,7 @@ pub(super) fn get(state: &AppState, req: &Request, id: &str) -> Response {
     };
     out["partner"] = partner
         .and_then(|name| {
-            voice_store::read(&state.root, visibility, &name)
+            voice_store::read(&root, visibility, &name)
                 .ok()
                 .map(|p| listed_json(&catalog, &p.listed))
         })
@@ -1333,4 +1419,209 @@ pub(super) fn guide_move(state: &AppState, req: &Request) -> Response {
         ),
         Err(error) => store_error(state, error),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Throw one piece away (Studio R9b, G78)
+// ---------------------------------------------------------------------------
+
+/// `DELETE voice/samples/{id}`: throw away one piece, named by its rough draft: the rough draft
+/// and its polished copy, nothing else. A piece that isn't there is `gone`; one whose prompt is
+/// being written right now is `in-session`. The answer names what went (file names, never text).
+pub(super) fn delete_piece(state: &AppState, req: &Request, id: &str, user: &str) -> Response {
+    let root = match store_root(state, practice_in_query(req)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
+    let wanted = match query_visibility(req) {
+        Ok(wanted) => wanted,
+        Err(response) => return response,
+    };
+    let file = format!("{id}.md");
+    if !matches!(
+        voice::parse_file_name(&file),
+        Some((_, _, VoiceStage::Rough))
+    ) {
+        return coded_error(400, "not-rough", "Name the piece by its rough draft");
+    }
+    let (visibility, _) = match locate_in(state, &root, &file, wanted) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    match voice_store::delete_piece(&root, visibility, &file) {
+        Ok(gone) => {
+            eprintln!(
+                "voice: {user} threw a piece away ({} file{})",
+                gone.len(),
+                if gone.len() == 1 { "" } else { "s" }
+            );
+            Response::json(200, &json!({ "gone": gone }))
+        }
+        Err(StoreError::Refused(message)) if message == voice_store::PIECE_IN_SESSION => {
+            coded_error(409, "in-session", &message)
+        }
+        Err(error) => store_error(state, error),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A story told out loud (Studio R9b, G75)
+// ---------------------------------------------------------------------------
+
+/// The largest recording taken: three minutes of any browser's recorder is well under this.
+pub(super) const MAX_SPOKEN_BYTES: usize = 12 * 1024 * 1024;
+/// The longest recording taken when its format says how long it is.
+const MAX_SPOKEN_SECONDS: u64 = 200;
+
+/// How long a WAV recording is, from its header, when it can be read. Other formats don't say.
+fn wav_seconds(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < 44 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let byte_rate = u64::from(u32::from_le_bytes(bytes[28..32].try_into().ok()?));
+    (byte_rate > 0).then(|| (bytes.len() as u64).saturating_sub(44) / byte_rate)
+}
+
+/// A private file that is removed when this goes out of scope, however the request ends
+/// (an answer, an error, a timeout, a panic while transcribing).
+struct TempAudio(PathBuf);
+
+impl Drop for TempAudio {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// `POST voice/spoken?promptId=<id>[&practice=1]`: a story told out loud. The body is the
+/// recording. It is written to a private temporary file, turned into words by the site's own
+/// transcriber, and removed whatever happens; the words become the rough draft of a piece, as
+/// said (cleaned only of control characters and bounded, like any transcript), with `told:
+/// spoken` and who told it. No session and no clock: the three-minute limit is the recorder's.
+/// The recording is never kept, and neither it nor the words are ever logged.
+pub(super) fn spoken(state: &AppState, req: &Request, user: &str) -> Response {
+    let root = match store_root(state, practice_in_query(req)) {
+        Ok(root) => root,
+        Err(response) => return response,
+    };
+    let catalog = catalog_of(state);
+    let Some(prompt) = req
+        .query
+        .get("promptId")
+        .and_then(|id| catalog.prompt(id))
+        .cloned()
+    else {
+        return coded_error(400, "bad-prompt", "Choose a prompt the site offers");
+    };
+    if req.body.len() > MAX_SPOKEN_BYTES {
+        return coded_error(413, "too-large", "That recording is too large");
+    }
+    let Some(extension) = openblog_core::capture::sniff_audio(&req.body) else {
+        return coded_error(
+            415,
+            "not-audio",
+            "That is not a recording this site can read",
+        );
+    };
+    if wav_seconds(&req.body).is_some_and(|seconds| seconds > MAX_SPOKEN_SECONDS) {
+        return coded_error(
+            413,
+            "too-large",
+            "That recording is longer than a story can be",
+        );
+    }
+    let (transcriber, engine) = match super::capture_assistant::transcriber(state) {
+        Ok(found) => found,
+        // Nothing here can hear: the page stops offering Say it out loud.
+        Err(response) if response.status == 404 => {
+            return coded_error(
+                404,
+                "no-transcriber",
+                "Nothing on this site can hear a recording",
+            )
+        }
+        Err(response) => return response,
+    };
+    let _permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let folder = state.root.join(".openblog/private/onboarding/tmp");
+    let audio = TempAudio(folder.join(format!("{}.{extension}", &token[..32])));
+    if let Err(error) = crate::private_file::write(&audio.0, &req.body) {
+        return Response::error(500, &scrub(state, &error));
+    }
+    let raw = match transcriber.transcribe(&crate::assistant::transcribe::AudioClip {
+        bytes: &req.body,
+        extension,
+        path: &audio.0,
+    }) {
+        Ok(raw) => raw,
+        Err(error) => return review_error(error),
+    };
+    drop(audio);
+    let (text, _) = openblog_core::capture::clean_transcript(&raw);
+    if text.is_empty() {
+        return coded_error(
+            422,
+            "empty-transcript",
+            "No words were heard in the recording",
+        );
+    }
+    if text.len() > voice_session::MAX_DRAFT_BYTES {
+        return coded_error(
+            413,
+            "too-large",
+            "That story is longer than a piece can hold",
+        );
+    }
+    let words = voice::count_words(&text);
+    let sample = VoiceSample {
+        title: prompt.title.clone(),
+        subtitle: None,
+        slug: prompt.id.clone(),
+        date: clock::now().rfc3339(),
+        description: None,
+        tags: Vec::new(),
+        voice: VoiceMeta {
+            catalog: catalog.version,
+            pack: prompt.pack.clone(),
+            prompt: prompt.id.clone(),
+            stage: VoiceStage::Rough,
+            time_limit_seconds: voice_session::DEFAULT_SECONDS,
+            words,
+            rough_of: None,
+        },
+        body: text,
+        extra: voice_store::who_and_how(user, "spoken"),
+    };
+    let written = match voice_store::write_rough_spoken(&root, Visibility::Private, &sample) {
+        Ok(written) => written,
+        Err(error) => return store_error(state, error),
+    };
+    // An event, never the words: who, and how many.
+    eprintln!("voice: spoken piece saved for {user} ({words} words)");
+    let loaded = match voice_store::read(&root, written.visibility, &written.file) {
+        Ok(loaded) => loaded,
+        Err(error) => return store_error(state, error),
+    };
+    let described = sample_json(&catalog, written.visibility, &written.file, &loaded);
+    Response::json(
+        201,
+        &json!({
+            "id": id_of(&written.file),
+            "words": words,
+            "text": described["body"],
+            "engine": engine,
+            "sample": described,
+        }),
+    )
 }
