@@ -9,6 +9,7 @@ import { say } from "./words.js";
 import { createSheet } from "./sheet.js";
 import { sendOut, wentOutWords } from "./publish.js";
 import { strangerBody } from "./stranger.js";
+import { claimsHash } from "./research-rules.js";
 import {
   CHANGE_MAX, NOTE_MAX, RATIONALE_MAX, changeRequest, continuationRequest, continuationStandingText, decisionFields, decisionProblem, extrasProblem, featureConsentLine,
   featureRequest, featureStandingText, linkLine, linkRequest, localDay, noteWords, outcomeRequest, outcomeWords, relations,
@@ -225,9 +226,16 @@ export async function createReaderSheets({ api, meta, state, tell, reload }) {
       values.revisionNote = added;
       addNote.open = false;
     } }) : []));
-    const evidence = (offer.claimEvidence || []).length
-      ? h("select-field", { label: say("readers.decideEvidence"), options: [{ value: "", label: say("readers.decideChooseWhy") }, ...offer.claimEvidence.map((c) => ({ value: `${c.claim} ${c.link}`, label: String(c.label) }))], onValuechange: (e) => { values.claimEvidence = e.detail; } })
-      : h("p", { class: "studio-help", text: say("readers.decideNoEvidence") });
+    // R12: the evidence she recorded opens in this post's Claims and evidence, on the chosen claim.
+    const evidenceLink = claimsHash(item.post?.source)
+      ? h("action-button", { variant: "secondary", size: "sm", href: claimsHash(item.post.source) }, say("readers.decideOpenEvidence")) : null;
+    const evidenceSelect = (offer.claimEvidence || []).length
+      ? h("select-field", { label: say("readers.decideEvidence"), options: [{ value: "", label: say("readers.decideChooseWhy") }, ...offer.claimEvidence.map((c) => ({ value: `${c.claim} ${c.link}`, label: String(c.label) }))], onValuechange: (e) => {
+        values.claimEvidence = e.detail;
+        if (evidenceLink) evidenceLink.href = claimsHash(item.post.source, String(e.detail || "").split(" ")[0]);
+      } })
+      : null;
+    const evidence = h("div", {}, evidenceSelect || h("p", { class: "studio-help", text: say("readers.decideNoEvidence") }), evidenceLink);
     const addressed = h("text-field", { label: say("readers.decideAddressed"), maxlength: 64, onValuechange: () => { values.addressedBy = textOf(addressed); } });
     const day = h("date-field", { label: say("readers.decideDay"), value: values.decided, onValuechange: (e) => { values.decided = String(e.detail || "") || localDay(); } });
     const confirm = h("input", { type: "checkbox", id: `studio-decide-confirm-${item.id}` });
@@ -244,7 +252,7 @@ export async function createReaderSheets({ api, meta, state, tell, reload }) {
     const go = h("action-button", { onClick: async () => {
       const problem = decisionProblem(item, values);
       if (problem) {
-        const field = { outcome, extent, declineReason: reason, rationale, revisionNote: noteChoice, claimEvidence: evidence, addressedBy: addressed, confirmed: null }[problem.field];
+        const field = { outcome, extent, declineReason: reason, rationale, revisionNote: noteChoice, claimEvidence: evidenceSelect, addressedBy: addressed, confirmed: null }[problem.field];
         if (field && "error" in field) field.error = noteWords(problem);
         return show(line, problem, null);
       }

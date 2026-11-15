@@ -208,3 +208,14 @@ test("an import whose only problem is the file itself says it isn't CSL JSON, ne
   const items = researchProblem({ status: 422, data: { diagnostics: [{ code: "missing-field", index: 2, field: "id", message: "x" }] } }, "import");
   assert.equal(items.id, "sources.importBlocked");
 });
+
+test("Readers' claim links open the post's Claims and evidence, on the claim (R10 → R12)", async () => {
+  const { claimsHash } = await import("../../web/studio/parts/research-rules.js");
+  assert.equal(claimsHash("posts/the cave.md", "c1"), "#/write/posts%2Fthe%20cave.md?sheet=claims&claim=c1");
+  assert.equal(claimsHash("posts/cave.md"), "#/write/posts%2Fcave.md?sheet=claims");
+  assert.equal(claimsHash("", "c1"), "", "no post, no link");
+  assert.equal(claimsHash("pages/about.html", "c1"), "", "only a post's Write");
+  const read = (path) => readFileSync(new URL(`../../web/studio/parts/${path}`, import.meta.url), "utf8");
+  assert.match(read("reader-extras.js"), /claimsHash\(item\.post\.source, claim\.id\)/, "What they point to links the claim");
+  assert.match(read("reader-sheets.js"), /claimsHash\(item\.post\.source, String\(e\.detail/, "The evidence you recorded follows the chosen claim");
+});
