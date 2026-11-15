@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-11-15
+
 - The old Admin is retired (Studio R15, ADR 0415).
   - `/admin/` now opens Studio (302 to `/admin/studio/`), and every old `/admin/#/…` address,
     bookmark, notification and invitation link opens the matching Studio screen. Any other old
