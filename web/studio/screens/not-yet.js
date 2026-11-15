@@ -7,7 +7,7 @@ import { use } from "../zubra.js";
 const NAMES = {
   comparisons: "Comparisons",
   distribution: "Where your posts went", paths: "Reading paths",
-  research: "Research", shared: "Writing together",
+  research: "Research", "together-shape": "Shaping what you write together",
 };
 
 export async function createNotYet(_context, route) {

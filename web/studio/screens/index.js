@@ -37,6 +37,8 @@ import { createVoiceWriteScreen } from "./voice-write.js";
 import { createVoicePieceScreen } from "./voice-piece.js";
 import { createVoiceGuideScreen } from "./voice-guide.js";
 import { createDesign } from "./design.js";
+import { createTogetherScreen } from "./together.js";
+import { say } from "../parts/words.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -95,6 +97,11 @@ export const SCREENS = [
     : route.arg === "guide" ? createVoiceGuideScreen(context, route)
       : route.arg.startsWith("piece/") ? createVoicePieceScreen(context, route.arg.slice(6))
         : createVoiceHub(context)) },
+  // R14a: Writing together. In the navigation once she takes part in one (G111), and for a co-writer
+  // sign-in the only screen there is (`coWriter`), and its Home. #/together/new, /join, /<id>,
+  // /<id>/write and /<id>/read are its screens.
+  { name: "together", nav: (meta) => togetherNav(meta), area: "together", coWriter: true,
+    navWhen: (meta) => meta.account === "co-writer" || meta.together?.takingPart > 0, create: (context, route) => createTogetherScreen(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },
@@ -111,3 +118,9 @@ export const SCREENS = [
   // starts a job at a desk.
   { name: "write", area: "posts", create: (context, route) => (route.arg === "" && (hasRecipes(context.meta) || tradeSite(context.meta)) ? createNewPost(context) : createWrite(context, route.arg, route)) },
 ];
+
+/** "Writing together", with how many are waiting on her. */
+function togetherNav(meta) {
+  const waiting = Number(meta?.together?.waitingOnYou || 0);
+  return waiting > 0 ? `${say("together.nav")} · ${say("together.waitingBadge", { n: waiting })}` : say("together.nav");
+}

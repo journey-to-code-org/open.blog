@@ -7250,7 +7250,8 @@ export function validateInvitationDraft(draft = {}) {
 
 /** An absolute copyable link, only ever for a path inside this Admin. */
 export function invitationShareLink(origin, link) {
-  return typeof link === "string" && link.startsWith("/admin/#/shared/accept/") ? `${origin}${link}` : "";
+  // Studio R14 G119: the server's links open Studio's join page; the old form still opens it too.
+  return typeof link === "string" && (link.startsWith("/admin/#/shared/accept/") || link.startsWith("/admin/studio/#/together/join/")) ? `${origin}${link}` : "";
 }
 
 /** The token in an accept route's hash, or "". It is never read from anywhere else. */

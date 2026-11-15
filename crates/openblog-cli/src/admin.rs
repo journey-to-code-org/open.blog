@@ -105,6 +105,7 @@ mod seasons;
 mod social;
 pub(crate) mod studio_words;
 mod theme_draft;
+mod together;
 mod trade_checklist;
 mod voice;
 mod voice_guide;
@@ -179,6 +180,8 @@ struct PreviewDocument {
     token: String,
     html: String,
     csp: String,
+    /// Who it was made for. A co-writer sign-in opens only its own (Studio R14 G110).
+    owner: String,
 }
 
 pub struct AppState {
@@ -549,10 +552,14 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
         return Err(secured(Response::error(404, "Not found")));
     }
     if let Some(name) = req.path.strip_prefix("/admin/api/") {
-        if name == "login" {
+        if name == "login" || name == together::JOIN {
             return Ok(MAX_LOGIN_BODY);
         }
-        authenticate(state, req).map_err(secured)?;
+        let session = authenticate(state, req).map_err(secured)?;
+        // A co-writer sign-in (Studio R14 G110) is refused before any body is read.
+        if session.co_writer && !together::co_writer_may(&req.method, name) {
+            return Err(secured(together::refused()));
+        }
         if name == "upload" {
             let config = site::load_config(&state.root).unwrap_or_default();
             return Ok(upload_intake_bytes(&config));
@@ -845,17 +852,25 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     if name == "login" {
         return login(state, req);
     }
+    if name == together::JOIN {
+        return together::coded(together::join(state, req));
+    }
     let session = match authenticate(state, req) {
         Ok(s) => s,
         Err(r) => return r,
     };
+    // A co-writer sign-in reaches only Writing together (Studio R14 G110): checked here, before
+    // the CSRF check and before any handler, for every route, so a new route is an owner's.
+    if session.co_writer && !together::co_writer_may(&req.method, name) {
+        return together::refused();
+    }
     if !req.is_read_only() {
         if let Err(r) = check_csrf(req, &session) {
             return r;
         }
     }
     if !state.workspace_enabled {
-        return authenticated_api(state, req, name, &session);
+        return collaboration_coded(name, authenticated_api(state, req, name, &session));
     }
     let mut workspace = lock(&state.workspace);
     // Social routes change nothing on disk, so they never open a workspace transaction.
@@ -891,7 +906,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             }
         }
     }
-    let response = authenticated_api(state, req, name, &session);
+    let response = collaboration_coded(name, authenticated_api(state, req, name, &session));
     if local_write {
         if let Some(store) = workspace.as_mut() {
             // Even an unsuccessful handler may have completed part of a local
@@ -916,6 +931,15 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     response
 }
 
+/// Every collaboration answer carries a code (Studio R14 G117).
+fn collaboration_coded(name: &str, response: Response) -> Response {
+    if name.starts_with("collaboration/") {
+        together::coded(response)
+    } else {
+        response
+    }
+}
+
 fn authenticated_api(
     state: &AppState,
     req: &Request,
@@ -924,7 +948,7 @@ fn authenticated_api(
 ) -> Response {
     if req.method == "GET" {
         if let Some(token) = name.strip_prefix("preview/") {
-            return preview_document(state, token);
+            return preview_document(state, token, session);
         }
     }
     if let Some(rest) = name.strip_prefix("quote/") {
@@ -967,7 +991,7 @@ fn authenticated_api(
             200,
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
-        ("GET", "meta") => meta(state),
+        ("GET", "meta") => together::meta(state, session, || meta(state)),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "theme-draft") => theme_draft::options(state),
@@ -1150,12 +1174,15 @@ fn authenticated_api(
         ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
-        ("GET", "collaboration/publications") => list_shared_publications(state, session),
-        ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
+        ("GET", "collaboration/publications") => together::list(state, req, session),
+        ("POST", "collaboration/publications") => together::create(state, req, session),
+        ("POST", "collaboration/publications/archive") => together::put_away(state, req, session),
         ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
         ("GET", "collaboration/invitations") => list_invitations(state, req, session),
-        ("POST", "collaboration/invitations") => create_invitation(state, req, session),
-        ("POST", "collaboration/invitations/revoke") => revoke_invitation(state, req, session),
+        ("POST", "collaboration/invitations") => together::invite(state, req, session),
+        ("POST", "collaboration/invitations/revoke") => {
+            together::then_release(state, revoke_invitation(state, req, session))
+        }
         ("POST", "collaboration/invitations/reissue") => reissue_invitation(state, req, session),
         ("GET", "collaboration/members") => list_members(state, req, session),
         ("POST", "collaboration/members/roles") => change_member_roles(state, req, session),
@@ -1185,7 +1212,7 @@ fn authenticated_api(
             answer_invitation(state, req, session, true)
         }
         ("POST", "collaboration/invitations/decline") => {
-            answer_invitation(state, req, session, false)
+            together::then_release(state, answer_invitation(state, req, session, false))
         }
         ("GET", "status") => status(state),
         ("GET", "recipe-notes") => recipe_notes(state),
@@ -1310,12 +1337,19 @@ fn authenticate(state: &AppState, req: &Request) -> Result<auth::Session, Respon
         .ok_or_else(|| Response::error(401, "Session expired; sign in again"))?;
     // A removed user, or one whose password changed, is signed out immediately.
     let config = site::load_config(&state.root).unwrap_or_default();
-    let still_valid = Users::load(&state.root.join(&config.admin.users_file))
+    let record = Users::load(&state.root.join(&config.admin.users_file))
         .ok()
-        .and_then(|u| u.find(&session.user).map(|r| r.hash == session.credential))
-        .unwrap_or(false);
+        .and_then(|u| u.find(&session.user).cloned());
+    let still_valid = record
+        .as_ref()
+        .is_some_and(|r| !r.hash.is_empty() && r.hash == session.credential);
     if still_valid {
-        Ok(session)
+        // What the account may reach is read from the users file on every request (G110).
+        let co_writer = record.is_some_and(|r| r.is_co_writer());
+        Ok(auth::Session {
+            co_writer,
+            ..session
+        })
     } else {
         lock(&state.sessions).remove(token);
         Err(Response::error(401, "Session ended; sign in again"))
@@ -13349,46 +13383,6 @@ fn collaboration_identities(
     ))
 }
 
-fn list_shared_publications(state: &AppState, session: &auth::Session) -> Response {
-    let _content_transaction = lock(&state.build);
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(error) => return Response::error(500, &error),
-    };
-    let (admin_users, contributor_ids) = match collaboration_identities(&state.root, &config) {
-        Ok(identities) => identities,
-        Err(response) => return response,
-    };
-    let admin_users = admin_users.iter().map(String::as_str).collect::<Vec<_>>();
-    let contributor_ids = contributor_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    let records = match crate::shared_publications::load_all(&state.root) {
-        Ok(records) => records,
-        Err(error) => return Response::error(500, &error),
-    };
-    let publications = records
-        .iter()
-        .filter_map(|(_, record)| {
-            let identities = openblog_core::invitation::Identities {
-                active_admin_users: &admin_users,
-                contributor_ids: &contributor_ids,
-            };
-            record
-                .authorize(
-                    &session.user,
-                    &identities,
-                    AuthorizationAction::ViewPublication,
-                    AuthorizationTarget::Publication,
-                )
-                .ok()
-                .map(|binding| shared_publication_summary(record, &binding.roles))
-        })
-        .collect::<Vec<_>>();
-    Response::json(200, &json!({ "publications": publications }))
-}
-
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceMetadataRequest {
@@ -13674,8 +13668,11 @@ impl InvitationTransaction<'_> {
     }
 }
 
+/// Where an invitation link opens: Studio's join page (Studio R14 G119). The token is in the
+/// address's fragment, so it never reaches the server or its log; Studio takes it out of the
+/// address before its first request. The old Admin's form still opens the same page.
 fn invitation_link(token: &str) -> String {
-    format!("/admin/#/shared/accept/{token}")
+    format!("/admin/studio/#/together/join/{token}")
 }
 
 fn list_invitations(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -14199,9 +14196,11 @@ fn publish_not_found() -> Response {
 }
 
 fn published_already() -> Response {
-    Response::error(
+    together::problem(
         409,
+        "published",
         "This shared reflection is already published. Nothing was changed.",
+        None,
     )
 }
 
@@ -14352,25 +14351,31 @@ fn prepare_post(
             ))
         }
         Err(AssemblyError::UnsafeMarkup) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "unsafe-markup",
                 "A section contains raw HTML or an unsafe link, which shared reflections do not publish. Ask its author to remove it and approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::ReservedSectionAnchor) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "reserved-heading",
                 "A section heading uses an anchor reserved for the generated continuing conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`). Ask its author to rename the heading and approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnsafeConversationItem(rule, item)) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "unsafe-markup",
                 &format!(
                     "The continuing conversation cannot be published: {} contains {}. Ask its author to edit the item and approve it again. Nothing was changed.",
                     item.describe(),
                     rule.describe()
                 ),
+                Some(""),
             ))
         }
         Err(AssemblyError::Invalid) => {
@@ -14380,21 +14385,27 @@ fn prepare_post(
             ))
         }
         Err(AssemblyError::ArrangementMismatch) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "layout-mismatch",
                 "The arrangement no longer matches the drafts: a turn names a part an author has since removed. Ask a coordinator to arrange the piece again; the combined preview shows where. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnresolvedMoment) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "moment-unresolved",
                 "A moment proposed for the piece no longer fits its source: the source was removed or its kind changed. Ask its author to edit the moment or keep it private, then approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::UnsafeMoment) => {
-            return Err(shared_problem(
-                "",
+            return Err(together::problem(
+                422,
+                "moment-unsafe",
                 "A moment proposed for the piece has an observation that would change how another part of the piece reads, such as a link reference or an unclosed code block. Ask its author to edit the observation, then approve again. Nothing was changed.",
+                Some(""),
             ))
         }
         Err(AssemblyError::RuleUnmet { named, roles }) => {
@@ -14430,9 +14441,11 @@ fn prepare_post(
             match original {
                 Some(candidate) if same(&candidate) => assembly = candidate,
                 _ => {
-                    return Err(Response::error(
+                    return Err(together::problem(
                         409,
+                        "occupied",
                         "A different file already occupies this reflection's place. Nothing was changed.",
+                        None,
                     ))
                 }
             }
@@ -14448,9 +14461,11 @@ fn prepare_post(
     .is_err()
     {
         // The problems quote the authors' prose, which the requester may not be entitled to read.
-        return Err(shared_problem(
-            "",
+        return Err(together::problem(
+            422,
+            "build",
             "The combined piece could not be built into the site. Ask the authors to review the combined preview. Nothing was changed.",
+            Some(""),
         ));
     }
     Ok(Prepared {
@@ -14480,7 +14495,9 @@ fn commit_publication(
     use openblog_core::assembly::Outcome;
     let inputs = gate_inputs(state, transaction, record)?;
     if matches!(inputs.outcome.outcome, Some(Outcome::Published { .. })) {
-        return Ok(json!({ "state": "published", "alreadyPublished": true }));
+        return Ok(
+            json!({ "state": "published", "alreadyPublished": true, "path": openblog_core::assembly::post_path(record) }),
+        );
     }
     let prepared = prepare_post(state, record, &inputs, date)?;
     let id = &record.publication_id;
@@ -14516,7 +14533,7 @@ fn commit_publication(
     if let Some(title) = &record.title {
         state_arc(state).auto_publish(title.clone());
     }
-    Ok(json!({ "state": "published", "alreadyPublished": false }))
+    Ok(json!({ "state": "published", "alreadyPublished": false, "path": prepared.assembly.path }))
 }
 
 /// Publish the approved piece now. The publish grant is necessary but never enough: every
@@ -14638,6 +14655,7 @@ fn fire_due_shared_publications(state: &AppState) {
             continue;
         };
         if publish_at > now
+            || !together::is_owner_account(state, &requested_by)
             || authorize_publisher(&transaction, &record, &requested_by, true).is_err()
         {
             continue;
@@ -15878,6 +15896,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         token,
         html: preview.document,
         csp: openblog_core::preview::PREVIEW_CSP.to_string(),
+        owner: session.user.clone(),
     });
     if previews.len() > 16 {
         previews.remove(0);
@@ -16915,9 +16934,11 @@ fn create_series(state: &AppState, req: &Request, session: &auth::Session) -> Re
 
 /// No room for another revision. Saved revisions are intact; only this change was refused.
 fn draft_limit_problem() -> Response {
-    shared_problem(
-        "markdown",
+    together::problem(
+        422,
+        "revision-limit",
         "This draft has reached its limit of saved revisions or storage, so this change was not saved. Your earlier revisions are intact; keep a copy of your latest text.",
+        Some("markdown"),
     )
 }
 
@@ -19489,6 +19510,7 @@ fn store_preview(state: &AppState, token: &str, html: String, csp: String) {
         token: token.to_string(),
         html,
         csp,
+        owner: String::new(),
     });
     if previews.len() > 16 {
         previews.remove(0);
@@ -19529,13 +19551,15 @@ fn greeting_preview(state: &AppState, response: Response) -> Response {
     Response::json(200, &body)
 }
 
-fn preview_document(state: &AppState, token: &str) -> Response {
+fn preview_document(state: &AppState, token: &str, session: &auth::Session) -> Response {
     if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Response::error(404, "Preview not found");
     }
     let document = lock(&state.previews)
         .iter()
-        .find(|document| document.token == token)
+        .find(|document| {
+            document.token == token && (!session.co_writer || document.owner == session.user)
+        })
         .map(|document| (document.html.clone(), document.csp.clone()));
     let Some((html, csp)) = document else {
         return Response::error(404, "Preview not found");
@@ -20319,6 +20343,7 @@ mod tests {
     mod studio_routes;
     mod studio_words_routes;
     mod theme_draft_routes;
+    mod together_routes;
     mod trade_checklist_routes;
     mod voice_assistant_routes;
     mod voice_journey;
@@ -29578,6 +29603,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         };
         let bound = make(vec![author_answers::record()]);
         let refused = remove_unlisted_publication(
@@ -29750,6 +29776,7 @@ What I read:
                 credential: String::new(),
                 csrf: String::new(),
                 expires: std::time::Instant::now() + Duration::from_secs(3600),
+                co_writer: false,
             }
         }
 
@@ -30455,6 +30482,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         };
         let details = json!({
             "type": "video", "url": "https://example.org/watch",
@@ -30655,6 +30683,7 @@ What I read:
             credential: String::new(),
             csrf: String::new(),
             expires: std::time::Instant::now() + Duration::from_secs(3600),
+            co_writer: false,
         }
     }
 
@@ -38956,8 +38985,23 @@ series: letters
             );
         }
 
+        // Studio R14 G115: the list adds where it stands, never bindings, keys or drafts.
         let listed = list_shared(&f, &session);
-        assert_eq!(listed["publications"], json!([created]));
+        let listed = listed["publications"].as_array().unwrap();
+        assert_eq!(listed.len(), 1);
+        for (key, value) in created.as_object().unwrap() {
+            assert_eq!(&listed[0][key], value, "{key}");
+        }
+        assert_eq!(listed[0]["state"], "started");
+        for marker in [
+            "mikey-writer",
+            "participant-1",
+            "adminUser",
+            "bindings",
+            "markdown",
+        ] {
+            assert!(!listed[0].to_string().contains(marker), "{marker}");
+        }
     }
 
     #[test]
@@ -39230,7 +39274,11 @@ series: letters
         let token = issued["token"].as_str().unwrap().to_string();
         let secret = token.split_once('.').unwrap().1.to_string();
         assert!(token.starts_with(&id));
-        assert_eq!(issued["link"], format!("/admin/#/shared/accept/{token}"));
+        // Studio R14 G119: the link opens Studio's join page; the old form still works there.
+        assert_eq!(
+            issued["link"],
+            format!("/admin/studio/#/together/join/{token}")
+        );
         assert_eq!(issued["invitation"]["state"], "pending");
         // Neither the token nor its secret is on disk, and no content or email-like effect.
         assert!(tree_contains(&f.dir, &secret).is_empty());
@@ -44015,6 +44063,7 @@ series: letters
             users.users.push(crate::auth::UserRecord {
                 name: format!("acct{n:03}"),
                 hash: hash.clone(),
+                kind: None,
             });
             contributors.insert(
                 format!("key-{n:03}"),
