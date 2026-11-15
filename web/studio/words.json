@@ -25820,6 +25820,14 @@
       "max": 40,
       "vars": []
     },
+    "voice.keptByNewer": {
+      "text": "A newer version of {product} keeps its own writing on this phone, so this copy stays on this page only. Keep it open until it says Saved.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
     "voice.keptPhone": {
       "text": "Waiting for a signal. Your writing is kept on this phone.",
       "layer": "her",
@@ -25904,6 +25912,14 @@
       "layer": "her",
       "max": 240,
       "vars": []
+    },
+    "voice.lockFailedNewer": {
+      "text": "Your rough draft couldn't be saved just now. A newer version of {product} keeps its own writing on this phone, so keep this page open until you have a signal.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
     },
     "voice.lockFailedPhone": {
       "text": "Your rough draft couldn't be saved just now. Your latest words are kept on this phone; open this page again when you have a signal.",
