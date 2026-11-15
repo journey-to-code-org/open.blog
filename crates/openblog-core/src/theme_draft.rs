@@ -65,7 +65,12 @@ pub struct ThemeDraft {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DraftedTheme {
     pub theme: Value,
+    /// Each change in a sentence.
     pub notes: Vec<String>,
+    /// Each change as data, in the order of `notes`: `{ scheme, role, change, from, to, with?,
+    /// words }`. `role` is `text`, `muted`, `accent` or `surface`; `change` is `darker`, `lighter`
+    /// or `replaced`; `with` names what a replaced colour uses (`black`, `white`, `text`, `page`).
+    pub changes: Vec<Value>,
 }
 
 fn one_line(text: &str) -> bool {
@@ -198,9 +203,13 @@ impl ThemeDraft {
 
     /// The theme this draft makes, extending `extends`, with every text colour made readable.
     pub fn to_theme(&self, extends: &str) -> DraftedTheme {
-        let mut notes = Vec::new();
-        let light = readable_scheme(&self.light, "light", &mut notes);
-        let dark = readable_scheme(&self.dark, "dark", &mut notes);
+        let mut changes = Vec::new();
+        let light = readable_scheme(&self.light, "light", &mut changes);
+        let dark = readable_scheme(&self.dark, "dark", &mut changes);
+        let notes = changes
+            .iter()
+            .filter_map(|change| change["words"].as_str().map(str::to_string))
+            .collect();
         let mut theme = Map::new();
         theme.insert("label".into(), json!(self.label));
         theme.insert("extends".into(), json!(extends));
@@ -242,68 +251,155 @@ impl ThemeDraft {
         DraftedTheme {
             theme: Value::Object(theme),
             notes,
+            changes,
         }
     }
 }
 
-/// Every colour a scheme needs, from the six given, with text made readable.
-fn readable_scheme(given: &Palette, scheme: &str, notes: &mut Vec<String>) -> Map<String, Value> {
-    let backgrounds = [given.page, given.surface];
-    let mut say = |what: &str, shift: Shift| {
-        let way = match shift {
-            Shift::Darker => "darker",
-            Shift::Lighter => "lighter",
-            Shift::Unchanged => return,
-        };
-        notes.push(format!(
-            "In {scheme} mode, the {what} was made a little {way} so it is easy to read."
-        ));
+const BLACK: Rgb = Rgb(0, 0, 0);
+const WHITE: Rgb = Rgb(255, 255, 255);
+
+/// What a role is called in a sentence.
+fn role_words(role: &str) -> &'static str {
+    match role {
+        "text" => "writing",
+        "muted" => "quieter writing (dates and notes)",
+        "accent" => "main colour (links and buttons)",
+        _ => "boxes",
+    }
+}
+
+/// One change, as data and as a sentence.
+fn change(scheme: &str, role: &str, from: Rgb, to: Rgb, shift: Shift) -> Option<Value> {
+    let way = match shift {
+        Shift::Darker => "darker",
+        Shift::Lighter => "lighter",
+        Shift::Unchanged => return None,
     };
+    Some(json!({
+        "scheme": scheme, "role": role, "change": way, "from": from.hex(), "to": to.hex(),
+        "words": format!(
+            "In {scheme} mode, the {} was made a little {way} so it is easy to read.",
+            role_words(role)
+        ),
+    }))
+}
+
+/// A colour that could not be made readable and what it uses instead.
+fn replaced(scheme: &str, role: &str, from: Rgb, to: Rgb, with: &str) -> Value {
+    let instead = match with {
+        "text" => "the writing colour",
+        "page" => "the page colour",
+        other => other,
+    };
+    json!({
+        "scheme": scheme, "role": role, "change": "replaced", "from": from.hex(), "to": to.hex(),
+        "with": with,
+        "words": format!(
+            "In {scheme} mode, the {} could not be made easy to read, so it uses {instead} instead.",
+            role_words(role)
+        ),
+    })
+}
+
+/// Every colour a scheme needs, from the six given, with text made readable. Whatever the six
+/// are (an owner may pick any of them by hand), the result holds: writing at 7:1 where it can be
+/// and never under 4.5:1 on the page and on boxes, quiet writing and links at 4.5:1, the text on
+/// a button at 4.5:1. A colour that cannot get there is replaced, and each change is recorded.
+fn readable_scheme(given: &Palette, scheme: &str, changes: &mut Vec<Value>) -> Map<String, Value> {
+    let page = given.page;
+    // Boxes so unlike the page that nothing reads on both (black on a white page, say) take the
+    // page's colour: no writing colour could be easy to read on the two at once.
+    let reads_on_both = |surface: Rgb| {
+        [BLACK, WHITE]
+            .iter()
+            .any(|ink| contrast(*ink, page) >= TEXT && contrast(*ink, surface) >= TEXT)
+    };
+    let surface = if reads_on_both(given.surface) {
+        given.surface
+    } else {
+        changes.push(replaced(scheme, "surface", given.surface, page, "page"));
+        page
+    };
+    let backgrounds = [page, surface];
+    let lowest = |color: Rgb| contrast(color, page).min(contrast(color, surface));
     // Body text at 7:1 where it can be; never under 4.5:1.
     let text = match readable_on(given.text, &backgrounds, HIGH)
         .or_else(|| readable_on(given.text, &backgrounds, TEXT))
     {
         Some((color, shift)) => {
-            say("writing", shift);
+            changes.extend(change(scheme, "text", given.text, color, shift));
             color
         }
-        None => crate::look_contrast::text_on(given.page, given.text),
+        None => {
+            // Black or white, whichever reads better on both: one of them always reaches 4.5:1 here.
+            let (ink, name) = if lowest(BLACK) >= lowest(WHITE) {
+                (BLACK, "black")
+            } else {
+                (WHITE, "white")
+            };
+            changes.push(replaced(scheme, "text", given.text, ink, name));
+            ink
+        }
     };
     let muted = match readable_on(given.muted, &backgrounds, TEXT) {
         Some((color, shift)) => {
-            say("quieter writing (dates and notes)", shift);
+            changes.extend(change(scheme, "muted", given.muted, color, shift));
             color
         }
-        None => text,
+        None => {
+            changes.push(replaced(scheme, "muted", given.muted, text, "text"));
+            text
+        }
     };
     // Borders mark the edges of cards and fields: at least 1.5:1 so they are seen, and lines that
     // separate controls at 3:1 come from the accent's border below.
-    let border = if contrast(given.border, given.page) >= 1.5 {
+    let border = if contrast(given.border, page) >= 1.5 {
         given.border
     } else {
-        readable_on(given.border, &[given.page], 1.5).map_or(given.border, |(color, _)| color)
+        readable_on(given.border, &[page], 1.5).map_or(given.border, |(color, _)| color)
     };
-    let raised = given.surface.mix(given.page, 0.5).mix(border, 0.25);
+    // The raised surface carries writing too: it is used only when the writing stays readable on it.
+    let raised = Some(surface.mix(page, 0.5).mix(border, 0.25))
+        .filter(|raised| contrast(text, *raised) >= TEXT)
+        .unwrap_or(surface);
     let ground = Ground {
-        page: given.page,
-        surface: given.surface,
+        page,
+        surface,
         surface_raised: Some(raised),
         text,
         ink: text,
     };
     let accent = match derive_accent(given.accent, &ground, TEXT) {
         Some(set) => {
-            say("main colour (links and buttons)", set.shift);
+            changes.extend(change(
+                scheme,
+                "accent",
+                given.accent,
+                set.accent,
+                set.shift,
+            ));
             set
         }
-        None => derive_accent(text, &ground, TEXT).expect("text is readable on this ground"),
+        None => {
+            changes.push(replaced(scheme, "accent", given.accent, text, "text"));
+            // The writing colour reads on every one of these grounds, so this cannot fail; the
+            // plain set is there so a surprising colour is never a crash.
+            derive_accent(text, &ground, TEXT).unwrap_or(crate::look_contrast::AccentSet {
+                accent: text,
+                accent_border: text,
+                accent_contrast: page,
+                glow: page,
+                shift: Shift::Unchanged,
+            })
+        }
     };
-    let outer = given.page.mix(text, 0.04);
+    let outer = page.mix(text, 0.04);
     let mut out = Map::new();
     for (key, color) in [
-        ("page", given.page),
+        ("page", page),
         ("outer", outer),
-        ("surface", given.surface),
+        ("surface", surface),
         ("surfaceRaised", raised),
         ("text", text),
         ("muted", muted),
@@ -434,6 +530,104 @@ mod tests {
             "{notes}"
         );
         assert!(notes.contains("main colour"), "{notes}");
+    }
+
+    /// The promise made to an owner who picks colours by hand: whatever the six are, the theme
+    /// that is made reads. Pairs are shared with Studio's client check (`contrastRatio`).
+    #[test]
+    fn any_colours_an_owner_picks_come_out_readable_in_both_schemes() {
+        let picks = [
+            "#ffffff", "#000000", "#777777", "#fbf8f2", "#ff0000", "#00ff00", "#0000ff", "#ffff00",
+            "#f5f5dc", "#123456", "#808080", "#c0c0c0", "#1a1a1a", "#fefefe",
+        ];
+        let mut seed = 7u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            picks[(seed >> 16) as usize % picks.len()]
+        };
+        for round in 0..400 {
+            let mut draft = christmas();
+            for scheme in ["light", "dark"] {
+                for key in COLOR_KEYS {
+                    draft[scheme][key] = json!(next());
+                }
+            }
+            let made = ThemeDraft::from_json(&draft).unwrap().to_theme("base");
+            for scheme in ["light", "dark"] {
+                let c = |key: &str| color(&made.theme, scheme, key);
+                for ground in [c("page"), c("surface"), c("surfaceRaised")] {
+                    assert!(
+                        contrast(c("text"), ground) >= TEXT - 0.01,
+                        "{round} {scheme} text {draft}"
+                    );
+                }
+                for ground in [c("page"), c("surface")] {
+                    assert!(
+                        contrast(c("muted"), ground) >= TEXT - 0.01,
+                        "{round} {scheme} muted {draft}"
+                    );
+                    assert!(
+                        contrast(c("accent"), ground) >= TEXT - 0.01,
+                        "{round} {scheme} accent {draft}"
+                    );
+                }
+                assert!(
+                    contrast(c("accentContrast"), c("accent")) >= TEXT - 0.01,
+                    "{round} {scheme} button text {draft}"
+                );
+            }
+            assert_eq!(made.notes.len(), made.changes.len());
+        }
+    }
+
+    #[test]
+    fn a_colour_that_cannot_be_made_readable_is_replaced_and_said() {
+        // White writing on a cream page with white boxes; the page colour equal to the writing.
+        let mut same = christmas();
+        same["light"]["page"] = json!("#777777");
+        same["light"]["surface"] = json!("#777777");
+        same["light"]["text"] = json!("#777777");
+        same["light"]["muted"] = json!("#777777");
+        same["light"]["accent"] = json!("#777777");
+        let made = ThemeDraft::from_json(&same).unwrap().to_theme("base");
+        let kinds: Vec<(String, String)> = made
+            .changes
+            .iter()
+            .filter(|c| c["scheme"] == "light")
+            .map(|c| {
+                (
+                    c["role"].as_str().unwrap().into(),
+                    c["change"].as_str().unwrap().into(),
+                )
+            })
+            .collect();
+        assert!(kinds
+            .iter()
+            .all(|(_, change)| ["darker", "lighter", "replaced"].contains(&change.as_str())));
+        assert!(kinds.iter().any(|(role, _)| role == "text"), "{kinds:?}");
+        let page = color(&made.theme, "light", "page");
+        assert!(contrast(color(&made.theme, "light", "text"), page) >= TEXT - 0.01);
+
+        // Boxes nothing can read on together with the page take the page's colour, and it is said.
+        let mut split = christmas();
+        split["light"]["page"] = json!("#ffffff");
+        split["light"]["surface"] = json!("#7a7a7a");
+        let made = ThemeDraft::from_json(&split).unwrap().to_theme("base");
+        let note = made.changes.iter().find(|c| c["role"] == "surface");
+        if let Some(note) = note {
+            assert_eq!(
+                (note["change"].as_str(), note["with"].as_str()),
+                (Some("replaced"), Some("page"))
+            );
+            assert!(note["words"]
+                .as_str()
+                .unwrap()
+                .contains("uses the page colour instead"));
+        }
+        for change in &made.changes {
+            assert!(change["from"].as_str().unwrap().starts_with('#'));
+            assert!(change["to"].as_str().unwrap().starts_with('#'));
+        }
     }
 
     #[test]

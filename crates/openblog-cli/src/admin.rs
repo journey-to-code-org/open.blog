@@ -211,6 +211,8 @@ pub struct AppState {
     pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
+    /// Looks saved a moment ago that can still be undone (G68): in memory, ten minutes each.
+    theme_undos: Mutex<Vec<theme_draft::ThemeUndo>>,
     /// When each session last asked the provider to check its key (at most once per 10 s).
     assistant_checks: Mutex<BTreeMap<String, std::time::Instant>>,
     /// Last analytics backup to the branch, as a unix time.
@@ -295,6 +297,7 @@ impl AppState {
             host_resets_files: crate::workspace::host_resets_files(),
             studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
+            theme_undos: Mutex::new(Vec::new()),
             assistant_checks: Mutex::new(BTreeMap::new()),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
@@ -946,6 +949,9 @@ fn authenticated_api(
         }
         return social::route(req, &session.user, rest);
     }
+    if let (true, Some(theme)) = (req.method == "DELETE", theme_draft::undo_route(name)) {
+        return theme_draft::undo(state, req, theme, &session.csrf);
+    }
     if let Some(route) = voice::sample_route(name) {
         return match (req.method.as_str(), route) {
             ("GET", voice::SampleRoute::One(id)) => voice::get(state, req, id),
@@ -967,7 +973,7 @@ fn authenticated_api(
         ("GET", "theme-draft") => theme_draft::options(state),
         ("POST", "theme-draft") => theme_draft::draft(state, req),
         ("POST", "theme-draft/preview") => theme_draft::preview(state, req),
-        ("POST", "theme-draft/save") => theme_draft::save(state, req),
+        ("POST", "theme-draft/save") => theme_draft::save(state, req, &session.csrf),
         ("GET", "seasons") => seasons::get_seasons(state),
         ("PUT", "seasons") => seasons::save_seasons(state, req),
         ("POST", "seasons/preview") => seasons::preview_look(state, req),
