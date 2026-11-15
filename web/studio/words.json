@@ -3178,6 +3178,12 @@
         "box"
       ]
     },
+    "found.moreThanWords": {
+      "text": "Your helper suggested something with more than words in it, so it's shown here for you to type yourself.",
+      "layer": "her",
+      "max": 208,
+      "vars": []
+    },
     "found.near": {
       "text": "Near “{words}”",
       "layer": "her",

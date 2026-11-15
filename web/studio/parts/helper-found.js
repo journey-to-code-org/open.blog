@@ -4,7 +4,9 @@
 // and in the line under the box. Not this one moves it aside; nothing is sent.
 //
 // Everything a helper returned is untrusted: it is shown as text (textContent, clipped), never as
-// a link, a picture, a button or an instruction, and nothing happens without her press.
+// a link, a picture, a button or an instruction, and nothing happens without her press. One with
+// more than words in it (markup, a link, a list: helper-rules `moreThanWords`, or the server's
+// `applicable: false`) has no Use this and is skipped by Use all: she types it herself.
 import { fill, h, toast } from "./dom.js";
 import { say } from "./words.js";
 import { applyFinding, boxSpans, clip, findingInBoxes, findingPlace, shiftUsed, undoFinding } from "./helper-rules.js";
@@ -147,7 +149,10 @@ export function createFound({ write, closeAndShow, changed }) {
   function card(item, spans) {
     const { finding } = item;
     const place = findingPlace(finding.range, spans, finding.evidence);
-    const fits = item.state === "open" && check(item).ok;
+    const fit = item.state === "open" ? check(item) : { ok: false };
+    const fits = fit.ok;
+    // More than words (markup, a link, a list...): never put in for her, whatever her words are now.
+    const more = item.state === "open" && fit.why === "more";
     const suggestion = typeof finding.suggestion === "string" ? finding.suggestion : null;
     const from = clip(finding.evidence, 60).text;
     const buttons = [];
@@ -165,6 +170,7 @@ export function createFound({ write, closeAndShow, changed }) {
       clipped("p", finding.explanation, { class: "studio-found-why" }),
       suggestion !== null && item.state !== "used" ? clipped("p", suggestion ? say("found.try", { words: suggestion }) : say("found.tryNothing"), { class: "studio-found-try" }) : null,
       finding.verification === "supplied-context" ? h("p", { class: "studio-help", text: say("found.fromNotes") }) : null,
+      more ? h("p", { class: "studio-help studio-found-more", text: say("found.moreThanWords") }) : null,
       item.cant && item.state === "open" ? h("p", { class: "studio-help", text: say("found.cantUse") }) : null,
       item.cantUndo && item.state === "used" ? h("p", { class: "studio-help", text: say("found.cantUndo") }) : null,
       h("div", { class: "studio-found-actions" }, buttons),

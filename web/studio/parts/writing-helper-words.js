@@ -157,6 +157,7 @@ export const WORDS = {
   "found.used": { text: "Used", layer: "her" },
   "found.putBack": { text: "Put back as it was.", layer: "her" },
   "found.cantUse": { text: "Your words changed here, so this one can't be used. Show me to change it yourself.", layer: "her" },
+  "found.moreThanWords": { text: "Your helper suggested something with more than words in it, so it's shown here for you to type yourself.", layer: "her" },
   "found.cantUndo": { text: "Your words changed here since, so this one can't be put back for you.", layer: "her" },
   "found.useAll": { text: "Use all {count}", layer: "her" },
   "found.detail": { text: "Skill {skill} {version} · {category} · {severity} · {verification} · letters {start}–{end}", layer: "details", max: 240 },

@@ -236,7 +236,9 @@ test("Write it up for me says what goes and where, fills the title and four part
   const asked = [];
   await page.route(/\/admin\/api\/assistant\/job-draft$/, (route) => {
     asked.push(route.request().postDataJSON());
-    return route.fulfill({ json: { draft: { title: "New flashing on a chimney in Thomas", description: "A leak stopped in a day. <b>x</b>", sections: { problem: "Water came in by the chimney.", found: "The flashing had lifted.", did: "We put in new flashing.", result: "Dry since the storm." } } } });
+    // The first answer carries a link and markup: a write-up is words or it is not used (R8, B1).
+    if (asked.length === 1) return route.fulfill({ json: { draft: { title: "New flashing on a chimney in Thomas", description: "A leak stopped in a day. <b>x</b>", sections: { problem: "Water came in. [Click](https://evil.example/x)", found: "The flashing had lifted.", did: "We put in new flashing.", result: "Dry." } } } });
+    return route.fulfill({ json: { draft: { title: "New flashing on a chimney in Thomas", description: "A leak stopped in a day.", sections: { problem: "Water came in by the chimney.", found: "The flashing had lifted.", did: "We put in new flashing.", result: "Dry since the storm." } } } });
   });
   await openPost(page, "notes", `---\ntitle: Roof repair in Thomas\ndate: 2026-10-01\ndraft: true\nprofile: job\njob:\n  trade: roofing\n  service: roof-repair\n  place:\n    town: Thomas\n---\n## Problem\n\nchimney leak flashing lifted fixed it dry now\n\n## What we found\n\n## What we did\n\n## Result\n\n![Photo 1 from the job](/images/uploads/2026/after.png)\n`);
   await page.getByRole("button", { name: "More" }).click();
@@ -246,13 +248,20 @@ test("Write it up for me says what goes and where, fills the title and four part
   await expect(sheet).toContainText("Your photos and voice note don't go.");
   await expect(sheet).not.toContainText("claude-x");
   await sheet.getByRole("button", { name: "Write it up" }).click();
+  // Nothing of the first answer goes in: her title and her words are as they were, and it says so.
+  await expect(status(page)).toContainText("Your helper sent back something that didn't make sense, so nothing changed. Try again.");
+  await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("Roof repair in Thomas");
+  await expect(page.getByRole("textbox", { name: "Problem", exact: true })).toHaveValue("chimney leak flashing lifted fixed it dry now");
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Write it up for me" }).click();
+  await sheet.getByRole("button", { name: "Write it up" }).click();
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("New flashing on a chimney in Thomas");
   await expect(page.getByRole("textbox", { name: "What we found", exact: true })).toHaveValue("The flashing had lifted.");
   // The photo stays, as its card under the words (R6).
   await expect(page.getByRole("textbox", { name: "Result", exact: true })).toHaveValue("Dry since the storm.");
   await expect(page.getByRole("group", { name: "Photo: Photo 1 from the job" })).toBeVisible();
-  expect(asked).toHaveLength(1);
-  expect(asked[0]).toMatchObject({ notes: "chimney leak flashing lifted fixed it dry now", service: "Roof repair", town: "Thomas", contextIds: [] });
+  expect(asked).toHaveLength(2);
+  expect(asked[1]).toMatchObject({ notes: "chimney leak flashing lifted fixed it dry now", service: "Roof repair", town: "Thomas", contextIds: [] });
   await expect(status(page)).toContainText("Written up. Read it through, then save.");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("Roof repair in Thomas");

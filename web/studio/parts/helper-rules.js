@@ -552,9 +552,35 @@ export function applyAssistantSuggestion(markdown, finding = {}) {
   return { ok: true, markdown: updated, start, sourceEnd: start + evidence.length, end: start + suggestion.length };
 }
 
-/** A suggestion made plain before it enters her words: one kind of line break, no control characters. */
+/** One kind of line break and no control or direction characters: what any helper text is before it is looked at. */
 export function plainSuggestion(text) {
-  return String(text ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f​‪-‮⁦-⁩﻿]/g, "");
+  return String(text ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b\u202a-\u202e\u2066-\u2069\ufeff]/g, "");
+}
+
+// Anywhere: markup, code, a link or a picture however it is written, a note mark, an address.
+const MORE_ANYWHERE = /[<>`]|!\[|\]\(|\]\[|\]:|\[\^|\[\[|:\/\/|(^|[^\p{L}\p{N}])www\.|mailto:|javascript:|[\p{L}\p{N}_]@[\p{L}\p{N}_]/iu;
+// At the start of a line: a heading, a quote, a table, a list, a rule, a fence, a title's underline, code by indentation.
+const MORE_LINE = /^(?: {4}|\t| {0,3}(?:[#|=]|[-+*](?:[ \t]|$)|\d+[.)](?:[ \t]|$)|---|\+\+\+|~~~|(?:[-*_][ \t]*){3,}$))/;
+
+/**
+ * Whether text a helper returned is more than words: markup, a link or a picture, code, an address,
+ * or anything that would start a heading, a list, a quote, a table or code on any of its lines.
+ * Such text is never put into her words (a suggestion is advice only; suggested next words are
+ * dropped). The one definition for Studio; the server's is `more_than_words` in `assistant.rs`,
+ * and both are held to `tests/fixtures/helper-plain-words.json`.
+ */
+export function moreThanWords(text) {
+  const plain = plainSuggestion(text);
+  return MORE_ANYWHERE.test(plain) || plain.split("\n").some((line) => MORE_LINE.test(line));
+}
+
+/**
+ * Whether text carries markup, code, a link, a picture or an address anywhere in it (the first half
+ * of `moreThanWords`): for helper text that may have lines of its own (a list in a write-up) but
+ * must never bring a link, a picture or a tag into her post.
+ */
+export function carriesMarkup(text) {
+  return MORE_ANYWHERE.test(plainSuggestion(text));
 }
 
 /**
@@ -563,10 +589,13 @@ export function plainSuggestion(text) {
  * back into the post gives the old post with only that swap (checked byte for byte). `form` is
  * `{ body, boxes: [{ name, value }] }`; `used` the records of suggestions already used.
  * `{ ok, box, text (the box's new words), at, end (UTF-16 in the box), record }` or
- * `{ ok: false, why: "advice" | "moved" | "twice" | "across" | "card" | "overlap" | "same" }`.
+ * `{ ok: false, why: "advice" | "more" | "moved" | "twice" | "across" | "card" | "overlap" | "same" }`.
+ * "more" is a suggestion with more than words in it (`moreThanWords`), or one the server marked
+ * `applicable: false`: it is shown for her to type herself and never goes in.
  */
 export function applyFinding(form = {}, finding = {}, used = []) {
   if (!usableFinding(finding) || typeof finding.suggestion !== "string" || !finding.evidence) return { ok: false, why: "advice" };
+  if (finding.applicable === false || moreThanWords(finding.suggestion)) return { ok: false, why: "more" };
   const body = String(form.body ?? "");
   const suggestion = plainSuggestion(finding.suggestion);
   if (suggestion === finding.evidence) return { ok: false, why: "same" };
