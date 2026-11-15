@@ -6,8 +6,8 @@ footnotes, headings, and prose do not depend on a private citation format.
 
 ## Start a research post
 
-Choose **Research** under **Settings → Content profile** in the admin, or add the fields by
-hand:
+In Studio, choose **Research** as what kind of post in Write (About this post; Research home's
+**Start a research post** opens one), or add the fields by hand:
 
 ```markdown
 ---
@@ -67,8 +67,11 @@ an AI citation, or verification of the work.
 ## Evidence Studio and command-line checks
 
 Before a research post goes up, Studio lists its research checks in **Before you publish** (see
-[Acknowledging](research-checks.md#acknowledging) for **Mark as checked**). Open **Evidence** in
-the old admin or press `Alt+9`. The view uses the publishing engine's audit
+[Acknowledging](research-checks.md#acknowledging) for **Mark as checked**), with **What readers will
+see from this post**; claims and their evidence are in Write's **Claims and evidence**
+(`?sheet=claims`; the old `#/edit/<post>?pane=evidence` opens it), and the whole site's research is
+in **Research › What readers see**. The old admin's **Evidence** view (`Alt+9`) stays until it
+retires. It uses the publishing engine's audit
 of the current unsaved document and groups findings as Detected, Potential, or Needs review.
 It also shows the authored DOI (normalized to a resolver URL when valid), valid absolute
 license URL, and number of linked references. The
@@ -119,8 +122,8 @@ as it was, and a damaged or newer-version file is reported rather than replaced.
 [format and storage contract](specs/research-source-library.md) and
 [ADR 0010](adr/0010-private-source-library-storage.md).
 
-Admin Studio manages the library under **Sources** in the research workspace
-(`#/research/sources`, also in the command palette): create, edit, archive, restore, search,
+Studio manages the library under **Research › Sources** (`#/research/sources`, also in Find;
+the old admin's `#/sources` opens it): create, edit, archive, restore, search,
 and filter each source type. A stale edit shows a conflict and keeps your draft without
 overwriting newer data; see
 [ADR 0011](adr/0011-admin-source-library-management.md).
@@ -133,8 +136,10 @@ removes anything or discards richer details and is safe to repeat; see
 ## Citations, notes and bibliographies
 
 Any post (not only a research post) can cite library sources as `[@key]` or
-`[@key, page 514; canonical 514a]`, typed by hand or inserted with **Cite** in the Write view.
+`[@key, page 514; canonical 514a]`, typed by hand or inserted with **Add something › A citation** in Write.
 Citations are opt-in: they stay plain text until the post's front matter asks for them.
+Studio turns on numbered notes with a post's first citation; change it in About this post ›
+**Sources in this post**.
 
 ```markdown
 ---

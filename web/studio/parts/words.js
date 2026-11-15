@@ -41,7 +41,22 @@ import { WORDS as visitors } from "./visitor-words.js";
 import { WORDS as readerSetup } from "./reader-setup-words.js";
 import { WORDS as paths } from "./path-words.js";
 import { WORDS as readings } from "./readings-words.js";
+import { WORDS as research } from "./research-words.js";
+import { WORDS as cite } from "./cite-words.js";
+import { WORDS as atlas } from "./atlas-words.js";
+import { WORDS as compare } from "./compare-words.js";
+import { WORDS as claims } from "./claims-words.js";
+import { WORDS as publicWords } from "./public-words.js";
 import { HER_BANNED, bannedExcept } from "./plain-words.js";
+
+// Research's own vocabulary (R11 decision 2): a citation "key" and a claim's "context" are the
+// research author's words, allowed only in research's word sets.
+const RESEARCH_TERMS = { key: /\bkey\b/i, context: /\bcontext\b/i };
+const researchTerms = (words) => Object.fromEntries(Object.entries(words || {}).map(([id, entry]) => {
+  if (entry.layer !== "her") return [id, entry];
+  const extra = Object.entries(RESEARCH_TERMS).filter(([, re]) => re.test(entry.text)).map(([word]) => word);
+  return [id, extra.length ? { ...entry, allows: [...new Set([...(entry.allows || []), ...extra])] } : entry];
+}));
 
 /** The three variables and their built-in values. */
 export const DEFAULT_VARS = Object.freeze({ helper: "the person who set up your site", product: "your blog", owner: "" });
@@ -56,7 +71,7 @@ let merged = null;
 export function catalog() {
   if (merged) return merged;
   const out = {};
-  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, start, readers, readerSetup, visitors, paths, readings]) {
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, start, readers, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms)]) {
     for (const [id, entry] of Object.entries(words || {})) {
       if (id in out) throw new Error(`word id ${id} is defined twice`);
       out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });
