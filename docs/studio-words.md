@@ -618,6 +618,36 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `claims.whole` | her | About the whole post. | none | 42 |
 | `claims.why` | her | Why you read it this way | none | 48 |
 | `claims.words` | her | About the words: “{text}” | `{text}` | 50 |
+| `collection.badPlace` | her | Use a whole number of 0 or more, or leave it empty. | none | 102 |
+| `collection.clearsAgreement` | her | Changing it means everyone agrees again. | none | 80 |
+| `collection.lede` | her | Put it in a collection with other posts, at a place you choose. | none | 126 |
+| `collection.made` | her | Made. It shows on {product} once something in it is published. | `{product}` | 200 |
+| `collection.make` | her | Make a new collection | none | 42 |
+| `collection.makeName` | her | Its name | none | 40 |
+| `collection.makePremise` | her | What it's about, in one line | none | 56 |
+| `collection.needName` | her | Type the new collection's name, or choose one. | none | 92 |
+| `collection.new` | her | A new collection… | none | 40 |
+| `collection.newName` | her | Name of the new collection | none | 52 |
+| `collection.none` | her | Not in a collection | none | 40 |
+| `collection.orderNoNumber` | her | no number | none | 40 |
+| `collection.orderNumber` | her | number {n} | `{n}` | 40 |
+| `collection.orderPart` | her | {n}. {title} ({place}) | `{n}` `{title}` `{place}` | 44 |
+| `collection.orderThis` | her | {n}. This one (not on {product} yet, {place}) | `{n}` `{product}` `{place}` | 90 |
+| `collection.place` | her | Its place in the collection | none | 54 |
+| `collection.placeHelp` | her | A whole number, or leave it empty to go after the numbered ones, by date. | none | 200 |
+| `collection.placementAt` | her | {name}, number {n} | `{name}` `{n}` | 40 |
+| `collection.placementEnd` | her | {name}, after the numbered ones, by date | `{name}` | 80 |
+| `collection.placementNone` | her | Not in a collection. | none | 40 |
+| `collection.preview` | her | See the order | none | 40 |
+| `collection.published` | her | It's on {product}; change its collection from the post. | `{product}` | 110 |
+| `collection.readOnly` | her | Whoever runs it chooses the collection. | none | 78 |
+| `collection.removed` | her | Taken out of the collection. | none | 56 |
+| `collection.save` | her | Save the collection | none | 40 |
+| `collection.saved` | her | Saved. Everyone agrees again to where it goes. | none | 92 |
+| `collection.sheetTitle` | her | Collection for {title} | `{title}` | 44 |
+| `collection.title` | her | Collection | none | 40 |
+| `collection.untitledPart` | her | Untitled | none | 40 |
+| `collection.which` | her | Which collection | none | 40 |
 | `common.ask` | her | Ask {helper}. | `{helper}` | 40 |
 | `common.canChange` | her | {helper} can change that. | `{helper}` | 50 |
 | `common.canTurnOn` | her | {helper} can turn it on. | `{helper}` | 48 |
@@ -1541,13 +1571,161 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `job.noWordsHeard` | her | No words were heard in it. Type a few instead. | none | 92 |
 | `job.noteStillHere` | her | Your voice note is still here. | none | 60 |
 | `job.notesTooLong` | her | That's more words than it can take. Shorten them a little. | none | 116 |
+| `join.declined` | her | You said no thanks. They can invite you again. | none | 92 |
+| `join.invitedYou` | her | {name} invited you to write about: | `{name}` | 68 |
+| `join.joined` | her | You're in. Write your part when you're ready. | none | 90 |
+| `join.noSignal` | her | Joining needs a signal. Open the link again when you have one. | none | 124 |
+| `join.noThanks` | her | No thanks | none | 40 |
+| `join.noThanksAsk` | her | Say no thanks to this invitation? | none | 66 |
+| `join.noThanksBack` | her | Go back | none | 40 |
+| `join.noThanksGo` | her | No thanks | none | 40 |
+| `join.noThanksText` | her | The link stops working. Whoever sent it can invite you again. | none | 122 |
+| `join.notWorking` | her | This link doesn't work any more. Ask the person who sent it for a new one. | none | 200 |
+| `join.password` | her | Choose a password | none | 40 |
+| `join.passwordAgain` | her | Type it again | none | 40 |
+| `join.passwordHelp` | her | At least 12 letters, numbers or symbols. | none | 80 |
+| `join.passwordShort` | her | At least 12 characters. | none | 46 |
+| `join.passwordsDiffer` | her | The two passwords don't match. | none | 60 |
+| `join.reopen` | her | Open the link you were sent again. | none | 68 |
+| `join.sayYes` | her | Say yes | none | 40 |
+| `join.signIn` | her | Sign in | none | 40 |
+| `join.signInFirst` | her | Sign in as {name} to say yes. | `{name}` | 58 |
+| `join.signInNameIs` | her | Your sign-in name: {name} | `{name}` | 50 |
+| `join.signOut` | her | Sign out | none | 40 |
+| `join.someoneInvited` | her | You're invited to write about: | none | 60 |
+| `join.title` | her | Write together | none | 40 |
+| `join.tooMany` | her | Too many tries. Wait a few minutes, then open the link again. | none | 122 |
+| `join.wrongPerson` | her | This invitation is for {name}. Sign out, then open the link again. | `{name}` | 132 |
+| `join.youRead` | her | You'll read what everyone writes, as {name}. | `{name}` | 88 |
+| `join.youWrite` | her | You'll write a part, signed {name}. | `{name}` | 70 |
 | `kinds.collectionsAbout` | her | A collection gathers posts on one page, like all your posts on one topic. Put a post in one from the post itself. | none | 226 |
 | `kinds.collectionsEmpty` | her | A collection gathers posts on one page, like all your posts on one topic. | none | 146 |
 | `kinds.pagesAbout` | her | Pages stay put, like About or Contact. Posts come and go by date. | none | 130 |
+| `layout.addRound` | her | Add a round | none | 40 |
+| `layout.addTurn` | her | Add a turn | none | 40 |
+| `layout.alternatingDialogue` | her | Back and forth | none | 40 |
+| `layout.alternatingDialogueHelp` | her | Turns alternate like a conversation, each under its writer's name. | none | 132 |
+| `layout.badPart` | her | Round {n}: a part is a number from 1 up. | `{n}` | 80 |
+| `layout.choose` | her | Layout | none | 40 |
+| `layout.clearsAgreement` | her | Saving a new layout means everyone agrees again. | none | 96 |
+| `layout.emptyRound` | her | Round {n} has no turns. Add one or take the round out. | `{n}` | 108 |
+| `layout.labelLong` | her | Round {n}: a label is a few words at most. | `{n}` | 84 |
+| `layout.labelOneLine` | her | Round {n}: keep a label on one line. | `{n}` | 72 |
+| `layout.lede` | her | How everyone's parts sit on the page, and in what order. Changing it means everyone agrees again. | none | 200 |
+| `layout.moveDown` | her | Move down | none | 40 |
+| `layout.moveTurnDown` | her | Move {name}, part {part} down | `{name}` `{part}` | 58 |
+| `layout.moveTurnUp` | her | Move {name}, part {part} up | `{name}` `{part}` | 54 |
+| `layout.moveUp` | her | Move up | none | 40 |
+| `layout.noRounds` | her | Add a round. | none | 40 |
+| `layout.pointCounterpoint` | her | Two sides | none | 40 |
+| `layout.pointCounterpointHelp` | her | Two columns when two people write; with more, one column. Labels are yours; nothing says who agrees. | none | 200 |
+| `layout.promptOneLine` | her | Round {n}: keep what it asks on one line. | `{n}` | 82 |
+| `layout.readOnly` | her | Whoever runs it chooses the layout. | none | 70 |
+| `layout.removeRound` | her | Take this round out | none | 40 |
+| `layout.removeTurn` | her | Take this turn out | none | 40 |
+| `layout.round` | her | Round {n} | `{n}` | 40 |
+| `layout.roundPrompt` | her | What this round asks | none | 40 |
+| `layout.roundPromptHelp` | her | Optional, one line. | none | 40 |
+| `layout.roundtable` | her | Around a table | none | 40 |
+| `layout.roundtableHelp` | her | Turns sit in a grid that fits any number of people, read in the same order. | none | 200 |
+| `layout.save` | her | Save the layout | none | 40 |
+| `layout.saved` | her | Layout saved. Everyone agrees again to the new layout. | none | 200 |
+| `layout.sequential` | her | One after another | none | 40 |
+| `layout.sequentialHelp` | her | Each part follows the one before, in reading order. | none | 102 |
+| `layout.sheetTitle` | her | Layout of {title} | `{title}` | 40 |
+| `layout.sideBySide` | her | Side by side | none | 40 |
+| `layout.sideBySideHelp` | her | Parts sit in columns on a wide screen and one after another on a phone. | none | 200 |
+| `layout.title` | her | Layout | none | 40 |
+| `layout.turn` | her | {name}, part {part} | `{name}` `{part}` | 40 |
+| `layout.turnLabel` | her | Label | none | 40 |
+| `layout.turnLabelHelp` | her | Optional, a few words above the turn. | none | 74 |
+| `layout.turnPart` | her | Which part of theirs | none | 40 |
+| `layout.turnPerson` | her | Whose part | none | 40 |
+| `layout.twice` | her | Round {n}: each part of each person's words can appear only once. | `{n}` | 200 |
 | `look.designHeading` | her | Make a new look from your words | none | 62 |
 | `look.designOpen` | her | Describe a new look | none | 40 |
 | `look.designText` | her | Describe the colors and feeling you want. Your writing helper drafts a look you can see before you save it. | none | 214 |
 | `look.notAccepted` | her | Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell {helper}. | `{helper}` | 234 |
+| `moments.add` | her | Add a moment | none | 40 |
+| `moments.badTime` | her | Write the time as seconds or h:mm:ss, like 75 or 1:02:03. | none | 114 |
+| `moments.badWhere` | her | Write where it is without spaces around it, brackets or semicolons, in a few words. | none | 200 |
+| `moments.button` | her | Moments | none | 40 |
+| `moments.cantUse` | her | This moment no longer fits what started it. Change it or keep it private. | none | 146 |
+| `moments.cantWrite` | her | Only people who write a part add moments. | none | 82 |
+| `moments.change` | her | Change | none | 40 |
+| `moments.changeLabel` | her | Change the moment at {where} | `{where}` | 56 |
+| `moments.changedAfter` | her | Your moments changed after you shared this version, so those changes stay private until you share again. | none | 200 |
+| `moments.endBefore` | her | The end has to come after the start. | none | 72 |
+| `moments.fieldCreator` | her | who made it | none | 40 |
+| `moments.fieldPublisher` | her | who published it | none | 40 |
+| `moments.fieldTitle` | her | the name | none | 40 |
+| `moments.fillDone` | her | Filled in from {site}: {fields}. Check them; they're yours to change. | `{site}` `{fields}` | 200 |
+| `moments.fillFailed` | her | The details couldn't be found. Type them yourself; nothing is lost. | none | 134 |
+| `moments.fillIn` | her | Fill in from the link | none | 42 |
+| `moments.fillInHelp` | her | Asks the site the link is on for the title and who made it. Only empty boxes are filled. | none | 200 |
+| `moments.fillNothing` | her | {site} had nothing to add. | `{site}` | 52 |
+| `moments.fillPasteFirst` | her | Put the link in first. The details are optional. | none | 96 |
+| `moments.fillStale` | her | The link changed while asking, so nothing was filled in. | none | 112 |
+| `moments.fillUnsupported` | her | Details can only be found for some video and code sites. Type them yourself. | none | 200 |
+| `moments.from` | her | From | none | 40 |
+| `moments.kindCanonical` | her | A standard reference | none | 40 |
+| `moments.kindCanonicalHint` | her | Like Republic 514a. | none | 40 |
+| `moments.kindChapter` | her | A chapter | none | 40 |
+| `moments.kindChapterHint` | her | A chapter number or name. | none | 50 |
+| `moments.kindLine` | her | A line | none | 40 |
+| `moments.kindLineHint` | her | A line number. | none | 40 |
+| `moments.kindPage` | her | A page | none | 40 |
+| `moments.kindPageHint` | her | A page number, like 12 or xiv. | none | 60 |
+| `moments.kindSection` | her | A section | none | 40 |
+| `moments.kindSectionHint` | her | A section number or name. | none | 50 |
+| `moments.kindTime` | her | A time | none | 40 |
+| `moments.kindTimeHint` | her | Seconds or h:mm:ss, like 75 or 1:02:03. | none | 78 |
+| `moments.lede` | her | A moment is a place in what started it: a time in a video, a page of a book. Keep it private, or put it with your part for the others to read. | none | 240 |
+| `moments.line` | her | {source}, {where}. {who} | `{source}` `{where}` `{who}` | 240 |
+| `moments.needProvenance` | her | Say where the words came from. | none | 60 |
+| `moments.needRights` | her | Say what rights apply to the words. Choose “Not checked yet” if nobody has checked. | none | 200 |
+| `moments.needSomething` | her | Add the words said there, what you noticed, or both. | none | 104 |
+| `moments.needSource` | her | Choose what it's in. | none | 40 |
+| `moments.needWhere` | her | Say where it is. | none | 40 |
+| `moments.none` | her | No moments yet. | none | 40 |
+| `moments.notShared` | her | Your moments couldn't go with this version, so they stay private. Share again to send them. | none | 200 |
+| `moments.observation` | her | What you noticed (optional) | none | 54 |
+| `moments.openAt` | her | Open it at {at} | `{at}` | 40 |
+| `moments.openSource` | her | Open it (find the place yourself) | none | 66 |
+| `moments.private` | her | Only you can see it. | none | 40 |
+| `moments.proposed` | her | Goes with your part. | none | 40 |
+| `moments.provenance` | her | Where the words came from | none | 50 |
+| `moments.provenanceCopied` | her | Copied from its published words or captions | none | 86 |
+| `moments.provenanceSupplied` | her | From whoever said them or owns them | none | 70 |
+| `moments.provenanceTranscribed` | her | I wrote them down from it | none | 50 |
+| `moments.publish` | her | Put it with my part | none | 40 |
+| `moments.publishHelp` | her | The others read it with your part, and everyone agrees to it. Otherwise only you see it. | none | 200 |
+| `moments.quote` | her | The words said there (optional) | none | 62 |
+| `moments.remove` | her | Take it out | none | 40 |
+| `moments.removeLabel` | her | Take out the moment at {where} | `{where}` | 60 |
+| `moments.removed` | her | Taken out. | none | 40 |
+| `moments.rights` | her | Rights | none | 40 |
+| `moments.rightsBrief` | her | A short quotation for comment or review | none | 78 |
+| `moments.rightsNote` | her | A note about the rights (optional) | none | 68 |
+| `moments.rightsOpen` | her | It's under an open licence | none | 52 |
+| `moments.rightsOwn` | her | These are my own words | none | 44 |
+| `moments.rightsPermission` | her | Whoever owns it said yes | none | 48 |
+| `moments.rightsPublicDomain` | her | It's in the public domain | none | 50 |
+| `moments.rightsUnknown` | her | Not checked yet (keeps it private) | none | 68 |
+| `moments.save` | her | Save the moment | none | 40 |
+| `moments.saved` | her | Saved. | none | 40 |
+| `moments.savedProposed` | her | Saved. It goes with your part when you let the others read it, and everyone agrees to it. | none | 200 |
+| `moments.sheetTitle` | her | Moments in what started it | none | 52 |
+| `moments.source` | her | In what | none | 40 |
+| `moments.speaker` | her | Who said it | none | 40 |
+| `moments.statement` | her | What you choose here is your own statement; {product} doesn't check it. | `{product}` | 142 |
+| `moments.theirs` | her | Moments the others shared | none | 50 |
+| `moments.title` | her | Moments | none | 40 |
+| `moments.to` | her | To (optional) | none | 40 |
+| `moments.uncheckedPrivate` | her | Words whose rights aren't checked stay private. Choose the rights, or keep the moment to yourself. | none | 200 |
+| `moments.unlisted` | her | Something no longer listed | none | 52 |
+| `moments.whereKind` | her | Where in it | none | 40 |
+| `moments.yours` | her | Your moments | none | 40 |
 | `notebook.aboutMissing` | her | About a passage that's gone | none | 54 |
 | `notebook.aboutPassages` | her | About these passages | none | 40 |
 | `notebook.aboutSources` | her | About these sources | none | 40 |
@@ -1666,6 +1844,79 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `notify.nameHelp` | her | So you can tell them apart, like Work phone. | none | 88 |
 | `notify.nameMissing` | her | Give it a name, like Work phone. | none | 64 |
 | `notify.readersLink` | her | a reader sends you something | none | 56 |
+| `part.addIdea` | her | Add | none | 40 |
+| `part.addIdeaLabel` | her | Add “{idea}” to your words | `{idea}` | 52 |
+| `part.asWritten` | her | Show the words as written | none | 50 |
+| `part.asWrittenLabel` | her | Your words as written | none | 42 |
+| `part.breakLabel` | her | Part {n} | `{n}` | 40 |
+| `part.bringMineBack` | her | Bring mine back | none | 40 |
+| `part.cantShareNever` | her | Each part stays private here, so it can't be shared. Whoever runs it can change that. | none | 200 |
+| `part.cantWrite` | her | You read this one; you don't write a part. {helper} or whoever runs it can change that. | `{helper}` | 200 |
+| `part.changedSince` | her | Changed since you shared it · only you can read the changes. | none | 120 |
+| `part.conflict` | her | You changed your part somewhere else too. | none | 82 |
+| `part.conflictText` | her | Both are here. Nothing is lost until you choose. | none | 96 |
+| `part.decideLater` | her | Decide later | none | 40 |
+| `part.details` | details | Saved {n} times. Every save is kept as a version; when you share, the others read the version on screen. | `{n}` | 200 |
+| `part.full` | her | This part can't be saved any more times. Let the others read it, or tell {helper}. | `{helper}` | 200 |
+| `part.hideIdeas` | her | Hide ideas | none | 40 |
+| `part.idea1` | her | What stood out to you, and why? | none | 62 |
+| `part.idea2` | her | What did you agree or disagree with? | none | 72 |
+| `part.idea3` | her | What did it remind you of from your own life? | none | 90 |
+| `part.idea4` | her | What would you ask the others? | none | 60 |
+| `part.ideaAdded` | her | Added to your words. | none | 40 |
+| `part.ideas` | her | Ideas to start from | none | 40 |
+| `part.keepMine` | her | Keep mine | none | 40 |
+| `part.keptHere` | her | Kept on this computer. Press Save to keep it on {product}. | `{product}` | 116 |
+| `part.keptNewer` | her | Your part has changes kept on this computer from {when}. | `{when}` | 112 |
+| `part.leaveAsk` | her | Save your part before you go? | none | 58 |
+| `part.leaveGo` | her | Go without saving | none | 40 |
+| `part.leaveSave` | her | Save and go | none | 40 |
+| `part.leaveText` | her | Your latest words aren't saved yet. They stay kept on this computer either way. | none | 200 |
+| `part.moveDown` | her | Move down | none | 40 |
+| `part.moveDownLabel` | her | Move the start of part {n} down | `{n}` | 62 |
+| `part.moveUp` | her | Move up | none | 40 |
+| `part.moveUpLabel` | her | Move the start of part {n} up | `{n}` | 58 |
+| `part.moved` | her | Moved. | none | 40 |
+| `part.nearlyFull` | her | You can save this part {n} more times. Let the others read it, or tell {helper}. | `{n}` `{helper}` | 200 |
+| `part.needWords` | her | Write something first. | none | 44 |
+| `part.newPart` | her | Start a new part | none | 40 |
+| `part.newPartAdded` | her | A new part starts here. | none | 46 |
+| `part.newPartHelp` | her | Splits your words so whoever runs it can place each part in the layout. Readers never see the break. | none | 200 |
+| `part.newPartHere` | her | New part here | none | 40 |
+| `part.notYet` | her | Not yet after all | none | 40 |
+| `part.notYetDone` | her | Taken back. Nobody had read it. | none | 62 |
+| `part.nothingYet` | her | Nothing written yet · only you will read it until you share it. | none | 200 |
+| `part.onBlogNow` | her | On {product} now | `{product}` | 40 |
+| `part.onScreen` | her | On this screen | none | 40 |
+| `part.privateLede` | her | Each of you writes only your own part, so nobody's words are ever overwritten. | none | 200 |
+| `part.readThem` | her | Read them | none | 40 |
+| `part.reagreeWarn` | her | {names} agreed to your earlier words. They'll need to read and agree again. | `{names}` | 200 |
+| `part.save` | her | Save | none | 40 |
+| `part.saved` | her | Saved · only you can read it. | none | 58 |
+| `part.saving` | her | Saving… | none | 40 |
+| `part.share` | her | Let the others read it | none | 44 |
+| `part.shareAsk` | her | Let the others read your part as it is now? | none | 86 |
+| `part.shareAskText` | her | When everyone's ready, you'll all read each other's parts. Once someone has read it, it can't be taken back. Changes you make after this stay private until you share again. | none | 240 |
+| `part.shareAskVoluntary` | her | Anyone else who's ready reads it now. Once someone has read it, it can't be taken back. Changes you make after this stay private until you share again. | none | 240 |
+| `part.shareChanges` | her | Let them read your changes | none | 52 |
+| `part.shareGo` | her | Let them read it | none | 40 |
+| `part.shareNo` | her | Not yet | none | 40 |
+| `part.sharedNow` | her | Shared. You can read everyone's parts now. | none | 84 |
+| `part.sharedStatus` | her | Shared · the others read this version when everyone's ready. | none | 200 |
+| `part.sharedWaiting` | her | Ready. You'll all read each other's parts when everyone's ready. | none | 128 |
+| `part.showIdeas` | her | Show ideas | none | 40 |
+| `part.takeOut` | her | Take out | none | 40 |
+| `part.takeOutLabel` | her | Take out the start of part {n} | `{n}` | 60 |
+| `part.title` | her | Your part | none | 40 |
+| `part.tooLong` | her | Your part is too long to save in one go. Make it shorter or split it into two reflections. | none | 200 |
+| `part.tookOut` | her | Parts joined back together. | none | 54 |
+| `part.undo` | her | Undo | none | 40 |
+| `part.useKept` | her | Use them | none | 40 |
+| `part.useOther` | her | Use the other one | none | 40 |
+| `part.useSaved` | her | Use what's saved | none | 40 |
+| `part.waitingSignal` | her | Waiting for a signal · kept on this computer. | none | 90 |
+| `part.words` | her | Your words | none | 40 |
+| `part.wordsPart` | her | Your words, part {n} | `{n}` | 40 |
 | `paste.kept` | her | Pasted. Headings, bold and links kept. Fonts and colours left out. | none | 132 |
 | `paste.photoLeftMany` | her | {count} photos were left out because they have no description. Put them in with Put a photo in. | `{count}` | 190 |
 | `paste.photoLeftOne` | her | 1 photo was left out because it has no description. Put it in with Put a photo in. | none | 164 |
@@ -1866,6 +2117,94 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paths.writtenClose` | her | Close | none | 40 |
 | `paths.writtenHeading` | details | The path as written | none | 40 |
 | `paths.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
+| `people.alreadyIn` | her | {name} is already in this, or already invited. | `{name}` | 92 |
+| `people.bindingGone` | details | binding no longer current | none | 50 |
+| `people.changeAsk` | her | Change what {name} does? | `{name}` | 48 |
+| `people.changeGo` | her | Change it | none | 40 |
+| `people.changeKeep` | her | Keep it as it is | none | 40 |
+| `people.changeLabel` | her | Change what {name} does | `{name}` | 46 |
+| `people.changed` | her | {name} now: {what}. | `{name}` `{what}` | 40 |
+| `people.chooseName` | her | Choose their name. | none | 40 |
+| `people.close` | her | Done | none | 40 |
+| `people.coWriterOnly` | her | You can invite only people who already write together on {product}. | `{product}` | 134 |
+| `people.coWriterRemove` | details | Remove {name}'s sign-in | `{name}` | 46 |
+| `people.coWriterRemoveAsk` | details | Remove {name}'s sign-in? | `{name}` | 48 |
+| `people.coWriterRemoveGo` | details | Remove it | none | 40 |
+| `people.coWriterRemoveKeep` | details | Keep it | none | 40 |
+| `people.coWriterRemoveText` | details | They can't sign in any more and leave every reflection they're in. Their names stay on what they wrote. | none | 200 |
+| `people.coWriterRemoved` | details | Removed the sign-in {name}. | `{name}` | 54 |
+| `people.coWriterRow` | details | {name}: in {count} | `{name}` `{count}` | 40 |
+| `people.coWriterWaiting` | details | {name}: invited, hasn't chosen a password yet | `{name}` | 90 |
+| `people.coWriters` | details | Sign-ins for people writing with you | none | 72 |
+| `people.coWritersNone` | details | No one writing with you has a sign-in of their own yet. | none | 110 |
+| `people.copied` | her | Copied. | none | 40 |
+| `people.copyLink` | her | Copy the link | none | 40 |
+| `people.copyYourself` | her | Select the link and copy it. | none | 56 |
+| `people.daysBad` | details | From 1 to 30 days. | none | 40 |
+| `people.daysHelp` | details | 1 to 30. Usually 7. | none | 40 |
+| `people.daysLabel` | details | Days the link works | none | 40 |
+| `people.details` | details | Days the link works: {days}. Sign-in names and what each person can do, as stored, are below. | `{days}` | 200 |
+| `people.existingName` | her | Their sign-in name | none | 40 |
+| `people.existingNameHelp` | her | The name they sign in with. | none | 54 |
+| `people.hasSignIn` | her | They already sign in to {product} | `{product}` | 66 |
+| `people.howSignIn` | her | How they sign in | none | 40 |
+| `people.invitations` | her | Invitations | none | 40 |
+| `people.inviteSomeone` | her | Invite someone | none | 40 |
+| `people.inviteStateAccepted` | her | {name} said yes. | `{name}` | 40 |
+| `people.inviteStateDeclined` | her | {name} said no thanks. | `{name}` | 44 |
+| `people.inviteStateExpired` | her | {name}'s link ran out. Make a new one to invite them again. | `{name}` | 118 |
+| `people.inviteStatePending` | her | Waiting for {name} to say yes, until {when}. | `{name}` `{when}` | 88 |
+| `people.inviteStateRevoked` | her | Withdrawn. The link doesn't work any more. | none | 84 |
+| `people.invited` | her | Invitation made. | none | 40 |
+| `people.keepsWords` | her | What they wrote stays theirs. | none | 58 |
+| `people.linkMade` | her | Send this link to {name} yourself. It works once, until {when}. {product} doesn't email it. | `{name}` `{when}` `{product}` | 240 |
+| `people.loseCharge` | her | {name} won't be in charge of it any more. | `{name}` | 82 |
+| `people.loseRun` | her | {name} won't be able to invite people or choose the layout. | `{name}` | 200 |
+| `people.loseWrite` | her | {name} won't write a part any more. | `{name}` | 70 |
+| `people.makeLink` | her | Make the invitation link | none | 48 |
+| `people.nameTaken` | her | Someone already signs in with that name. Add a letter or number. | none | 128 |
+| `people.needSignInName` | her | Type the name they sign in with. | none | 64 |
+| `people.newLink` | her | Make a new link | none | 40 |
+| `people.newLinkLabel` | her | Make a new link for {name} | `{name}` | 52 |
+| `people.newLinkMade` | her | New link made. The old one doesn't work any more. | none | 98 |
+| `people.newSignIn` | her | They're new: make them a sign-in | none | 64 |
+| `people.newSignInHelp` | her | They choose their own password from the link. | none | 90 |
+| `people.noInvitations` | her | No invitations yet. | none | 40 |
+| `people.onlyNow` | her | You won't see this link again. If it's lost, make a new one. | none | 120 |
+| `people.ownerOnly` | her | Only someone in charge can do that. | none | 70 |
+| `people.readOnlyHelp` | her | Whoever runs it can invite people and change what they do. | none | 116 |
+| `people.roleEditor` | her | Edits | none | 40 |
+| `people.roleHelp` | her | Helping run it means inviting people and choosing the layout. Only someone with a sign-in to everything on {product} can publish it. | `{product}` | 240 |
+| `people.roleInCharge` | her | In charge | none | 40 |
+| `people.roleOther` | her | Something else | none | 40 |
+| `people.roleReads` | her | Only reads | none | 40 |
+| `people.roleRuns` | her | Helps run it | none | 40 |
+| `people.roleWrites` | her | Writes a part | none | 40 |
+| `people.roleWritesRuns` | her | Writes a part and helps run it | none | 60 |
+| `people.sendLink` | her | Send it… | none | 40 |
+| `people.sheetTitle` | her | People in {title} | `{title}` | 40 |
+| `people.signInGone` | her | {name}'s sign-in or name on {product} was removed, so they can't open this. Invite them again. | `{name}` `{product}` | 240 |
+| `people.signInName` | her | Sign-in name | none | 40 |
+| `people.signInNameBad` | her | Use lowercase letters, numbers, dots or dashes, up to 32. | none | 114 |
+| `people.signInNameHelp` | her | Lowercase letters and numbers. They'll use it to sign in. | none | 114 |
+| `people.someoneNew` | her | Add someone to People | none | 42 |
+| `people.stopAccess` | her | Stop their access… | none | 40 |
+| `people.stopAsk` | her | Stop {name}'s access to {title}? | `{name}` `{title}` | 64 |
+| `people.stopGo` | her | Stop their access | none | 40 |
+| `people.stopKeep` | her | Keep them | none | 40 |
+| `people.stopText` | her | They won't be able to open it, and any link they have stops working. Their name stays on what they wrote. You can invite them again. | none | 240 |
+| `people.stopTextNothing` | her | They won't be able to open it, and any link they have stops working. They haven't written or agreed to anything here. You can invite them again. | none | 240 |
+| `people.stopped` | her | {name} can't open it any more. Invite them again to bring them back. | `{name}` | 200 |
+| `people.theLink` | her | The invitation link | none | 40 |
+| `people.theirName` | her | Their name | none | 40 |
+| `people.theirNameHelp` | her | From People. Someone who isn't there yet can be added first. | none | 120 |
+| `people.whatTheyDo` | her | What they do | none | 40 |
+| `people.withdraw` | her | Withdraw | none | 40 |
+| `people.withdrawAsk` | her | Withdraw {name}'s invitation? | `{name}` | 58 |
+| `people.withdrawKeep` | her | Keep it | none | 40 |
+| `people.withdrawLabel` | her | Withdraw {name}'s invitation | `{name}` | 56 |
+| `people.withdrawText` | her | The link stops working. | none | 46 |
+| `people.withdrawn` | her | Withdrawn. The link doesn't work any more. | none | 84 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
 | `place.atRow` | her | Place {n} | `{n}` | 40 |
 | `place.canonical` | her | canonical place | none | 40 |
@@ -1971,6 +2310,36 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `public.whyWordsMoved` | her | The words it's about have changed. | none | 68 |
 | `quotation.changeHelp` | her | The quoted words stay exactly as you kept them. Change them in your notebook. | none | 154 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
+| `read.agree` | her | Agree to publish this | none | 42 |
+| `read.agreeAsk` | her | Agree to publish exactly what you just read? | none | 88 |
+| `read.agreeAskText` | her | If anyone changes their words, you'll be asked again. | none | 106 |
+| `read.agreeGo` | her | Agree | none | 40 |
+| `read.agreeLabel` | her | Agree to publish {title} | `{title}` | 48 |
+| `read.agreeNo` | her | Not yet | none | 40 |
+| `read.agreeStale` | her | Someone changed their part since you agreed. Read it again, then agree. | none | 200 |
+| `read.agreeUndone` | her | Your agreement is taken back. | none | 58 |
+| `read.agreed` | her | Agreed. | none | 40 |
+| `read.allAgreed` | her | Everyone has agreed to exactly this. | none | 72 |
+| `read.alreadyAgreed` | her | You agreed to exactly this. | none | 54 |
+| `read.changedSinceRead` | her | It changed after you read it. Open See it as readers will again, then agree. | none | 200 |
+| `read.empty` | her | Nothing written yet. | none | 40 |
+| `read.incomplete` | her | Not everyone's part can be read yet. | none | 72 |
+| `read.lede` | her | Each part is shown just as its writer wrote it. | none | 94 |
+| `read.lineAgreed` | her | {name} agreed | `{name}` | 40 |
+| `read.lineEarlier` | her | {name} agreed to an earlier version | `{name}` | 70 |
+| `read.lineNotNeeded` | her | {name}: their agreement isn't needed | `{name}` | 72 |
+| `read.linePrivate` | her | {name}'s part isn't shared with you yet | `{name}` | 78 |
+| `read.lineWaiting` | her | {name} hasn't agreed yet | `{name}` | 48 |
+| `read.missing` | her | Not ready: {names} still need to agree. | `{names}` | 78 |
+| `read.notAllShared` | her | You can agree once everyone's part can be read. | none | 94 |
+| `read.notShared` | her | Kept private until {name} is ready. | `{name}` | 70 |
+| `read.notSharedYou` | her | Only you can read this until everyone's ready. | none | 92 |
+| `read.previewNote` | her | As readers will see it. Not published. | none | 76 |
+| `read.previewTitle` | her | {title}, as readers will see it. Not published. | `{title}` | 94 |
+| `read.readFirst` | her | Open See it as readers will first, then agree. | none | 92 |
+| `read.seeAsReaders` | her | See it as readers will | none | 44 |
+| `read.title` | her | Everyone's parts | none | 40 |
+| `read.yourPart` | her | Your part | none | 40 |
 | `readers.ackNo` | her | Not now | none | 40 |
 | `readers.ackOpen` | her | Open the post | none | 40 |
 | `readers.ackText` | her | They wrote about words that have changed since. Read your post as it is now before you show this. | none | 194 |
@@ -2862,6 +3231,47 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.waitsPrivate` | her | Your route file waits, private, until your post is on your site. | none | 128 |
 | `route.waitsSignal` | her | Waiting for a signal to send your route file. The numbers and drawing are in. It sends while this page is open. | none | 222 |
 | `route.whatReadersSee` | her | What readers see | none | 40 |
+| `rules.allAuthors` | her | Everyone writing | none | 40 |
+| `rules.allAuthorsHelp` | her | Everyone who writes a part agrees, whether or not they've written yet. | none | 200 |
+| `rules.askChange` | her | Change whose agreement counts? | none | 60 |
+| `rules.askChangeText` | her | Everyone who agreed will need to agree again. Nothing is shared or published by the change. | none | 200 |
+| `rules.askGo` | her | Change it | none | 40 |
+| `rules.askKeep` | her | Keep it | none | 40 |
+| `rules.authorsWithRoles` | her | Everyone who wrote, and whoever does a job you choose | none | 120 |
+| `rules.authorsWithRolesHelp` | her | Everyone doing what you choose below agrees too. | none | 96 |
+| `rules.cantMeet` | her | It can't be met as things stand: {names} can't agree any more. | `{names}` | 200 |
+| `rules.cantMeetRole` | her | It can't be met as things stand: nobody in it does a job it names. | none | 200 |
+| `rules.choosePeople` | her | Who else agrees | none | 40 |
+| `rules.chooseRoles` | her | Which jobs agree | none | 40 |
+| `rules.contributingAuthors` | her | Everyone who wrote | none | 40 |
+| `rules.contributingAuthorsHelp` | her | Only people who wrote something, or are named on something you say together, agree. | none | 200 |
+| `rules.details` | details | The rule as stored: {rule} | `{rule}` | 240 |
+| `rules.fixNamed` | her | Whoever is in charge can take them off the rule, or bring them back. | none | 136 |
+| `rules.fixRole` | her | Whoever runs it can change the rule, or give someone that job. | none | 124 |
+| `rules.left` | her | {name} (isn't in it any more) | `{name}` | 58 |
+| `rules.namedAuthors` | her | Everyone who wrote, and people you choose | none | 82 |
+| `rules.namedAuthorsHelp` | her | The people you choose below agree too, even if they later leave. | none | 200 |
+| `rules.needPeople` | her | Choose at least one person who agrees. | none | 76 |
+| `rules.needRoles` | her | Choose at least one job whose people agree. | none | 86 |
+| `rules.never` | details | Never: each part stays private | none | 60 |
+| `rules.neverHelp` | details | Nothing can be published together while this is chosen. | none | 110 |
+| `rules.ownParts` | her | Their own part | none | 40 |
+| `rules.ownPartsHelp` | her | Each person agrees to their own part and how it's all put together. | none | 134 |
+| `rules.ownerOnlyDrop` | her | Only whoever is in charge can stop someone from having to agree. Nothing changed. | none | 200 |
+| `rules.published` | her | It's on {product}, so its rules stay as they were. | `{product}` | 100 |
+| `rules.readOnly` | her | Whoever runs it chooses the rules. | none | 68 |
+| `rules.roleInCharge` | her | In charge | none | 40 |
+| `rules.roleRuns` | her | Helps run it | none | 40 |
+| `rules.roleWrites` | her | Writes a part | none | 40 |
+| `rules.save` | her | Save the rules | none | 40 |
+| `rules.saved` | her | Rules saved. Agreements given before need giving again. | none | 110 |
+| `rules.scope` | her | What each agreement covers | none | 52 |
+| `rules.sharingTitle` | her | When you read each other's parts | none | 64 |
+| `rules.sheetTitle` | her | Rules for {title} | `{title}` | 40 |
+| `rules.title` | her | Rules | none | 40 |
+| `rules.whole` | her | The whole thing | none | 40 |
+| `rules.wholeHelp` | her | Each person agrees to everyone's parts, so any change asks everyone again. | none | 148 |
+| `rules.whoseAgreement` | her | Whose agreement counts | none | 44 |
 | `share.tellOrSkip` | her | Tell {helper}, or choose Don't share it. | `{helper}` | 80 |
 | `social.canTurnOn` | her | {helper} can turn it on. Your site works the same without it. | `{helper}` | 122 |
 | `social.facebookNoPage` | her | Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask {helper} to add you to its Facebook app. | `{helper}` | 240 |
@@ -3214,6 +3624,50 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `suggest.waiting` | her | Suggestions as you type: waiting for a signal | none | 90 |
 | `suggest.what` | her | While this is on, each time you stop typing your post goes to {company}, which suggests the next few words. Nothing goes in unless you choose it. | `{company}` | 240 |
 | `suggest.whatNotes` | her | Your notes go with it: {list}. | `{list}` | 60 |
+| `talk.add` | her | Say something together | none | 44 |
+| `talk.added` | her | Added. Everyone it speaks for agrees to it. | none | 86 |
+| `talk.agree` | her | Agree to this | none | 40 |
+| `talk.agreeLabel` | her | Agree to “{words}” | `{words}` | 40 |
+| `talk.agreed` | her | Agreed. | none | 40 |
+| `talk.cancel` | her | Cancel | none | 40 |
+| `talk.cantWrite` | her | Only people who write a part say things together here. | none | 108 |
+| `talk.clearsAgreement` | her | Anything added or changed here asks the people it speaks for to agree again. | none | 200 |
+| `talk.edit` | her | Change the words | none | 40 |
+| `talk.editSave` | her | Save the change | none | 40 |
+| `talk.edited` | her | Changed. Everyone it speaks for agrees again. | none | 90 |
+| `talk.empty` | her | Nothing said together yet. It's optional. | none | 82 |
+| `talk.find` | her | What we say together: {title} | `{title}` | 58 |
+| `talk.hideIdeas` | her | Hide the questions | none | 40 |
+| `talk.itemLine` | her | {kind}, for {speaking}. Agreed by {agreed}. Waiting for {waiting}. | `{kind}` `{speaking}` `{agreed}` `{waiting}` | 240 |
+| `talk.kindAgreement` | her | Agreement | none | 40 |
+| `talk.kindApplication` | her | Something to try | none | 40 |
+| `talk.kindDifference` | her | Difference | none | 40 |
+| `talk.kindOther` | her | Something said | none | 40 |
+| `talk.kindQuestion` | her | Question | none | 40 |
+| `talk.kindUncertainty` | her | Not sure | none | 40 |
+| `talk.lede` | her | After everyone's parts, what you say together: where you agree, where you differ, what you still wonder. Each one speaks for the people named on it, and each of them agrees to it. | none | 240 |
+| `talk.moveDown` | her | Move down | none | 40 |
+| `talk.moveUp` | her | Move up | none | 40 |
+| `talk.moved` | her | Moved. | none | 40 |
+| `talk.needWords` | her | Write what you say together. | none | 56 |
+| `talk.noOne` | her | no one | none | 40 |
+| `talk.noOneYet` | her | no one yet | none | 40 |
+| `talk.promptAgreement` | her | Where did we land in the same place? | none | 72 |
+| `talk.promptApplication` | her | What could a reader try or do with this? | none | 80 |
+| `talk.promptDifference` | her | Where do we see it differently, and why? | none | 80 |
+| `talk.promptQuestion` | her | What are we still wondering about? | none | 68 |
+| `talk.promptUncertainty` | her | What are we not sure about? | none | 54 |
+| `talk.save` | her | Add it | none | 40 |
+| `talk.showIdeas` | her | Show the questions | none | 40 |
+| `talk.speaksFor` | her | Who it speaks for, besides you | none | 60 |
+| `talk.takeMyName` | her | Take my name off | none | 40 |
+| `talk.title` | her | What we say together | none | 40 |
+| `talk.tookMyName` | her | Your name is off it. | none | 40 |
+| `talk.useIdea` | her | Use this question | none | 40 |
+| `talk.what` | her | What kind | none | 40 |
+| `talk.words` | her | The words | none | 40 |
+| `talk.wordsHelp` | her | Any length. Plain words; it's shown as you write it. | none | 104 |
+| `talk.youAgreed` | her | You agreed to this. | none | 40 |
 | `thing.abstract` | her | Abstract | none | 40 |
 | `thing.button` | her | Button | none | 40 |
 | `thing.caution` | her | Caution | none | 40 |
@@ -3243,6 +3697,192 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `thing.tip` | her | Tip | none | 40 |
 | `thing.video` | her | Video | none | 40 |
 | `thing.watchOut` | her | Watch out | none | 40 |
+| `together.accessChanged` | her | Your access to this changed. | none | 56 |
+| `together.addAnother` | her | Add another | none | 40 |
+| `together.addMyName` | her | Your name isn't in People yet. | none | 60 |
+| `together.addMyNameButton` | her | Add my name | none | 40 |
+| `together.alreadyPublished` | her | It's already on {product}. Nothing changed. | `{product}` | 86 |
+| `together.and` | her | and | none | 40 |
+| `together.backTo` | her | ‹ {title} | `{title}` | 40 |
+| `together.backToList` | her | Writing together | none | 40 |
+| `together.badIsbn` | her | An ISBN has 10 or 13 digits. | none | 56 |
+| `together.badLink` | her | A full web address, starting with https://. | none | 86 |
+| `together.broughtBack` | her | It's back. | none | 40 |
+| `together.cancel` | her | Cancel | none | 40 |
+| `together.cantBuild` | her | {product} couldn't put it together as it stands. Nothing changed. | `{product}` | 200 |
+| `together.cardName` | her | {title}: {badge}. {step} | `{title}` `{badge}` `{step}` | 48 |
+| `together.changedElsewhere` | her | {what} was changed by someone else. Here it is now; choose again. | `{what}` | 200 |
+| `together.copiedWords` | her | Your words are copied. | none | 44 |
+| `together.copyMyWords` | her | Copy my words | none | 40 |
+| `together.detailFile` | details | File | none | 40 |
+| `together.detailId` | details | Id | none | 40 |
+| `together.detailRoles` | details | Roles as stored | none | 40 |
+| `together.detailSharing` | details | Sharing as stored | none | 40 |
+| `together.detailState` | details | State | none | 40 |
+| `together.detailsLine` | details | {id}: {state}; roles {roles}; sharing {policy}; {n} invitations waiting; {file} | `{id}` `{state}` `{roles}` `{policy}` `{n}` `{file}` | 240 |
+| `together.doBringBack` | her | Bring it back | none | 40 |
+| `together.doChange` | her | Change | none | 40 |
+| `together.doInvite` | her | Invite someone | none | 40 |
+| `together.doOpen` | her | Open it | none | 40 |
+| `together.doPublish` | her | Publish | none | 40 |
+| `together.doRead` | her | Read everyone's parts | none | 42 |
+| `together.doShare` | her | Let the others read it | none | 44 |
+| `together.doUnschedule` | her | Don't publish it then | none | 42 |
+| `together.doWrite` | her | Write your part | none | 40 |
+| `together.empty` | her | Start from something you watched, read or heard, and invite people to answer the same question. | none | 200 |
+| `together.emptyGuest` | her | You're not writing anything with others right now. If someone sends you a link, open it to join. | none | 200 |
+| `together.emptyPublished` | her | Nothing written together is on {product} yet. | `{product}` | 90 |
+| `together.emptyPutAway` | her | Nothing is put away. | none | 40 |
+| `together.emptyTitle` | her | Nothing written together yet | none | 56 |
+| `together.everyone` | her | Everyone | none | 40 |
+| `together.failed` | her | That didn't work, and nothing changed. | none | 76 |
+| `together.findDetails` | details | Details of writing together | none | 54 |
+| `together.findInvite` | her | Invite someone to {title} | `{title}` | 50 |
+| `together.findPart` | her | Your part: {title} | `{title}` | 40 |
+| `together.findPeople` | her | People in {title} | `{title}` | 40 |
+| `together.findRead` | her | Everyone's parts: {title} | `{title}` | 50 |
+| `together.footer` | her | Nothing goes on {product} until everyone agrees. | `{product}` | 96 |
+| `together.gone` | her | You're not part of this any more. | none | 66 |
+| `together.home` | her | Home | none | 40 |
+| `together.invitedCount` | her | {n} invitations waiting for an answer. | `{n}` | 76 |
+| `together.invitedRow` | her | Waiting for {name} to say yes, until {when}. | `{name}` `{when}` | 88 |
+| `together.isbn` | her | ISBN | none | 40 |
+| `together.isbnHelp` | her | 10 or 13 digits; dashes are fine. | none | 66 |
+| `together.kindArticle` | her | An article | none | 40 |
+| `together.kindBook` | her | A book | none | 40 |
+| `together.kindExampleArticle` | her | Like an essay in a magazine | none | 54 |
+| `together.kindExampleBook` | her | Like a novel you all read | none | 50 |
+| `together.kindExampleOther` | her | Like a conversation or a walk | none | 58 |
+| `together.kindExamplePodcast` | her | Like one episode | none | 40 |
+| `together.kindExampleVideo` | her | Like a talk you watched | none | 46 |
+| `together.kindOther` | her | Something else | none | 40 |
+| `together.kindPodcast` | her | A podcast | none | 40 |
+| `together.kindVideo` | her | A video | none | 40 |
+| `together.layoutOld` | her | The layout names a part someone took out. Whoever runs it needs to fix the layout. | none | 200 |
+| `together.leaveAsk` | her | Leave without starting it? | none | 52 |
+| `together.leaveGo` | her | Leave | none | 40 |
+| `together.leaveStay` | her | Stay | none | 40 |
+| `together.leaveText` | her | What you typed here isn't kept. | none | 62 |
+| `together.lede` | her | Write with other people, each in your own words, about something you all watched, read or heard. Nothing goes on {product} until everyone agrees. | `{product}` | 240 |
+| `together.listFailed` | her | Writing together didn't open. Check your connection and try again. | none | 132 |
+| `together.madeBy` | her | Made by | none | 40 |
+| `together.more` | her | More | none | 40 |
+| `together.moreAbout` | her | More about it | none | 40 |
+| `together.name` | her | A name for it | none | 40 |
+| `together.nameHelp` | her | You need a question, a name, or both. | none | 74 |
+| `together.nav` | her | Writing together | none | 40 |
+| `together.needQuestion` | her | Write the question you each answer, or a name for it. | none | 106 |
+| `together.needSource` | her | Say what started it. | none | 40 |
+| `together.needSourceTitle` | her | Give it a name, like the title of the video. | none | 88 |
+| `together.needYourName` | her | Choose your name. | none | 40 |
+| `together.needsSignal` | her | That needs a signal. Nothing changed. | none | 74 |
+| `together.newTitle` | her | Start writing together | none | 44 |
+| `together.noSignalList` | her | Writing together needs a signal. Your part is kept on this computer if you were writing it. | none | 200 |
+| `together.notAgreed` | her | {names} still need to agree. | `{names}` | 56 |
+| `together.openSource` | her | Open it | none | 40 |
+| `together.openSourceLabel` | her | Open {title} in a new tab | `{title}` | 50 |
+| `together.ownerOnly` | her | Only someone in charge can do that. | none | 70 |
+| `together.peopleButton` | her | People and invitations | none | 44 |
+| `together.peopleList` | her | {names} | `{names}` | 40 |
+| `together.personRow` | her | {name}: {where} | `{name}` `{where}` | 40 |
+| `together.placeTaken` | her | Something else is already where this would go on {product}. Nothing changed. | `{product}` | 200 |
+| `together.policyAllReady` | her | When everyone's ready | none | 42 |
+| `together.policyAllReadyHelp` | her | Nobody reads anyone's part until everyone has said they're ready. | none | 130 |
+| `together.policyVoluntary` | her | Each person, when they're ready | none | 62 |
+| `together.policyVoluntaryHelp` | her | Anyone who's ready reads the others who are ready too. | none | 108 |
+| `together.publishAsk` | her | Put “{title}” on {product} now? | `{title}` `{product}` | 62 |
+| `together.publishAskText` | her | Everyone agreed to exactly this. It will be signed by {names}. | `{names}` | 240 |
+| `together.publishGo` | her | Publish | none | 40 |
+| `together.publishNo` | her | Not yet | none | 40 |
+| `together.publishOnDay` | her | Publish on a day | none | 40 |
+| `together.published` | her | It's on {product}. | `{product}` | 40 |
+| `together.publisher` | her | Published by | none | 40 |
+| `together.putAway` | her | Put away. Nothing was thrown away. | none | 68 |
+| `together.putAwayItem` | her | Put it away | none | 40 |
+| `together.question` | her | The question you each answer | none | 56 |
+| `together.questionHelp` | her | One question everyone answers in their own words. | none | 98 |
+| `together.reservedHeading` | her | Someone used a heading {product} keeps for itself. Ask them to change it. | `{product}` | 200 |
+| `together.ruleChangeAsk` | her | Change when you read each other's parts? | none | 80 |
+| `together.ruleChangeGo` | her | Change it | none | 40 |
+| `together.ruleChangeKeep` | her | Keep it | none | 40 |
+| `together.ruleChangeText` | her | Anyone who said they're ready will need to say so again. Nothing is shared by the change. | none | 200 |
+| `together.ruleChanged` | her | Changed. Anyone who was ready needs to say so again. | none | 104 |
+| `together.ruleNever` | her | Each part stays private | none | 46 |
+| `together.scheduleDay` | her | Day | none | 40 |
+| `together.scheduleGo` | her | Publish on this day | none | 40 |
+| `together.scheduleNeedDay` | her | Choose a day in the future. | none | 54 |
+| `together.scheduleTime` | her | Time | none | 40 |
+| `together.scheduled` | her | It goes up on {when}. | `{when}` | 42 |
+| `together.serverDown` | her | {product} didn't do that, so nothing changed. Your words are still here. | `{product}` | 200 |
+| `together.sourceLine` | her | {kind}: {title} | `{kind}` `{title}` | 40 |
+| `together.sourceLink` | her | Link, if it has one | none | 40 |
+| `together.sourceLinkHelp` | her | Leave it empty for a book or a conversation. | none | 88 |
+| `together.sourceNumber` | her | Number {n} | `{n}` | 40 |
+| `together.sourceTitle` | her | What it's called | none | 40 |
+| `together.start` | her | Start | none | 40 |
+| `together.startButton` | her | Start writing together | none | 44 |
+| `together.startFromPosts` | her | Write something with others | none | 54 |
+| `together.started` | her | Started. Only you can see it until you invite someone. | none | 108 |
+| `together.stateOnOthers` | her | Waiting on others | none | 40 |
+| `together.stateOnYou` | her | Waiting on you | none | 40 |
+| `together.statePrivate` | her | Each part private | none | 40 |
+| `together.statePublished` | her | On {product} | `{product}` | 40 |
+| `together.statePutAway` | her | Put away | none | 40 |
+| `together.stateReady` | her | Ready to publish | none | 40 |
+| `together.stateScheduled` | her | Goes up {when} | `{when}` | 40 |
+| `together.stateStarted` | her | Just started | none | 40 |
+| `together.stateStuck` | her | Stuck | none | 40 |
+| `together.stateWaitingHear` | her | Waiting to hear back | none | 40 |
+| `together.stepEveryoneAgreed` | her | Everyone agreed. | none | 40 |
+| `together.stepInvite` | her | Invite someone to write with you. | none | 66 |
+| `together.stepPrivate` | her | Each part stays private, so it can't be published together. Whoever runs it can change that. | none | 200 |
+| `together.stepPublished` | her | It's on {product}. | `{product}` | 40 |
+| `together.stepRead` | her | Read everyone's parts and say if you agree. | none | 86 |
+| `together.stepReadAgain` | her | Someone changed their part since you agreed. Read it again. | none | 118 |
+| `together.stepReads` | her | You read this one. You'll see everyone's parts when they let you. | none | 130 |
+| `together.stepReshare` | her | Someone shared a new version of their part. Let the others read yours again, and you'll all read the new one. | none | 240 |
+| `together.stepScheduled` | her | It goes up on {when}. | `{when}` | 42 |
+| `together.stepShare` | her | Let the others read it when you're ready. | none | 82 |
+| `together.stepShareChanges` | her | You changed your part since you shared it. Let them read your changes when you're ready. | none | 200 |
+| `together.stepWaitingAgree` | her | Waiting for {names} to agree. | `{names}` | 58 |
+| `together.stepWaitingOthersReady` | her | Waiting for the others to be ready. | none | 70 |
+| `together.stepWaitingReady` | her | Waiting for {names} to be ready. | `{names}` | 64 |
+| `together.stepWaitingYes` | her | Waiting for {names} to say yes. Start your part meanwhile. | `{names}` | 116 |
+| `together.stepWrite` | her | Write your part. | none | 40 |
+| `together.stuck` | her | It can't be published as it stands: {names} can't agree any more. | `{names}` | 200 |
+| `together.stuckRole` | her | It can't be published as it stands: nobody in it can give the agreement it needs. | none | 200 |
+| `together.takeOffHelp` | her | To take it off, open it and choose Take it off my site. | none | 110 |
+| `together.takeOutSource` | her | Take this one out | none | 40 |
+| `together.title` | her | Writing together | none | 40 |
+| `together.tooLongLine` | her | That's too long for one line. Make it shorter. | none | 92 |
+| `together.tooMany` | her | Too many tries. Wait a few minutes, then try again. | none | 102 |
+| `together.unsafeSomeone` | her | Someone's part has something {product} can't publish safely. Ask everyone to look at their part and agree again. | `{product}` | 200 |
+| `together.unsafeWords` | her | {name}'s part has something {product} can't publish safely. Ask them to look at it and agree again. | `{name}` `{product}` | 200 |
+| `together.unscheduled` | her | It won't go up on {when}. | `{when}` | 50 |
+| `together.untitled` | her | Untitled | none | 40 |
+| `together.viewNow` | her | Now | none | 40 |
+| `together.viewPublished` | her | On {product} | `{product}` | 40 |
+| `together.viewPutAway` | her | Put away | none | 40 |
+| `together.viewsLabel` | her | Show | none | 40 |
+| `together.waitingBadge` | her | {n} waiting on you | `{n}` | 40 |
+| `together.waitingPublish` | her | Everyone agreed. Waiting for {name} to publish it. | `{name}` | 100 |
+| `together.waitingPublishAnyone` | her | Everyone agreed. Waiting for whoever is in charge to publish it. | none | 128 |
+| `together.whatKind` | her | What kind | none | 40 |
+| `together.whatStarted` | her | What started it | none | 40 |
+| `together.when` | her | When it came out | none | 40 |
+| `together.whenRead` | her | When you read each other's parts | none | 64 |
+| `together.whenReadShort` | her | When you read each other's parts | none | 64 |
+| `together.whereAgreed` | her | agreed | none | 40 |
+| `together.whereAgreedEarlier` | her | agreed to an earlier version | none | 56 |
+| `together.whereLeft` | her | isn't in it any more | none | 40 |
+| `together.whereNotReady` | her | not ready yet | none | 40 |
+| `together.whereNotStarted` | her | hasn't started | none | 40 |
+| `together.whereReads` | her | only reads | none | 40 |
+| `together.whereReady` | her | ready | none | 40 |
+| `together.whereWriting` | her | writing | none | 40 |
+| `together.you` | her | You | none | 40 |
+| `together.yourName` | her | Your name on it | none | 40 |
+| `together.yourNameHelp` | her | How your part is signed when it's published. | none | 88 |
 | `trip.areaAddress` | her | “{area}” looks like a street address. Use an area name instead, like a park or a mountain range. | `{area}` | 192 |
 | `trip.areaField` | her | Just an area's name, not a street address or a house number. | none | 120 |
 | `trip.exactRoute` | her | Readers can see exactly where you started and finished. Make sure it doesn't show a home, a campsite, or a place where rare plants or animals live. | none | 240 |

@@ -10,6 +10,7 @@ import { postHref } from "../parts/post-list.js";
 import { takeOffQuestion, takeOffSite } from "../parts/take-off.js";
 import { wentOutWords } from "../parts/publish.js";
 import { toast } from "../parts/dom.js";
+import { say } from "../parts/words.js";
 
 const STATUSES = ["all", "draft", "scheduled", "published"];
 
@@ -28,6 +29,8 @@ export async function createPosts({ api, meta, posts, replaceRoute, undo, go }) 
   const element = h("section", { class: "studio-page", "aria-labelledby": "studio-posts-h" },
     h("h2", { id: "studio-posts-h", class: "studio-visually-hidden", tabindex: "-1", text: "Your posts" }),
     h("div", { class: "studio-posts-top" }, lede, h("action-button", { href: "#/write" }, "Write something new")),
+    // R14a: until she takes part in one, Writing together isn't in the navigation; it starts here.
+    !(meta?.together?.takingPart > 0) && meta?.together?.canStart ? h("a", { class: "studio-more-link", href: "#/together/new", text: say("together.startFromPosts") }) : null,
     h("div", { class: "studio-tools" }, find, filter), list);
 
   function draw() {

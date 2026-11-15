@@ -37,7 +37,7 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence is Your research (R11).
  */
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper", evidence: "claims" });
-const NOT_YET = new Set(["shared"]);
+const NOT_YET = new Set([]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -94,6 +94,13 @@ export function legacyRoute(hash) {
   // R11: research's old addresses (#/sources, #/research/overview, #/atlas, #/compare...).
   const research = researchRoute(name, rest, search);
   if (research !== undefined) return research;
+  // R14a: shared reflections are Writing together. An invitation's token never reaches here: studio.js
+  // took it out of the address first (parts/join-rules.js); a malformed one opens Join, which says so.
+  if (name === "shared") {
+    if (rest[0] === "new") return `#/together/new${tail}`;
+    if (rest[0] === "accept") return `#/together/join${tail}`;
+    return `#/together${tail}`;
+  }
   if (name in OLD_RENAMED) return OLD_RENAMED[name] ? `#/${OLD_RENAMED[name]}${rest.length ? `/${rest.join("/")}` : ""}${tail}` : "#/";
   if (NOT_YET.has(name)) return `#/not-yet/${name}`;
   return null;

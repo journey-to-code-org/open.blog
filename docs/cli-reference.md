@@ -37,6 +37,8 @@ user add|passwd|remove|list <name>
 onboarding status | reset <user> | reset --all
                            Where each account stands with Getting started,
                            and showing it to an account again (docs/deploy.md)
+user add --co-writer <name>
+                           A sign-in that opens only Writing together
 check                      Validate content and themes without writing anything
 export <slug>              Preview or write a portable Markdown article, the post's
                            cited references as CSL JSON or BibTeX, a recipe as

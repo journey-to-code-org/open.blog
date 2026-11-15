@@ -25,7 +25,10 @@ import { startDecision, stepRoute } from "./parts/onboarding-rules.js";
 import { clearRecordings, hasRecording } from "./parts/story-store.js";
 import { researchFind } from "./parts/research-find.js";
 
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav() : s.nav, href: s.href || (s.name === "home" ? "#/" : `#/${s.name}`) }));
+// R14a: a co-writer sign-in (meta.account) has Writing together and nothing else; it is their Home.
+const coWriterOf = (meta) => meta?.account === "co-writer";
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta)) && (!coWriterOf(meta) || s.coWriter))
+  .map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav(meta) : s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 // R9b: screens that hide the navigation and Find (Getting started); the account menu stays.
 const FOCUS = new Set(SCREENS.filter((s) => s.chrome === "focus").map((s) => s.name));
@@ -33,6 +36,7 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** The account menu: the phone in her hand (Notifications, Add to Home Screen, its jobs) before the rest. */
 function accountMenu(meta, jobs) {
+  if (coWriterOf(meta)) return [{ value: "signout", label: "Sign out" }];
   const install = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
   return [
     { value: "site", label: "View my site" },
@@ -57,7 +61,10 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
   document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", shortName);
   const posts = createPostsStore(api);
   // R4: one sender per window, so a job kept with no signal goes when it comes back, from any screen.
-  const jobs = createJobSender({ api, meta, title: (record) => captureTitle(record.fields, new Date(record.createdAt), meta.job?.services || []) });
+  const coWriter = coWriterOf(meta);
+  // A co-writer sign-in keeps no jobs: nothing on this phone is sent as them.
+  const jobs = coWriter ? { entries: () => [], available: () => true, start: async () => {}, watch() {}, subscribe() {}, sendNow() {} }
+    : createJobSender({ api, meta, title: (record) => captureTitle(record.fields, new Date(record.createdAt), meta.job?.services || []) });
   const context = { api, meta, siteName, posts, jobs, go: (hash) => router.go(hash) };
   // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
   context.refreshMeta = async () => {
@@ -147,7 +154,10 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     const label = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
     return label ? [{ id: "home-screen", label, group: "Do", href: "#/notifications?sheet=home-screen" }] : [];
   }
-  const BASE = [
+  const BASE = coWriter ? [
+    ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
+    { id: "signout", label: "Sign out", group: "Do" },
+  ] : [
     ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
     { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
@@ -166,6 +176,9 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     { id: "go-start-stories", label: say("start.findStories"), group: "Do", href: "#/start/stories?again=1" },
     // R11: research by name on a site that uses it; the developer's door everywhere.
     ...researchFind(meta),
+    // R14a: Writing together by name, whether or not it is in the navigation yet.
+    { id: "go-together", label: say("together.nav"), group: "Go to", href: "#/together" },
+    ...(meta.together?.canStart ? [{ id: "together-new", label: say("together.startButton"), group: "Do", href: "#/together/new" }] : []),
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },
@@ -182,7 +195,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
   async function refreshPalette() {
     let items = [];
     try {
-      items = await posts.list();
+      if (!coWriter) items = await posts.list();
     } catch {
       // The palette still offers everything else.
     }
@@ -229,9 +242,11 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
 
   const router = createRouter({
     // Whether a screen applies is asked as it opens, so a refreshed meta counts at once.
-    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (!s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
+    screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (coWriter && !s.coWriter
+      ? SCREENS.find((t) => t.coWriter).create(context, { name: "together", arg: "", query: {} })
+      : !s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
-      shell.current = AREA[route.name] || "home";
+      shell.current = coWriter ? "together" : AREA[route.name] || "home";
       shell.classList.toggle("studio-focus", FOCUS.has(route.name));
       // Jobs kept on this phone (by the old Admin in another tab, say) show as soon as any screen
       // opens; trying again after "no signal" only while New job or Home is in view.

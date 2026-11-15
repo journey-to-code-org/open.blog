@@ -990,3 +990,70 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-for-readers { margin-block-start: var(--space-5); }
 .studio-claims .action-button, .studio-for-readers .action-button, .studio-research-atlas .action-button, .studio-research-compare .action-button, .studio-research-public .action-button { white-space: normal; height: auto; min-height: 2.75rem; padding-block: 0.5rem; text-align: center; }
 .studio-claims > action-button, .studio-claims .studio-row, .studio-for-readers .studio-row { max-width: 100%; flex-wrap: wrap; }
+/* Writing together (R14a). Other people's words are isolated text: their own direction, wrapped
+   anywhere, never markup. One column on a phone; the list widens to two columns, the reflection
+   page to a side column, Everyone's parts to columns only on a wide screen (same order). */
+.studio-stranger { unicode-bidi: isolate; overflow-wrap: anywhere; }
+.studio-together-top { display: grid; gap: var(--space-3); justify-items: start; }
+.studio-together-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.studio-together-card content-card { display: block; }
+.studio-together-card-title { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.studio-together-card p { margin: 0 0 var(--space-2); }
+.studio-together-open { color: inherit; }
+.studio-together-h3 { margin: 0; font-size: var(--text-lg); }
+.studio-together-h4 { margin: 0; font-size: var(--text-base); }
+.studio-together-people { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-together-person { min-width: 0; overflow-wrap: anywhere; align-items: center; }
+.studio-together-step { margin: 0; font-size: var(--text-lg); }
+.studio-together-cols, .studio-together-main, .studio-together-side { display: grid; gap: var(--space-4); min-width: 0; align-content: start; }
+.studio-together-head { justify-content: space-between; align-items: center; }
+.studio-together-sharing { display: grid; gap: var(--space-2); }
+.studio-together-when { display: grid; gap: var(--space-3); max-width: 24rem; }
+.studio-together-source { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-together-source legend { padding: 0 var(--space-2); }
+.studio-together-sources { display: grid; gap: var(--space-4); }
+.studio-together-more { display: grid; gap: var(--space-3); }
+.studio-together-more > summary, .studio-together-ideas > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.studio-together-bar { flex-wrap: wrap; align-items: center; }
+.studio-together-bar .studio-help { flex: 1 1 12rem; }
+.studio-together-idea-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.studio-together-idea-list li { align-items: center; justify-content: space-between; }
+.studio-part-editor { display: grid; gap: var(--space-3); }
+.studio-part-words textarea, .studio-part-raw textarea { field-sizing: content; min-height: 6lh; font-family: var(--font-writing); }
+.studio-part-break { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px dashed var(--studio-field); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-part-break-label { margin: 0; }
+.studio-part-conflict { display: grid; gap: var(--space-3); padding: var(--space-4); border: 2px solid var(--studio-damson); border-radius: var(--radius); }
+.studio-part-copy { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); font-family: var(--font-writing); }
+.studio-together-parts { display: grid; gap: var(--space-5); }
+.studio-together-part { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-together-words { display: grid; gap: var(--space-2); font-family: var(--font-writing); }
+.studio-together-words p { margin: 0; white-space: pre-wrap; }
+.studio-part-rule { margin: 0; padding-top: var(--space-2); border-top: 1px solid var(--studio-linen); color: var(--studio-ink-soft); font-size: var(--text-sm); }
+.studio-together-frame { width: 100%; min-height: 24rem; border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
+.studio-together-lines { margin: 0; padding-inline-start: var(--space-5); }
+.studio-together-linkcard { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); }
+.studio-together-link input { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); }
+.studio-together-invite, .studio-together-invites { display: grid; gap: var(--space-3); }
+.studio-join-title { font-size: var(--text-xl); }
+@media (min-width: 48rem) {
+  .studio-together-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .studio-together-top { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+}
+@media (min-width: 60rem) {
+  .studio-together-cols { grid-template-columns: minmax(0, 1fr) 22rem; }
+}
+@media (min-width: 70rem) {
+  .studio-together-parts { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+}
+
+/* Writing together, shaping it (R14b). */
+.studio-together-shape { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-together-round { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-together-turns, .studio-together-items { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-3); }
+.studio-together-turn, .studio-together-item { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-together-turn p, .studio-together-item p { margin: 0; }
+.studio-together-addturn { display: grid; gap: var(--space-2); }
+.studio-together-ticks { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); min-width: 0; }
+.studio-together-ticks .studio-tick-label { align-items: center; min-height: 2.75rem; }
+.studio-together-ticks input[type="checkbox"] { width: 1.5rem; height: 1.5rem; flex: none; }
+.studio-together-item blockquote { margin: 0; padding-inline-start: var(--space-3); border-inline-start: 3px solid var(--studio-linen); white-space: pre-wrap; }

@@ -1111,74 +1111,64 @@ to draft. The preview is what readers would see, and a list for you alone says w
 is refused when the file changed elsewhere, offering the newer copy, and **Edit as source** shows the file
 itself, keeping any field this release does not know (an approval can be kept there but not added).
 
-### Start a shared reflection
+### Writing together
 
-A shared reflection is a private draft that several writers answer from the same source. Open
-**Content → Shared reflections** and choose **Start a shared reflection** (or search the
-workspace for it). The form asks, in plain words:
+**Writing together** (Studio, `#/together`; the old **Shared reflections**) is where you write something
+with other people, each in your own words, about something you all watched, read or heard, and put it
+on your blog when you all agree. It is in the navigation once you take part in one; until then, start one
+from Posts (**Write something with others**) or Find.
 
-1. **What prompted it.** Choose the type of source, then enter its title. Paste the original
-   link if there is one; a book, a talk you attended, or a conversation can be left without a
-   link. You can add who made it, the publisher, a year or date, and an ISBN for a book. Use
-   **Add another source** to list up to 20 sources in the order you want; at 20 the button is
-   turned off and the form says why. With a YouTube or CodePen link, **Suggest details from
-   link** can fill in a title, who made it, and the publisher. It only fills fields you left
-   empty, says what it filled so you can check it, and never asks for a transcript. If the
-   provider is slow, refuses, or has nothing, or the link is from another site, the form tells
-   you and nothing changes; type the details yourself.
-2. **Your reflection.** Give a working title, a guiding question that each writer answers in
-   their own words, or both.
-3. **You will appear as.** Choose your entry from the contributor registry. If you are not in
-   it yet, add yourself under **Site → Contributors** first. Admin Studio does not yet check that
-   the entry you pick is yours, so choose your own.
+1. **Start writing together.** Say what started it (a video, an article, a podcast, a book or something
+   else, up to 20, with a link if it has one), the question you each answer, a name for it, your name on
+   it (from People; **Add my name** puts the blog's name there), and when you read each other's parts:
+   **When everyone's ready** (the default) or **Each person, when they're ready**. Only you can see it
+   until you invite someone.
+2. **Invite someone.** On the reflection, **People and invitations** lists who is in it and what each
+   does (**Writes a part**, **Writes a part and helps run it**, **Only reads**, **In charge**). Choose
+   their name from People, say whether they're new (Studio makes them a sign-in, with a name you can
+   change) or already sign in, and what they do. **Make the invitation link** shows the link once:
+   **Copy the link** (or **Send it…** on a phone) and send it yourself. Nothing is emailed. It works once,
+   for a week unless you choose otherwise under the details. **Withdraw** stops it; **Make a new link**
+   replaces it.
+3. **Join.** Someone new opens the link, chooses a password, and is in. Someone who already signs in
+   signs in as the name the invitation names and presses **Say yes**. **No thanks** stops the link.
+4. **Your part** saves itself on this computer as you type and is sent as a version when you press
+   **Save** (Ctrl/⌘ S), leave, or let the others read it, so typing never spends the 200 versions a part
+   can have. **Ideas to start from** put a question in your words. **Start a new part** splits your part
+   for the layout (readers never see the break). If you saved somewhere else too, both are shown and
+   nothing is lost until you choose **Keep mine**, **Use the other one** (with **Bring mine back**) or
+   **Decide later**.
+5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
+   **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
+   in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
+6. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
+   agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
+   unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
 
-You don’t need Markdown anywhere in this form. Links must be complete web addresses starting with
-`https://` or `http://` and cannot contain a username or password; a pasted link with non-English
-characters is stored in its standard encoded form. If something needs fixing, the message names
-the field and moves focus to it; a problem that is not about one field, such as a save that
-fails on the server, moves focus to the message itself. What you entered is kept so you can try
-again.
+**Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
+after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
+(whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
+whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
+agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
+you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
+together** holds what you say after everyone's parts (an agreement, a difference, a question, something
+to try, or what you're not sure about), each speaking for the people named on it and agreed by each of
+them. **Moments** (from Your part) are places in what started it, with the words said there or what you
+noticed, kept private or put with your part; words said there need their rights and where they came
+from. Each of these is saved on its own, asks everyone to agree again where it changes what they agreed
+to, and can be undone. **Fill in from the link**, on Start, asks the link's own site for a title and who
+made it, and fills only empty boxes. Under People's details, an owner sees **Sign-ins for people writing
+with you** and can remove one: the sign-in goes, and so does every reflection it was in; names stay on
+what they wrote.
 
-Creating a shared reflection publishes nothing and changes no post, credit, or setting. It is
-saved as a private file under `.openblog/private/collaboration/publications/`, which Git
-ignores, so back up that folder with your other private files. Only the people taking part see
-it under **Shared reflections**; signing in to Admin Studio or being in the contributor registry
-is not enough. You are its site owner. Removing your account with `openblog user remove` removes
-you from every shared reflection, and so does adding a new account under a name that was used
-before. A contributor who takes part in one cannot be removed from the registry; the Contributors
-message names each entry that is in use. Writing contributions and publishing the result arrive in later releases. The design is recorded in
-[ADR 0007](adr/0007-private-shared-publication-records.md) and the
-[collaboration contract](specs/shared-perspectives-collaboration.md#shared-publication-record).
-
-### Inviting other writers
-
-Site owners and coordinators see an **Invitations** section on each shared reflection. Enter the
-sign-in name of an existing Admin account, choose the contributor profile they will appear as, pick
-their roles, and choose how long the link lasts (1 to 30 days, 7 by default). Admin Studio shows a
-private link once. Copy it and pass it on yourself: open.blog never sends email or contacts
-anyone. The link works once, only for the account you named, and only after that person signs in
-and chooses **Accept and join** or **Decline**. A lost link cannot be shown again; use **Issue a
-new link**, which also stops the old one working. **Revoke** withdraws a link at once.
-Invitations are kept inside the shared reflection's private file as hashes, never the link
-itself, and only a site owner can invite another site owner. Add the person's Admin account first
-with `openblog user add`. The design is recorded in
-[ADR 0013](adr/0013-publication-scoped-invitations.md).
-
-### Managing members
-
-The same **Members and invitations** section lists everyone who can sign in to the reflection,
-with their sign-in account, the contributor profile they are credited as, and their roles written
-out. These are separate: *sign-in access* decides who can open the reflection and what they can
-do, while *credit* names who is shown for what they wrote. **Change roles** previews what is added
-and removed before it applies. **Remove access** asks first, and ends only sign-in access: the
-person's name stays credited for what they wrote and approved, and you can invite them again
-later. The last site owner cannot be removed or demoted, and a coordinator cannot change a site
-owner. If someone else changed the members while you were looking, the change is refused, the list
-reloads, and you can try again. A member whose account or profile has been deleted is flagged with
-a warning. If your browser cannot copy to the clipboard, select the link and copy it yourself.
-Everything is reachable by keyboard: **Escape** cancels a confirmation, and results are announced
-to screen readers. The design is recorded in
-[ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
+People you invite get a **co-writer** sign-in: it opens only Writing together, only the reflections
+they're in, and the server refuses everything else. The design is recorded in
+[ADR 0413](adr/0413-co-writer-accounts-reach-only-the-collaboration-routes.md) and
+[ADR 0414](adr/0414-invite-a-new-person-by-link-and-they-choose-their-own-password.md); the private files
+are under `.openblog/private/collaboration/` (back that folder up with your other private files), as in
+[ADR 0007](adr/0007-private-shared-publication-records.md) and
+[ADR 0013](adr/0013-publication-scoped-invitations.md). Removing your account with `openblog user remove`
+removes you from every reflection, and so does adding a new account under a name used before.
 
 ### Putting a shared reflection in a series
 
