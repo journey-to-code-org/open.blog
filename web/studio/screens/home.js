@@ -5,7 +5,7 @@ import { fill, h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { postList, postHref, sayListDate } from "../parts/post-list.js";
 import { siteHealth } from "../parts/site-health.js";
-import { waitingLine } from "../parts/comment-words.js";
+import { waitingLine } from "../parts/reader-rules.js";
 import { homeCardLine } from "../parts/card-words.js";
 import { homeQuoteLine } from "../parts/quote-words.js";
 import { createReadyList, recipeNotesBanner } from "../parts/home-ready.js";
@@ -47,7 +47,7 @@ export async function createHome({ api, meta, posts, jobs }) {
     if (meta.engagement === true) {
       try {
         const line = waitingLine(await api.get("engagement/moderation?state=pending"));
-        if (line) rows.push(h("content-card", { heading: line, href: "#/comments" }));
+        if (line) rows.push(h("content-card", { heading: line, href: "#/readers" }));
       } catch {
         // Home never shows a failure here.
       }

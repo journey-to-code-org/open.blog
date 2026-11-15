@@ -4427,6 +4427,28 @@
       "max": 114,
       "vars": []
     },
+    "home.commentWaiting": {
+      "text": "1 comment is waiting for you",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "home.commentsWaiting": {
+      "text": "{n} comments are waiting for you",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "n"
+      ]
+    },
+    "home.commentsWaitingMore": {
+      "text": "More than {n} comments are waiting for you",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "n"
+      ]
+    },
     "home.filesVanish": {
       "text": "This server doesn't keep its files when it restarts. Ask {helper} to fix that.",
       "layer": "her",
@@ -4441,6 +4463,28 @@
       "max": 204,
       "vars": [
         "helper"
+      ]
+    },
+    "home.readerWaiting": {
+      "text": "1 note from a reader is waiting for you",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "home.readersWaiting": {
+      "text": "{n} notes from readers are waiting for you",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "n"
+      ]
+    },
+    "home.readersWaitingMore": {
+      "text": "More than {n} notes from readers are waiting for you",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "n"
       ]
     },
     "home.startCardGo": {
@@ -5675,6 +5719,12 @@
         "helper"
       ]
     },
+    "notify.commentsLink": {
+      "text": "someone comments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "notify.nameHelp": {
       "text": "So you can tell them apart, like Work phone.",
       "layer": "her",
@@ -5685,6 +5735,12 @@
       "text": "Give it a name, like Work phone.",
       "layer": "her",
       "max": 64,
+      "vars": []
+    },
+    "notify.readersLink": {
+      "text": "a reader sends you something",
+      "layer": "her",
+      "max": 56,
       "vars": []
     },
     "paste.kept": {
@@ -5719,6 +5775,1235 @@
       "max": 46,
       "vars": []
     },
+    "paths.addEntries": {
+      "text": "Atlas entries",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addHeading": {
+      "text": "Add a step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addNoMatch": {
+      "text": "Nothing matches that.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.addNone": {
+      "text": "Nothing to add. Only published posts can be steps, and each can be on a path once.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "paths.addPosts": {
+      "text": "Posts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addSearch": {
+      "text": "Search your published posts",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "paths.addStep": {
+      "text": "Add a step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.added": {
+      "text": "Added {title}. Say why it follows, then save.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.addedFirst": {
+      "text": "Added {title} as the first step.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.addressFixed": {
+      "text": "Its address is {address}. It can't be changed.",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "address"
+      ]
+    },
+    "paths.addressHelp": {
+      "text": "The last part of its web address. It can't be changed after the first save.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "paths.asWritten": {
+      "text": "Show the path as written (for {helper})",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "helper"
+      ]
+    },
+    "paths.back": {
+      "text": "‹ All reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.basis": {
+      "text": "Which atlas link says so",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "paths.basisHelp": {
+      "text": "Only a link you've published between two entries can say one influenced the other.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "paths.basisNone": {
+      "text": "No published link between these two",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.changedHeading": {
+      "text": "Changed somewhere else",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.changedText": {
+      "text": "This reading path was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep?",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.chooseOne": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.crumbHome": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.delete": {
+      "text": "Delete",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.deleteAsk": {
+      "text": "Delete “{title}”?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.deleteAskLive": {
+      "text": "It's on your site now. Deleting takes it off. You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "paths.deleteAskText": {
+      "text": "You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "paths.deleted": {
+      "text": "Deleted “{title}”.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.diagDetails": {
+      "text": "Kind: {kind}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "kind"
+      ]
+    },
+    "paths.diagDropped": {
+      "text": "its reason can't be shown as written, so the whole path is held back",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "paths.diagStep": {
+      "text": "{title}: {why}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title",
+        "why"
+      ]
+    },
+    "paths.diagUnavailable": {
+      "text": "isn't published, so readers don't see it",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "paths.diagWithheld": {
+      "text": "fewer than two steps are published, so the path is held back",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "paths.diffAdvanced": {
+      "text": "For people who know the subject",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.diffIntermediate": {
+      "text": "Some background helps",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.diffIntroductory": {
+      "text": "Easy to start with",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.difficulty": {
+      "text": "How hard",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.difficultyNone": {
+      "text": "Not said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.dismiss": {
+      "text": "Dismiss",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.eChanged": {
+      "text": "This path changed somewhere else since you opened it. Nothing was saved.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "paths.eGeneric": {
+      "text": "That didn't work. Nothing was changed.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "paths.eMissing": {
+      "text": "That reading path isn't there any more.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.eSentence": {
+      "text": "What the server said:",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "paths.eStorage": {
+      "text": "Your site couldn't keep it. Nothing was changed.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "paths.eTooLarge": {
+      "text": "That's more than a reading path can hold.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "paths.emptyText": {
+      "text": "Pick a few posts, put them in an order, and say why each one follows the one before.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "paths.emptyTitle": {
+      "text": "No reading paths yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.fieldAddress": {
+      "text": "Address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.fieldSummary": {
+      "text": "A line about this path",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.fieldTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.findAdd": {
+      "text": "Add a step to this reading path",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.findMake": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.findSave": {
+      "text": "Save this reading path",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.findUndo": {
+      "text": "Undo: {last}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "last"
+      ]
+    },
+    "paths.goToStep": {
+      "text": "Go to {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.heldAskHeading": {
+      "text": "Save without the reason for “{title}”?",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.heldAskNo": {
+      "text": "Go back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.heldAskText": {
+      "text": "That step is first now, so it has nothing to follow, and the reason you wrote for it can't be kept in the saved path. Undo after saving brings it back.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.heldAskYes": {
+      "text": "Save without it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.howItRelates": {
+      "text": "How it relates to the step before",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "paths.keepIt": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.keptReason": {
+      "text": "The reason you wrote is kept. It comes back if this step moves down again.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "paths.lastDelete": {
+      "text": "deleting {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.lastSave": {
+      "text": "the last save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveHeading": {
+      "text": "Save this reading path?",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "paths.leaveSave": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveText": {
+      "text": "You changed it and didn't save.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.lede": {
+      "text": "A reading path puts some of your posts in an order, with why each one comes next.",
+      "layer": "her",
+      "max": 162,
+      "vars": []
+    },
+    "paths.listed": {
+      "text": "Show it in lists and search",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "paths.listedHelp": {
+      "text": "Off, it's still at its own address.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.loadFailed": {
+      "text": "Your reading paths didn't load.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.make": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.makeDraft": {
+      "text": "Make it a draft again",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.move": {
+      "text": "Move",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveFirst": {
+      "text": "Move to the start",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveKeys": {
+      "text": "On a step you can also press Alt, Shift and an arrow key, or Home or End.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.moveLast": {
+      "text": "Move to the end",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moved": {
+      "text": "{title} is step {number} of {count} now. Not saved yet.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "title",
+        "number",
+        "count"
+      ]
+    },
+    "paths.nav": {
+      "text": "Reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.newHeading": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.noMoreSteps": {
+      "text": "That's as many steps as a path holds.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "paths.notCollection": {
+      "text": "A collection keeps posts that belong together. A reading path is an order to read them in, with why each comes next. A post can be on many paths.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.nothingChanged": {
+      "text": "Nothing's changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.open": {
+      "text": "Open {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.optional": {
+      "text": "A side step readers may skip",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "paths.optionalHelp": {
+      "text": "The first step can't be one: every reader starts there.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "paths.pAddress": {
+      "text": "The address uses lowercase letters, numbers and single hyphens, up to 64 characters.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "paths.pAddressTaken": {
+      "text": "A reading path already has that address. Choose another.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.pBadBasis": {
+      "text": "That isn't a published atlas link you can use here.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.pBadValue": {
+      "text": "Something here isn't right. Check it and try again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.pDuplicate": {
+      "text": "Two steps have the same name inside the path. Take one out and add it again.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "paths.pFirstOptional": {
+      "text": "The first step is where every reader starts, so it can't be a side step.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "paths.pFirstReason": {
+      "text": "The first step has nothing to follow, so it has no reason.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "paths.pInfluenceAtlas": {
+      "text": "“Was influenced by” joins two atlas entries. Choose another way for posts.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "paths.pInfluenceBasis": {
+      "text": "Choose the published atlas link that says one influenced the other.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "paths.pNeedTwo": {
+      "text": "A published path needs at least two steps readers can see.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "paths.pNeedsReason": {
+      "text": "Say why this step follows, in your own words.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "paths.pNeedsRelation": {
+      "text": "Choose how this step relates to the one before.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "paths.pNothingToFollow": {
+      "text": "There's no earlier step for this one to follow.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "paths.pRepeat": {
+      "text": "This is already a step. A path never goes back to one.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "paths.pSummaryLong": {
+      "text": "That line is too long.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.pTitleLong": {
+      "text": "That title is too long.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "paths.pTitleRequired": {
+      "text": "Give the path a title.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.pTooLong": {
+      "text": "That's too long.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.pTooMany": {
+      "text": "A path can't hold more steps than that.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.pUnknownTarget": {
+      "text": "That step points at something that isn't a published post or entry.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "paths.prerequisites": {
+      "text": "What to know first",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.previewClose": {
+      "text": "Back to your reading path",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.previewDraft": {
+      "text": "This is a draft. It shows what readers would see if you published it now.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.previewEmpty": {
+      "text": "Add a step to see it here.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "paths.previewFailed": {
+      "text": "That didn't load. Try again.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "paths.previewHard": {
+      "text": "Level: {level}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "level"
+      ]
+    },
+    "paths.previewHeading": {
+      "text": "What readers will see",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.previewNeed": {
+      "text": "Before you start: {text}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "text"
+      ]
+    },
+    "paths.previewOnlyYou": {
+      "text": "Only you see this page. Nothing is published by looking.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.previewReasons": {
+      "text": "Only you see this: why readers don't see some steps",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.previewRefresh": {
+      "text": "Looking at your latest changes…",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.previewSide": {
+      "text": "A side step you can skip",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "paths.previewWithheld": {
+      "text": "Readers wouldn't see this path yet.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.problemsHeading": {
+      "text": "Not saved yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.problemsMany": {
+      "text": "{count} things need a look first.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "count"
+      ]
+    },
+    "paths.problemsOne": {
+      "text": "One thing needs a look first.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "paths.publish": {
+      "text": "Publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rationale": {
+      "text": "Why it's on the path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relApplies": {
+      "text": "Applies it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relBackground": {
+      "text": "Gives background",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relBuildsOn": {
+      "text": "Builds on it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relContrastsWith": {
+      "text": "Contrasts with it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relInfluenced": {
+      "text": "Was influenced by it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relNext": {
+      "text": "Comes next",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relRespondsTo": {
+      "text": "Responds to it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relatesTo": {
+      "text": "Follows {title}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.rowCantRead": {
+      "text": "Can't be read yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowDraft": {
+      "text": "Draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowNotShown": {
+      "text": "Readers can't see it yet: a step isn't published.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "paths.rowOneStep": {
+      "text": "1 step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowPublished": {
+      "text": "Published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowSteps": {
+      "text": "{count} steps",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "paths.rowUnlisted": {
+      "text": "Not in lists",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.saveDraft": {
+      "text": "Save draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.savedDraft": {
+      "text": "Saved as a draft. Readers don't see it.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.savedHidden": {
+      "text": "Saved, but readers can't see it yet: a step isn't published.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "paths.savedNow": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.savedPublished": {
+      "text": "Published. Readers see it at {url}, in about a minute.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "url"
+      ]
+    },
+    "paths.savedPublishedOff": {
+      "text": "Saved as published, but your site isn't showing reading paths yet.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "paths.savedUpdated": {
+      "text": "Updated.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.seeReaders": {
+      "text": "See what readers will see",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.sheetCancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.sheetHeading": {
+      "text": "A step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.sheetKeep": {
+      "text": "Keep this step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.showTheirs": {
+      "text": "Show the other version",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.siteOffDetails": {
+      "text": "The site's setting readingPaths.publish is off.",
+      "layer": "details",
+      "max": 94,
+      "vars": []
+    },
+    "paths.siteOffText": {
+      "text": "You can write them now. They show on your site once {helper} turns them on.",
+      "layer": "her",
+      "max": 150,
+      "vars": [
+        "helper"
+      ]
+    },
+    "paths.siteOffTitle": {
+      "text": "Readers can't see reading paths yet",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.stateDraft": {
+      "text": "A draft: readers won't see this step",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "paths.stateMissing": {
+      "text": "Not found: readers won't see this step",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "paths.stateOther": {
+      "text": "Not public: readers won't see this step",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.statePublished": {
+      "text": "Published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stateScheduled": {
+      "text": "Scheduled: not public yet, readers won't see this step",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "paths.stateUnknown": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepBack": {
+      "text": "{title} is back.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.stepHeading": {
+      "text": "Step {number}: {title}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "number",
+        "title"
+      ]
+    },
+    "paths.stepIdDetails": {
+      "text": "Step id: {id}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "paths.stepNeedsLook": {
+      "text": "Needs a look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepOptional": {
+      "text": "A side step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepsEmpty": {
+      "text": "No steps yet. Add the first post readers should start with.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "paths.stepsHeading": {
+      "text": "Steps",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepsLede": {
+      "text": "Readers go through these in order. Each one after the first says why it follows.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "paths.stepsLeft": {
+      "text": "{count} of {limit} steps",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "count",
+        "limit"
+      ]
+    },
+    "paths.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.targetsTrouble": {
+      "text": "The list of posts to pick from didn't load, so you can't add a step right now.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "paths.theirsShown": {
+      "text": "Here's the other version.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.title": {
+      "text": "Your reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.tookOut": {
+      "text": "Took out {title}. Not saved yet.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undoFailed": {
+      "text": "That couldn't be put back, because the path changed since. Open it again.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.undoStep": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undone": {
+      "text": "Put back as it was.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.unreadable": {
+      "text": "This path's file can't be read, so it can't be edited here.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "paths.unreadableDetails": {
+      "text": "The first problem the server found:",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "paths.untitled": {
+      "text": "A reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.update": {
+      "text": "Update",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMine": {
+      "text": "Use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMineSure": {
+      "text": "Use your changes?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMineSureText": {
+      "text": "This replaces the other changes with what you have here.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.useMineYes": {
+      "text": "Yes, use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.wasDrafted": {
+      "text": "It's a draft again. Readers don't see it.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "paths.why": {
+      "text": "Why it follows, in your words",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "paths.whyHelp": {
+      "text": "A sentence or two. Readers see it between the two steps.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.writtenClose": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.writtenHeading": {
+      "text": "The path as written",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "paths.writtenHelp": {
+      "text": "The file exactly as it is kept. Shown for {helper}; changes are made on the form.",
+      "layer": "details",
+      "max": 162,
+      "vars": [
+        "helper"
+      ]
+    },
     "photo.altHelp": {
       "text": "For people who can't see it, like “A red front door with a wreath”.",
       "layer": "her",
@@ -5729,6 +7014,3715 @@
       "text": "{helper} chose this, so it can't be changed here.",
       "layer": "her",
       "max": 98,
+      "vars": [
+        "helper"
+      ]
+    },
+    "readers.ackNo": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ackOpen": {
+      "text": "Open the post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.ackText": {
+      "text": "They wrote about words that have changed since. Read your post as it is now before you show this.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "readers.ackTitle": {
+      "text": "Your post has changed there",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.ackYes": {
+      "text": "Show it anyway",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.anonymous": {
+      "text": "They didn't give a name.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.answerByAuthor": {
+      "text": "Written by the author of that part of the post.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "readers.answerHeading": {
+      "text": "An answer to a reflection, from {author}",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "author"
+      ]
+    },
+    "readers.askedText": {
+      "text": "You asked them to explain this. It can't be shown; only their answer can.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "readers.btnAsk": {
+      "text": "Ask them to explain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnClose": {
+      "text": "Close it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnDecideAgain": {
+      "text": "Decide again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnDontShow": {
+      "text": "Don't show",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnErase": {
+      "text": "Erase it for good",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnKeepComment": {
+      "text": "Keep the comment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnKeepLater": {
+      "text": "Keep it for later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnNotNow": {
+      "text": "Not for now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnPutBack": {
+      "text": "Put it back in Waiting",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.btnShow": {
+      "text": "Show it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.btnTakeDown": {
+      "text": "Take it down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkDone": {
+      "text": "{done} not shown.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "done"
+      ]
+    },
+    "readers.bulkGroup": {
+      "text": "Decide many at once",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkHide": {
+      "text": "Don't show {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkHideText": {
+      "text": "Only you will see them, under Not shown. You can undo this. Pick one reason for all of them.",
+      "layer": "her",
+      "max": 184,
+      "vars": []
+    },
+    "readers.bulkHideTitle": {
+      "text": "Don't show {n}?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkLineChanged": {
+      "text": "This changed somewhere else, so it wasn't decided.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "readers.bulkLineFailed": {
+      "text": "This one didn't go through.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.bulkNone": {
+      "text": "None of them went through. They're still here, marked.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "readers.bulkNotNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkNotThis": {
+      "text": "Decide this one by itself.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.bulkPartial": {
+      "text": "{done} done. {failed} didn't go through; they're still here, marked.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "done",
+        "failed"
+      ]
+    },
+    "readers.bulkShow": {
+      "text": "Show {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkShowText": {
+      "text": "Everyone will be able to read them.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readers.bulkShowTitle": {
+      "text": "Show {n} on your posts?",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkShowYes": {
+      "text": "Show them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkShown": {
+      "text": "{done} shown.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "done"
+      ]
+    },
+    "readers.bulkUndoNote": {
+      "text": "Not shown: {n}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkUndone": {
+      "text": "{n} are back in Waiting.",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.cancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.cardComment": {
+      "text": "Comment from {name}{on}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "name",
+        "on"
+      ]
+    },
+    "readers.cardFailed": {
+      "text": "That didn't go through. Nothing changed. Try again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readers.cardNote": {
+      "text": "{kind} from {name}{on}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "kind",
+        "name",
+        "on"
+      ]
+    },
+    "readers.cardOn": {
+      "text": " on {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readers.cardReport": {
+      "text": "Report from {name}{on}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "name",
+        "on"
+      ]
+    },
+    "readers.cardServiceDown": {
+      "text": "That didn't go through: your comments service isn't answering. Nothing changed. Try again in a few minutes.",
+      "layer": "her",
+      "max": 214,
+      "vars": []
+    },
+    "readers.changedHere": {
+      "text": "This changed somewhere else just now. Here it is as it is now. Choose again.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "readers.checkAddress": {
+      "text": "The comments service address is set and uses https",
+      "layer": "details",
+      "max": 100,
+      "vars": []
+    },
+    "readers.checkAnswers": {
+      "text": "The comments service answers",
+      "layer": "details",
+      "max": 56,
+      "vars": []
+    },
+    "readers.checkBuilt": {
+      "text": "The site was built and sent out since the last change",
+      "layer": "details",
+      "max": 106,
+      "vars": []
+    },
+    "readers.checkKey": {
+      "text": "A key is saved for this address, or set in the environment",
+      "layer": "details",
+      "max": 116,
+      "vars": []
+    },
+    "readers.checkNo": {
+      "text": "No",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.checkRow": {
+      "text": "{state}: {what}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "state",
+        "what"
+      ]
+    },
+    "readers.checkTables": {
+      "text": "The service's tables are in place",
+      "layer": "details",
+      "max": 66,
+      "vars": []
+    },
+    "readers.checkUnknown": {
+      "text": "Can't tell",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.checkVars": {
+      "text": "The service's variables are set: {names}",
+      "layer": "details",
+      "max": 80,
+      "vars": [
+        "names"
+      ]
+    },
+    "readers.checkYes": {
+      "text": "Yes",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.chooseWhy": {
+      "text": "Choose why first.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connAddress": {
+      "text": "Service address",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connAddressHelp": {
+      "text": "An https address with nothing after a ? or #.",
+      "layer": "details",
+      "max": 90,
+      "vars": []
+    },
+    "readers.connBadAddress": {
+      "text": "Use an https address with nothing after a ? or #.",
+      "layer": "details",
+      "max": 98,
+      "vars": []
+    },
+    "readers.connBadKey": {
+      "text": "That key is empty or too long.",
+      "layer": "details",
+      "max": 60,
+      "vars": []
+    },
+    "readers.connCount": {
+      "text": "Count visits with the comments service",
+      "layer": "details",
+      "max": 76,
+      "vars": []
+    },
+    "readers.connKeyEnv": {
+      "text": "Set by {name}; the environment key takes precedence.",
+      "layer": "details",
+      "max": 104,
+      "vars": [
+        "name"
+      ]
+    },
+    "readers.connKeyEnvOrigin": {
+      "text": "Set {name} to this address's exact origin before the environment key can be used.",
+      "layer": "details",
+      "max": 162,
+      "vars": [
+        "name"
+      ]
+    },
+    "readers.connKeyNone": {
+      "text": "No key is saved.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connKeyOther": {
+      "text": "The saved key belongs to another address. Enter the key again to bind it to this one.",
+      "layer": "details",
+      "max": 170,
+      "vars": []
+    },
+    "readers.connKeyPlaceholder": {
+      "text": "Leave empty to keep the saved key",
+      "layer": "details",
+      "max": 66,
+      "vars": []
+    },
+    "readers.connKeyRemove": {
+      "text": "Remove the saved key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connKeyReplace": {
+      "text": "Replace the key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connKeySaved": {
+      "text": "A key is saved for this address and never shown.",
+      "layer": "details",
+      "max": 96,
+      "vars": []
+    },
+    "readers.connNeedAddress": {
+      "text": "Save an address before the key.",
+      "layer": "details",
+      "max": 62,
+      "vars": []
+    },
+    "readers.connNeedSiteKey": {
+      "text": "Turnstile needs its public site key.",
+      "layer": "details",
+      "max": 72,
+      "vars": []
+    },
+    "readers.connRemoveText": {
+      "text": "An environment key, if any, keeps working.",
+      "layer": "details",
+      "max": 84,
+      "vars": []
+    },
+    "readers.connRemoveTitle": {
+      "text": "Remove the saved key?",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "readers.connRobot": {
+      "text": "Robot check",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connRobotNote": {
+      "text": "Secrets stay in the server's environment; only the public site key is saved here.",
+      "layer": "details",
+      "max": 162,
+      "vars": []
+    },
+    "readers.connRobotOff": {
+      "text": "Off",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connRobotTurnstile": {
+      "text": "Cloudflare Turnstile",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connSave": {
+      "text": "Save connection",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connSaved": {
+      "text": "Saved.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connScope": {
+      "text": "How often",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connScopeEvery": {
+      "text": "Before every comment",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connScopeSession": {
+      "text": "Once per visit",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connSiteKey": {
+      "text": "Public site key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.connUse": {
+      "text": "Use the comments service",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "readers.crumb": {
+      "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.decidedBefore": {
+      "text": "What you decided before ({n})",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.decidedDay": {
+      "text": " You decided {day}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.decidedElsewhere": {
+      "text": "This was already decided somewhere else.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readers.decidedKept": {
+      "text": "Kept for later.{day}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.decidedNotShown": {
+      "text": "Not shown{why}.{day}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "why",
+        "day"
+      ]
+    },
+    "readers.decidedReportKept": {
+      "text": "You kept the comment.{day}",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.decidedReportUpheld": {
+      "text": "You agreed and took it down.{day}",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.decidedShown": {
+      "text": "Shown.{day}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.decidedTakenDown": {
+      "text": "Taken down{why}.{day}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "why",
+        "day"
+      ]
+    },
+    "readers.detailsChecklist": {
+      "text": "Setup checklist",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.detailsConnection": {
+      "text": "Connection",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "readers.detailsState": {
+      "text": "state {state}{kind}, protocol {protocol}, invalid {invalid}, next {next}",
+      "layer": "details",
+      "max": 144,
+      "vars": [
+        "state",
+        "kind",
+        "protocol",
+        "invalid",
+        "next"
+      ]
+    },
+    "readers.didAsked": {
+      "text": "Asked. They'll see your question when they check their note. Nothing was shown or sent by email.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "readers.didBack": {
+      "text": "Back in Waiting.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.didClosed": {
+      "text": "Closed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.didDone": {
+      "text": "Done.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.didErased": {
+      "text": "Erased. Its words and the name are gone for good.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.didKept": {
+      "text": "Kept for later. Nothing was shown or sent.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readers.didKeptComment": {
+      "text": "Kept. It stays where it is.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.didNotNow": {
+      "text": "Not for now. Nothing was shown or sent.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readers.didNotShown": {
+      "text": "Not shown. Nobody else sees it.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readers.didShownComment": {
+      "text": "Shown under {where}. Readers can see it now.",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "where"
+      ]
+    },
+    "readers.didShownNote": {
+      "text": "Shown on {where}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "where"
+      ]
+    },
+    "readers.didTakenDown": {
+      "text": "Taken down from {where}. Readers don't see it any more.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "where"
+      ]
+    },
+    "readers.didUpheld": {
+      "text": "Taken down from {where}. To bring it back, find it under Taken down.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "where"
+      ]
+    },
+    "readers.didUpheldGone": {
+      "text": "It was already out of sight, so only the report is closed.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "readers.emptyAskedText": {
+      "text": "When you ask a reader to explain, their note waits here for the answer.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "readers.emptyAskedTitle": {
+      "text": "Nobody's been asked",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyNotShownComments": {
+      "text": "Comments you choose not to show stay here, out of sight, in case you change your mind.",
+      "layer": "her",
+      "max": 172,
+      "vars": []
+    },
+    "readers.emptyNotShownText": {
+      "text": "What you choose not to show stays here, out of sight, in case you change your mind.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "readers.emptyNotShownTitle": {
+      "text": "Nothing here",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyOff": {
+      "text": "Comments are switched off, so nobody can leave a new one.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "readers.emptyShownComments": {
+      "text": "Comments you show appear under your posts, and here.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "readers.emptyShownText": {
+      "text": "What you show appears under your posts, and here.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.emptyShownTitle": {
+      "text": "No notes up yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyShownTitleComments": {
+      "text": "No comments up yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyTakenBackText": {
+      "text": "If a reader takes back what they sent, it shows here.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "readers.emptyTakenBackTitle": {
+      "text": "Nothing taken back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyTakenDownComments": {
+      "text": "If you take a comment down, it waits here in case you want it back.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readers.emptyTakenDownText": {
+      "text": "If you take something down, it waits here in case you want it back.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readers.emptyTakenDownTitle": {
+      "text": "Nothing taken down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.emptyWaitingComments": {
+      "text": "When someone leaves a comment, it waits here for you to say yes.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "readers.emptyWaitingText": {
+      "text": "When a reader sends something, it waits here for you to say yes.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "readers.emptyWaitingTitle": {
+      "text": "Nothing waiting",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.eraseKeep": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.eraseText": {
+      "text": "Its words and the name on it are deleted. Only a private note that you decided stays. This can't be undone.",
+      "layer": "her",
+      "max": 214,
+      "vars": []
+    },
+    "readers.eraseTitle": {
+      "text": "Erase {name}'s {kind} for good?",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "name",
+        "kind"
+      ]
+    },
+    "readers.eraseYes": {
+      "text": "Erase it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.erased": {
+      "text": "Its words and any name were erased. Only your private record of decisions is kept.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "readers.findEveryKind": {
+      "text": "Show every kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.findGroup": {
+      "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.findKind": {
+      "text": "Show only {kind}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "kind"
+      ]
+    },
+    "readers.findSwitchOff": {
+      "text": "Turn comments off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.findSwitchOn": {
+      "text": "Turn comments on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.findUndo": {
+      "text": "Undo the last decision",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.fixAnswerButton": {
+      "text": "Put the answer on the post",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.fixAnswerPublish": {
+      "text": "Shown here, but the answer isn't on the post yet.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.fixDecision": {
+      "text": "The post shows an older decision.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.fixDecisionButton": {
+      "text": "Update the post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.fixDone": {
+      "text": "The post is updated.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.fixFailed": {
+      "text": "The post wasn't changed. Try again.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readers.fixName": {
+      "text": "They hid their name after it went up. Put it back up without the name.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "readers.fixNameButton": {
+      "text": "Put it back without the name",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readers.fixPublish": {
+      "text": "Shown here, but not on the post yet.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "readers.fixPublishButton": {
+      "text": "Put it on the post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.fixUnknown": {
+      "text": "{product} can't tell whether this may stay up. Read it, and take it off if it shouldn't be there.",
+      "layer": "her",
+      "max": 194,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.fixUnpublish": {
+      "text": "Not shown here, but still on the post.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readers.fixUnpublishButton": {
+      "text": "Take it off the post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.fixWithdrawn": {
+      "text": "The reader took this back, but it's still on the post. Take it off now.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "readers.gone": {
+      "text": "This one isn't there any more.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readers.home": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.invalid": {
+      "text": "Some of what readers sent couldn't be shown here.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readers.itemDecided": {
+      "text": "That one was already decided. It's under {view}.",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "view"
+      ]
+    },
+    "readers.itemHere": {
+      "text": "The one you tapped:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.keysHeading": {
+      "text": "Keys on What readers sent",
+      "layer": "details",
+      "max": 50,
+      "vars": []
+    },
+    "readers.keysText": {
+      "text": "With a card focused: J next, K previous, S show it, N don't show, T take it down, U undo.",
+      "layer": "details",
+      "max": 178,
+      "vars": []
+    },
+    "readers.kind.abuseReport": {
+      "text": "Report",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.alternativeInterpretation": {
+      "text": "Another reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.authorResponse": {
+      "text": "Author's answer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.comment": {
+      "text": "Comment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.correctionSuggestion": {
+      "text": "Suggested correction",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.futureSuggestion": {
+      "text": "Idea for later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.question": {
+      "text": "Question",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.sourceSuggestion": {
+      "text": "Suggested source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kind.thirdPerspective": {
+      "text": "Reflection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.abuseReport": {
+      "text": "Reports",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.all": {
+      "text": "Everything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.alternativeInterpretation": {
+      "text": "Other readings",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.authorResponse": {
+      "text": "Authors' answers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.comment": {
+      "text": "Comments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.correctionSuggestion": {
+      "text": "Suggested corrections",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.kinds.futureSuggestion": {
+      "text": "Ideas for later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.question": {
+      "text": "Questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.sourceSuggestion": {
+      "text": "Suggested sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.kinds.thirdPerspective": {
+      "text": "Reflections",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.leave": {
+      "text": "Leave",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.leaveHeading": {
+      "text": "Leave without saving the key?",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readers.leaveText": {
+      "text": "The key you typed isn't kept anywhere.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readers.ledeAsked": {
+      "text": "You asked these readers to say more. Their answer comes back here. What they first wrote can't be shown.",
+      "layer": "her",
+      "max": 208,
+      "vars": []
+    },
+    "readers.ledeNotShown": {
+      "text": "You chose not to show these. Only you can see them.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readers.ledeShown": {
+      "text": "These are on your posts for everyone to read.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.ledeShownPrivate": {
+      "text": "Ideas you kept and reports you agreed with are here too, and are never shown.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "readers.ledeTakenBack": {
+      "text": "Readers took these back, and their words were deleted. Nothing here can be changed.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "readers.ledeTakenDown": {
+      "text": "These were shown, then you took them down. Only you can see them.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "readers.ledeWaiting": {
+      "text": "New ones wait here until you choose. Nobody else sees them yet.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "readers.linksNotUpdated": {
+      "text": "Its links to later posts couldn't be taken off. Check Links to later posts.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "readers.listFailed": {
+      "text": "What readers sent didn't load.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readers.listReset": {
+      "text": "That list couldn't be shown, so here's Waiting.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "readers.listServiceDown": {
+      "text": "Your comments service isn't answering right now, so {product} can't show what readers sent. Try again in a few minutes.",
+      "layer": "her",
+      "max": 238,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.menuCopied": {
+      "text": "Link copied.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.menuCopyLink": {
+      "text": "Copy its link",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.menuMore": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.menuMoreFor": {
+      "text": " for {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.menuSee": {
+      "text": "See it on your site",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.nameIfShown": {
+      "text": "They agree to show the name {name} if you show it.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "name"
+      ]
+    },
+    "readers.nameOnlyOwner": {
+      "text": "They gave a name only the site's owner can see.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "readers.namePrivate": {
+      "text": "Their name stays private.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readers.nameShown": {
+      "text": "Shown with their name.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.nav": {
+      "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.noSignal": {
+      "text": "{product} can't reach your site right now. Nothing changed. Try again when you have a signal.",
+      "layer": "her",
+      "max": 186,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.notOffered": {
+      "text": "That can't be done to this one any more.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readers.notReadyText": {
+      "text": "{product} is set up for comments but can't reach them.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.notReadyTitle": {
+      "text": "Comments aren't ready yet",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readers.notSetUpText": {
+      "text": "When readers can leave comments, what they send waits here for you.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readers.notSetUpTitle": {
+      "text": "Comments aren't set up",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readers.notYours": {
+      "text": "Only the site's owner can decide this one.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readers.offText": {
+      "text": "Your posts don't show any, and nobody can leave new ones.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
+    "readers.offTitle": {
+      "text": "Comments are switched off",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readers.oldAskText": {
+      "text": "Their words and names are deleted for good. Your private record of what you decided is kept longer.",
+      "layer": "her",
+      "max": 198,
+      "vars": []
+    },
+    "readers.oldAskTitle": {
+      "text": "Clear out {n} old notes?",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.oldChanged": {
+      "text": "Something changed since you checked. Here's what's due now.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readers.oldCheck": {
+      "text": "Check what's due",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.oldClear": {
+      "text": "Clear them out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.oldCommentsKept": {
+      "text": "Comments are kept until you decide, because no time limit is set for them.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "readers.oldDone": {
+      "text": "Cleared out: {closed} closed, {deleted} deleted.",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "closed",
+        "deleted"
+      ]
+    },
+    "readers.oldExpire": {
+      "text": "{n} {kind} waiting longer than {days} days will close without a decision.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "n",
+        "kind",
+        "days"
+      ]
+    },
+    "readers.oldFailed": {
+      "text": "That didn't go through. Nothing was cleared out. Try again.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readers.oldKeep": {
+      "text": "Keep them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.oldMore": {
+      "text": "More are due than one go clears; check again after.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readers.oldNone": {
+      "text": "Nothing is due. Nothing would change now.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readers.oldNotHere": {
+      "text": "Only the site's owner can clear out old notes.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "readers.oldPurge": {
+      "text": "{n} {kind} you didn't show will have their words and names deleted.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "n",
+        "kind"
+      ]
+    },
+    "readers.oldRecords": {
+      "text": "{n} private records of what you decided are older than {days} days.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "n",
+        "days"
+      ]
+    },
+    "readers.oldScrub": {
+      "text": "{n} {kind} will have their contact details cleared.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "n",
+        "kind"
+      ]
+    },
+    "readers.oldSkipped": {
+      "text": "{n} had changed, so they were left.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.on": {
+      "text": "on “{title}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readers.onPost": {
+      "text": "On the post.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.onPostAnswer": {
+      "text": "On the post, under the reflection, as the author's answer.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "readers.onPostReflection": {
+      "text": "On the post, as a reader's reflection.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readers.onSite": {
+      "text": "on your site",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.onlyYou": {
+      "text": "Only you see this name.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.openPost": {
+      "text": "“{title}” on your site, opens in a new tab",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "title"
+      ]
+    },
+    "readers.passageChanged": {
+      "text": "Your post has changed there since they wrote.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.passageLabel": {
+      "text": "The words they wrote about:",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.passageMoved": {
+      "text": "Your post still says this, in another place.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readers.postGone": {
+      "text": "No post has this address now. It may have moved or been taken off {product}.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.postNotUpdated": {
+      "text": "It's decided, but the post wasn't updated. Use the button on its card.",
+      "layer": "her",
+      "max": 140,
+      "vars": []
+    },
+    "readers.previewNoQuote": {
+      "text": "On the post it shows without a quote, because that part changed.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "readers.previewPlain": {
+      "text": "On the post it shows without a quote, from {name}.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "name"
+      ]
+    },
+    "readers.previewQuote": {
+      "text": "On the post it shows quoting “{quote}”, from {name}.",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "quote",
+        "name"
+      ]
+    },
+    "readers.readAll": {
+      "text": "Read all",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.abusive": {
+      "text": "It's unkind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.duplicate": {
+      "text": "They said it twice",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.noAction": {
+      "text": "It's fine",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.offTopic": {
+      "text": "It's not about this post",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readers.reason.other": {
+      "text": "Another reason",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.personalData": {
+      "text": "It shares something private",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.reason.reportDuplicate": {
+      "text": "It was already reported",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readers.reason.reportSpam": {
+      "text": "The report is spam",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reason.rights": {
+      "text": "It copies someone else's work",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readers.reason.spam": {
+      "text": "It's spam",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.reflectionPreview": {
+      "text": "If you show it, it's titled “{heading}”.",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "heading"
+      ]
+    },
+    "readers.reportAnonymous": {
+      "text": "Reports don't say who sent them.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readers.reportGone": {
+      "text": "What they reported is gone, so this only closes the report.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readers.reportHeading": {
+      "text": "A report about {what}, from {name}",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "what",
+        "name"
+      ]
+    },
+    "readers.reportNow": {
+      "text": "Right now it's {state}.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "state"
+      ]
+    },
+    "readers.reportWhy": {
+      "text": "Why: {ground}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "ground"
+      ]
+    },
+    "readers.reportWrote": {
+      "text": "Written by {name}{on}:",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "name",
+        "on"
+      ]
+    },
+    "readers.roleContributor": {
+      "text": "You can read this as one of its authors. A coordinator decides.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "readers.roleCoordinator": {
+      "text": "You look after this as a coordinator of a shared post. Only the site's owner sees private names or decides again.",
+      "layer": "her",
+      "max": 226,
+      "vars": []
+    },
+    "readers.seeShown": {
+      "text": "See what's shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.seeWaiting": {
+      "text": "See what's waiting",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.select": {
+      "text": "Select",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.selectAll": {
+      "text": "Select all {m}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "m"
+      ]
+    },
+    "readers.selectOne": {
+      "text": "Select {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.selected": {
+      "text": "{n} selected",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.setupCommentsHeading": {
+      "text": "Comments",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupConflict": {
+      "text": "Your comment settings changed somewhere else. Here they are now; switch again if you still want to.",
+      "layer": "her",
+      "max": 198,
+      "vars": []
+    },
+    "readers.setupElseHeading": {
+      "text": "What else readers can send",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.setupIsOff": {
+      "text": "Comments are off.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupIsOn": {
+      "text": "Comments are on.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupKeepOn": {
+      "text": "Keep comments on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupLink": {
+      "text": "How readers reach you",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.setupNotSaved": {
+      "text": "Your comment setting wasn't saved. Try again.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "readers.setupNotSetUp": {
+      "text": "Comments aren't set up for {product}.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.setupNotWorking": {
+      "text": "Comments are on, but {product} can't reach them.",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.setupOff": {
+      "text": "Comments are off.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupOffText": {
+      "text": "The comments section leaves your posts, and nobody can leave a new one. Nothing is deleted; you can turn them back on any time.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readers.setupOffTitle": {
+      "text": "Turn comments off?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupOldHeading": {
+      "text": "Old notes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupOldLast": {
+      "text": "Last cleared out {day}.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "day"
+      ]
+    },
+    "readers.setupOldNever": {
+      "text": "Nothing has been cleared out yet.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.setupOldText": {
+      "text": "Words readers sent that you didn't show are deleted after a while. {product} does it only when you say.",
+      "layer": "her",
+      "max": 206,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.setupPerPost": {
+      "text": "Each post can turn its own comments off in About this post.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readers.setupRobots": {
+      "text": "Readers answer a quick check before their first comment of a visit.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readers.setupRobotsEvery": {
+      "text": "Readers answer a quick check before every comment.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "readers.setupRobotsHeading": {
+      "text": "Keeping robots out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupSwitch": {
+      "text": "Let readers leave comments",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.setupSwitchHelp": {
+      "text": "When it's off, the comments section leaves your posts and nobody can leave a new one.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "readers.setupSwitchTrouble": {
+      "text": "{product} couldn't check whether comments are on.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "product"
+      ]
+    },
+    "readers.setupTitle": {
+      "text": "How can readers write to you?",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readers.setupTurnOff": {
+      "text": "Turn them off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.setupWorking": {
+      "text": "Comments are on and working.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readers.showLess": {
+      "text": "Show less",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.showMore": {
+      "text": "Show more",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.showing": {
+      "text": "Showing {n}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.similar": {
+      "text": "Maybe about the same thing:",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.similarLink": {
+      "text": "{kind}, {when}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "kind",
+        "when"
+      ]
+    },
+    "readers.someone": {
+      "text": "Someone",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.stay": {
+      "text": "Stay",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.tabSent": {
+      "text": "What readers sent",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.tabSetup": {
+      "text": "How readers reach you",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readers.tabVisitors": {
+      "text": "Visitors",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.tabsLabel": {
+      "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.title": {
+      "text": "What have readers sent you?",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.turnOn": {
+      "text": "Turn comments on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.undoChanged": {
+      "text": "It changed again since, so it wasn't undone. It's under {where}.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "where"
+      ]
+    },
+    "readers.undoKept": {
+      "text": "Kept: {label}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.undoNotShown": {
+      "text": "Not shown: {label}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.undoTakenDown": {
+      "text": "Taken down: {label}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.viewAsked": {
+      "text": "Asked to explain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.viewNotShown": {
+      "text": "Not shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.viewShown": {
+      "text": "Shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.viewTakenBack": {
+      "text": "Taken back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.viewTakenDown": {
+      "text": "Taken down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.viewWaiting": {
+      "text": "Waiting",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.what.answer": {
+      "text": "an author's answer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.what.comment": {
+      "text": "a comment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.what.note": {
+      "text": "a note",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.what.reflection": {
+      "text": "a reflection",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.whatKind": {
+      "text": "What kind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.whichOnes": {
+      "text": "Which ones",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.whyFor": {
+      "text": " (choose why) for {label}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.whyText": {
+      "text": "Choose the reason that fits best.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readers.whyTitle": {
+      "text": "Why?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.about": {
+      "text": "About",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.aboutWhole": {
+      "text": "the whole comparison",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addExplanation": {
+      "text": "Add an explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addReading": {
+      "text": "Add a reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addRelation": {
+      "text": "Add a relation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.addressFixed": {
+      "text": "Its address is {address}. It can't be changed.",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "address"
+      ]
+    },
+    "readings.addressHelp": {
+      "text": "The last part of its web address. It can't be changed after the first save.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "readings.ai": {
+      "text": "An AI tool drafted these words",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.aiTool": {
+      "text": "Which tool",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approvalDropped": {
+      "text": "Saved. You changed words you'd approved in “{who}”, so readers won't see them until you approve them again.",
+      "layer": "her",
+      "max": 214,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.approvalTextChanged": {
+      "text": "The words changed since you read them. Nothing was approved. Read them again.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "readings.approvalWithdrawn": {
+      "text": "Withdrew the approval.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.approveMeans": {
+      "text": "Approving says you read these words, checked them against the evidence and take responsibility for them. Readers see them labelled as drafted with AI.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readings.approveThese": {
+      "text": "Approve these words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approveTitle": {
+      "text": "Approve these words?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.approvedOn": {
+      "text": "You approved these words on {date}.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "date"
+      ]
+    },
+    "readings.approvedStatus": {
+      "text": "Approved the words of “{who}”.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.asWritten": {
+      "text": "Show the comparison as written (for {helper})",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "helper"
+      ]
+    },
+    "readings.back": {
+      "text": "‹ All comparisons of readings",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.cancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certainty": {
+      "text": "How firmly it's theirs",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.certaintyAttributed": {
+      "text": "Attributed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyDisputed": {
+      "text": "Disputed",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyNone": {
+      "text": "Not said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyStated": {
+      "text": "Stated",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.certaintyUncertain": {
+      "text": "Uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.changedHeading": {
+      "text": "Changed somewhere else",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.changedText": {
+      "text": "This comparison was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep?",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "readings.checkEvidence": {
+      "text": "Evidence to check (saving still works):",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.crumbHome": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.crumbResearch": {
+      "text": "Research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.delete": {
+      "text": "Delete",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.deleteAsk": {
+      "text": "Delete “{title}”?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.deleteAskLive": {
+      "text": "It's on your site now. Deleting takes it off. You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "readings.deleteAskText": {
+      "text": "You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readings.deleted": {
+      "text": "Deleted “{title}”.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.describe": {
+      "text": "Describe them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.describeHelp": {
+      "text": "Like an anonymous twelfth-century commentator.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "readings.dismiss": {
+      "text": "Dismiss",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.done": {
+      "text": "Done",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.eChanged": {
+      "text": "This comparison changed somewhere else since you opened it. Nothing was saved.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "readings.eExists": {
+      "text": "A comparison already has that address. Choose another.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "readings.eGeneric": {
+      "text": "That didn't work. Nothing was changed.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readings.eMissing": {
+      "text": "That comparison isn't there any more.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.eNoApproval": {
+      "text": "There's no approval to withdraw.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.eNotAi": {
+      "text": "Only words an AI tool drafted need approval. Words you wrote don't.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.eSentence": {
+      "text": "What the server said:",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "readings.eStorage": {
+      "text": "Your site couldn't keep it. Nothing was changed.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "readings.eTooLarge": {
+      "text": "That's more than a comparison can hold.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.eitherWay": {
+      "text": "Either way round means the same.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.emptyText": {
+      "text": "Start from two readings of the same subject.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "readings.emptyTitle": {
+      "text": "No comparisons of readings yet",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.evidenceAdd": {
+      "text": "Add evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceCount": {
+      "text": "{count} evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.evidenceFromReading": {
+      "text": "An explanation uses only evidence its reading already cites.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readings.evidenceHeading": {
+      "text": "Evidence",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceLinks": {
+      "text": "Evidence links",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceMissing": {
+      "text": "Not in your library",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceNone": {
+      "text": "No evidence yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceNoneYet": {
+      "text": "No evidence yet. You can still save: say so under What's uncertain.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.evidencePick": {
+      "text": "Evidence to add",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidencePrivate": {
+      "text": "In your research, private: readers won't see it",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "readings.evidencePublic": {
+      "text": "Readers can see this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceSources": {
+      "text": "Sources",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.evidenceTakeOut": {
+      "text": "Take out this evidence",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.evidenceUnchecked": {
+      "text": "Not checked: your research couldn't be read",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "readings.evidenceWhere": {
+      "text": "Where in the source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.explanationLede": {
+      "text": "An explanation adds to your words for one audience. It never replaces them.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "readings.explanationLine": {
+      "text": "For {level} · about {about}",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "level",
+        "about"
+      ]
+    },
+    "readings.explanationText": {
+      "text": "The explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.explanationsEmpty": {
+      "text": "No explanations yet. They're optional.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "readings.explanationsHeading": {
+      "text": "Explanations by audience",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.factAuthors": {
+      "text": "By {authors}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "authors"
+      ]
+    },
+    "readings.factBefore": {
+      "text": "Before reading: {text}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "text"
+      ]
+    },
+    "readings.factModes": {
+      "text": "For {modes} reading",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "modes"
+      ]
+    },
+    "readings.factTranslates": {
+      "text": "Translates {other}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "other"
+      ]
+    },
+    "readings.factsLine": {
+      "text": "Saved with the file, not changed here: {facts}",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "facts"
+      ]
+    },
+    "readings.fieldAddress": {
+      "text": "Address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.fieldSubject": {
+      "text": "What the readings are about",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readings.fieldTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.fileDetails": {
+      "text": "Item id: {id}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "readings.findAddExplanation": {
+      "text": "Add an explanation to this comparison",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.findAddReading": {
+      "text": "Add a reading to this comparison",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.findAddRelation": {
+      "text": "Add a relation between readings",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.findList": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.findMake": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.findSave": {
+      "text": "Save this comparison",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.forLevel": {
+      "text": "For",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.goBack": {
+      "text": "Go back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.goTo": {
+      "text": "Go to {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.keepIt": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.language": {
+      "text": "Language, if not the blog's",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readings.languageHelp": {
+      "text": "A language tag such as en or grc.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "readings.leaveGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leaveHeading": {
+      "text": "Save this comparison?",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.leaveSave": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leaveText": {
+      "text": "You changed it and didn't save.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.lede": {
+      "text": "Set readings of one subject side by side, say who holds each, and never rule between them.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "readings.leftAttribution": {
+      "text": "its source isn't public, so the reading is left out",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.leftAwaiting": {
+      "text": "not approved",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.leftDetails": {
+      "text": "Reason: {reason}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "reason"
+      ]
+    },
+    "readings.leftDraft": {
+      "text": "the comparison is a draft",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.leftEvidence": {
+      "text": "some evidence is private and was left out",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.leftOutHeading": {
+      "text": "Only you see this: what readers don't see",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.leftOutLine": {
+      "text": "{name}: {why}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name",
+        "why"
+      ]
+    },
+    "readings.leftStale": {
+      "text": "changed after you approved it",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.leftSubject": {
+      "text": "explains a reading readers don't see",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "readings.leftTooFew": {
+      "text": "fewer than two readings can be shown",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "readings.leftWithdrawn": {
+      "text": "withdrawn",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelBeginner": {
+      "text": "Beginners",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelScholarly": {
+      "text": "Scholars",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.levelStudent": {
+      "text": "Students",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.loadFailed": {
+      "text": "Your comparisons of readings didn't load.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.make": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.makeDraft": {
+      "text": "Make it a draft again",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.markedAi": {
+      "text": "Marked as drafted with AI. It needs your approval before readers see it.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "readings.markedOwn": {
+      "text": "Marked as your own words.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.move": {
+      "text": "Move",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.moved": {
+      "text": "{title} is number {number} of {count} now. Not saved yet.",
+      "layer": "her",
+      "max": 114,
+      "vars": [
+        "title",
+        "number",
+        "count"
+      ]
+    },
+    "readings.name": {
+      "text": "Name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.needTwo": {
+      "text": "Two readings are needed to relate them.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.newHeading": {
+      "text": "New comparison of readings",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.notCompare": {
+      "text": "To read versions of one passage side by side, use Compare.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "readings.notNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.nothingChanged": {
+      "text": "Nothing's changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.open": {
+      "text": "Open {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "readings.pAddress": {
+      "text": "The address uses lowercase letters, numbers and single hyphens, up to 64 characters.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "readings.pApproval": {
+      "text": "Approvals are only given by reading the words and pressing Approve. Saving can't add one.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "readings.pBadValue": {
+      "text": "Something here isn't right. Check it and try again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.pDuplicate": {
+      "text": "Another item has the same name inside the comparison. Take one out and add it again.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "readings.pEvidence": {
+      "text": "An explanation uses only evidence its reading already cites.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "readings.pExplanation": {
+      "text": "Write the explanation.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.pJudgement": {
+      "text": "That field only takes a few set choices.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.pSelf": {
+      "text": "A reading can't be related to itself.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "readings.pStatement": {
+      "text": "Write what this reading holds.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "readings.pSubject": {
+      "text": "Say what the readings are about.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.pTitle": {
+      "text": "Give the comparison a title.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.pTooLong": {
+      "text": "That's too long.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.pTooMany": {
+      "text": "A comparison can't hold more than that.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.pTool": {
+      "text": "Name the AI tool that drafted these words.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "readings.pUnknown": {
+      "text": "That points at something that isn't there. Choose again.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.pWho": {
+      "text": "Say who held this reading, or choose Someone unknown and describe them.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "readings.previewClose": {
+      "text": "Back to your comparison",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.previewDraft": {
+      "text": "This is a draft. It shows what readers would see if you published it now.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "readings.previewEmpty": {
+      "text": "Add readings to see it here.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.previewFailed": {
+      "text": "That didn't load. Try again.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.previewHeading": {
+      "text": "What readers will see",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.previewOnlyYou": {
+      "text": "Only you see this page. Nothing is published by looking.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.previewRefresh": {
+      "text": "Looking at your latest changes…",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.previewUncertain": {
+      "text": "Uncertain: {text}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "text"
+      ]
+    },
+    "readings.previewWithheld": {
+      "text": "Readers can't see this comparison yet: it needs two readings that are your own words or approved.",
+      "layer": "her",
+      "max": 194,
+      "vars": []
+    },
+    "readings.problemsHeading": {
+      "text": "Not saved yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.problemsMany": {
+      "text": "{count} things need a look first.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.problemsOne": {
+      "text": "One thing needs a look first.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.provenanceAi": {
+      "text": "Drafted with AI ({tool}), approved by the author",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "tool"
+      ]
+    },
+    "readings.provenanceOwn": {
+      "text": "Written by the author",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.publish": {
+      "text": "Publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.published": {
+      "text": "Published. Readers see it at {url}, in about a minute.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "url"
+      ]
+    },
+    "readings.publishedHidden": {
+      "text": "Saved, but readers can't see it yet: two readings must be your own words or approved.",
+      "layer": "her",
+      "max": 170,
+      "vars": []
+    },
+    "readings.publishedSiteOff": {
+      "text": "Saved as published, but your site isn't showing comparisons of readings yet.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "readings.readApprove": {
+      "text": "Read and approve",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.readingsEmpty": {
+      "text": "No readings yet. Add the first one, then another.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "readings.readingsHeading": {
+      "text": "Readings",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relAgrees": {
+      "text": "Agrees with",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relBuilds": {
+      "text": "Builds on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relBy": {
+      "text": "Relates by",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relDiffers": {
+      "text": "Differs from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relHelp": {
+      "text": "No relation says which reading is right.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.relNote": {
+      "text": "A note, if it helps",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relResponds": {
+      "text": "Responds to",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relThat": {
+      "text": "That reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relThis": {
+      "text": "This reading",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.relationLine": {
+      "text": "{from} · {kind} · {to}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "from",
+        "kind",
+        "to"
+      ]
+    },
+    "readings.relationsEmpty": {
+      "text": "No relations yet. They're optional.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readings.relationsHeading": {
+      "text": "How the readings relate",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.researchTrouble": {
+      "text": "Your research couldn't be read, so evidence can't be checked right now. You can still write.",
+      "layer": "her",
+      "max": 184,
+      "vars": []
+    },
+    "readings.rowCounts": {
+      "text": "Readings: {readings} · Explanations: {explanations}",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "readings",
+        "explanations"
+      ]
+    },
+    "readings.rowDraft": {
+      "text": "Draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.rowNotShown": {
+      "text": "Not shown yet: two readings must be your own words or approved",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "readings.rowShown": {
+      "text": "On {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "readings.rowUnreadable": {
+      "text": "Can't be read yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveDraft": {
+      "text": "Save draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveFirstText": {
+      "text": "You approve the words as saved.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "readings.saveFirstTitle": {
+      "text": "Save first?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saveNow": {
+      "text": "Save now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.savedDraft": {
+      "text": "Saved as a draft. Readers don't see it.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "readings.savesWith": {
+      "text": "Saves with the comparison.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readings.seeReaders": {
+      "text": "See what readers will see",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.sheetExplanation": {
+      "text": "An explanation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sheetReading": {
+      "text": "Reading: {who}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.sheetRelation": {
+      "text": "A relation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.showTheirs": {
+      "text": "Show the other version",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "readings.siteOff": {
+      "text": "{product} doesn't show comparisons of readings yet. Tell {helper}.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "readings.siteOffDetails": {
+      "text": "The site's setting interpretations.publish is off.",
+      "layer": "details",
+      "max": 100,
+      "vars": []
+    },
+    "readings.someone": {
+      "text": "Someone unknown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sourceChoose": {
+      "text": "Choose a source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.sourceGone": {
+      "text": "That source isn't in your library.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "readings.sourceLabel": {
+      "text": "Source",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.standingApproved": {
+      "text": "Drafted with AI, approved by you",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.standingAuthored": {
+      "text": "Your own words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.standingAwaiting": {
+      "text": "Drafted with AI: not approved, readers don't see it",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "readings.standingStale": {
+      "text": "Changed after you approved it: readers don't see it until you approve it again",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "readings.standingUnknown": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.statement": {
+      "text": "What this reading holds",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "readings.subjectHelp": {
+      "text": "Neutral words: say the subject, not which reading is right.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "readings.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.theirsShown": {
+      "text": "Here's the other version.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "readings.title": {
+      "text": "Readings side by side",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "readings.tookOutExplanation": {
+      "text": "Took out the explanation for {level}. Not saved yet.",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "level"
+      ]
+    },
+    "readings.tookOutReading": {
+      "text": "Took out “{who}” and the relations that named it. Not saved yet.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "who"
+      ]
+    },
+    "readings.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.uncertain": {
+      "text": "What's uncertain",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.uncertainHelp": {
+      "text": "Honest uncertainty is welcome, with or without evidence.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.undoFailed": {
+      "text": "That couldn't be put back, because it changed since. Open it again.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "readings.undone": {
+      "text": "Put back as it was.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.unreadable": {
+      "text": "This comparison's file can't be read, so it can't be edited here.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "readings.unreadableDetails": {
+      "text": "The first problem the server found:",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "readings.untitled": {
+      "text": "A comparison of readings",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.update": {
+      "text": "Update",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.updated": {
+      "text": "Updated.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMine": {
+      "text": "Use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMineSure": {
+      "text": "Use your changes?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.useMineSureText": {
+      "text": "This replaces the other changes with what you have here.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "readings.useMineYes": {
+      "text": "Yes, use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.waiting": {
+      "text": "{count} AI drafts waiting for you to approve",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "count"
+      ]
+    },
+    "readings.waitingOne": {
+      "text": "1 AI draft is waiting for you to approve",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "readings.wasDrafted": {
+      "text": "It's a draft again. Readers don't see it.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "readings.who": {
+      "text": "Who holds it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.whoAnonymous": {
+      "text": "Someone unknown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.whoNamed": {
+      "text": "A person, school or tradition",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "readings.whoSource": {
+      "text": "A source in your library",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "readings.withdraw": {
+      "text": "Withdraw approval",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.withdrawPublishedText": {
+      "text": "A published comparison can't hold AI words nobody approved, so the whole comparison goes back to draft.",
+      "layer": "her",
+      "max": 206,
+      "vars": []
+    },
+    "readings.withdrawPublishedTitle": {
+      "text": "Withdraw and make it a draft again?",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readings.withdrawPublishedYes": {
+      "text": "Withdraw and make it a draft",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "readings.withdrawn": {
+      "text": "Withdrawn: readers don't see it.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "readings.writtenClose": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readings.writtenHeading": {
+      "text": "The comparison as written",
+      "layer": "details",
+      "max": 50,
+      "vars": []
+    },
+    "readings.writtenHelp": {
+      "text": "The file exactly as it is kept. Shown for {helper}; changes are made on the form.",
+      "layer": "details",
+      "max": 162,
       "vars": [
         "helper"
       ]
@@ -8710,6 +13704,400 @@
       "vars": [
         "title",
         "helper"
+      ]
+    },
+    "visitors.cameFrom": {
+      "text": "Where they came from",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.chartLabel": {
+      "text": "Visits per {unit}, most in {period} with {n}.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "unit",
+        "period",
+        "n"
+      ]
+    },
+    "visitors.chartLabelNone": {
+      "text": "Visits per {unit}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "unit"
+      ]
+    },
+    "visitors.colOpened": {
+      "text": "Pages opened",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.colPeriod": {
+      "text": "When",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.colVisits": {
+      "text": "Visits",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.detailsAgents": {
+      "text": "AI tools and bots: {n} requests{list}",
+      "layer": "details",
+      "max": 74,
+      "vars": [
+        "n",
+        "list"
+      ]
+    },
+    "visitors.detailsError": {
+      "text": "error {status}: {message}",
+      "layer": "details",
+      "max": 50,
+      "vars": [
+        "status",
+        "message"
+      ]
+    },
+    "visitors.detailsHost": {
+      "text": "from {host}  {views}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "host",
+        "views"
+      ]
+    },
+    "visitors.detailsPath": {
+      "text": "{path}  views {views}  visits {visits}  all time {allTime}",
+      "layer": "details",
+      "max": 116,
+      "vars": [
+        "path",
+        "views",
+        "visits",
+        "allTime"
+      ]
+    },
+    "visitors.detailsRange": {
+      "text": "from {from} to {to}, views {views}, visits {visits}, all time {allTime}, first day {first}, kept {kept}, series {series}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "from",
+        "to",
+        "views",
+        "visits",
+        "allTime",
+        "first",
+        "kept",
+        "series"
+      ]
+    },
+    "visitors.detailsSource": {
+      "text": "source {source}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "source"
+      ]
+    },
+    "visitors.emptyText": {
+      "text": "When people read {product}, the numbers show up here a day or so later.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "visitors.emptyTitle": {
+      "text": "No visits counted yet",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "visitors.failed": {
+      "text": "Your visitor numbers didn't load.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "visitors.findGroup": {
+      "text": "Visitors",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.findRange": {
+      "text": "Visitors in the last {range}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "range"
+      ]
+    },
+    "visitors.frontPage": {
+      "text": "Your front page",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.how1": {
+      "text": "{product} counts without cookies and keeps nothing that could tell who a reader is.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "product"
+      ]
+    },
+    "visitors.how2": {
+      "text": "A person reading the same page twice in a day is one visit. Nothing links one day to the next, so {product} can't tell how many different people came.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "visitors.how3": {
+      "text": "Readers who ask not to be counted aren't counted.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "visitors.how4": {
+      "text": "Search engines and AI tools also read your pages. They're not in these numbers.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "visitors.how5": {
+      "text": "This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "visitors.howHeading": {
+      "text": "How these numbers are counted",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "visitors.keptFor": {
+      "text": "{product} keeps numbers for {n} days, so the start of this period isn't here.",
+      "layer": "her",
+      "max": 154,
+      "vars": [
+        "product",
+        "n"
+      ]
+    },
+    "visitors.noSignal": {
+      "text": "{product} can't reach your site right now, so there are no numbers to show. Try again when you have a signal.",
+      "layer": "her",
+      "max": 218,
+      "vars": [
+        "product"
+      ]
+    },
+    "visitors.notYet": {
+      "text": "not counted yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.off": {
+      "text": "Visitor counting is switched off.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "visitors.opened": {
+      "text": "Pages were opened {n} times.",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "n"
+      ]
+    },
+    "visitors.opened1": {
+      "text": "A page was opened once.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "visitors.otherPages": {
+      "text": "Other pages: {visits}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "visits"
+      ]
+    },
+    "visitors.partMonth": {
+      "text": "part of the month",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.partWeek": {
+      "text": "part of a week",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.range30": {
+      "text": "30 days",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.range7": {
+      "text": "7 days",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.range90": {
+      "text": "90 days",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.rangeLabel": {
+      "text": "Over the last",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.rangeYear": {
+      "text": "a year",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.readMost": {
+      "text": "What they read most",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.readNone": {
+      "text": "No posts yet; the visits were to other pages.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "visitors.seeNumbers": {
+      "text": "See the numbers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.serviceDown": {
+      "text": "Your visitor numbers aren't answering right now. Try again in a few minutes.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "visitors.showMore": {
+      "text": "Show more",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.since": {
+      "text": "Counting since {day}.",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "day"
+      ]
+    },
+    "visitors.tableCaption": {
+      "text": "Visits and pages opened, by {unit}",
+      "layer": "her",
+      "max": 68,
+      "vars": [
+        "unit"
+      ]
+    },
+    "visitors.title": {
+      "text": "Who's been reading?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.unitDay": {
+      "text": "day",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.unitMonth": {
+      "text": "month",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.unitWeek": {
+      "text": "week",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.untitled": {
+      "text": "Untitled",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.visit1": {
+      "text": "1 visit",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "visitors.visitMeans": {
+      "text": "A visit is one person reading one page on one day.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "visitors.visits": {
+      "text": "{n} visits",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "visitors.visitsFor": {
+      "text": "{n} visits",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "visitors.weekOf": {
+      "text": "the week of {day}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "day"
       ]
     },
     "voice.announceDone": {

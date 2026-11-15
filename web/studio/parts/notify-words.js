@@ -8,4 +8,6 @@ export const WORDS = {
   "notify.nameHelp": { text: "So you can tell them apart, like Work phone.", layer: "her" },
   "notify.nameMissing": { text: "Give it a name, like Work phone.", layer: "her" },
   "notify.canTurnOn": { text: "{helper} can turn them on. Your blog works the same without them.", layer: "her" },
+  "notify.commentsLink": { text: "someone comments", layer: "her" },
+  "notify.readersLink": { text: "a reader sends you something", layer: "her" },
 };

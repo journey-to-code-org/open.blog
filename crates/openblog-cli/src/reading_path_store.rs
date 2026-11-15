@@ -212,6 +212,8 @@ pub struct Saved {
     pub revision: String,
     pub text: String,
     pub path: ReadingPath,
+    /// The name of the kept copy of the file this write replaced (G97), if there was one.
+    pub replaced: Option<String>,
 }
 
 /// Create a path. Refuses a slug that already has a file.
@@ -231,14 +233,68 @@ pub fn update(
     content: &str,
     expected_revision: &str,
     path: &ReadingPath,
+    stamp: &str,
 ) -> Result<Saved, StoreError> {
     check(path)?;
     let target = file_path(root, content, &path.slug)?;
     match read_file(&target, &path.slug)? {
         None => Err(StoreError::Missing),
         Some(current) if current.revision != expected_revision => Err(StoreError::Conflict),
-        Some(_) => write(&target, path),
+        Some(_) => {
+            let replaced = crate::trash::keep(root, &target, "paths", &path.slug, stamp)
+                .map_err(trash_error)?;
+            let mut saved = write(&target, path)?;
+            saved.replaced = Some(replaced);
+            Ok(saved)
+        }
     }
+}
+
+fn trash_error(error: crate::trash::TrashError) -> StoreError {
+    match error {
+        crate::trash::TrashError::BadName => StoreError::Missing,
+        crate::trash::TrashError::Gone => StoreError::Missing,
+        crate::trash::TrashError::Storage(message) => StoreError::Storage(message),
+    }
+}
+
+/// Put a kept copy back as the path `slug` (G97). The file now stored must still be the revision the
+/// caller read (or absent, when `expected_revision` is `None`); the copy is checked like any save.
+pub fn restore(
+    root: &Path,
+    content: &str,
+    slug: &str,
+    expected_revision: Option<&str>,
+    name: &str,
+    stamp: &str,
+) -> Result<Saved, StoreError> {
+    let bytes = crate::trash::read(root, "paths", slug, name).map_err(trash_error)?;
+    let text = String::from_utf8(bytes).map_err(|_| {
+        StoreError::Invalid(vec![PathProblem {
+            file: format!("{PATHS_DIR}/{slug}.json"),
+            step: None,
+            message: "is not valid UTF-8".into(),
+        }])
+    })?;
+    let path = ReadingPath::parse(&format!("{PATHS_DIR}/{slug}.json"), &text)
+        .map_err(StoreError::Invalid)?;
+    check(&path)?;
+    let target = file_path(root, content, slug)?;
+    let current = read_file(&target, slug)?;
+    let replaced = match (&current, expected_revision) {
+        (None, None) => None,
+        (Some(current), Some(revision)) if current.revision == revision => {
+            Some(crate::trash::keep(root, &target, "paths", slug, stamp).map_err(trash_error)?)
+        }
+        _ => return Err(StoreError::Conflict),
+    };
+    write_bytes(&target, slug, text.as_bytes())?;
+    Ok(Saved {
+        revision: source_store::revision(text.as_bytes()),
+        text,
+        path,
+        replaced,
+    })
 }
 
 /// Move a path file to the trash folder (`.openblog/trash`), never destroying
@@ -280,6 +336,7 @@ fn write(target: &Path, path: &ReadingPath) -> Result<Saved, StoreError> {
         revision: source_store::revision(text.as_bytes()),
         text,
         path: path.clone(),
+        replaced: None,
     })
 }
 

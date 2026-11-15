@@ -798,8 +798,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `hnote.waiting` | her | Waiting for a signal to save this note. It's kept while this page is open. | none | 148 |
 | `hnote.who` | her | Who it's for | none | 40 |
 | `hnote.whoHelp` | her | Like: people new to this, or friends who already know it. | none | 114 |
+| `home.commentWaiting` | her | 1 comment is waiting for you | none | 56 |
+| `home.commentsWaiting` | her | {n} comments are waiting for you | `{n}` | 64 |
+| `home.commentsWaitingMore` | her | More than {n} comments are waiting for you | `{n}` | 84 |
 | `home.filesVanish` | her | This server doesn't keep its files when it restarts. Ask {helper} to fix that. | `{helper}` | 156 |
 | `home.notUpdated` | her | Your site couldn't be updated. Your work is saved. Let {helper} know; the details are under Your site. | `{helper}` | 204 |
+| `home.readerWaiting` | her | 1 note from a reader is waiting for you | none | 78 |
+| `home.readersWaiting` | her | {n} notes from readers are waiting for you | `{n}` | 84 |
+| `home.readersWaitingMore` | her | More than {n} notes from readers are waiting for you | `{n}` | 104 |
 | `home.startCardGo` | her | Continue | none | 40 |
 | `home.startCardHeading` | her | Finish getting started | none | 44 |
 | `home.startCardText` | her | Step {n} of {total}: {step}. | `{n}` `{total}` `{step}` | 56 |
@@ -994,15 +1000,790 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `look.notAccepted` | her | Your site's settings didn't accept these choices. Your choices are still here; try a different one, or tell {helper}. | `{helper}` | 234 |
 | `notify.appSwitch` | her | News from your other apps | none | 50 |
 | `notify.canTurnOn` | her | {helper} can turn them on. Your blog works the same without them. | `{helper}` | 130 |
+| `notify.commentsLink` | her | someone comments | none | 40 |
 | `notify.nameHelp` | her | So you can tell them apart, like Work phone. | none | 88 |
 | `notify.nameMissing` | her | Give it a name, like Work phone. | none | 64 |
+| `notify.readersLink` | her | a reader sends you something | none | 56 |
 | `paste.kept` | her | Pasted. Headings, bold and links kept. Fonts and colours left out. | none | 132 |
 | `paste.photoLeftMany` | her | {count} photos were left out because they have no description. Put them in with Put a photo in. | `{count}` | 190 |
 | `paste.photoLeftOne` | her | 1 photo was left out because it has no description. Put it in with Put a photo in. | none | 164 |
 | `paste.plainKeys` | her | Ctrl+Shift+V pastes plain words. | none | 64 |
 | `paste.plainMac` | her | ⌘⇧V pastes plain words. | none | 46 |
+| `paths.addEntries` | her | Atlas entries | none | 40 |
+| `paths.addHeading` | her | Add a step | none | 40 |
+| `paths.addNoMatch` | her | Nothing matches that. | none | 42 |
+| `paths.addNone` | her | Nothing to add. Only published posts can be steps, and each can be on a path once. | none | 164 |
+| `paths.addPosts` | her | Posts | none | 40 |
+| `paths.addSearch` | her | Search your published posts | none | 54 |
+| `paths.addStep` | her | Add a step | none | 40 |
+| `paths.added` | her | Added {title}. Say why it follows, then save. | `{title}` | 90 |
+| `paths.addedFirst` | her | Added {title} as the first step. | `{title}` | 64 |
+| `paths.addressFixed` | her | Its address is {address}. It can't be changed. | `{address}` | 92 |
+| `paths.addressHelp` | her | The last part of its web address. It can't be changed after the first save. | none | 150 |
+| `paths.asWritten` | her | Show the path as written (for {helper}) | `{helper}` | 78 |
+| `paths.back` | her | ‹ All reading paths | none | 40 |
+| `paths.basis` | her | Which atlas link says so | none | 48 |
+| `paths.basisHelp` | her | Only a link you've published between two entries can say one influenced the other. | none | 164 |
+| `paths.basisNone` | her | No published link between these two | none | 70 |
+| `paths.change` | her | Change | none | 40 |
+| `paths.changedHeading` | her | Changed somewhere else | none | 44 |
+| `paths.changedText` | her | This reading path was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep? | none | 240 |
+| `paths.chooseOne` | her | Choose one | none | 40 |
+| `paths.crumbHome` | her | Home | none | 40 |
+| `paths.delete` | her | Delete | none | 40 |
+| `paths.deleteAsk` | her | Delete “{title}”? | `{title}` | 40 |
+| `paths.deleteAskLive` | her | It's on your site now. Deleting takes it off. You can bring it back right after with Undo. | none | 180 |
+| `paths.deleteAskText` | her | You can bring it back right after with Undo. | none | 88 |
+| `paths.deleted` | her | Deleted “{title}”. | `{title}` | 40 |
+| `paths.diagDetails` | details | Kind: {kind} | `{kind}` | 40 |
+| `paths.diagDropped` | her | its reason can't be shown as written, so the whole path is held back | none | 136 |
+| `paths.diagStep` | her | {title}: {why} | `{title}` `{why}` | 40 |
+| `paths.diagUnavailable` | her | isn't published, so readers don't see it | none | 80 |
+| `paths.diagWithheld` | her | fewer than two steps are published, so the path is held back | none | 120 |
+| `paths.diffAdvanced` | her | For people who know the subject | none | 62 |
+| `paths.diffIntermediate` | her | Some background helps | none | 42 |
+| `paths.diffIntroductory` | her | Easy to start with | none | 40 |
+| `paths.difficulty` | her | How hard | none | 40 |
+| `paths.difficultyNone` | her | Not said | none | 40 |
+| `paths.dismiss` | her | Dismiss | none | 40 |
+| `paths.eChanged` | her | This path changed somewhere else since you opened it. Nothing was saved. | none | 144 |
+| `paths.eGeneric` | her | That didn't work. Nothing was changed. | none | 76 |
+| `paths.eMissing` | her | That reading path isn't there any more. | none | 78 |
+| `paths.eSentence` | details | What the server said: | none | 42 |
+| `paths.eStorage` | her | Your site couldn't keep it. Nothing was changed. | none | 96 |
+| `paths.eTooLarge` | her | That's more than a reading path can hold. | none | 82 |
+| `paths.emptyText` | her | Pick a few posts, put them in an order, and say why each one follows the one before. | none | 168 |
+| `paths.emptyTitle` | her | No reading paths yet | none | 40 |
+| `paths.fieldAddress` | her | Address | none | 40 |
+| `paths.fieldSummary` | her | A line about this path | none | 44 |
+| `paths.fieldTitle` | her | Title | none | 40 |
+| `paths.findAdd` | her | Add a step to this reading path | none | 62 |
+| `paths.findMake` | her | Make a reading path | none | 40 |
+| `paths.findSave` | her | Save this reading path | none | 44 |
+| `paths.findUndo` | her | Undo: {last} | `{last}` | 40 |
+| `paths.goToStep` | her | Go to {title} | `{title}` | 40 |
+| `paths.heldAskHeading` | her | Save without the reason for “{title}”? | `{title}` | 76 |
+| `paths.heldAskNo` | her | Go back | none | 40 |
+| `paths.heldAskText` | her | That step is first now, so it has nothing to follow, and the reason you wrote for it can't be kept in the saved path. Undo after saving brings it back. | none | 240 |
+| `paths.heldAskYes` | her | Save without it | none | 40 |
+| `paths.howItRelates` | her | How it relates to the step before | none | 66 |
+| `paths.keepIt` | her | Keep it | none | 40 |
+| `paths.keptReason` | her | The reason you wrote is kept. It comes back if this step moves down again. | none | 148 |
+| `paths.lastDelete` | her | deleting {title} | `{title}` | 40 |
+| `paths.lastSave` | her | the last save | none | 40 |
+| `paths.leaveGo` | her | Leave without saving | none | 40 |
+| `paths.leaveHeading` | her | Save this reading path? | none | 46 |
+| `paths.leaveSave` | her | Save | none | 40 |
+| `paths.leaveText` | her | You changed it and didn't save. | none | 62 |
+| `paths.lede` | her | A reading path puts some of your posts in an order, with why each one comes next. | none | 162 |
+| `paths.listed` | her | Show it in lists and search | none | 54 |
+| `paths.listedHelp` | her | Off, it's still at its own address. | none | 70 |
+| `paths.loadFailed` | her | Your reading paths didn't load. | none | 62 |
+| `paths.make` | her | Make a reading path | none | 40 |
+| `paths.makeDraft` | her | Make it a draft again | none | 42 |
+| `paths.more` | her | More | none | 40 |
+| `paths.move` | her | Move | none | 40 |
+| `paths.moveDown` | her | Move down | none | 40 |
+| `paths.moveFirst` | her | Move to the start | none | 40 |
+| `paths.moveKeys` | her | On a step you can also press Alt, Shift and an arrow key, or Home or End. | none | 146 |
+| `paths.moveLast` | her | Move to the end | none | 40 |
+| `paths.moveUp` | her | Move up | none | 40 |
+| `paths.moved` | her | {title} is step {number} of {count} now. Not saved yet. | `{title}` `{number}` `{count}` | 110 |
+| `paths.nav` | her | Reading paths | none | 40 |
+| `paths.newHeading` | her | Make a reading path | none | 40 |
+| `paths.noMoreSteps` | her | That's as many steps as a path holds. | none | 74 |
+| `paths.notCollection` | her | A collection keeps posts that belong together. A reading path is an order to read them in, with why each comes next. A post can be on many paths. | none | 240 |
+| `paths.nothingChanged` | her | Nothing's changed. | none | 40 |
+| `paths.open` | her | Open {title} | `{title}` | 40 |
+| `paths.optional` | her | A side step readers may skip | none | 56 |
+| `paths.optionalHelp` | her | The first step can't be one: every reader starts there. | none | 110 |
+| `paths.pAddress` | her | The address uses lowercase letters, numbers and single hyphens, up to 64 characters. | none | 168 |
+| `paths.pAddressTaken` | her | A reading path already has that address. Choose another. | none | 112 |
+| `paths.pBadBasis` | her | That isn't a published atlas link you can use here. | none | 102 |
+| `paths.pBadValue` | her | Something here isn't right. Check it and try again. | none | 102 |
+| `paths.pDuplicate` | her | Two steps have the same name inside the path. Take one out and add it again. | none | 152 |
+| `paths.pFirstOptional` | her | The first step is where every reader starts, so it can't be a side step. | none | 144 |
+| `paths.pFirstReason` | her | The first step has nothing to follow, so it has no reason. | none | 116 |
+| `paths.pInfluenceAtlas` | her | “Was influenced by” joins two atlas entries. Choose another way for posts. | none | 148 |
+| `paths.pInfluenceBasis` | her | Choose the published atlas link that says one influenced the other. | none | 134 |
+| `paths.pNeedTwo` | her | A published path needs at least two steps readers can see. | none | 116 |
+| `paths.pNeedsReason` | her | Say why this step follows, in your own words. | none | 90 |
+| `paths.pNeedsRelation` | her | Choose how this step relates to the one before. | none | 94 |
+| `paths.pNothingToFollow` | her | There's no earlier step for this one to follow. | none | 94 |
+| `paths.pRepeat` | her | This is already a step. A path never goes back to one. | none | 108 |
+| `paths.pSummaryLong` | her | That line is too long. | none | 44 |
+| `paths.pTitleLong` | her | That title is too long. | none | 46 |
+| `paths.pTitleRequired` | her | Give the path a title. | none | 44 |
+| `paths.pTooLong` | her | That's too long. | none | 40 |
+| `paths.pTooMany` | her | A path can't hold more steps than that. | none | 78 |
+| `paths.pUnknownTarget` | her | That step points at something that isn't a published post or entry. | none | 134 |
+| `paths.prerequisites` | her | What to know first | none | 40 |
+| `paths.previewClose` | her | Back to your reading path | none | 50 |
+| `paths.previewDraft` | her | This is a draft. It shows what readers would see if you published it now. | none | 146 |
+| `paths.previewEmpty` | her | Add a step to see it here. | none | 52 |
+| `paths.previewFailed` | her | That didn't load. Try again. | none | 56 |
+| `paths.previewHard` | her | Level: {level} | `{level}` | 40 |
+| `paths.previewHeading` | her | What readers will see | none | 42 |
+| `paths.previewNeed` | her | Before you start: {text} | `{text}` | 48 |
+| `paths.previewOnlyYou` | her | Only you see this page. Nothing is published by looking. | none | 112 |
+| `paths.previewReasons` | her | Only you see this: why readers don't see some steps | none | 102 |
+| `paths.previewRefresh` | her | Looking at your latest changes… | none | 62 |
+| `paths.previewSide` | her | A side step you can skip | none | 48 |
+| `paths.previewWithheld` | her | Readers wouldn't see this path yet. | none | 70 |
+| `paths.problemsHeading` | her | Not saved yet | none | 40 |
+| `paths.problemsMany` | her | {count} things need a look first. | `{count}` | 66 |
+| `paths.problemsOne` | her | One thing needs a look first. | none | 58 |
+| `paths.publish` | her | Publish | none | 40 |
+| `paths.rationale` | her | Why it's on the path | none | 40 |
+| `paths.relApplies` | her | Applies it | none | 40 |
+| `paths.relBackground` | her | Gives background | none | 40 |
+| `paths.relBuildsOn` | her | Builds on it | none | 40 |
+| `paths.relContrastsWith` | her | Contrasts with it | none | 40 |
+| `paths.relInfluenced` | her | Was influenced by it | none | 40 |
+| `paths.relNext` | her | Comes next | none | 40 |
+| `paths.relRespondsTo` | her | Responds to it | none | 40 |
+| `paths.relatesTo` | her | Follows {title}. | `{title}` | 40 |
+| `paths.rowCantRead` | her | Can't be read yet | none | 40 |
+| `paths.rowDraft` | her | Draft | none | 40 |
+| `paths.rowNotShown` | her | Readers can't see it yet: a step isn't published. | none | 98 |
+| `paths.rowOneStep` | her | 1 step | none | 40 |
+| `paths.rowPublished` | her | Published | none | 40 |
+| `paths.rowSteps` | her | {count} steps | `{count}` | 40 |
+| `paths.rowUnlisted` | her | Not in lists | none | 40 |
+| `paths.saveDraft` | her | Save draft | none | 40 |
+| `paths.savedDraft` | her | Saved as a draft. Readers don't see it. | none | 78 |
+| `paths.savedHidden` | her | Saved, but readers can't see it yet: a step isn't published. | none | 120 |
+| `paths.savedNow` | her | Saved. | none | 40 |
+| `paths.savedPublished` | her | Published. Readers see it at {url}, in about a minute. | `{url}` | 108 |
+| `paths.savedPublishedOff` | her | Saved as published, but your site isn't showing reading paths yet. | none | 132 |
+| `paths.savedUpdated` | her | Updated. | none | 40 |
+| `paths.seeReaders` | her | See what readers will see | none | 50 |
+| `paths.sheetCancel` | her | Cancel | none | 40 |
+| `paths.sheetHeading` | her | A step | none | 40 |
+| `paths.sheetKeep` | her | Keep this step | none | 40 |
+| `paths.showTheirs` | her | Show the other version | none | 44 |
+| `paths.siteOffDetails` | details | The site's setting readingPaths.publish is off. | none | 94 |
+| `paths.siteOffText` | her | You can write them now. They show on your site once {helper} turns them on. | `{helper}` | 150 |
+| `paths.siteOffTitle` | her | Readers can't see reading paths yet | none | 70 |
+| `paths.stateDraft` | her | A draft: readers won't see this step | none | 72 |
+| `paths.stateMissing` | her | Not found: readers won't see this step | none | 76 |
+| `paths.stateOther` | her | Not public: readers won't see this step | none | 78 |
+| `paths.statePublished` | her | Published | none | 40 |
+| `paths.stateScheduled` | her | Scheduled: not public yet, readers won't see this step | none | 108 |
+| `paths.stateUnknown` | her | Not checked yet | none | 40 |
+| `paths.stepBack` | her | {title} is back. | `{title}` | 40 |
+| `paths.stepHeading` | her | Step {number}: {title} | `{number}` `{title}` | 44 |
+| `paths.stepIdDetails` | details | Step id: {id} | `{id}` | 40 |
+| `paths.stepNeedsLook` | her | Needs a look | none | 40 |
+| `paths.stepOptional` | her | A side step | none | 40 |
+| `paths.stepsEmpty` | her | No steps yet. Add the first post readers should start with. | none | 118 |
+| `paths.stepsHeading` | her | Steps | none | 40 |
+| `paths.stepsLede` | her | Readers go through these in order. Each one after the first says why it follows. | none | 160 |
+| `paths.stepsLeft` | her | {count} of {limit} steps | `{count}` `{limit}` | 48 |
+| `paths.takeOut` | her | Take it out | none | 40 |
+| `paths.targetsTrouble` | her | The list of posts to pick from didn't load, so you can't add a step right now. | none | 156 |
+| `paths.theirsShown` | her | Here's the other version. | none | 50 |
+| `paths.title` | her | Your reading paths | none | 40 |
+| `paths.tookOut` | her | Took out {title}. Not saved yet. | `{title}` | 64 |
+| `paths.tryAgain` | her | Try again | none | 40 |
+| `paths.undo` | her | Undo | none | 40 |
+| `paths.undoFailed` | her | That couldn't be put back, because the path changed since. Open it again. | none | 146 |
+| `paths.undoStep` | her | Undo | none | 40 |
+| `paths.undone` | her | Put back as it was. | none | 40 |
+| `paths.unreadable` | her | This path's file can't be read, so it can't be edited here. | none | 118 |
+| `paths.unreadableDetails` | details | The first problem the server found: | none | 70 |
+| `paths.untitled` | her | A reading path | none | 40 |
+| `paths.update` | her | Update | none | 40 |
+| `paths.useMine` | her | Use my changes | none | 40 |
+| `paths.useMineSure` | her | Use your changes? | none | 40 |
+| `paths.useMineSureText` | her | This replaces the other changes with what you have here. | none | 112 |
+| `paths.useMineYes` | her | Yes, use my changes | none | 40 |
+| `paths.wasDrafted` | her | It's a draft again. Readers don't see it. | none | 82 |
+| `paths.why` | her | Why it follows, in your words | none | 58 |
+| `paths.whyHelp` | her | A sentence or two. Readers see it between the two steps. | none | 112 |
+| `paths.writtenClose` | her | Close | none | 40 |
+| `paths.writtenHeading` | details | The path as written | none | 40 |
+| `paths.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
+| `readers.ackNo` | her | Not now | none | 40 |
+| `readers.ackOpen` | her | Open the post | none | 40 |
+| `readers.ackText` | her | They wrote about words that have changed since. Read your post as it is now before you show this. | none | 194 |
+| `readers.ackTitle` | her | Your post has changed there | none | 54 |
+| `readers.ackYes` | her | Show it anyway | none | 40 |
+| `readers.anonymous` | her | They didn't give a name. | none | 48 |
+| `readers.answerByAuthor` | her | Written by the author of that part of the post. | none | 94 |
+| `readers.answerHeading` | her | An answer to a reflection, from {author} | `{author}` | 80 |
+| `readers.askedText` | her | You asked them to explain this. It can't be shown; only their answer can. | none | 146 |
+| `readers.btnAsk` | her | Ask them to explain | none | 40 |
+| `readers.btnClose` | her | Close it | none | 40 |
+| `readers.btnDecideAgain` | her | Decide again | none | 40 |
+| `readers.btnDontShow` | her | Don't show | none | 40 |
+| `readers.btnErase` | her | Erase it for good | none | 40 |
+| `readers.btnKeepComment` | her | Keep the comment | none | 40 |
+| `readers.btnKeepLater` | her | Keep it for later | none | 40 |
+| `readers.btnNotNow` | her | Not for now | none | 40 |
+| `readers.btnPutBack` | her | Put it back in Waiting | none | 44 |
+| `readers.btnShow` | her | Show it | none | 40 |
+| `readers.btnTakeDown` | her | Take it down | none | 40 |
+| `readers.bulkDone` | her | {done} not shown. | `{done}` | 40 |
+| `readers.bulkGroup` | her | Decide many at once | none | 40 |
+| `readers.bulkHide` | her | Don't show {n} | `{n}` | 40 |
+| `readers.bulkHideText` | her | Only you will see them, under Not shown. You can undo this. Pick one reason for all of them. | none | 184 |
+| `readers.bulkHideTitle` | her | Don't show {n}? | `{n}` | 40 |
+| `readers.bulkLineChanged` | her | This changed somewhere else, so it wasn't decided. | none | 100 |
+| `readers.bulkLineFailed` | her | This one didn't go through. | none | 54 |
+| `readers.bulkNone` | her | None of them went through. They're still here, marked. | none | 108 |
+| `readers.bulkNotNow` | her | Not now | none | 40 |
+| `readers.bulkNotThis` | her | Decide this one by itself. | none | 52 |
+| `readers.bulkPartial` | her | {done} done. {failed} didn't go through; they're still here, marked. | `{done}` `{failed}` | 136 |
+| `readers.bulkShow` | her | Show {n} | `{n}` | 40 |
+| `readers.bulkShowText` | her | Everyone will be able to read them. | none | 70 |
+| `readers.bulkShowTitle` | her | Show {n} on your posts? | `{n}` | 46 |
+| `readers.bulkShowYes` | her | Show them | none | 40 |
+| `readers.bulkShown` | her | {done} shown. | `{done}` | 40 |
+| `readers.bulkUndoNote` | her | Not shown: {n}. | `{n}` | 40 |
+| `readers.bulkUndone` | her | {n} are back in Waiting. | `{n}` | 48 |
+| `readers.cancel` | her | Cancel | none | 40 |
+| `readers.cardComment` | her | Comment from {name}{on} | `{name}` `{on}` | 46 |
+| `readers.cardFailed` | her | That didn't go through. Nothing changed. Try again. | none | 102 |
+| `readers.cardNote` | her | {kind} from {name}{on} | `{kind}` `{name}` `{on}` | 44 |
+| `readers.cardOn` | her |  on {title} | `{title}` | 40 |
+| `readers.cardReport` | her | Report from {name}{on} | `{name}` `{on}` | 44 |
+| `readers.cardServiceDown` | her | That didn't go through: your comments service isn't answering. Nothing changed. Try again in a few minutes. | none | 214 |
+| `readers.changedHere` | her | This changed somewhere else just now. Here it is as it is now. Choose again. | none | 152 |
+| `readers.checkAddress` | details | The comments service address is set and uses https | none | 100 |
+| `readers.checkAnswers` | details | The comments service answers | none | 56 |
+| `readers.checkBuilt` | details | The site was built and sent out since the last change | none | 106 |
+| `readers.checkKey` | details | A key is saved for this address, or set in the environment | none | 116 |
+| `readers.checkNo` | details | No | none | 40 |
+| `readers.checkRow` | details | {state}: {what} | `{state}` `{what}` | 40 |
+| `readers.checkTables` | details | The service's tables are in place | none | 66 |
+| `readers.checkUnknown` | details | Can't tell | none | 40 |
+| `readers.checkVars` | details | The service's variables are set: {names} | `{names}` | 80 |
+| `readers.checkYes` | details | Yes | none | 40 |
+| `readers.chooseWhy` | her | Choose why first. | none | 40 |
+| `readers.connAddress` | details | Service address | none | 40 |
+| `readers.connAddressHelp` | details | An https address with nothing after a ? or #. | none | 90 |
+| `readers.connBadAddress` | details | Use an https address with nothing after a ? or #. | none | 98 |
+| `readers.connBadKey` | details | That key is empty or too long. | none | 60 |
+| `readers.connCount` | details | Count visits with the comments service | none | 76 |
+| `readers.connKeyEnv` | details | Set by {name}; the environment key takes precedence. | `{name}` | 104 |
+| `readers.connKeyEnvOrigin` | details | Set {name} to this address's exact origin before the environment key can be used. | `{name}` | 162 |
+| `readers.connKeyNone` | details | No key is saved. | none | 40 |
+| `readers.connKeyOther` | details | The saved key belongs to another address. Enter the key again to bind it to this one. | none | 170 |
+| `readers.connKeyPlaceholder` | details | Leave empty to keep the saved key | none | 66 |
+| `readers.connKeyRemove` | details | Remove the saved key | none | 40 |
+| `readers.connKeyReplace` | details | Replace the key | none | 40 |
+| `readers.connKeySaved` | details | A key is saved for this address and never shown. | none | 96 |
+| `readers.connNeedAddress` | details | Save an address before the key. | none | 62 |
+| `readers.connNeedSiteKey` | details | Turnstile needs its public site key. | none | 72 |
+| `readers.connRemoveText` | details | An environment key, if any, keeps working. | none | 84 |
+| `readers.connRemoveTitle` | details | Remove the saved key? | none | 42 |
+| `readers.connRobot` | details | Robot check | none | 40 |
+| `readers.connRobotNote` | details | Secrets stay in the server's environment; only the public site key is saved here. | none | 162 |
+| `readers.connRobotOff` | details | Off | none | 40 |
+| `readers.connRobotTurnstile` | details | Cloudflare Turnstile | none | 40 |
+| `readers.connSave` | details | Save connection | none | 40 |
+| `readers.connSaved` | details | Saved. | none | 40 |
+| `readers.connScope` | details | How often | none | 40 |
+| `readers.connScopeEvery` | details | Before every comment | none | 40 |
+| `readers.connScopeSession` | details | Once per visit | none | 40 |
+| `readers.connSiteKey` | details | Public site key | none | 40 |
+| `readers.connUse` | details | Use the comments service | none | 48 |
+| `readers.crumb` | her | Readers | none | 40 |
+| `readers.decidedBefore` | her | What you decided before ({n}) | `{n}` | 58 |
+| `readers.decidedDay` | her |  You decided {day}. | `{day}` | 40 |
+| `readers.decidedElsewhere` | her | This was already decided somewhere else. | none | 80 |
+| `readers.decidedKept` | her | Kept for later.{day} | `{day}` | 40 |
+| `readers.decidedNotShown` | her | Not shown{why}.{day} | `{why}` `{day}` | 40 |
+| `readers.decidedReportKept` | her | You kept the comment.{day} | `{day}` | 52 |
+| `readers.decidedReportUpheld` | her | You agreed and took it down.{day} | `{day}` | 66 |
+| `readers.decidedShown` | her | Shown.{day} | `{day}` | 40 |
+| `readers.decidedTakenDown` | her | Taken down{why}.{day} | `{why}` `{day}` | 42 |
+| `readers.detailsChecklist` | details | Setup checklist | none | 40 |
+| `readers.detailsConnection` | details | Connection | none | 40 |
+| `readers.detailsState` | details | state {state}{kind}, protocol {protocol}, invalid {invalid}, next {next} | `{state}` `{kind}` `{protocol}` `{invalid}` `{next}` | 144 |
+| `readers.didAsked` | her | Asked. They'll see your question when they check their note. Nothing was shown or sent by email. | none | 192 |
+| `readers.didBack` | her | Back in Waiting. | none | 40 |
+| `readers.didClosed` | her | Closed. | none | 40 |
+| `readers.didDone` | her | Done. | none | 40 |
+| `readers.didErased` | her | Erased. Its words and the name are gone for good. | none | 98 |
+| `readers.didKept` | her | Kept for later. Nothing was shown or sent. | none | 84 |
+| `readers.didKeptComment` | her | Kept. It stays where it is. | none | 54 |
+| `readers.didNotNow` | her | Not for now. Nothing was shown or sent. | none | 78 |
+| `readers.didNotShown` | her | Not shown. Nobody else sees it. | none | 62 |
+| `readers.didShownComment` | her | Shown under {where}. Readers can see it now. | `{where}` | 88 |
+| `readers.didShownNote` | her | Shown on {where}. | `{where}` | 40 |
+| `readers.didTakenDown` | her | Taken down from {where}. Readers don't see it any more. | `{where}` | 110 |
+| `readers.didUpheld` | her | Taken down from {where}. To bring it back, find it under Taken down. | `{where}` | 136 |
+| `readers.didUpheldGone` | her | It was already out of sight, so only the report is closed. | none | 116 |
+| `readers.emptyAskedText` | her | When you ask a reader to explain, their note waits here for the answer. | none | 142 |
+| `readers.emptyAskedTitle` | her | Nobody's been asked | none | 40 |
+| `readers.emptyNotShownComments` | her | Comments you choose not to show stay here, out of sight, in case you change your mind. | none | 172 |
+| `readers.emptyNotShownText` | her | What you choose not to show stays here, out of sight, in case you change your mind. | none | 166 |
+| `readers.emptyNotShownTitle` | her | Nothing here | none | 40 |
+| `readers.emptyOff` | her | Comments are switched off, so nobody can leave a new one. | none | 114 |
+| `readers.emptyShownComments` | her | Comments you show appear under your posts, and here. | none | 104 |
+| `readers.emptyShownText` | her | What you show appears under your posts, and here. | none | 98 |
+| `readers.emptyShownTitle` | her | No notes up yet | none | 40 |
+| `readers.emptyShownTitleComments` | her | No comments up yet | none | 40 |
+| `readers.emptyTakenBackText` | her | If a reader takes back what they sent, it shows here. | none | 106 |
+| `readers.emptyTakenBackTitle` | her | Nothing taken back | none | 40 |
+| `readers.emptyTakenDownComments` | her | If you take a comment down, it waits here in case you want it back. | none | 134 |
+| `readers.emptyTakenDownText` | her | If you take something down, it waits here in case you want it back. | none | 134 |
+| `readers.emptyTakenDownTitle` | her | Nothing taken down | none | 40 |
+| `readers.emptyWaitingComments` | her | When someone leaves a comment, it waits here for you to say yes. | none | 128 |
+| `readers.emptyWaitingText` | her | When a reader sends something, it waits here for you to say yes. | none | 128 |
+| `readers.emptyWaitingTitle` | her | Nothing waiting | none | 40 |
+| `readers.eraseKeep` | her | Keep it | none | 40 |
+| `readers.eraseText` | her | Its words and the name on it are deleted. Only a private note that you decided stays. This can't be undone. | none | 214 |
+| `readers.eraseTitle` | her | Erase {name}'s {kind} for good? | `{name}` `{kind}` | 62 |
+| `readers.eraseYes` | her | Erase it | none | 40 |
+| `readers.erased` | her | Its words and any name were erased. Only your private record of decisions is kept. | none | 164 |
+| `readers.findEveryKind` | her | Show every kind | none | 40 |
+| `readers.findGroup` | her | Readers | none | 40 |
+| `readers.findKind` | her | Show only {kind} | `{kind}` | 40 |
+| `readers.findSwitchOff` | her | Turn comments off | none | 40 |
+| `readers.findSwitchOn` | her | Turn comments on | none | 40 |
+| `readers.findUndo` | her | Undo the last decision | none | 44 |
+| `readers.fixAnswerButton` | her | Put the answer on the post | none | 52 |
+| `readers.fixAnswerPublish` | her | Shown here, but the answer isn't on the post yet. | none | 98 |
+| `readers.fixDecision` | her | The post shows an older decision. | none | 66 |
+| `readers.fixDecisionButton` | her | Update the post | none | 40 |
+| `readers.fixDone` | her | The post is updated. | none | 40 |
+| `readers.fixFailed` | her | The post wasn't changed. Try again. | none | 70 |
+| `readers.fixName` | her | They hid their name after it went up. Put it back up without the name. | none | 140 |
+| `readers.fixNameButton` | her | Put it back without the name | none | 56 |
+| `readers.fixPublish` | her | Shown here, but not on the post yet. | none | 72 |
+| `readers.fixPublishButton` | her | Put it on the post | none | 40 |
+| `readers.fixUnknown` | her | {product} can't tell whether this may stay up. Read it, and take it off if it shouldn't be there. | `{product}` | 194 |
+| `readers.fixUnpublish` | her | Not shown here, but still on the post. | none | 76 |
+| `readers.fixUnpublishButton` | her | Take it off the post | none | 40 |
+| `readers.fixWithdrawn` | her | The reader took this back, but it's still on the post. Take it off now. | none | 142 |
+| `readers.gone` | her | This one isn't there any more. | none | 60 |
+| `readers.home` | her | Home | none | 40 |
+| `readers.invalid` | her | Some of what readers sent couldn't be shown here. | none | 98 |
+| `readers.itemDecided` | her | That one was already decided. It's under {view}. | `{view}` | 96 |
+| `readers.itemHere` | her | The one you tapped: | none | 40 |
+| `readers.keysHeading` | details | Keys on What readers sent | none | 50 |
+| `readers.keysText` | details | With a card focused: J next, K previous, S show it, N don't show, T take it down, U undo. | none | 178 |
+| `readers.kind.abuseReport` | her | Report | none | 40 |
+| `readers.kind.alternativeInterpretation` | her | Another reading | none | 40 |
+| `readers.kind.authorResponse` | her | Author's answer | none | 40 |
+| `readers.kind.comment` | her | Comment | none | 40 |
+| `readers.kind.correctionSuggestion` | her | Suggested correction | none | 40 |
+| `readers.kind.futureSuggestion` | her | Idea for later | none | 40 |
+| `readers.kind.question` | her | Question | none | 40 |
+| `readers.kind.sourceSuggestion` | her | Suggested source | none | 40 |
+| `readers.kind.thirdPerspective` | her | Reflection | none | 40 |
+| `readers.kinds.abuseReport` | her | Reports | none | 40 |
+| `readers.kinds.all` | her | Everything | none | 40 |
+| `readers.kinds.alternativeInterpretation` | her | Other readings | none | 40 |
+| `readers.kinds.authorResponse` | her | Authors' answers | none | 40 |
+| `readers.kinds.comment` | her | Comments | none | 40 |
+| `readers.kinds.correctionSuggestion` | her | Suggested corrections | none | 42 |
+| `readers.kinds.futureSuggestion` | her | Ideas for later | none | 40 |
+| `readers.kinds.question` | her | Questions | none | 40 |
+| `readers.kinds.sourceSuggestion` | her | Suggested sources | none | 40 |
+| `readers.kinds.thirdPerspective` | her | Reflections | none | 40 |
+| `readers.leave` | her | Leave | none | 40 |
+| `readers.leaveHeading` | her | Leave without saving the key? | none | 58 |
+| `readers.leaveText` | her | The key you typed isn't kept anywhere. | none | 76 |
+| `readers.ledeAsked` | her | You asked these readers to say more. Their answer comes back here. What they first wrote can't be shown. | none | 208 |
+| `readers.ledeNotShown` | her | You chose not to show these. Only you can see them. | none | 102 |
+| `readers.ledeShown` | her | These are on your posts for everyone to read. | none | 90 |
+| `readers.ledeShownPrivate` | her | Ideas you kept and reports you agreed with are here too, and are never shown. | none | 154 |
+| `readers.ledeTakenBack` | her | Readers took these back, and their words were deleted. Nothing here can be changed. | none | 166 |
+| `readers.ledeTakenDown` | her | These were shown, then you took them down. Only you can see them. | none | 130 |
+| `readers.ledeWaiting` | her | New ones wait here until you choose. Nobody else sees them yet. | none | 126 |
+| `readers.linksNotUpdated` | her | Its links to later posts couldn't be taken off. Check Links to later posts. | none | 150 |
+| `readers.listFailed` | her | What readers sent didn't load. | none | 60 |
+| `readers.listReset` | her | That list couldn't be shown, so here's Waiting. | none | 94 |
+| `readers.listServiceDown` | her | Your comments service isn't answering right now, so {product} can't show what readers sent. Try again in a few minutes. | `{product}` | 238 |
+| `readers.menuCopied` | her | Link copied. | none | 40 |
+| `readers.menuCopyLink` | her | Copy its link | none | 40 |
+| `readers.menuMore` | her | More | none | 40 |
+| `readers.menuMoreFor` | her |  for {label} | `{label}` | 40 |
+| `readers.menuSee` | her | See it on your site | none | 40 |
+| `readers.nameIfShown` | her | They agree to show the name {name} if you show it. | `{name}` | 100 |
+| `readers.nameOnlyOwner` | her | They gave a name only the site's owner can see. | none | 94 |
+| `readers.namePrivate` | her | Their name stays private. | none | 50 |
+| `readers.nameShown` | her | Shown with their name. | none | 44 |
+| `readers.nav` | her | Readers | none | 40 |
+| `readers.noSignal` | her | {product} can't reach your site right now. Nothing changed. Try again when you have a signal. | `{product}` | 186 |
+| `readers.notOffered` | her | That can't be done to this one any more. | none | 80 |
+| `readers.notReadyText` | her | {product} is set up for comments but can't reach them. | `{product}` | 108 |
+| `readers.notReadyTitle` | her | Comments aren't ready yet | none | 50 |
+| `readers.notSetUpText` | her | When readers can leave comments, what they send waits here for you. | none | 134 |
+| `readers.notSetUpTitle` | her | Comments aren't set up | none | 44 |
+| `readers.notYours` | her | Only the site's owner can decide this one. | none | 84 |
+| `readers.offText` | her | Your posts don't show any, and nobody can leave new ones. | none | 114 |
+| `readers.offTitle` | her | Comments are switched off | none | 50 |
+| `readers.oldAskText` | her | Their words and names are deleted for good. Your private record of what you decided is kept longer. | none | 198 |
+| `readers.oldAskTitle` | her | Clear out {n} old notes? | `{n}` | 48 |
+| `readers.oldChanged` | her | Something changed since you checked. Here's what's due now. | none | 118 |
+| `readers.oldCheck` | her | Check what's due | none | 40 |
+| `readers.oldClear` | her | Clear them out | none | 40 |
+| `readers.oldCommentsKept` | her | Comments are kept until you decide, because no time limit is set for them. | none | 148 |
+| `readers.oldDone` | her | Cleared out: {closed} closed, {deleted} deleted. | `{closed}` `{deleted}` | 96 |
+| `readers.oldExpire` | her | {n} {kind} waiting longer than {days} days will close without a decision. | `{n}` `{kind}` `{days}` | 146 |
+| `readers.oldFailed` | her | That didn't go through. Nothing was cleared out. Try again. | none | 118 |
+| `readers.oldKeep` | her | Keep them | none | 40 |
+| `readers.oldMore` | her | More are due than one go clears; check again after. | none | 102 |
+| `readers.oldNone` | her | Nothing is due. Nothing would change now. | none | 82 |
+| `readers.oldNotHere` | her | Only the site's owner can clear out old notes. | none | 92 |
+| `readers.oldPurge` | her | {n} {kind} you didn't show will have their words and names deleted. | `{n}` `{kind}` | 134 |
+| `readers.oldRecords` | her | {n} private records of what you decided are older than {days} days. | `{n}` `{days}` | 134 |
+| `readers.oldScrub` | her | {n} {kind} will have their contact details cleared. | `{n}` `{kind}` | 102 |
+| `readers.oldSkipped` | her | {n} had changed, so they were left. | `{n}` | 70 |
+| `readers.on` | her | on “{title}” | `{title}` | 40 |
+| `readers.onPost` | her | On the post. | none | 40 |
+| `readers.onPostAnswer` | her | On the post, under the reflection, as the author's answer. | none | 116 |
+| `readers.onPostReflection` | her | On the post, as a reader's reflection. | none | 76 |
+| `readers.onSite` | her | on your site | none | 40 |
+| `readers.onlyYou` | her | Only you see this name. | none | 46 |
+| `readers.openPost` | her | “{title}” on your site, opens in a new tab | `{title}` | 84 |
+| `readers.passageChanged` | her | Your post has changed there since they wrote. | none | 90 |
+| `readers.passageLabel` | her | The words they wrote about: | none | 54 |
+| `readers.passageMoved` | her | Your post still says this, in another place. | none | 88 |
+| `readers.postGone` | her | No post has this address now. It may have moved or been taken off {product}. | `{product}` | 152 |
+| `readers.postNotUpdated` | her | It's decided, but the post wasn't updated. Use the button on its card. | none | 140 |
+| `readers.previewNoQuote` | her | On the post it shows without a quote, because that part changed. | none | 128 |
+| `readers.previewPlain` | her | On the post it shows without a quote, from {name}. | `{name}` | 100 |
+| `readers.previewQuote` | her | On the post it shows quoting “{quote}”, from {name}. | `{quote}` `{name}` | 104 |
+| `readers.readAll` | her | Read all | none | 40 |
+| `readers.reason.abusive` | her | It's unkind | none | 40 |
+| `readers.reason.duplicate` | her | They said it twice | none | 40 |
+| `readers.reason.noAction` | her | It's fine | none | 40 |
+| `readers.reason.offTopic` | her | It's not about this post | none | 48 |
+| `readers.reason.other` | her | Another reason | none | 40 |
+| `readers.reason.personalData` | her | It shares something private | none | 54 |
+| `readers.reason.reportDuplicate` | her | It was already reported | none | 46 |
+| `readers.reason.reportSpam` | her | The report is spam | none | 40 |
+| `readers.reason.rights` | her | It copies someone else's work | none | 58 |
+| `readers.reason.spam` | her | It's spam | none | 40 |
+| `readers.reflectionPreview` | her | If you show it, it's titled “{heading}”. | `{heading}` | 80 |
+| `readers.reportAnonymous` | her | Reports don't say who sent them. | none | 64 |
+| `readers.reportGone` | her | What they reported is gone, so this only closes the report. | none | 118 |
+| `readers.reportHeading` | her | A report about {what}, from {name} | `{what}` `{name}` | 68 |
+| `readers.reportNow` | her | Right now it's {state}. | `{state}` | 46 |
+| `readers.reportWhy` | her | Why: {ground} | `{ground}` | 40 |
+| `readers.reportWrote` | her | Written by {name}{on}: | `{name}` `{on}` | 44 |
+| `readers.roleContributor` | her | You can read this as one of its authors. A coordinator decides. | none | 126 |
+| `readers.roleCoordinator` | her | You look after this as a coordinator of a shared post. Only the site's owner sees private names or decides again. | none | 226 |
+| `readers.seeShown` | her | See what's shown | none | 40 |
+| `readers.seeWaiting` | her | See what's waiting | none | 40 |
+| `readers.select` | her | Select | none | 40 |
+| `readers.selectAll` | her | Select all {m} | `{m}` | 40 |
+| `readers.selectOne` | her | Select {label} | `{label}` | 40 |
+| `readers.selected` | her | {n} selected | `{n}` | 40 |
+| `readers.setupCommentsHeading` | her | Comments | none | 40 |
+| `readers.setupConflict` | her | Your comment settings changed somewhere else. Here they are now; switch again if you still want to. | none | 198 |
+| `readers.setupElseHeading` | her | What else readers can send | none | 52 |
+| `readers.setupIsOff` | her | Comments are off. | none | 40 |
+| `readers.setupIsOn` | her | Comments are on. | none | 40 |
+| `readers.setupKeepOn` | her | Keep comments on | none | 40 |
+| `readers.setupLink` | her | How readers reach you | none | 42 |
+| `readers.setupNotSaved` | her | Your comment setting wasn't saved. Try again. | none | 90 |
+| `readers.setupNotSetUp` | her | Comments aren't set up for {product}. | `{product}` | 74 |
+| `readers.setupNotWorking` | her | Comments are on, but {product} can't reach them. | `{product}` | 96 |
+| `readers.setupOff` | her | Comments are off. | none | 40 |
+| `readers.setupOffText` | her | The comments section leaves your posts, and nobody can leave a new one. Nothing is deleted; you can turn them back on any time. | none | 240 |
+| `readers.setupOffTitle` | her | Turn comments off? | none | 40 |
+| `readers.setupOldHeading` | her | Old notes | none | 40 |
+| `readers.setupOldLast` | her | Last cleared out {day}. | `{day}` | 46 |
+| `readers.setupOldNever` | her | Nothing has been cleared out yet. | none | 66 |
+| `readers.setupOldText` | her | Words readers sent that you didn't show are deleted after a while. {product} does it only when you say. | `{product}` | 206 |
+| `readers.setupPerPost` | her | Each post can turn its own comments off in About this post. | none | 118 |
+| `readers.setupRobots` | her | Readers answer a quick check before their first comment of a visit. | none | 134 |
+| `readers.setupRobotsEvery` | her | Readers answer a quick check before every comment. | none | 100 |
+| `readers.setupRobotsHeading` | her | Keeping robots out | none | 40 |
+| `readers.setupSwitch` | her | Let readers leave comments | none | 52 |
+| `readers.setupSwitchHelp` | her | When it's off, the comments section leaves your posts and nobody can leave a new one. | none | 170 |
+| `readers.setupSwitchTrouble` | her | {product} couldn't check whether comments are on. | `{product}` | 98 |
+| `readers.setupTitle` | her | How can readers write to you? | none | 58 |
+| `readers.setupTurnOff` | her | Turn them off | none | 40 |
+| `readers.setupWorking` | her | Comments are on and working. | none | 56 |
+| `readers.showLess` | her | Show less | none | 40 |
+| `readers.showMore` | her | Show more | none | 40 |
+| `readers.showing` | her | Showing {n}. | `{n}` | 40 |
+| `readers.similar` | her | Maybe about the same thing: | none | 54 |
+| `readers.similarLink` | her | {kind}, {when} | `{kind}` `{when}` | 40 |
+| `readers.someone` | her | Someone | none | 40 |
+| `readers.stay` | her | Stay | none | 40 |
+| `readers.tabSent` | her | What readers sent | none | 40 |
+| `readers.tabSetup` | her | How readers reach you | none | 42 |
+| `readers.tabVisitors` | her | Visitors | none | 40 |
+| `readers.tabsLabel` | her | Readers | none | 40 |
+| `readers.title` | her | What have readers sent you? | none | 54 |
+| `readers.tryAgain` | her | Try again | none | 40 |
+| `readers.turnOn` | her | Turn comments on | none | 40 |
+| `readers.undo` | her | Undo | none | 40 |
+| `readers.undoChanged` | her | It changed again since, so it wasn't undone. It's under {where}. | `{where}` | 128 |
+| `readers.undoKept` | her | Kept: {label}. | `{label}` | 40 |
+| `readers.undoNotShown` | her | Not shown: {label}. | `{label}` | 40 |
+| `readers.undoTakenDown` | her | Taken down: {label}. | `{label}` | 40 |
+| `readers.viewAsked` | her | Asked to explain | none | 40 |
+| `readers.viewNotShown` | her | Not shown | none | 40 |
+| `readers.viewShown` | her | Shown | none | 40 |
+| `readers.viewTakenBack` | her | Taken back | none | 40 |
+| `readers.viewTakenDown` | her | Taken down | none | 40 |
+| `readers.viewWaiting` | her | Waiting | none | 40 |
+| `readers.what.answer` | her | an author's answer | none | 40 |
+| `readers.what.comment` | her | a comment | none | 40 |
+| `readers.what.note` | her | a note | none | 40 |
+| `readers.what.reflection` | her | a reflection | none | 40 |
+| `readers.whatKind` | her | What kind | none | 40 |
+| `readers.whichOnes` | her | Which ones | none | 40 |
+| `readers.whyFor` | her |  (choose why) for {label} | `{label}` | 50 |
+| `readers.whyText` | her | Choose the reason that fits best. | none | 66 |
+| `readers.whyTitle` | her | Why? | none | 40 |
+| `readings.about` | her | About | none | 40 |
+| `readings.aboutWhole` | her | the whole comparison | none | 40 |
+| `readings.addExplanation` | her | Add an explanation | none | 40 |
+| `readings.addReading` | her | Add a reading | none | 40 |
+| `readings.addRelation` | her | Add a relation | none | 40 |
+| `readings.addressFixed` | her | Its address is {address}. It can't be changed. | `{address}` | 92 |
+| `readings.addressHelp` | her | The last part of its web address. It can't be changed after the first save. | none | 150 |
+| `readings.ai` | her | An AI tool drafted these words | none | 60 |
+| `readings.aiTool` | her | Which tool | none | 40 |
+| `readings.approvalDropped` | her | Saved. You changed words you'd approved in “{who}”, so readers won't see them until you approve them again. | `{who}` | 214 |
+| `readings.approvalTextChanged` | her | The words changed since you read them. Nothing was approved. Read them again. | none | 154 |
+| `readings.approvalWithdrawn` | her | Withdrew the approval. | none | 44 |
+| `readings.approveMeans` | her | Approving says you read these words, checked them against the evidence and take responsibility for them. Readers see them labelled as drafted with AI. | none | 240 |
+| `readings.approveThese` | her | Approve these words | none | 40 |
+| `readings.approveTitle` | her | Approve these words? | none | 40 |
+| `readings.approvedOn` | her | You approved these words on {date}. | `{date}` | 70 |
+| `readings.approvedStatus` | her | Approved the words of “{who}”. | `{who}` | 60 |
+| `readings.asWritten` | her | Show the comparison as written (for {helper}) | `{helper}` | 90 |
+| `readings.back` | her | ‹ All comparisons of readings | none | 58 |
+| `readings.cancel` | her | Cancel | none | 40 |
+| `readings.certainty` | her | How firmly it's theirs | none | 44 |
+| `readings.certaintyAttributed` | her | Attributed | none | 40 |
+| `readings.certaintyDisputed` | her | Disputed | none | 40 |
+| `readings.certaintyNone` | her | Not said | none | 40 |
+| `readings.certaintyStated` | her | Stated | none | 40 |
+| `readings.certaintyUncertain` | her | Uncertain | none | 40 |
+| `readings.change` | her | Change | none | 40 |
+| `readings.changedHeading` | her | Changed somewhere else | none | 44 |
+| `readings.changedText` | her | This comparison was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep? | none | 240 |
+| `readings.checkEvidence` | her | Evidence to check (saving still works): | none | 78 |
+| `readings.crumbHome` | her | Home | none | 40 |
+| `readings.crumbResearch` | her | Research | none | 40 |
+| `readings.delete` | her | Delete | none | 40 |
+| `readings.deleteAsk` | her | Delete “{title}”? | `{title}` | 40 |
+| `readings.deleteAskLive` | her | It's on your site now. Deleting takes it off. You can bring it back right after with Undo. | none | 180 |
+| `readings.deleteAskText` | her | You can bring it back right after with Undo. | none | 88 |
+| `readings.deleted` | her | Deleted “{title}”. | `{title}` | 40 |
+| `readings.describe` | her | Describe them | none | 40 |
+| `readings.describeHelp` | her | Like an anonymous twelfth-century commentator. | none | 92 |
+| `readings.dismiss` | her | Dismiss | none | 40 |
+| `readings.done` | her | Done | none | 40 |
+| `readings.eChanged` | her | This comparison changed somewhere else since you opened it. Nothing was saved. | none | 156 |
+| `readings.eExists` | her | A comparison already has that address. Choose another. | none | 108 |
+| `readings.eGeneric` | her | That didn't work. Nothing was changed. | none | 76 |
+| `readings.eMissing` | her | That comparison isn't there any more. | none | 74 |
+| `readings.eNoApproval` | her | There's no approval to withdraw. | none | 64 |
+| `readings.eNotAi` | her | Only words an AI tool drafted need approval. Words you wrote don't. | none | 134 |
+| `readings.eSentence` | details | What the server said: | none | 42 |
+| `readings.eStorage` | her | Your site couldn't keep it. Nothing was changed. | none | 96 |
+| `readings.eTooLarge` | her | That's more than a comparison can hold. | none | 78 |
+| `readings.eitherWay` | her | Either way round means the same. | none | 64 |
+| `readings.emptyText` | her | Start from two readings of the same subject. | none | 88 |
+| `readings.emptyTitle` | her | No comparisons of readings yet | none | 60 |
+| `readings.evidenceAdd` | her | Add evidence | none | 40 |
+| `readings.evidenceCount` | her | {count} evidence | `{count}` | 40 |
+| `readings.evidenceFromReading` | her | An explanation uses only evidence its reading already cites. | none | 120 |
+| `readings.evidenceHeading` | her | Evidence | none | 40 |
+| `readings.evidenceLinks` | her | Evidence links | none | 40 |
+| `readings.evidenceMissing` | her | Not in your library | none | 40 |
+| `readings.evidenceNone` | her | No evidence yet | none | 40 |
+| `readings.evidenceNoneYet` | her | No evidence yet. You can still save: say so under What's uncertain. | none | 134 |
+| `readings.evidencePick` | her | Evidence to add | none | 40 |
+| `readings.evidencePrivate` | her | In your research, private: readers won't see it | none | 94 |
+| `readings.evidencePublic` | her | Readers can see this | none | 40 |
+| `readings.evidenceSources` | her | Sources | none | 40 |
+| `readings.evidenceTakeOut` | her | Take out this evidence | none | 44 |
+| `readings.evidenceUnchecked` | her | Not checked: your research couldn't be read | none | 86 |
+| `readings.evidenceWhere` | her | Where in the source | none | 40 |
+| `readings.explanationLede` | her | An explanation adds to your words for one audience. It never replaces them. | none | 150 |
+| `readings.explanationLine` | her | For {level} · about {about} | `{level}` `{about}` | 54 |
+| `readings.explanationText` | her | The explanation | none | 40 |
+| `readings.explanationsEmpty` | her | No explanations yet. They're optional. | none | 76 |
+| `readings.explanationsHeading` | her | Explanations by audience | none | 48 |
+| `readings.factAuthors` | her | By {authors} | `{authors}` | 40 |
+| `readings.factBefore` | her | Before reading: {text} | `{text}` | 44 |
+| `readings.factModes` | her | For {modes} reading | `{modes}` | 40 |
+| `readings.factTranslates` | her | Translates {other} | `{other}` | 40 |
+| `readings.factsLine` | her | Saved with the file, not changed here: {facts} | `{facts}` | 92 |
+| `readings.fieldAddress` | her | Address | none | 40 |
+| `readings.fieldSubject` | her | What the readings are about | none | 54 |
+| `readings.fieldTitle` | her | Title | none | 40 |
+| `readings.fileDetails` | details | Item id: {id} | `{id}` | 40 |
+| `readings.findAddExplanation` | her | Add an explanation to this comparison | none | 74 |
+| `readings.findAddReading` | her | Add a reading to this comparison | none | 64 |
+| `readings.findAddRelation` | her | Add a relation between readings | none | 62 |
+| `readings.findList` | her | Readings side by side | none | 42 |
+| `readings.findMake` | her | New comparison of readings | none | 52 |
+| `readings.findSave` | her | Save this comparison | none | 40 |
+| `readings.forLevel` | her | For | none | 40 |
+| `readings.goBack` | her | Go back | none | 40 |
+| `readings.goTo` | her | Go to {title} | `{title}` | 40 |
+| `readings.keepIt` | her | Keep it | none | 40 |
+| `readings.language` | her | Language, if not the blog's | none | 54 |
+| `readings.languageHelp` | her | A language tag such as en or grc. | none | 66 |
+| `readings.leaveGo` | her | Leave without saving | none | 40 |
+| `readings.leaveHeading` | her | Save this comparison? | none | 42 |
+| `readings.leaveSave` | her | Save | none | 40 |
+| `readings.leaveText` | her | You changed it and didn't save. | none | 62 |
+| `readings.lede` | her | Set readings of one subject side by side, say who holds each, and never rule between them. | none | 180 |
+| `readings.leftAttribution` | her | its source isn't public, so the reading is left out | none | 102 |
+| `readings.leftAwaiting` | her | not approved | none | 40 |
+| `readings.leftDetails` | details | Reason: {reason} | `{reason}` | 40 |
+| `readings.leftDraft` | her | the comparison is a draft | none | 50 |
+| `readings.leftEvidence` | her | some evidence is private and was left out | none | 82 |
+| `readings.leftOutHeading` | her | Only you see this: what readers don't see | none | 82 |
+| `readings.leftOutLine` | her | {name}: {why} | `{name}` `{why}` | 40 |
+| `readings.leftStale` | her | changed after you approved it | none | 58 |
+| `readings.leftSubject` | her | explains a reading readers don't see | none | 72 |
+| `readings.leftTooFew` | her | fewer than two readings can be shown | none | 72 |
+| `readings.leftWithdrawn` | her | withdrawn | none | 40 |
+| `readings.levelBeginner` | her | Beginners | none | 40 |
+| `readings.levelScholarly` | her | Scholars | none | 40 |
+| `readings.levelStudent` | her | Students | none | 40 |
+| `readings.loadFailed` | her | Your comparisons of readings didn't load. | none | 82 |
+| `readings.make` | her | New comparison of readings | none | 52 |
+| `readings.makeDraft` | her | Make it a draft again | none | 42 |
+| `readings.markedAi` | her | Marked as drafted with AI. It needs your approval before readers see it. | none | 144 |
+| `readings.markedOwn` | her | Marked as your own words. | none | 50 |
+| `readings.more` | her | More | none | 40 |
+| `readings.move` | her | Move | none | 40 |
+| `readings.moveDown` | her | Move down | none | 40 |
+| `readings.moveUp` | her | Move up | none | 40 |
+| `readings.moved` | her | {title} is number {number} of {count} now. Not saved yet. | `{title}` `{number}` `{count}` | 114 |
+| `readings.name` | her | Name | none | 40 |
+| `readings.needTwo` | her | Two readings are needed to relate them. | none | 78 |
+| `readings.newHeading` | her | New comparison of readings | none | 52 |
+| `readings.notCompare` | her | To read versions of one passage side by side, use Compare. | none | 116 |
+| `readings.notNow` | her | Not now | none | 40 |
+| `readings.nothingChanged` | her | Nothing's changed. | none | 40 |
+| `readings.open` | her | Open {title} | `{title}` | 40 |
+| `readings.pAddress` | her | The address uses lowercase letters, numbers and single hyphens, up to 64 characters. | none | 168 |
+| `readings.pApproval` | her | Approvals are only given by reading the words and pressing Approve. Saving can't add one. | none | 178 |
+| `readings.pBadValue` | her | Something here isn't right. Check it and try again. | none | 102 |
+| `readings.pDuplicate` | her | Another item has the same name inside the comparison. Take one out and add it again. | none | 168 |
+| `readings.pEvidence` | her | An explanation uses only evidence its reading already cites. | none | 120 |
+| `readings.pExplanation` | her | Write the explanation. | none | 44 |
+| `readings.pJudgement` | her | That field only takes a few set choices. | none | 80 |
+| `readings.pSelf` | her | A reading can't be related to itself. | none | 74 |
+| `readings.pStatement` | her | Write what this reading holds. | none | 60 |
+| `readings.pSubject` | her | Say what the readings are about. | none | 64 |
+| `readings.pTitle` | her | Give the comparison a title. | none | 56 |
+| `readings.pTooLong` | her | That's too long. | none | 40 |
+| `readings.pTooMany` | her | A comparison can't hold more than that. | none | 78 |
+| `readings.pTool` | her | Name the AI tool that drafted these words. | none | 84 |
+| `readings.pUnknown` | her | That points at something that isn't there. Choose again. | none | 112 |
+| `readings.pWho` | her | Say who held this reading, or choose Someone unknown and describe them. | none | 142 |
+| `readings.previewClose` | her | Back to your comparison | none | 46 |
+| `readings.previewDraft` | her | This is a draft. It shows what readers would see if you published it now. | none | 146 |
+| `readings.previewEmpty` | her | Add readings to see it here. | none | 56 |
+| `readings.previewFailed` | her | That didn't load. Try again. | none | 56 |
+| `readings.previewHeading` | her | What readers will see | none | 42 |
+| `readings.previewOnlyYou` | her | Only you see this page. Nothing is published by looking. | none | 112 |
+| `readings.previewRefresh` | her | Looking at your latest changes… | none | 62 |
+| `readings.previewUncertain` | her | Uncertain: {text} | `{text}` | 40 |
+| `readings.previewWithheld` | her | Readers can't see this comparison yet: it needs two readings that are your own words or approved. | none | 194 |
+| `readings.problemsHeading` | her | Not saved yet | none | 40 |
+| `readings.problemsMany` | her | {count} things need a look first. | `{count}` | 66 |
+| `readings.problemsOne` | her | One thing needs a look first. | none | 58 |
+| `readings.provenanceAi` | her | Drafted with AI ({tool}), approved by the author | `{tool}` | 96 |
+| `readings.provenanceOwn` | her | Written by the author | none | 42 |
+| `readings.publish` | her | Publish | none | 40 |
+| `readings.published` | her | Published. Readers see it at {url}, in about a minute. | `{url}` | 108 |
+| `readings.publishedHidden` | her | Saved, but readers can't see it yet: two readings must be your own words or approved. | none | 170 |
+| `readings.publishedSiteOff` | her | Saved as published, but your site isn't showing comparisons of readings yet. | none | 152 |
+| `readings.readApprove` | her | Read and approve | none | 40 |
+| `readings.readingsEmpty` | her | No readings yet. Add the first one, then another. | none | 98 |
+| `readings.readingsHeading` | her | Readings | none | 40 |
+| `readings.relAgrees` | her | Agrees with | none | 40 |
+| `readings.relBuilds` | her | Builds on | none | 40 |
+| `readings.relBy` | her | Relates by | none | 40 |
+| `readings.relDiffers` | her | Differs from | none | 40 |
+| `readings.relHelp` | her | No relation says which reading is right. | none | 80 |
+| `readings.relNote` | her | A note, if it helps | none | 40 |
+| `readings.relResponds` | her | Responds to | none | 40 |
+| `readings.relThat` | her | That reading | none | 40 |
+| `readings.relThis` | her | This reading | none | 40 |
+| `readings.relationLine` | her | {from} · {kind} · {to} | `{from}` `{kind}` `{to}` | 44 |
+| `readings.relationsEmpty` | her | No relations yet. They're optional. | none | 70 |
+| `readings.relationsHeading` | her | How the readings relate | none | 46 |
+| `readings.researchTrouble` | her | Your research couldn't be read, so evidence can't be checked right now. You can still write. | none | 184 |
+| `readings.rowCounts` | her | Readings: {readings} · Explanations: {explanations} | `{readings}` `{explanations}` | 102 |
+| `readings.rowDraft` | her | Draft | none | 40 |
+| `readings.rowNotShown` | her | Not shown yet: two readings must be your own words or approved | none | 124 |
+| `readings.rowShown` | her | On {product} | `{product}` | 40 |
+| `readings.rowUnreadable` | her | Can't be read yet | none | 40 |
+| `readings.saveDraft` | her | Save draft | none | 40 |
+| `readings.saveFirstText` | her | You approve the words as saved. | none | 62 |
+| `readings.saveFirstTitle` | her | Save first? | none | 40 |
+| `readings.saveNow` | her | Save now | none | 40 |
+| `readings.saved` | her | Saved. | none | 40 |
+| `readings.savedDraft` | her | Saved as a draft. Readers don't see it. | none | 78 |
+| `readings.savesWith` | her | Saves with the comparison. | none | 52 |
+| `readings.seeReaders` | her | See what readers will see | none | 50 |
+| `readings.sheetExplanation` | her | An explanation | none | 40 |
+| `readings.sheetReading` | her | Reading: {who} | `{who}` | 40 |
+| `readings.sheetRelation` | her | A relation | none | 40 |
+| `readings.showTheirs` | her | Show the other version | none | 44 |
+| `readings.siteOff` | her | {product} doesn't show comparisons of readings yet. Tell {helper}. | `{product}` `{helper}` | 132 |
+| `readings.siteOffDetails` | details | The site's setting interpretations.publish is off. | none | 100 |
+| `readings.someone` | her | Someone unknown | none | 40 |
+| `readings.sourceChoose` | her | Choose a source | none | 40 |
+| `readings.sourceGone` | her | That source isn't in your library. | none | 68 |
+| `readings.sourceLabel` | her | Source | none | 40 |
+| `readings.standingApproved` | her | Drafted with AI, approved by you | none | 64 |
+| `readings.standingAuthored` | her | Your own words | none | 40 |
+| `readings.standingAwaiting` | her | Drafted with AI: not approved, readers don't see it | none | 102 |
+| `readings.standingStale` | her | Changed after you approved it: readers don't see it until you approve it again | none | 156 |
+| `readings.standingUnknown` | her | Not checked yet | none | 40 |
+| `readings.statement` | her | What this reading holds | none | 46 |
+| `readings.subjectHelp` | her | Neutral words: say the subject, not which reading is right. | none | 118 |
+| `readings.takeOut` | her | Take it out | none | 40 |
+| `readings.theirsShown` | her | Here's the other version. | none | 50 |
+| `readings.title` | her | Readings side by side | none | 42 |
+| `readings.tookOutExplanation` | her | Took out the explanation for {level}. Not saved yet. | `{level}` | 104 |
+| `readings.tookOutReading` | her | Took out “{who}” and the relations that named it. Not saved yet. | `{who}` | 128 |
+| `readings.tryAgain` | her | Try again | none | 40 |
+| `readings.uncertain` | her | What's uncertain | none | 40 |
+| `readings.uncertainHelp` | her | Honest uncertainty is welcome, with or without evidence. | none | 112 |
+| `readings.undo` | her | Undo | none | 40 |
+| `readings.undoFailed` | her | That couldn't be put back, because it changed since. Open it again. | none | 134 |
+| `readings.undone` | her | Put back as it was. | none | 40 |
+| `readings.unreadable` | her | This comparison's file can't be read, so it can't be edited here. | none | 130 |
+| `readings.unreadableDetails` | details | The first problem the server found: | none | 70 |
+| `readings.untitled` | her | A comparison of readings | none | 48 |
+| `readings.update` | her | Update | none | 40 |
+| `readings.updated` | her | Updated. | none | 40 |
+| `readings.useMine` | her | Use my changes | none | 40 |
+| `readings.useMineSure` | her | Use your changes? | none | 40 |
+| `readings.useMineSureText` | her | This replaces the other changes with what you have here. | none | 112 |
+| `readings.useMineYes` | her | Yes, use my changes | none | 40 |
+| `readings.waiting` | her | {count} AI drafts waiting for you to approve | `{count}` | 88 |
+| `readings.waitingOne` | her | 1 AI draft is waiting for you to approve | none | 80 |
+| `readings.wasDrafted` | her | It's a draft again. Readers don't see it. | none | 82 |
+| `readings.who` | her | Who holds it | none | 40 |
+| `readings.whoAnonymous` | her | Someone unknown | none | 40 |
+| `readings.whoNamed` | her | A person, school or tradition | none | 58 |
+| `readings.whoSource` | her | A source in your library | none | 48 |
+| `readings.withdraw` | her | Withdraw approval | none | 40 |
+| `readings.withdrawPublishedText` | her | A published comparison can't hold AI words nobody approved, so the whole comparison goes back to draft. | none | 206 |
+| `readings.withdrawPublishedTitle` | her | Withdraw and make it a draft again? | none | 70 |
+| `readings.withdrawPublishedYes` | her | Withdraw and make it a draft | none | 56 |
+| `readings.withdrawn` | her | Withdrawn: readers don't see it. | none | 64 |
+| `readings.writtenClose` | her | Close | none | 40 |
+| `readings.writtenHeading` | details | The comparison as written | none | 50 |
+| `readings.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
 | `ready.addCover` | her | Add a cover photo | none | 40 |
 | `ready.addTag` | her | Add a tag | none | 40 |
 | `ready.also` | her | Also {count} suggestions. | `{count}` | 50 |
@@ -1452,6 +2233,62 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `trip.showLess` | her | Show less of the route | none | 44 |
 | `undo.askHelp` | her | There's a new {one} with that name now. Ask {helper} to help bring this one back. | `{one}` `{helper}` | 162 |
 | `undo.mayFind` | her | “{title}” can't come back from here. {helper} may still find it. | `{title}` `{helper}` | 128 |
+| `visitors.cameFrom` | her | Where they came from | none | 40 |
+| `visitors.chartLabel` | her | Visits per {unit}, most in {period} with {n}. | `{unit}` `{period}` `{n}` | 90 |
+| `visitors.chartLabelNone` | her | Visits per {unit}. | `{unit}` | 40 |
+| `visitors.colOpened` | her | Pages opened | none | 40 |
+| `visitors.colPeriod` | her | When | none | 40 |
+| `visitors.colVisits` | her | Visits | none | 40 |
+| `visitors.detailsAgents` | details | AI tools and bots: {n} requests{list} | `{n}` `{list}` | 74 |
+| `visitors.detailsError` | details | error {status}: {message} | `{status}` `{message}` | 50 |
+| `visitors.detailsHost` | details | from {host}  {views} | `{host}` `{views}` | 40 |
+| `visitors.detailsPath` | details | {path}  views {views}  visits {visits}  all time {allTime} | `{path}` `{views}` `{visits}` `{allTime}` | 116 |
+| `visitors.detailsRange` | details | from {from} to {to}, views {views}, visits {visits}, all time {allTime}, first day {first}, kept {kept}, series {series} | `{from}` `{to}` `{views}` `{visits}` `{allTime}` `{first}` `{kept}` `{series}` | 240 |
+| `visitors.detailsSource` | details | source {source} | `{source}` | 40 |
+| `visitors.emptyText` | her | When people read {product}, the numbers show up here a day or so later. | `{product}` | 142 |
+| `visitors.emptyTitle` | her | No visits counted yet | none | 42 |
+| `visitors.failed` | her | Your visitor numbers didn't load. | none | 66 |
+| `visitors.findGroup` | her | Visitors | none | 40 |
+| `visitors.findRange` | her | Visitors in the last {range} | `{range}` | 56 |
+| `visitors.frontPage` | her | Your front page | none | 40 |
+| `visitors.how1` | her | {product} counts without cookies and keeps nothing that could tell who a reader is. | `{product}` | 166 |
+| `visitors.how2` | her | A person reading the same page twice in a day is one visit. Nothing links one day to the next, so {product} can't tell how many different people came. | `{product}` | 240 |
+| `visitors.how3` | her | Readers who ask not to be counted aren't counted. | none | 98 |
+| `visitors.how4` | her | Search engines and AI tools also read your pages. They're not in these numbers. | none | 158 |
+| `visitors.how5` | her | This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing. | none | 240 |
+| `visitors.howHeading` | her | How these numbers are counted | none | 58 |
+| `visitors.keptFor` | her | {product} keeps numbers for {n} days, so the start of this period isn't here. | `{product}` `{n}` | 154 |
+| `visitors.noSignal` | her | {product} can't reach your site right now, so there are no numbers to show. Try again when you have a signal. | `{product}` | 218 |
+| `visitors.notYet` | her | not counted yet | none | 40 |
+| `visitors.off` | her | Visitor counting is switched off. | none | 66 |
+| `visitors.opened` | her | Pages were opened {n} times. | `{n}` | 56 |
+| `visitors.opened1` | her | A page was opened once. | none | 46 |
+| `visitors.otherPages` | her | Other pages: {visits} | `{visits}` | 42 |
+| `visitors.partMonth` | her | part of the month | none | 40 |
+| `visitors.partWeek` | her | part of a week | none | 40 |
+| `visitors.range30` | her | 30 days | none | 40 |
+| `visitors.range7` | her | 7 days | none | 40 |
+| `visitors.range90` | her | 90 days | none | 40 |
+| `visitors.rangeLabel` | her | Over the last | none | 40 |
+| `visitors.rangeYear` | her | a year | none | 40 |
+| `visitors.readMost` | her | What they read most | none | 40 |
+| `visitors.readNone` | her | No posts yet; the visits were to other pages. | none | 90 |
+| `visitors.seeNumbers` | her | See the numbers | none | 40 |
+| `visitors.serviceDown` | her | Your visitor numbers aren't answering right now. Try again in a few minutes. | none | 152 |
+| `visitors.showMore` | her | Show more | none | 40 |
+| `visitors.since` | her | Counting since {day}. | `{day}` | 42 |
+| `visitors.tableCaption` | her | Visits and pages opened, by {unit} | `{unit}` | 68 |
+| `visitors.title` | her | Who's been reading? | none | 40 |
+| `visitors.tryAgain` | her | Try again | none | 40 |
+| `visitors.unitDay` | her | day | none | 40 |
+| `visitors.unitMonth` | her | month | none | 40 |
+| `visitors.unitWeek` | her | week | none | 40 |
+| `visitors.untitled` | her | Untitled | none | 40 |
+| `visitors.visit1` | her | 1 visit | none | 40 |
+| `visitors.visitMeans` | her | A visit is one person reading one page on one day. | none | 100 |
+| `visitors.visits` | her | {n} visits | `{n}` | 40 |
+| `visitors.visitsFor` | her | {n} visits | `{n}` | 40 |
+| `visitors.weekOf` | her | the week of {day} | `{day}` | 40 |
 | `voice.announceDone` | her | Your rough draft is saved as you wrote it. | none | 84 |
 | `voice.announceLeft` | her | {time} left. | `{time}` | 40 |
 | `voice.announceResumed` | her | Back where you were. {time} left. | `{time}` | 66 |

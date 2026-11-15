@@ -721,3 +721,278 @@ fn an_explanation_cannot_cite_evidence_its_interpretation_does_not() {
     assert_eq!(status, 422, "{refused}");
     assert!(refused.to_string().contains("adds no evidence of its own"));
 }
+
+fn restore(f: &Fixture, s: &(String, String), body: Json) -> (u16, Json) {
+    decide(f, s, "restore", body)
+}
+
+#[test]
+fn an_approval_and_a_withdrawal_each_keep_the_copy_they_replace_and_restore_brings_it_back_exactly()
+{
+    let f = site("restore_approval");
+    let s = login_ok(&f);
+    let explanations = json!([ai(
+        json!({"id": "easy", "level": "beginner", "text": UNAPPROVED})
+    )]);
+    let (_, created) = create(&f, &s, body_of("cave", "draft", two(), explanations));
+    assert_eq!(
+        created["replaced"],
+        Json::Null,
+        "a new file replaces nothing"
+    );
+    let before_approval = stored(&f, "cave").unwrap();
+    let digest = state_of(&created, "easy")["digest"].clone();
+    let (status, approved) = decide(
+        &f,
+        &s,
+        "approve",
+        json!({"slug": "cave", "revision": created["revision"], "kind": "explanation", "id": "easy", "digest": digest}),
+    );
+    assert_eq!(status, 200, "{approved}");
+    let after_approval = stored(&f, "cave").unwrap();
+    assert_ne!(after_approval, before_approval);
+    let name = approved["replaced"]
+        .as_str()
+        .expect("the approve keeps the copy")
+        .to_string();
+
+    // Undo the approval: the copy before it comes back byte for byte.
+    let (status, undone) = restore(
+        &f,
+        &s,
+        json!({"slug": "cave", "name": name, "revision": approved["revision"]}),
+    );
+    assert_eq!(status, 200, "{undone}");
+    assert_eq!(stored(&f, "cave").unwrap(), before_approval);
+    assert_eq!(state_of(&undone, "easy")["standing"], "awaiting-approval");
+
+    // Undo the undo: the approval is back, exactly as the server wrote it.
+    let (status, redone) = restore(
+        &f,
+        &s,
+        json!({"slug": "cave", "name": undone["replaced"], "revision": undone["revision"]}),
+    );
+    assert_eq!(status, 200, "{redone}");
+    assert_eq!(
+        stored(&f, "cave").unwrap(),
+        after_approval,
+        "approvals included"
+    );
+}
+
+#[test]
+fn a_deleted_comparison_with_approvals_comes_back_whole_and_refusals_have_their_codes() {
+    let f = site("restore_deleted");
+    let s = login_ok(&f);
+    let explanations = json!([ai(
+        json!({"id": "easy", "level": "beginner", "text": UNAPPROVED})
+    )]);
+    let (_, created) = create(&f, &s, body_of("cave", "draft", two(), explanations));
+    let digest = state_of(&created, "easy")["digest"].clone();
+    let (_, approved) = decide(
+        &f,
+        &s,
+        "approve",
+        json!({"slug": "cave", "revision": created["revision"], "kind": "explanation", "id": "easy", "digest": digest}),
+    );
+    let with_approval = stored(&f, "cave").unwrap();
+    let gone = handle(
+        &f.state,
+        &authed(
+            req(
+                "DELETE",
+                &format!(
+                    "/admin/api/comparisons?slug=cave&revision={}",
+                    approved["revision"].as_str().unwrap()
+                ),
+            ),
+            &s,
+            true,
+        ),
+    );
+    let name = body_json(&gone)["replaced"].as_str().unwrap().to_string();
+    assert!(!file(&f, "cave").exists());
+
+    let (status, wrong) = restore(
+        &f,
+        &s,
+        json!({"slug": "cave", "name": name, "revision": "abc"}),
+    );
+    assert_eq!(
+        (status, wrong["code"].as_str()),
+        (409, Some("changed")),
+        "{wrong}"
+    );
+    for bad in [
+        "../x.json",
+        "a/b.json",
+        "2026-01-01T000000Z-paths_cave.json",
+        "",
+    ] {
+        let (status, refused) = restore(
+            &f,
+            &s,
+            json!({"slug": "cave", "name": bad, "revision": null}),
+        );
+        assert_eq!(
+            (status, refused["code"].as_str()),
+            (400, Some("bad-request")),
+            "{bad}"
+        );
+    }
+    let (status, missing) = restore(
+        &f,
+        &s,
+        json!({"slug": "cave", "name": "2026-01-01T000000Z-comparisons_cave-9.json", "revision": null}),
+    );
+    assert_eq!(
+        (status, missing["code"].as_str()),
+        (404, Some("missing")),
+        "{missing}"
+    );
+    let (status, back) = restore(
+        &f,
+        &s,
+        json!({"slug": "cave", "name": name, "revision": null}),
+    );
+    assert_eq!(status, 200, "{back}");
+    assert_eq!(stored(&f, "cave").unwrap(), with_approval);
+
+    // The refusals of the approve action say what kind they are.
+    let (_, fresh) = create(&f, &s, body_of("other", "draft", two(), json!([])));
+    let (status, not_ai) = decide(
+        &f,
+        &s,
+        "approve",
+        json!({"slug": "other", "revision": fresh["revision"], "kind": "interpretation", "id": "one", "digest": "x"}),
+    );
+    assert_eq!(
+        (status, not_ai["code"].as_str()),
+        (422, Some("not-ai")),
+        "{not_ai}"
+    );
+    let (status, none) = decide(
+        &f,
+        &s,
+        "revoke",
+        json!({"slug": "cave", "revision": back["revision"], "kind": "explanation", "id": "easy"}),
+    );
+    assert_eq!(status, 200, "{none}");
+    let (status, no_approval) = decide(
+        &f,
+        &s,
+        "revoke",
+        json!({"slug": "cave", "revision": none["revision"], "kind": "explanation", "id": "easy"}),
+    );
+    assert_eq!(
+        (status, no_approval["code"].as_str()),
+        (422, Some("no-approval")),
+        "{no_approval}"
+    );
+    let (status, stale) = decide(
+        &f,
+        &s,
+        "approve",
+        json!({"slug": "cave", "revision": no_approval["revision"].as_str().unwrap_or(none["revision"].as_str().unwrap()), "kind": "explanation", "id": "easy", "digest": "not-the-digest"}),
+    );
+    assert_eq!(
+        (status, stale["code"].as_str()),
+        (422, Some("stale")),
+        "{stale}"
+    );
+}
+
+#[test]
+fn problems_carry_a_code_and_a_field_and_the_list_and_item_say_when_a_comparison_is_public() {
+    let f = site("publish_codes");
+    let s = login_ok(&f);
+    let bad = body_of(
+        "cave",
+        "draft",
+        json!([{"id": "one", "statement": "x"}]),
+        json!([]),
+    );
+    let (status, refused) = create(&f, &s, bad);
+    assert_eq!(
+        (status, refused["code"].as_str()),
+        (422, Some("invalid")),
+        "{refused}"
+    );
+    for problem in refused["problems"].as_array().unwrap() {
+        assert!(
+            problem["code"].is_string() && problem["field"].is_string(),
+            "{problem}"
+        );
+    }
+
+    let (_, created) = create(&f, &s, body_of("cave", "published", two(), json!([])));
+    let item = body_json(&handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/comparisons/item?slug=cave"),
+            &s,
+            false,
+        ),
+    ));
+    assert_eq!(item["publish"], false);
+    assert_eq!(
+        item["url"],
+        Json::Null,
+        "the site does not publish them yet"
+    );
+    let list = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/comparisons"), &s, false),
+    ));
+    assert_eq!(list["publish"], false);
+    assert_eq!(list["items"][0]["url"], Json::Null);
+    let _ = created;
+
+    let config = f.dir.join("openblog.json");
+    let mut value: Json = serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+    value["interpretations"] = json!({"publish": true});
+    fs::write(&config, value.to_string()).unwrap();
+    let item = body_json(&handle(
+        &f.state,
+        &authed(
+            req("GET", "/admin/api/comparisons/item?slug=cave"),
+            &s,
+            false,
+        ),
+    ));
+    assert_eq!(item["publish"], true);
+    assert_eq!(item["url"], "/interpretations/cave/");
+    let list = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/comparisons"), &s, false),
+    ));
+    assert_eq!(list["items"][0]["url"], "/interpretations/cave/");
+    assert_eq!(list["items"][0]["shown"], true);
+}
+
+#[test]
+fn evidence_choices_come_with_words_not_only_keys() {
+    let f = site("labels");
+    let s = login_ok(&f);
+    let refs = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/comparisons/references"), &s, false),
+    ));
+    let link = refs["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["id"] == "public-link")
+        .unwrap();
+    assert_eq!(link["label"], "S", "the claim's statement");
+    assert_eq!(
+        link["sourceTitle"],
+        refs["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == "plato")
+            .unwrap()["title"]
+    );
+    assert_eq!(link["claim"], "c1", "the key stays for the request");
+}

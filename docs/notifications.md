@@ -105,7 +105,7 @@ curl -X POST https://<your-netlify-site>/api/push/notify \
 ```
 
 `title` is required (up to 80 characters), `body` is optional (up to 180), and `url` is where tapping goes: a
-page in Studio like `/admin/studio/#/comments`, or any https page. (An older `/admin/#/…` address still
+page in Studio like `/admin/studio/#/readers`, or any https page. (An older `/admin/#/…` address still
 works: the worker opens the same screen in Studio.) It reaches only devices with
 **News from your family's other apps** turned on. The notify key can send and nothing else: it can't see, add or remove devices. Keep it
 on the other app's server.

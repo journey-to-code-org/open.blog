@@ -14,7 +14,7 @@ import { removeTree } from "./teardown.mjs";
 // so the stand-ins here would be skipped. These tests don't need it.
 test.use({ serviceWorkers: "block" });
 
-// Studio slice 8: Comments. The hosted inbox is mocked at the Admin API (as moderation-inbox.spec
+// Studio R10: Readers (was slice 8, Comments). The hosted inbox is mocked at the Admin API (as moderation-inbox.spec
 // does); the settings switch is the real Admin. Comments shows in the navigation only when it's set
 // up; a waiting comment is shown with one press; saying no asks why and can be undone; a report is
 // kept quietly; a 409 reloads; other kinds link to the full inbox; Home says what's waiting; the
@@ -30,7 +30,7 @@ let server;
 let origin;
 
 test.beforeAll(async () => {
-  root = mkdtempSync(join(tmpdir(), "openblog-studio-comments-"));
+  root = mkdtempSync(join(tmpdir(), "openblog-studio-readers-"));
   cpSync(join(repository, "examples", "portable-publishing"), root, { recursive: true });
   for (const theme of ["paper"]) cpSync(join(repository, "themes", theme), join(root, "themes", theme), { recursive: true });
   const configPath = join(root, "openblog.json");
@@ -66,7 +66,7 @@ test.afterAll(async () => {
   removeTree(root);
 });
 
-async function signIn(page, hash = "#/comments") {
+async function signIn(page, hash = "#/readers") {
   await page.goto(`${origin}/admin/studio/${hash}`);
   const name = page.getByRole("textbox", { name: "Your name", exact: true });
   if (await name.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
@@ -126,15 +126,15 @@ test("a waiting comment is shown with one press, and the text is never read as m
   const items = [item(1), item(2, { reader: { name: "Jimmy", publishName: true }, body: "Needs more butter." })];
   const decisions = await mockInbox(page, items);
   await signIn(page);
-  await expect(page.getByRole("link", { name: "Comments" }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What have people said?" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Readers" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What have readers sent you?" })).toBeVisible();
   const sue = page.locator(".studio-comment", { hasText: "Aunt Sue" });
   await expect(sue.getByText(HOSTILE, { exact: false })).toBeVisible();
-  await expect(sue.getByRole("link", { name: "Pecan pie on your site, opens in a new tab" })).toBeVisible();
-  // Clarifying is for scholarly notes; Studio never offers it.
+  await expect(sue.getByRole("link", { name: "“Pecan pie” on your site, opens in a new tab" })).toBeVisible();
+  // Clarifying is only offered where the server offers it, and these comments don't.
   await expect(page.getByRole("button", { name: /clarify/i })).toHaveCount(0);
   await sue.getByRole("button", { name: "Show it" }).click();
-  await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: "Shown under “Pecan pie”" })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: "Shown under “Pecan pie”" })).toBeVisible();
   await expect(sue).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Jimmy" })).toBeFocused();
   expect(decisions[0]).toEqual({ source: "comment", id: ID(1), action: "approve", from: "pending", version: 1 });
@@ -147,14 +147,14 @@ test("saying no asks why, and Undo puts it back in Waiting", async ({ page }) =>
   const sue = page.locator(".studio-comment", { hasText: "Aunt Sue" });
   await sue.getByRole("button", { name: /Don't show/ }).click();
   await page.getByRole("menuitem", { name: "It's spam" }).click();
-  await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: "Not shown. Nobody else sees it." })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: "Not shown. Nobody else sees it." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nothing waiting" })).toBeVisible();
   expect(decisions[0]).toMatchObject({ action: "reject", reason: "spam", version: 1 });
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".studio-comment", { hasText: "Aunt Sue" })).toBeVisible();
   expect(decisions[1]).toMatchObject({ action: "reopen", from: "rejected", version: 2 });
   // Not shown lists what she turned away, with why.
-  await page.goto(`${origin}/admin/studio/#/comments/not-shown`);
+  await page.goto(`${origin}/admin/studio/#/readers/not-shown`);
   await expect(page.getByRole("heading", { name: "Nothing here" })).toBeVisible();
 });
 
@@ -183,16 +183,17 @@ test("a report is kept quietly; another kind of note links to the full inbox; a 
     },
   });
   await signIn(page);
-  const card = page.locator(".studio-comment", { hasText: "reported a comment" });
-  await expect(card.getByText("Reported", { exact: true })).toBeVisible();
+  const card = page.locator(".studio-comment", { hasText: "A report about" });
+  await expect(card.getByText("Report", { exact: false }).first()).toBeVisible();
   await expect(card.getByText("You call that stuffing?")).toBeVisible();
   await card.getByRole("button", { name: "Keep the comment" }).click();
-  await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: "Kept. The comment stays where it is." })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: "Kept. It stays where it is." })).toBeVisible();
   expect(decisions[0]).toMatchObject({ source: "report", action: "reject", reason: "no-action" });
-  await expect(page.getByRole("link", { name: "Open in the full inbox" }).first()).toHaveAttribute("href", "/admin/#/moderation/pending");
+  // Every kind is handled here now; there is no "full inbox" link.
+  await expect(page.getByRole("link", { name: "Open in the full inbox" })).toHaveCount(0);
   const ricky = page.locator(".studio-comment", { hasText: "Ricky" });
   await ricky.getByRole("button", { name: "Show it" }).click();
-  await expect(ricky.getByText("This comment changed somewhere else just now.")).toBeVisible();
+  await expect(ricky.getByText("This changed somewhere else just now.", { exact: false })).toBeVisible();
   await expect(ricky.getByText("Edited since.")).toBeVisible();
   await ricky.getByRole("button", { name: "Show it" }).click();
   await expect(ricky).toHaveCount(0);
@@ -202,10 +203,10 @@ test("a report is kept quietly; another kind of note links to the full inbox; a 
 test("Home says what's waiting, and the switch rewrites only engagement", async ({ page }) => {
   await mockInbox(page, [item(7), item(8)]);
   await signIn(page, "#/");
-  await expect(page.getByRole("link", { name: "2 comments are waiting for you" })).toHaveAttribute("href", "#/comments");
+  await expect(page.getByRole("link", { name: "2 comments are waiting for you" })).toHaveAttribute("href", "#/readers");
   const before = readFileSync(join(root, "openblog.json"), "utf8");
-  await page.goto(`${origin}/admin/studio/#/comments`);
-  const toggle = page.getByRole("switch", { name: "Let people leave comments" });
+  await page.goto(`${origin}/admin/studio/#/readers/setup`);
+  const toggle = page.getByRole("switch", { name: "Let readers leave comments" });
   await expect(toggle).toBeChecked();
   // Turning them off asks first; keeping them on changes nothing.
   await toggle.click();
@@ -213,8 +214,8 @@ test("Home says what's waiting, and the switch rewrites only engagement", async 
   await expect(toggle).toBeChecked();
   await toggle.click();
   await page.getByRole("button", { name: "Turn them off" }).click();
-  await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: /^Comments are off\./ })).toBeVisible();
-  await expect(page.getByText("Comments are switched off", { exact: true })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: /^Comments are off\./ }).first()).toBeVisible();
+  await expect(page.getByText("Comments are off.", { exact: true })).toBeVisible();
   const after = JSON.parse(readFileSync(join(root, "openblog.json"), "utf8"));
   expect(after.engagement.comments).toBe(false);
   const was = JSON.parse(before);
@@ -222,14 +223,65 @@ test("Home says what's waiting, and the switch rewrites only engagement", async 
   delete after.engagement;
   expect(after).toEqual(was);
   await toggle.click();
-  await expect(page.locator(".studio-comments p[role=status]").filter({ hasText: /^Comments are on\./ })).toBeVisible();
+  await expect(page.locator("main p[role=status]").filter({ hasText: /^Comments are on\./ })).toBeVisible();
 });
 
-test("Comments passes axe at 320 px without sideways scrolling", async ({ page }) => {
+test("Readers passes axe at 320 px without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await mockInbox(page, [item(10, { body: "x".repeat(900) })]);
   await signIn(page);
   await expect(page.getByRole("button", { name: "Read all" })).toBeVisible();
+  await page.evaluate(axeSource);
+  const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`));
+  expect(results).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+});
+
+test("bulk: select by keyboard, one reason for all, a partial answer marks the one that didn't go through, and Undo puts the rest back", async ({ page }) => {
+  const items = [item(21, { reader: { name: "Ann", publishName: true } }), item(22, { reader: { name: "Bea", publishName: true } }), item(23, { reader: { name: "Cy", publishName: true } })];
+  await mockInbox(page, items);
+  const sent = [];
+  await page.route("**/admin/api/engagement/moderation/batch", async (route) => {
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    const results = body.items.map((one) => {
+      const found = items.find((i) => i.id === one.id);
+      if (body.action === "reject" && one.id === ID(23)) return { id: one.id, ok: false, code: "conflict" };
+      found.status = body.action === "reopen" ? "pending" : "rejected";
+      found.version += 1;
+      return { id: one.id, ok: true, item: { ...found } };
+    });
+    return json(route, 200, { results });
+  });
+  await signIn(page);
+  await expect(page.getByRole("heading", { name: "What have readers sent you?" })).toBeVisible();
+  const toggle = page.getByLabel("Select", { exact: true });
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("checkbox", { name: /^Select Comment from Ann/ })).toBeVisible();
+  await page.getByRole("button", { name: "Select all 3" }).click();
+  await expect(page.getByText("3 selected")).toBeVisible();
+  await page.getByRole("button", { name: "Don't show 3" }).click();
+  await expect(page.getByRole("heading", { name: "Don't show 3?" })).toBeVisible();
+  await page.getByRole("button", { name: "It's spam" }).click();
+  await expect(page.locator("main p[role=status]").filter({ hasText: "2 done. 1 didn't go through" })).toBeVisible();
+  expect(sent[0]).toMatchObject({ action: "reject", reason: "spam" });
+  expect(sent[0].items.map((i) => i.id)).toEqual([ID(21), ID(22), ID(23)]);
+  await expect(page.locator(".studio-comment")).toHaveCount(1);
+  await expect(page.locator(".studio-comment .studio-comment-trouble")).toHaveText("This changed somewhere else, so it wasn't decided.");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => sent.at(-1)?.action).toBe("reopen");
+  expect(sent.at(-1).items.map((i) => i.id)).toEqual([ID(21), ID(22)]);
+  expect(sent.at(-1).items.every((i) => i.from === "rejected" && i.version === 2)).toBe(true);
+  await expect(page.locator(".studio-comment")).toHaveCount(3);
+});
+
+test("bulk bar passes axe at 320 px", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockInbox(page, [item(31), item(32)]);
+  await signIn(page);
+  await page.getByLabel("Select", { exact: true }).check();
+  await page.getByRole("button", { name: "Select all 2" }).click();
   await page.evaluate(axeSource);
   const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`));
   expect(results).toEqual([]);
