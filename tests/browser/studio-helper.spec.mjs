@@ -373,6 +373,36 @@ test("a suggestion with more than words in it is advice only: no Use this, skipp
   expect(await page.evaluate(() => window.__pwn)).toBeUndefined();
 });
 
+// S2: where someone was stays private by default, from the helper's company too.
+test("a trip whose place is hidden sends nothing about the place, and the list says the same; a place she shows may go", async ({ page }) => {
+  await asAnthropic(page);
+  const trip = (privacy) => `---\ntitle: Up the ridge\ndate: 2026-10-07\ndraft: true\nprofile: field-journal\nactivity: Hike\nlocation: PLACE-Dolly-Sods\nlocationPrivacy: ${privacy}\ndistanceKm: "12.47"\nelevationGainM: "641"\nduration: PT4H10M\nconditions: Wet and windy\n---\n\nWe walked alot that day.\n`;
+  const PLACE = ["PLACE-Dolly-Sods", "12.47", "641", "PT4H10M", "locationPrivacy"];
+  for (const [file, privacy, shown] of [["2026-10-07-ridge.md", "hidden", false], ["2026-10-07-ridge-shown.md", "approximate", true]]) {
+    await openPost(page, site, file, trip(privacy));
+    const sent = await stubReview(page, review([]));
+    await card(page).getByRole("button").click();
+    const line = goes(page).locator("li, p").filter({ hasText: "This post's details:" }).first();
+    await expect(line).toContainText("what you did and the conditions");
+    if (shown) await expect(line).toContainText("the place and the trip's numbers");
+    else await expect(line).not.toContainText("place");
+    await goes(page).locator("summary").click();
+    const exact = goes(page).getByLabel("Word for word");
+    await expect(exact).toContainText("Title: Up the ridge");
+    await expect(exact).toContainText("Hike");
+    for (const place of PLACE) {
+      if (shown) await expect(exact, place).toContainText(place);
+      else await expect(exact, place).not.toContainText(place);
+    }
+    await sheet(page).getByRole("button", { name: "Read it over", exact: true }).click();
+    await expect.poll(() => sent.length).toBe(1);
+    const body = JSON.stringify(sent[0]);
+    for (const place of PLACE) expect(body.includes(place), `${privacy}: ${place}`).toBe(shown);
+    expect(sent[0].source.metadata.activity).toBe("Hike");
+    await closeButton(page).click();
+  }
+});
+
 test("a recipe: a suggestion in Your story changes that box only, and one in an ingredient row is advice", async ({ page }) => {
   await asAnthropic(page);
   const recipe = "---\ntitle: Apple pie\ndate: 2026-10-06\ndraft: true\nprofile: recipe\nservings: \"8\"\n---\n\nMy mother made this alot.\n\n## Ingredients\n\n- 2 cups flour\n- 1 cup buter\n\n## Method\n\n1. Mix it all.\n\n## Notes\n\nKeep it cold.\n";

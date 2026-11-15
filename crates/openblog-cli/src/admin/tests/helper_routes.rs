@@ -1119,3 +1119,101 @@ fn every_provider_route_refuses_a_request_that_does_not_say_confirmed() {
         );
     }
 }
+
+/// S2: whatever a page sends, a hidden place never reaches the provider, and a shown one may.
+#[test]
+fn a_hidden_place_is_taken_out_of_the_details_before_a_provider_sees_them() {
+    let trip = |privacy: Json| {
+        let mut fields = json!({
+            "profile": "field-journal", "activity": "Hike", "conditions": "Wet",
+            "location": "PLACE-MARK", "distanceKm": "12.4", "elevationGainM": "640",
+            "duration": "PT4H10M", "tags": ["hike"],
+            "trackToken": "tok", "captureId": "cap", "route": "media/r.gpx",
+            "routeShape": "0,0 1,1", "elevationProfile": "1,2,3",
+        });
+        if !privacy.is_null() {
+            fields["locationPrivacy"] = privacy;
+        }
+        fields
+    };
+    for hidden in [
+        Json::Null,
+        json!("hidden"),
+        json!(""),
+        json!("nonsense"),
+        json!(3),
+    ] {
+        let sent = metadata_without_hidden_place(trip(hidden.clone()));
+        assert_eq!(
+            sent,
+            json!({ "profile": "field-journal", "activity": "Hike", "conditions": "Wet", "tags": ["hike"] }),
+            "{hidden}"
+        );
+    }
+    for shown in ["trimmed", "approximate", "exact", " Exact "] {
+        let sent = metadata_without_hidden_place(trip(json!(shown)));
+        let mut keys: Vec<&str> = sent
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "activity",
+                "conditions",
+                "distanceKm",
+                "duration",
+                "elevationGainM",
+                "location",
+                "locationPrivacy",
+                "profile",
+                "tags"
+            ],
+            "{shown}: the route's own file and shape never go"
+        );
+    }
+    // A video's length is its own.
+    assert_eq!(
+        metadata_without_hidden_place(
+            json!({ "profile": "video", "duration": "PT4M", "location": "x" })
+        ),
+        json!({ "profile": "video", "duration": "PT4M" })
+    );
+}
+
+/// S2, end to end: a review of a trip whose place is hidden sends the provider nothing of it.
+#[test]
+fn a_review_of_a_trip_with_a_hidden_place_sends_nothing_about_the_place() {
+    let _env = quiz_env();
+    let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+    let f = fixture("s2-hidden-place");
+    let session = login_ok(&f);
+    std::env::set_var("OPENBLOG_LESSONS_API_KEY", KEY);
+    let (endpoint, seen, provider) = provider_once(200, "", r#"{"findings":[]}"#.to_string());
+    set_quiz_endpoint(&f, &endpoint);
+    let mut body = review_body();
+    body["source"]["metadata"] = json!({
+        "profile": "field-journal", "location": "PLACE-MARK-7731", "distanceKm": "12.4731",
+        "elevationGainM": "64077", "duration": "PT4H10M", "routeShape": "SHAPE-MARK", "locationPrivacy": "hidden",
+    });
+    let _ = post(&f, &session, "assistant/review", body);
+    provider.join().unwrap();
+    let sent = seen.recv().unwrap();
+    assert!(
+        sent.contains("alot of butter"),
+        "the post itself went: {sent}"
+    );
+    for place in [
+        "PLACE-MARK-7731",
+        "12.4731",
+        "64077",
+        "PT4H10M",
+        "SHAPE-MARK",
+        "locationPrivacy",
+    ] {
+        assert!(!sent.contains(place), "{place} reached the provider");
+    }
+}

@@ -663,10 +663,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `helper.goesWords` | her | Your title and your words, about {count} | `{count}` | 80 |
 | `helper.groupJob` | her | job details | none | 40 |
 | `helper.groupOther` | her | what kind of post it is | none | 46 |
+| `helper.groupPlace` | her | the place and the trip's numbers | none | 64 |
 | `helper.groupRecipe` | her | recipe facts | none | 40 |
 | `helper.groupSummary` | her | summary | none | 40 |
 | `helper.groupTags` | her | tags | none | 40 |
-| `helper.groupTrip` | her | trip numbers | none | 40 |
+| `helper.groupTrip` | her | what you did and the conditions | none | 62 |
 | `helper.groupVideo` | her | video facts | none | 40 |
 | `helper.groupWhen` | her | when it appears | none | 40 |
 | `helper.keyRejected` | her | {company} didn't accept the key for {product}. Tell {helper}. | `{company}` `{product}` `{helper}` | 122 |

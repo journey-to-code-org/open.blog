@@ -3548,6 +3548,12 @@
       "max": 46,
       "vars": []
     },
+    "helper.groupPlace": {
+      "text": "the place and the trip's numbers",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
     "helper.groupRecipe": {
       "text": "recipe facts",
       "layer": "her",
@@ -3567,9 +3573,9 @@
       "vars": []
     },
     "helper.groupTrip": {
-      "text": "trip numbers",
+      "text": "what you did and the conditions",
       "layer": "her",
-      "max": 40,
+      "max": 62,
       "vars": []
     },
     "helper.groupVideo": {

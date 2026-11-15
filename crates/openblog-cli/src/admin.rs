@@ -12579,6 +12579,51 @@ fn check_assistant_provider(state: &AppState, req: &Request, session: &auth::Ses
     }
 }
 
+/// A post's details as a provider may get them (S2, Studio R7: where someone was stays private by
+/// default). What a route file says is never sent. Unless the author chose to show the place to
+/// readers (`locationPrivacy` is `trimmed`, `approximate` or `exact`), nothing about the place is
+/// sent either: not the area's name, not the route's numbers (a trip's distance, climb and time),
+/// not the choice itself. Studio leaves these out before it sends; this holds for any page.
+fn metadata_without_hidden_place(mut metadata: Json) -> Json {
+    let Some(fields) = metadata.as_object_mut() else {
+        return metadata;
+    };
+    for key in [
+        "trackToken",
+        "captureId",
+        "route",
+        "routeShape",
+        "elevationProfile",
+    ] {
+        fields.remove(key);
+    }
+    let word = |fields: &serde_json::Map<String, Json>, key: &str| {
+        fields
+            .get(key)
+            .and_then(Json::as_str)
+            .map(|value| value.trim().to_lowercase())
+            .unwrap_or_default()
+    };
+    let shown = matches!(
+        word(fields, "locationPrivacy").as_str(),
+        "trimmed" | "approximate" | "exact"
+    );
+    if !shown {
+        for key in [
+            "location",
+            "distanceKm",
+            "elevationGainM",
+            "locationPrivacy",
+        ] {
+            fields.remove(key);
+        }
+        if word(fields, "profile") == "field-journal" {
+            fields.remove("duration");
+        }
+    }
+    metadata
+}
+
 fn generate_document_review(state: &AppState, req: &Request) -> Response {
     if let Err(response) = require_json(req) {
         return response;
@@ -12596,7 +12641,8 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         _ => return Response::error(400, "Review source needs a bounded UTF-8 title"),
     };
     let metadata = match source["metadata"].as_object() {
-        Some(_) => source["metadata"].clone(),
+        // Whatever a page sent, nothing about a hidden place reaches the provider (S2).
+        Some(_) => metadata_without_hidden_place(source["metadata"].clone()),
         None => return Response::error(400, "Review source metadata must be an object"),
     };
     if let Err(error) = fields_from_json(&metadata) {
@@ -12786,7 +12832,8 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
         _ => return Response::error(400, "Completion source needs a bounded UTF-8 title"),
     };
     let metadata = match source["metadata"].as_object() {
-        Some(_) => source["metadata"].clone(),
+        // Whatever a page sent, nothing about a hidden place reaches the provider (S2).
+        Some(_) => metadata_without_hidden_place(source["metadata"].clone()),
         None => return Response::error(400, "Completion source metadata must be an object"),
     };
     if let Err(error) = fields_from_json(&metadata) {
