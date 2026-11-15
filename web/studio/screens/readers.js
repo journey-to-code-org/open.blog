@@ -35,7 +35,7 @@ export async function createReaders(context, route) {
   const state = { items: [], next: null, page: null, undo: null };
   let settings = null;
   // What the cards' extras read: the notes on the posts (with the file's etag), features, links.
-  const extra = { published: new Map(), etag: "absent", features: new Map(), continuations: { links: [], works: [] }, linksOffered: false };
+  const extra = { published: new Map(), etag: "absent", features: new Map(), continuations: { links: [], works: [] }, linksOffered: false, loaded: false };
   const auditHost = h("div", { class: "studio-banner studio-reader-audits" });
   const tell = (words, { undo: run } = {}) => {
     status.textContent = words;
@@ -122,6 +122,7 @@ export async function createReaders(context, route) {
     extra.features = new Map((features.value?.features || []).map((entry) => [entry.id, entry]));
     extra.continuations = { links: continuations.value?.links || [], works: continuations.value?.works || [] };
     extra.linksOffered = Boolean(continuations.value);
+    extra.loaded = true;
     // The links failing to load is said (a 403 just means it isn't hers to change).
     if (continuations.error && continuations.error.status !== 403 && continuations.error.status !== 404) status.textContent = say("readers.linksFailed");
     linksButton.hidden = !extra.linksOffered;
@@ -195,6 +196,8 @@ export async function createReaders(context, route) {
       state.items = state.items.concat(more.items || []);
       state.next = more.next || null;
       state.page = { ...state.page, invalid: (state.page.invalid || 0) + (more.invalid || 0), next: state.next };
+      // A later page can bring the first note that needs the extras (Feature, Link to a later post).
+      if (!extra.loaded) await loadExtras().catch((error) => { if (error.status === 401) throw error; });
       draw();
       status.textContent = say("readers.showing", { n: state.items.length });
       focusCard(state.items[first] && `${state.items[first].source}:${state.items[first].id}`);
