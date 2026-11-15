@@ -403,6 +403,10 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
   await signIn(page, "#/reminders");
   const sheet = page.locator("side-sheet");
   const focusInSheet = () => page.evaluate(() => Boolean(document.querySelector("side-sheet")?.contains(document.activeElement)));
+  // The browser hides the question as soon as Escape closes it; Studio hears of it, and stops asking,
+  // when the dialog's close event comes a task later, then takes the question away. An Escape in
+  // between is swallowed, so wait until the question is gone from the page, not only hidden.
+  const questionGone = () => expect(page.locator("modal-dialog", { hasText: "Save this topic?" })).toHaveCount(0);
   const openSheet = async () => {
     await page.getByRole("button", { name: /More/ }).first().click();
     await page.getByRole("menuitem", { name: "Change topics and dates…" }).click();
@@ -417,6 +421,7 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
     await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
+    await questionGone();
     await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
     await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
     // sheet.js puts focus back on the next animation frame: wait for it.
@@ -427,6 +432,7 @@ test("Escape on “Save this topic?” goes back to the sheet with her edits, an
   await expect(page.getByRole("heading", { name: "Save this topic?" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Save this topic?" })).toHaveCount(0);
+  await questionGone();
   await expect(sheet.getByRole("heading", { name: "Topics for roofing" })).toBeVisible();
   await expect(ice.getByRole("textbox", { name: "Topic" })).toHaveValue("Ice dams and icicles");
   await expect.poll(focusInSheet).toBe(true);
