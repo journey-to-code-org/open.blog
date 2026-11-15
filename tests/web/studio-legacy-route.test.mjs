@@ -93,3 +93,13 @@ test("R10: Studio's earlier Comments and Visitors addresses open Readers", () =>
   assert.equal(legacyRoute("#/comments/shown"), "#/readers/shown");
   assert.equal(legacyRoute("#/visitors/7"), "#/readers/visitors/7");
 });
+
+test("R13: reading paths are Studio's own; the old editor address moves, whatever else was after paths goes to the list", () => {
+  assert.equal(legacyRoute("#/paths"), null);
+  assert.equal(legacyRoute("#/paths/new"), null);
+  assert.equal(legacyRoute("#/paths/edit/start-here"), "#/path/start-here");
+  assert.equal(legacyRoute("#/paths/edit/start-here?x=1"), "#/path/start-here?x=1");
+  assert.equal(legacyRoute("#/paths/something/else"), "#/paths");
+  assert.equal(legacyRoute("#/paths/something?x=1"), "#/paths?x=1");
+  assert.equal(legacyRoute("#/path/start-here"), null);
+});

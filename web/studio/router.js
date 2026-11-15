@@ -35,7 +35,7 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
  * is Your route (R7), Assistant is the Writing helper (R8). Evidence waits for R12 and opens the post.
  */
 export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
-const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
+const NOT_YET = new Set(["design", "research", "shared", "voice"]);
 
 /**
  * The Studio address for an old Admin address, or null when it is already Studio's own.
@@ -64,6 +64,11 @@ export function legacyRoute(hash) {
   if (name === "social") return `#/${OLD_RENAMED.social}`;
   // R3: Notifications is Studio's own; whatever came after it (the old Admin had nothing there) goes.
   if (name === "notifications") return rest.length ? `#/notifications${tail}` : null;
+  // R13: reading paths. #/paths and #/paths/new are Studio's own; the old editor address moves to #/path/<address>.
+  if (name === "paths") {
+    if (rest[0] === "edit" && rest[1]) return `#/path/${rest.slice(1).join("/")}${tail}`;
+    return !rest.length || (rest.length === 1 && rest[0] === "new") ? null : `#/paths${tail}`;
+  }
   if (name === "share") return rest.length ? `#/sharing/job/${rest.join("/")}${tail}` : `#/sharing${tail}`;
   // R5: Contributors is People.
   if (name === "contributors") return `#/people${tail}`;

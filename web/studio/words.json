@@ -4830,6 +4830,1235 @@
       "max": 46,
       "vars": []
     },
+    "paths.addEntries": {
+      "text": "Atlas entries",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addHeading": {
+      "text": "Add a step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addNoMatch": {
+      "text": "Nothing matches that.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.addNone": {
+      "text": "Nothing to add. Only published posts can be steps, and each can be on a path once.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "paths.addPosts": {
+      "text": "Posts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.addSearch": {
+      "text": "Search your published posts",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "paths.addStep": {
+      "text": "Add a step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.added": {
+      "text": "Added {title}. Say why it follows, then save.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.addedFirst": {
+      "text": "Added {title} as the first step.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.addressFixed": {
+      "text": "Its address is {address}. It can't be changed.",
+      "layer": "her",
+      "max": 92,
+      "vars": [
+        "address"
+      ]
+    },
+    "paths.addressHelp": {
+      "text": "The last part of its web address. It can't be changed after the first save.",
+      "layer": "her",
+      "max": 150,
+      "vars": []
+    },
+    "paths.asWritten": {
+      "text": "Show the path as written (for {helper})",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "helper"
+      ]
+    },
+    "paths.back": {
+      "text": "‹ All reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.basis": {
+      "text": "Which atlas link says so",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "paths.basisHelp": {
+      "text": "Only a link you've published between two entries can say one influenced the other.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "paths.basisNone": {
+      "text": "No published link between these two",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.changedHeading": {
+      "text": "Changed somewhere else",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.changedText": {
+      "text": "This reading path was changed somewhere else while you had it open. Your changes are still here. Which do you want to keep?",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.chooseOne": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.crumbHome": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.delete": {
+      "text": "Delete",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.deleteAsk": {
+      "text": "Delete “{title}”?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.deleteAskLive": {
+      "text": "It's on your site now. Deleting takes it off. You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "paths.deleteAskText": {
+      "text": "You can bring it back right after with Undo.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "paths.deleted": {
+      "text": "Deleted “{title}”.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.diagDetails": {
+      "text": "Kind: {kind}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "kind"
+      ]
+    },
+    "paths.diagDropped": {
+      "text": "its reason can't be shown as written, so the whole path is held back",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
+    "paths.diagStep": {
+      "text": "{title}: {why}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title",
+        "why"
+      ]
+    },
+    "paths.diagUnavailable": {
+      "text": "isn't published, so readers don't see it",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "paths.diagWithheld": {
+      "text": "fewer than two steps are published, so the path is held back",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "paths.diffAdvanced": {
+      "text": "For people who know the subject",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.diffIntermediate": {
+      "text": "Some background helps",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.diffIntroductory": {
+      "text": "Easy to start with",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.difficulty": {
+      "text": "How hard",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.difficultyNone": {
+      "text": "Not said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.dismiss": {
+      "text": "Dismiss",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.eChanged": {
+      "text": "This path changed somewhere else since you opened it. Nothing was saved.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "paths.eGeneric": {
+      "text": "That didn't work. Nothing was changed.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "paths.eMissing": {
+      "text": "That reading path isn't there any more.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.eSentence": {
+      "text": "What the server said:",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "paths.eStorage": {
+      "text": "Your site couldn't keep it. Nothing was changed.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "paths.eTooLarge": {
+      "text": "That's more than a reading path can hold.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "paths.emptyText": {
+      "text": "Pick a few posts, put them in an order, and say why each one follows the one before.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "paths.emptyTitle": {
+      "text": "No reading paths yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.fieldAddress": {
+      "text": "Address",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.fieldSummary": {
+      "text": "A line about this path",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.fieldTitle": {
+      "text": "Title",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.findAdd": {
+      "text": "Add a step to this reading path",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.findMake": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.findSave": {
+      "text": "Save this reading path",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.findUndo": {
+      "text": "Undo: {last}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "last"
+      ]
+    },
+    "paths.goToStep": {
+      "text": "Go to {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.heldAskHeading": {
+      "text": "Save without the reason for “{title}”?",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.heldAskNo": {
+      "text": "Go back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.heldAskText": {
+      "text": "That step is first now, so it has nothing to follow, and the reason you wrote for it can't be kept in the saved path. Undo after saving brings it back.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.heldAskYes": {
+      "text": "Save without it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.howItRelates": {
+      "text": "How it relates to the step before",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "paths.keepIt": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.keptReason": {
+      "text": "The reason you wrote is kept. It comes back if this step moves down again.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "paths.lastDelete": {
+      "text": "deleting {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.lastSave": {
+      "text": "the last save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveGo": {
+      "text": "Leave without saving",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveHeading": {
+      "text": "Save this reading path?",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "paths.leaveSave": {
+      "text": "Save",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.leaveText": {
+      "text": "You changed it and didn't save.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.lede": {
+      "text": "A reading path puts some of your posts in an order, with why each one comes next.",
+      "layer": "her",
+      "max": 162,
+      "vars": []
+    },
+    "paths.listed": {
+      "text": "Show it in lists and search",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "paths.listedHelp": {
+      "text": "Off, it's still at its own address.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.loadFailed": {
+      "text": "Your reading paths didn't load.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.make": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.makeDraft": {
+      "text": "Make it a draft again",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.move": {
+      "text": "Move",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveDown": {
+      "text": "Move down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveFirst": {
+      "text": "Move to the start",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveKeys": {
+      "text": "On a step you can also press Alt, Shift and an arrow key, or Home or End.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.moveLast": {
+      "text": "Move to the end",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moveUp": {
+      "text": "Move up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.moved": {
+      "text": "{title} is step {number} of {count} now. Not saved yet.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "title",
+        "number",
+        "count"
+      ]
+    },
+    "paths.nav": {
+      "text": "Reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.newHeading": {
+      "text": "Make a reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.noMoreSteps": {
+      "text": "That's as many steps as a path holds.",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "paths.notCollection": {
+      "text": "A collection keeps posts that belong together. A reading path is an order to read them in, with why each comes next. A post can be on many paths.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "paths.nothingChanged": {
+      "text": "Nothing's changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.open": {
+      "text": "Open {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.optional": {
+      "text": "A side step readers may skip",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "paths.optionalHelp": {
+      "text": "The first step can't be one: every reader starts there.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "paths.pAddress": {
+      "text": "The address uses lowercase letters, numbers and single hyphens, up to 64 characters.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "paths.pAddressTaken": {
+      "text": "A reading path already has that address. Choose another.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.pBadBasis": {
+      "text": "That isn't a published atlas link you can use here.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.pBadValue": {
+      "text": "Something here isn't right. Check it and try again.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.pDuplicate": {
+      "text": "Two steps have the same name inside the path. Take one out and add it again.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "paths.pFirstOptional": {
+      "text": "The first step is where every reader starts, so it can't be a side step.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "paths.pFirstReason": {
+      "text": "The first step has nothing to follow, so it has no reason.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "paths.pInfluenceAtlas": {
+      "text": "“Was influenced by” joins two atlas entries. Choose another way for posts.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "paths.pInfluenceBasis": {
+      "text": "Choose the published atlas link that says one influenced the other.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "paths.pNeedTwo": {
+      "text": "A published path needs at least two steps readers can see.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "paths.pNeedsReason": {
+      "text": "Say why this step follows, in your own words.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "paths.pNeedsRelation": {
+      "text": "Choose how this step relates to the one before.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "paths.pNothingToFollow": {
+      "text": "There's no earlier step for this one to follow.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "paths.pRepeat": {
+      "text": "This is already a step. A path never goes back to one.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "paths.pSummaryLong": {
+      "text": "That line is too long.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.pTitleLong": {
+      "text": "That title is too long.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "paths.pTitleRequired": {
+      "text": "Give the path a title.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.pTooLong": {
+      "text": "That's too long.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.pTooMany": {
+      "text": "A path can't hold more steps than that.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.pUnknownTarget": {
+      "text": "That step points at something that isn't a published post or entry.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "paths.prerequisites": {
+      "text": "What to know first",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.previewClose": {
+      "text": "Back to your reading path",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.previewDraft": {
+      "text": "This is a draft. It shows what readers would see if you published it now.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.previewEmpty": {
+      "text": "Add a step to see it here.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "paths.previewFailed": {
+      "text": "That didn't load. Try again.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "paths.previewHard": {
+      "text": "Level: {level}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "level"
+      ]
+    },
+    "paths.previewHeading": {
+      "text": "What readers will see",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "paths.previewNeed": {
+      "text": "Before you start: {text}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "text"
+      ]
+    },
+    "paths.previewOnlyYou": {
+      "text": "Only you see this page. Nothing is published by looking.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.previewReasons": {
+      "text": "Only you see this: why readers don't see some steps",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "paths.previewRefresh": {
+      "text": "Looking at your latest changes…",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "paths.previewSide": {
+      "text": "A side step you can skip",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "paths.previewWithheld": {
+      "text": "Readers wouldn't see this path yet.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.problemsHeading": {
+      "text": "Not saved yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.problemsMany": {
+      "text": "{count} things need a look first.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "count"
+      ]
+    },
+    "paths.problemsOne": {
+      "text": "One thing needs a look first.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "paths.publish": {
+      "text": "Publish",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rationale": {
+      "text": "Why it's on the path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relApplies": {
+      "text": "Applies it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relBackground": {
+      "text": "Gives background",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relBuildsOn": {
+      "text": "Builds on it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relContrastsWith": {
+      "text": "Contrasts with it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relInfluenced": {
+      "text": "Was influenced by it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relNext": {
+      "text": "Comes next",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relRespondsTo": {
+      "text": "Responds to it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.relatesTo": {
+      "text": "Follows {title}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.rowCantRead": {
+      "text": "Can't be read yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowDraft": {
+      "text": "Draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowNotShown": {
+      "text": "Readers can't see it yet: a step isn't published.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "paths.rowOneStep": {
+      "text": "1 step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowPublished": {
+      "text": "Published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.rowSteps": {
+      "text": "{count} steps",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "paths.rowUnlisted": {
+      "text": "Not in lists",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.saveDraft": {
+      "text": "Save draft",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.savedDraft": {
+      "text": "Saved as a draft. Readers don't see it.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.savedHidden": {
+      "text": "Saved, but readers can't see it yet: a step isn't published.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "paths.savedNow": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.savedPublished": {
+      "text": "Published. Readers see it at {url}, in about a minute.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "url"
+      ]
+    },
+    "paths.savedPublishedOff": {
+      "text": "Saved as published, but your site isn't showing reading paths yet.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "paths.savedUpdated": {
+      "text": "Updated.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.seeReaders": {
+      "text": "See what readers will see",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.sheetCancel": {
+      "text": "Cancel",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.sheetHeading": {
+      "text": "A step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.sheetKeep": {
+      "text": "Keep this step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.showTheirs": {
+      "text": "Show the other version",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "paths.siteOffDetails": {
+      "text": "The site's setting readingPaths.publish is off.",
+      "layer": "details",
+      "max": 94,
+      "vars": []
+    },
+    "paths.siteOffText": {
+      "text": "You can write them now. They show on your site once {helper} turns them on.",
+      "layer": "her",
+      "max": 150,
+      "vars": [
+        "helper"
+      ]
+    },
+    "paths.siteOffTitle": {
+      "text": "Readers can't see reading paths yet",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "paths.stateDraft": {
+      "text": "A draft: readers won't see this step",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "paths.stateMissing": {
+      "text": "Not found: readers won't see this step",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "paths.stateOther": {
+      "text": "Not public: readers won't see this step",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "paths.statePublished": {
+      "text": "Published",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stateScheduled": {
+      "text": "Scheduled: not public yet, readers won't see this step",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "paths.stateUnknown": {
+      "text": "Not checked yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepBack": {
+      "text": "{title} is back.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.stepHeading": {
+      "text": "Step {number}: {title}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "number",
+        "title"
+      ]
+    },
+    "paths.stepIdDetails": {
+      "text": "Step id: {id}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "id"
+      ]
+    },
+    "paths.stepNeedsLook": {
+      "text": "Needs a look",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepOptional": {
+      "text": "A side step",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepsEmpty": {
+      "text": "No steps yet. Add the first post readers should start with.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "paths.stepsHeading": {
+      "text": "Steps",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.stepsLede": {
+      "text": "Readers go through these in order. Each one after the first says why it follows.",
+      "layer": "her",
+      "max": 160,
+      "vars": []
+    },
+    "paths.stepsLeft": {
+      "text": "{count} of {limit} steps",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "count",
+        "limit"
+      ]
+    },
+    "paths.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.targetsTrouble": {
+      "text": "The list of posts to pick from didn't load, so you can't add a step right now.",
+      "layer": "her",
+      "max": 156,
+      "vars": []
+    },
+    "paths.theirsShown": {
+      "text": "Here's the other version.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "paths.title": {
+      "text": "Your reading paths",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.tookOut": {
+      "text": "Took out {title}. Not saved yet.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "title"
+      ]
+    },
+    "paths.tryAgain": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undoFailed": {
+      "text": "That couldn't be put back, because the path changed since. Open it again.",
+      "layer": "her",
+      "max": 146,
+      "vars": []
+    },
+    "paths.undoStep": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.undone": {
+      "text": "Put back as it was.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.unreadable": {
+      "text": "This path's file can't be read, so it can't be edited here.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "paths.unreadableDetails": {
+      "text": "The first problem the server found:",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "paths.untitled": {
+      "text": "A reading path",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.update": {
+      "text": "Update",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMine": {
+      "text": "Use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMineSure": {
+      "text": "Use your changes?",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.useMineSureText": {
+      "text": "This replaces the other changes with what you have here.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.useMineYes": {
+      "text": "Yes, use my changes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.wasDrafted": {
+      "text": "It's a draft again. Readers don't see it.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "paths.why": {
+      "text": "Why it follows, in your words",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "paths.whyHelp": {
+      "text": "A sentence or two. Readers see it between the two steps.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "paths.writtenClose": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "paths.writtenHeading": {
+      "text": "The path as written",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "paths.writtenHelp": {
+      "text": "The file exactly as it is kept. Shown for {helper}; changes are made on the form.",
+      "layer": "details",
+      "max": 162,
+      "vars": [
+        "helper"
+      ]
+    },
     "photo.altHelp": {
       "text": "For people who can't see it, like “A red front door with a wreath”.",
       "layer": "her",

@@ -20,7 +20,7 @@ import { sentWords } from "./parts/job-words.js";
 import { tradeSite } from "./parts/record-kinds.js";
 import { say } from "./parts/words.js";
 
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav() : s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
