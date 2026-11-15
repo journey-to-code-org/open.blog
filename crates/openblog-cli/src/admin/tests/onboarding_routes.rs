@@ -1406,23 +1406,23 @@ fn throwing_one_piece_away_takes_its_rough_draft_and_polished_copy_and_nothing_e
 fn the_getting_started_set_is_bundled_with_six_prompts_whose_ids_never_change() {
     let f = fixture_with("pack", None, None);
     let s = login_ok(&f);
-    let (_, catalog) = get(&f, &s, "voice/catalog");
-    let pack = catalog["packs"]
-        .as_array()
-        .unwrap()
+    // The bundled pack as this site reads it (the route that listed the catalog is gone; the draw
+    // below goes through the server).
+    let catalog = crate::voice_store::load_catalog(&f.dir);
+    let pack = catalog
+        .packs
         .iter()
-        .find(|pack| pack["id"] == "getting-started")
+        .find(|pack| pack.id == "getting-started")
         .unwrap();
-    assert_eq!(pack["title"], "Getting started");
+    assert_eq!(pack.title, "Getting started");
     assert_eq!(
-        pack["summary"],
+        pack.summary,
         "Short stories, the way you'd tell them to a friend."
     );
-    let prompts: Vec<(&str, &str)> = pack["prompts"]
-        .as_array()
-        .unwrap()
+    let prompts: Vec<(&str, &str)> = pack
+        .prompts
         .iter()
-        .map(|p| (p["id"].as_str().unwrap(), p["title"].as_str().unwrap()))
+        .map(|p| (p.id.as_str(), p.title.as_str()))
         .collect();
     assert_eq!(
         prompts,
@@ -1444,13 +1444,9 @@ fn the_getting_started_set_is_bundled_with_six_prompts_whose_ids_never_change() 
             ),
         ]
     );
-    for prompt in pack["prompts"].as_array().unwrap() {
-        assert_eq!(
-            (prompt["wordsMin"].clone(), prompt["wordsMax"].clone()),
-            (json!(40), json!(150))
-        );
-        let invitation = prompt["invitation"].as_str().unwrap();
-        assert!(!invitation.is_empty() && !invitation.contains('\n'));
+    for prompt in &pack.prompts {
+        assert_eq!((prompt.words_min, prompt.words_max), (40, 150));
+        assert!(!prompt.invitation.is_empty() && !prompt.invitation.contains('\n'));
     }
     // Drawing from it gives three of its own, and avoids the ones just shown.
     let (_, drawn) = send(
