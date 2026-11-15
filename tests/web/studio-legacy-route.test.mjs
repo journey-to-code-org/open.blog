@@ -12,7 +12,8 @@ test("an old editor address opens the right Studio editor by folder", () => {
   for (const [pane, sheet] of [["settings", "about"], ["social", "ready"], ["optimize", "ready"], ["accessibility", "ready"], ["release", "youtube"], ["field", "route"]]) {
     assert.equal(legacyRoute(`#/edit/posts/pie.md?pane=${pane}`), `#/write/posts%2Fpie.md?sheet=${sheet}`, pane);
   }
-  assert.equal(legacyRoute("#/edit/posts/pie.md?pane=evidence"), "#/write/posts%2Fpie.md");
+  // R11: the old Evidence pane is Your research (R12 makes it Claims and evidence).
+  assert.equal(legacyRoute("#/edit/posts/pie.md?pane=evidence"), "#/write/posts%2Fpie.md?sheet=research");
   assert.equal(legacyRoute("#/edit/pages/about.md?pane=social"), "#/page/pages%2Fabout.md", "only a post's panes have sheets");
   assert.equal(legacyRoute("#/edit/posts%2Fpecan-pie.md"), "#/write/posts%2Fpecan-pie.md");
   assert.equal(legacyRoute("#/edit/pages/about.md"), "#/page/pages%2Fabout.md");
@@ -38,7 +39,10 @@ test("renamed screens, new things and the old inbox's states", () => {
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
-  for (const name of ["research", "comparisons", "paths", "shared"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  for (const name of ["comparisons", "paths", "shared"]) assert.equal(legacyRoute(`#/${name}`), `#/not-yet/${name}`);
+  // R11: bare #/research is Research home, Studio's own; what R12 brings opens "not yet" until then.
+  assert.equal(legacyRoute("#/research"), null);
+  assert.equal(legacyRoute("#/research/atlas"), "#/not-yet/research");
 });
 
 test("R9: the sample library is Your writing voice, a sample is A piece, and Design a theme is Describe a new look", () => {
@@ -61,7 +65,7 @@ test("R5: Contributors is People, and a post's Settings pane is About this post"
   assert.equal(legacyRoute("#/contributors"), "#/people");
   assert.equal(legacyRoute("#/people"), null, "Studio's own address stays");
   assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=settings"), "#/write/posts%2F2026-11-06-pie.md?sheet=about");
-  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=evidence"), "#/write/posts%2F2026-11-06-pie.md", "a pane with no sheet yet opens the post");
+  assert.equal(legacyRoute("#/edit/posts/2026-11-06-pie.md?pane=evidence"), "#/write/posts%2F2026-11-06-pie.md?sheet=research", "Evidence opens Your research (R11)");
   assert.equal(legacyRoute("#/edit/pages/about.md?pane=settings"), "#/page/pages%2Fabout.md");
 });
 

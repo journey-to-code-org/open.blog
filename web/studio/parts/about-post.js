@@ -35,7 +35,7 @@ const GROUP_FIRST = { kind: "profile", recipe: "course", page: "subtitle", searc
  * says whether a new How much readers see can be taken here; `openRoute()` and `openYoutube()`
  * open Your route and Words for YouTube; `goCover()` goes to Write's cover photo.
  */
-export async function createAboutPost({ api, meta, post, onChange, onKind, addParts, goPeople, setCoverAddress, maxBytes = 0, realCard = null, routeChoice = null, openRoute = null, openYoutube = null, goCover = null }) {
+export async function createAboutPost({ api, meta, post, onChange, onKind, addParts, goPeople, setCoverAddress, maxBytes = 0, realCard = null, routeChoice = null, openRoute = null, openYoutube = null, goCover = null, research = null }) {
   await use("side-sheet", "text-field", "select-field", "toggle-switch", "action-button", "alert-banner", "content-card", "skeleton-block", "status-badge");
   let keys = {};
   let initial = {};
@@ -60,7 +60,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
       h("h3", { id: "studio-about-credits-h", tabindex: "-1", text: "Who wrote it" }), credits.element),
   };
   const element = h("side-sheet", { label: "About this post", side: "right", class: "studio-about-sheet" },
-    heading, h("div", { class: "studio-about-body" }, groups.kind, groups.own, groups.page, groups.search, groups.credits, details.element),
+    heading, h("div", { class: "studio-about-body" }, groups.kind, groups.own, groups.page, groups.search, research?.element || null, groups.credits, details.element),
     h("div", { slot: "actions", class: "studio-about-actions" }, footStatus, done));
   trapFocus(element, () => element.open);
   // Closed by Escape or the × (openchange), or by Done (setting `open` fires no openchange).
@@ -96,7 +96,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
   function drawKind() {
     const trade = tradeSite(meta);
     const current = values.profile || "article";
-    const choices = Object.fromEntries(kindChoices(meta, current, { trade }).map((c) => [c.value, { label: c.label, help: c.help }]));
+    const choices = Object.fromEntries(kindChoices(meta, current, { trade, research: meta?.siteUses?.research === true }).map((c) => [c.value, { label: c.label, help: c.help }]));
     controls.forget(["profile"]);
     const box = controls.choice("profile", { legend: "What kind of post", choices, confirm: (to) => changeKind(current, to) });
     box.querySelector("legend").id = "studio-about-kind-h";
@@ -288,12 +288,14 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     paintFooter();
     credits.ready();
     if (group === "details") details.open();
+    research?.draw();
     element.open = true;
     shownNow = true;
     paintSearch();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const name = focusName || GROUP_FIRST[group] || "";
       if (group === "credits") { groups.credits.scrollIntoView?.({ block: "start" }); credits.focus(); return; }
+      if (group === "sources" && research) { research.element.scrollIntoView?.({ block: "start" }); research.element.querySelector("h3")?.focus(); return; }
       const target = name && controls.get(name);
       if (target) { target.element.scrollIntoView?.({ block: "center" }); target.focus(); } else heading.focus();
     }));
@@ -312,7 +314,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
       Object.assign(values, initial);
       credits.reset(reply);
       kindHelp = ""; kindParts = false; kindUndo = null;
-      drawKind(); drawOwn(); drawPage(); drawSearch(); details.draw();
+      drawKind(); drawOwn(); drawPage(); drawSearch(); details.draw(); research?.draw();
       paintLine();
       // The names for the button's line (and the sheet when it opens), asked once.
       credits.ready().then(() => paintLine());

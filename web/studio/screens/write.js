@@ -32,6 +32,9 @@ import { createWriteReady } from "../parts/write-ready.js";
 import { createWriteHelper } from "../parts/write-helper.js";
 import { saveRouteProblem } from "../parts/route-rules.js";
 import { say } from "../parts/words.js";
+import { researchUsed } from "../parts/research-rules.js";
+import { createWriteResearch, researchHooks } from "../parts/write-research.js";
+import { createSourcesInPost } from "../parts/sources-in-post.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -46,7 +49,9 @@ export async function createWrite(context, arg, route = {}) {
   const path = starting ? "" : arg;
   const keptKey = starting ? `new-${starting}` : path;
   const kept = createKept(safeStorage(), api.user);
-  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, hasHistory: undefined, excerpt: "", slug: "" };
+  // R11: a research post started from Research home (?kind=research) on a site that uses research.
+  const startResearch = starting === "story" && route.query?.kind === "research" && researchUsed(meta);
+  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : startResearch ? { profile: "research" } : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, hasHistory: undefined, excerpt: "", slug: "" };
   let form = { title: "", date: "", tags: [], cover: "", coverAlt: "", draft: true, body: "", extra: {} };
   let baseline = "";
   let dirty = false;
@@ -67,6 +72,9 @@ export async function createWrite(context, arg, route = {}) {
   let sheetOnOpen = null; // ?sheet=about|copy|ready|youtube|route: opened once the screen has focus
   let sheets = null; // R7: Before you publish, Words for YouTube and Your route
   let helper = null; // R8: the writing helper's sheet, side card and suggestions as she types
+  // R11: research in Write, only on a site that uses research (G92).
+  const hooks = researchUsed(meta) ? researchHooks() : null;
+  let research = null;
 
   // ---- the page
   // R6: Add something, and the cards in every box of her words.
@@ -84,13 +92,16 @@ export async function createWrite(context, arg, route = {}) {
     afterPiece: (box) => { if (isJob()) body.redrawPhotos(box); },
     // R8: Write questions for me and Draft it for me, in their forms, when the helper is set up.
     helper: { ready: () => Boolean(helper?.confirmed()), company: () => helper.company(), form: () => helper.form(), offsetOf: (box) => helper.offsetOf(box) },
+    research: hooks,
   });
-  body = await createBodyHost({ onChange: () => changed(), pieces: addMenu.host });
+  body = await createBodyHost({ onChange: () => changed(), pieces: addMenu.host, moreHelp: hooks ? say("cite.wordsHelp") : "" });
   suggestions = createSuggestions({ boxes: () => body.boxes(), did: (box, before, words) => addMenu.did(box, before, words), reveal: (box, start, end) => box.reveal(start, end),
     body: () => body.text(), checkEverything: () => sheets?.open("ready", suggestions.element) });
   const { trail, status, banner, title, numbersHost, day, time, tags, cover, collection, saveLabel, save, primaryLabel, primary, look, more, whenHelp, about: aboutButton, aboutLine, element } = writePage({
     meta, body, on: { save: () => saveNow("draft"), publish: () => saveNow("publish"), preview: (opener) => preview(opener), command: (id) => run(id), about: (opener) => about.open({ from: opener }) },
   });
+  // R11: Sources in this post, in About this post.
+  const sourcesInPost = hooks ? createSourcesInPost({ post: () => ({ kind: about.kind(), body: bodyText() }), value: (name) => about.value(name), setValue: (name, value) => about.setValue(name, value), changed: () => changed() }) : null;
   const when = createWhen({ day, time, help: whenHelp, state: () => doc.state, schedule: () => scheduleTruth() });
   const about = await createAboutPost({
     api, meta, maxBytes: meta.capture?.maxPhotoBytes || 0,
@@ -112,6 +123,7 @@ export async function createWrite(context, arg, route = {}) {
     openRoute: () => { about.close(); sheets?.open("route", aboutButton); },
     openYoutube: () => { about.close(); sheets?.open("youtube", aboutButton); },
     goCover: () => picker?.focus(),
+    research: sourcesInPost,
   });
   // A recipe's numbers and a job's About this job (R4), under the title.
   const kindPart = createKindParts({ api, meta, doc, host: numbersHost, body, banner, title, say: (words) => { status.textContent = words; }, changed: () => changed(),
@@ -134,6 +146,13 @@ export async function createWrite(context, arg, route = {}) {
     canWriteUp: () => writeUpReady, go: (hash) => context.go(hash), repaint: () => { more.items = menuItems(); },
   });
   sheets.card.after(helper.card);
+  if (hooks) {
+    research = await createWriteResearch({ api, meta, doc, body, about, addMenu, sourcesInPost, grid: element.querySelector(".studio-write-grid"),
+      request: () => ({ kind: "posts", path: doc.path, fields: fieldsFor(read(), "publish"), body: bodyText() }), kind: () => kind(), title: () => String(title.value || "").trim(),
+      openChecks: (opener) => sheets.open("ready", opener) });
+    hooks.attach(research);
+    element.append(...research.elements);
+  }
   suggestions.element.after(helper.line);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
@@ -197,7 +216,8 @@ export async function createWrite(context, arg, route = {}) {
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
   const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })),
     ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
-    ...(helper ? helper.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
+    ...(helper ? helper.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
+    ...(research ? research.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
 
   /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
   async function switchKind(from, to, options) {
@@ -242,6 +262,8 @@ export async function createWrite(context, arg, route = {}) {
       path: doc.path, title: values.title.trim(),
       fields: fieldsFor(values, "draft"), body: withBody ?? values.body, opener,
       problemsView: (close) => lookFirst(close),
+      // R11: what Sources in this post counts and offers to download comes from the last look.
+      request: () => api.post("preview", { kind: "posts", path: doc.path, fields: fieldsFor(values, "draft"), body: withBody ?? values.body }).then((reply) => { if (withBody === null) research?.previewed(reply); return reply; }),
     });
   }
 
@@ -461,6 +483,7 @@ export async function createWrite(context, arg, route = {}) {
     if (value === "suggestions") { suggestions.open(); return; }
     if (sheets.run(value, more.querySelector("button") || aboutButton)) return;
     if (helper.run(value, helper.card.hidden ? opener : helper.card)) return;
+    if (research?.run(value, opener)) return;
     if (addMenu.command(value)) return;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
@@ -512,6 +535,7 @@ export async function createWrite(context, arg, route = {}) {
     if (!(await addMenu.leave())) return false;
     if (!(await sheets.leave())) return false;
     await helper.leave();
+    if (research && !(await research.leave())) return false;
     clearTimeout(timer);
     timer = 0;
     return leaveNow();
@@ -596,11 +620,12 @@ export async function createWrite(context, arg, route = {}) {
     // ?sheet=about|copy (an old Settings link, Find, People's Back): opened once Write has focus.
     const query = route.query || {};
     if (query.add && query.sheet) about.addPerson(String(query.add));
-    if (query.sheet === "about" || (query.sheet === "copy" && doc.path) || sheets.isSheet(query.sheet) || helper.isSheet(query.sheet)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
+    if (query.sheet === "about" || (query.sheet === "copy" && doc.path) || sheets.isSheet(query.sheet) || helper.isSheet(query.sheet) || research?.isSheet(query.sheet)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
     // ?add=1 (the list) or ?add=<kind> (that form), when it isn't a person for Who wrote it.
     else if (query.add && !query.sheet) sheetOnOpen = { add: String(query.add) };
     paint();
     helper.refresh();
+    research?.start(query).catch(() => {});
     element.removeAttribute("aria-busy");
     await asking;
   }
@@ -632,6 +657,7 @@ export async function createWrite(context, arg, route = {}) {
         sheetOnOpen = null;
         if (sheet === "copy") copySheet.open({ from: more, closed: plainAddress });
         else if (helper.isSheet(sheet)) { plainAddress(); helper.open(helper.card.hidden ? more : helper.card); }
+        else if (research?.isSheet(sheet)) { plainAddress(); research.open(sheet, more); }
         else if (sheets.isSheet(sheet)) { plainAddress(); sheets.open(sheet, sheets.card); }
         else about.open({ group, from: aboutButton, closed: plainAddress });
       }
@@ -642,6 +668,7 @@ export async function createWrite(context, arg, route = {}) {
         ...addMenu.palette().map((c) => ({ ...c, group: "This post" })),
         ...sheets.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
         ...helper.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
+        ...(research ? research.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })) : []),
         { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },
       ];
     },

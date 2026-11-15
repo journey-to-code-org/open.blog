@@ -21,6 +21,7 @@ import { tradeSite } from "./parts/record-kinds.js";
 import { say } from "./parts/words.js";
 import { ask } from "./parts/dialogs.js";
 import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
+import { researchFind } from "./parts/research-find.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
@@ -151,6 +152,8 @@ export async function startShell(root, api, meta) {
     { id: "go-voice-write", label: say("voice.findWrite"), group: "Do", href: "#/voice/write" },
     { id: "go-voice-guide", label: say("voice.findGuide"), group: "Go to", href: "#/voice/guide" },
     { id: "go-design", label: say("design.findDesign"), group: "Do", href: "#/look/design" },
+    // R11: research by name on a site that uses it; the developer's door everywhere.
+    ...researchFind(meta),
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },
