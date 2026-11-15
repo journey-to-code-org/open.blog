@@ -8,6 +8,7 @@ import { kindSwitches, renameDialog } from "./notification-cards.js";
 import { PushStop, SCOPE } from "./push-here.js";
 import * as R from "./notification-rules.js";
 import { copiedWords } from "./install-rules.js";
+import { say as word } from "./words.js";
 
 const ASKING_MS = 8000;
 const LOCK_SCREEN = "They show who wrote and their first few words, even on your lock screen.";
@@ -253,7 +254,7 @@ export function createHereCard(ctx) {
       if (found.mine) parts.push(h("div", { class: "studio-own-line" }, full(`Take this ${noun()} off the list`, (button) => takeOffList(button), "secondary")));
     } else if (state === "home-screen-first") {
       parts.push(h("p", { text: R.stateWords(state, here) }));
-      primary = full("Add your blog to your Home Screen", (button) => ctx.homeScreen(button));
+      primary = full(word("install.addHomeScreen"), (button) => ctx.homeScreen(button));
       parts.push(primary);
     } else if (state === "in-app") {
       const address = `${location.origin}/admin/studio/`;

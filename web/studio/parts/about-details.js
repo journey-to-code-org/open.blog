@@ -7,7 +7,7 @@ import { fill, h } from "./dom.js";
 import { otherKeys, slugEditable, slugHelp, slugPreview } from "./about-rules.js";
 import { PROFILE_GROUPS } from "./profile-words.js";
 import { postDetails } from "./post-details.js";
-import { say } from "./words.js";
+import { product, say } from "./words.js";
 
 const OPEN_KEY = "studio-about-details";
 
@@ -56,7 +56,7 @@ export function createDetails({ meta, controls, credits, post, setCoverAddress, 
           h("ul", { class: "studio-mono studio-about-aliases" }, aliases.map((a) => h("li", { text: a }))),
           h("p", { class: "studio-help", text: "These redirect here. Change them in the file." })) : null),
       controls.text("canonical", { label: "First published somewhere else", type: "url", help: "Only if this post first appeared on another site. Search engines then credit that one." }),
-      controls.select("theme", { label: "Theme", options: [{ value: "", label: "Your blog's usual look" }, ...(meta.themes || []).map((t) => ({ value: t.name, label: t.label || t.name }))] }),
+      controls.select("theme", { label: "Theme", options: [{ value: "", label: say("about.usualLook") }, ...(meta.themes || []).map((t) => ({ value: t.name, label: t.label || t.name }))] }),
       // Set when she leaves the field (the browser's change), not on every letter typed.
       h("text-field", { label: "Picture address", type: "url", description: "A cover photo from another website, by its web address.", value: /^https?:\/\//.test(text(p.cover)) ? text(p.cover) : "",
         onChange: (e) => { const typed = String(e.target?.value || "").trim(); if (!typed || /^https?:\/\/\S+$/i.test(typed)) setCoverAddress?.(typed); } }),
@@ -74,7 +74,7 @@ export function createDetails({ meta, controls, credits, post, setCoverAddress, 
       p.facts,
       h("dl", { class: "studio-details" },
         h("dt", { text: "Time zone" }),
-        h("dd", { text: `Times are in ${zone || "this computer's time zone"} (this computer).${serverNow && !Number.isNaN(serverNow.getTime()) ? ` Your blog's server said it was ${serverNow.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} when Studio opened.` : ""}` }),
+        h("dd", { text: `Times are in ${zone || "this computer's time zone"} (this computer).${serverNow && !Number.isNaN(serverNow.getTime()) ? ` ${product({ start: true })}'s server said it was ${serverNow.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} when Studio opened.` : ""}` }),
         h("dt", { text: "Search engines" }),
         h("dd", { text: "Only drafts are kept out of search engines. A post can't be hidden from them on its own." })));
   }

@@ -159,7 +159,7 @@ test("Home's details list the words in effect and every problem, and hide when t
 // ---- the catalog
 
 const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
-const sources = [...walk(join(studio, "screens")), ...walk(join(studio, "parts")), join(studio, "studio.js"), join(studio, "shell.js")].filter((f) => f.endsWith(".js"));
+const sources = [...walk(join(studio, "screens")), ...walk(join(studio, "parts")), join(studio, "studio.js"), join(studio, "shell.js"), join(studio, "api.js")].filter((f) => f.endsWith(".js"));
 
 /** Each file's word calls: the name it imports `say` under, and every call of it. */
 function calls(file) {
@@ -275,6 +275,28 @@ test("W-a: no literal \"person who set up your site\" left in Studio's code", ()
     .filter((file) => /person who set (up (your|the) site|it up)/.test(code(readFileSync(file, "utf8"))))
     .map((file) => file.slice(studio.length + 1));
   assert.deepEqual(found, []);
+});
+
+// W-b: what she calls her site is `{product}`. Left as they are, each with its reason: the built-in
+// value itself (parts/words.js), the worker's fallback title for a notice that came with none (the
+// worker has no site words), and index.html's title and no-JavaScript line (shown before any
+// script runs; the shell sets the title as soon as it starts).
+test("W-b: no literal \"your blog\" left in Studio's code", () => {
+  const files = [...sources, join(studio, "sw.js"), join(studio, "index.html")];
+  const ALLOWED = { "parts/words.js": 1, "sw.js": 1, "index.html": 2 };
+  const found = files.flatMap((file) => {
+    const name = file.slice(studio.length + 1);
+    const text = file.endsWith(".html") ? readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, "") : code(readFileSync(file, "utf8"));
+    const count = (text.match(/your blog/gi) || []).length;
+    return count > (ALLOWED[name] || 0) ? [`${name}: ${count}`] : [];
+  });
+  assert.deepEqual(found, []);
+  configureWords({ vars: { product: "your website" } });
+  assert.equal(say("notify.cantReach"), "Can't reach your website right now. Check your connection, then try again.");
+  assert.equal(say("install.addedWindow"), "Added. Your website opens in its own window from now on.");
+  assert.equal(say("people.noName"), "Your website doesn't have your name yet.");
+  configureWords();
+  assert.equal(say("people.noName"), "Your blog doesn't have your name yet.", "the built-in words are unchanged");
 });
 
 test("words.json and the docs table are up to date", () => {

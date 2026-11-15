@@ -66,7 +66,7 @@ export async function createCopyPost({ api, post, goTo }) {
     } catch (error) {
       if (turn !== asked) return;
       shown.replaceChildren(h("alert-banner", { variant: "warning", heading: "It can't be copied right now" },
-        `Something in this post stops your blog from making the copy. ${say("common.tell")}`,
+        `${say("copy.stopsCopy")} ${say("common.tell")}`,
         h("p", { class: "studio-detail", text: error.message || "" }),
         h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, "Try again")));
       more.replaceChildren();

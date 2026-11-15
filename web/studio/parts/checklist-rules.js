@@ -94,10 +94,10 @@ export function recipeNoteWords(note) {
   ].filter(Boolean);
   const said = (text, link = open, extra = help) => ({ text, open: link, help: extra, details });
   if (note.code === "address-taken") {
-    return said(`Your recipe list has moved to a new spot on your blog, because your ${noun} “${title}” uses its usual one. Links to it still work.`);
+    return said(say("checklist.listMoved", { noun, title }));
   }
   if (note.code === "no-address") {
-    return said("There's no list of all your recipes, because two pages are using its spot on your blog.");
+    return said(say("checklist.noList"));
   }
   if (note.code === "filter-taken") {
     return said(name

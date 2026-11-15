@@ -13,7 +13,7 @@ export const KIND_WORDS = Object.freeze({
   research: { label: "Research", help: "Writing with sources and references." },
 });
 
-const UNKNOWN = { label: "Something else", get help() { return `Your blog shows it as a story. ${say("common.chose")}`; } };
+const UNKNOWN = { label: "Something else", get help() { return `${say("kinds.unknownAsStory")} ${say("common.chose")}`; } };
 
 /**
  * The kinds she can choose: a story, a recipe, a job on a trade site, and the post's own kind when

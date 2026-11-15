@@ -5,6 +5,7 @@
 // (ADR 0245, ADR 0246); nothing here decides what is saved, it only keeps the owner from sending
 // what the server is sure to refuse, and says why in plain words. There is deliberately no field
 // that takes markup or styling: every section is typed data.
+import { say } from "./words.js";
 
 /** Limits the server enforces, repeated so the form can say them before a save (crates/openblog-core/src/landing.rs). */
 export const LIMITS = Object.freeze({
@@ -64,9 +65,9 @@ export const SECTION_CATALOG = Object.freeze([
     type: "rich-text",
     label: "Text",
     icon: "\u{1F4DD}",
-    description: "A few paragraphs about you or your blog.",
+    get description() { return say("front.textAbout"); },
     sample: "About this blog. I write about slow living, with lists and links.",
-    blank: () => ({ markdown: "Write something about you or your blog." }),
+    blank: () => ({ markdown: say("front.textBlank") }),
     fields: [{ kind: "richtext", name: "markdown", label: "Your text", max: LIMITS.markdown, hint: "Use the buttons above the text for headings, bold, italic, links, lists, quotes and pictures. Anything you type is shown as written; it is never run as code." }],
   },
   {
@@ -78,7 +79,7 @@ export const SECTION_CATALOG = Object.freeze([
     blank: () => ({ heading: "Latest posts" }),
     fields: [
       text("heading", "Heading", { required: true, max: LIMITS.heading }),
-      { kind: "number", name: "count", label: "How many posts", optional: true, min: 1, max: LIMITS.latestCount, integer: true, hint: "Leave empty to show the usual number for your blog." },
+      { kind: "number", name: "count", label: "How many posts", optional: true, min: 1, max: LIMITS.latestCount, integer: true, get hint() { return say("front.latestCountHint"); } },
       { kind: "select", name: "show", label: "What to show", options: [["all", "All my posts"], ["recipes", "Only my recipes"]], default: "all", omitDefault: true, hint: "Only my recipes stays empty until you publish your first recipe." },
     ],
   },

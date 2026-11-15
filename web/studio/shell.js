@@ -104,7 +104,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     const back = () => setTimeout(() => was?.isConnected && was.focus?.(), 0);
     signInForm(api, {
       heading: "",
-      intro: "You were signed out. Your words are safe; sign in and your blog will finish what it was doing.",
+      intro: say("common.signedOut"),
       onDone: () => { dialog.open = false; dialog.remove(); back(); resolve(); },
     }).then((form) => {
       dialog = h("modal-dialog", { label: "Sign in again", class: "studio-signin-dialog" }, h("span", { slot: "heading", text: "Sign in again" }), form);

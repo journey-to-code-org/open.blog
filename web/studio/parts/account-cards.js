@@ -6,6 +6,7 @@ import { sayDay } from "./dates.js";
 import { healthBadge, healthWords, providerName } from "./share-words.js";
 import { detailsBox } from "./account-details.js";
 import * as R from "./social-rules.js";
+import { say } from "./words.js";
 
 const needs = (a) => a?.health === "needs-reauth" || a?.health === "expiring";
 
@@ -75,7 +76,7 @@ export function createAccountCards({ sheets, links, timeZone, onRetry, onDisconn
         h("status-badge", { variant: account.health === "ok" && !attempt ? "success" : "warning" }, badge)),
       h("p", { class: "studio-help", text: R.accountKind(account) }),
       words ? h("p", { text: words }) : null,
-      attempt?.status === "exchanging" ? h("p", { class: "studio-help", text: `${providerName(account.provider)} said yes. Your blog is finishing up.` }) : null,
+      attempt?.status === "exchanging" ? h("p", { class: "studio-help", text: say("social.saidYes", { name: providerName(account.provider) }) }) : null,
       waiting ? h("p", { class: "studio-help", text: `${waiting === 1 ? "1 post is" : `${waiting} posts are`} waiting for it.` }) : null,
       failed.length ? h("alert-banner", { variant: "info" }, `${failed.length === 1 ? "1 post" : `${failed.length} posts`} didn't go out while it wasn't working. `,
         h("action-button", { variant: "secondary", size: "sm", label: `Try them again: ${account.displayName}`, onClick: (e) => onRetry(account, failed, e.currentTarget) }, "Try them again")) : null,

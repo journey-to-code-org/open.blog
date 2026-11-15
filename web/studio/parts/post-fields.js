@@ -2,6 +2,7 @@
 // draft / publish / schedule rule, and the status words. DOM-free.
 
 import { isDayOnly, isFutureOnServer, joinInstant, sayDay, sayWhen, serverInstant, splitInstant } from "./dates.js";
+import { say } from "./words.js";
 
 /** The front-matter keys Studio edits. Every other key is sent back as it came. */
 export const STUDIO_KEYS = Object.freeze(["title", "date", "tags", "cover", "coverAlt", "draft"]);
@@ -220,8 +221,8 @@ export function whenHelp({ state, date, time = "", schedule = null, defaulted = 
   if (future && state === "published") return { words: `Your post comes off your site until ${when}.${note}`, ask: { heading: `Take it off until ${sayDay(value, { now, timeZone })}?`, yes: "Yes, schedule it", no: "Keep it up" } };
   if (future) {
     if (defaulted) return { words: "It goes up at 8 AM unless you change the time." };
-    if (schedule === "self") return { words: `It goes up by itself on ${when}, even with your blog closed.${note}` };
-    return { words: `It's ready to go up on ${when}. Your blog puts it up the next time it's sent out after that.${note}` };
+    if (schedule === "self") return { words: `${say("about.goesUpSelf", { when })}${note}` };
+    return { words: `${say("about.readyOn", { when })}${note}` };
   }
   if (state !== "published" && state !== "scheduled") return { words: `That day has passed, so it will show as published on ${sayDay(value, { now, timeZone }).replace(/^(Today|Yesterday)/, (w) => w.toLowerCase())}.` };
   return { words: "Leave it empty to use the day you publish." };

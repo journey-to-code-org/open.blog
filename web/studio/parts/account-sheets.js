@@ -44,7 +44,7 @@ export function createAccountSheets(ctx) {
     const url = R.safeAuthorizeUrl(reply?.authorizeUrl, instance);
     if (!url) {
       if (reply?.connection?.id) await api.post(`social/connections/${reply.connection.id}/cancel`, {}).catch(() => {});
-      say(status, `Your blog couldn't open ${providerName(provider)}. ${word("common.tell")}`, "danger");
+      say(status, `${word("social.couldntOpen", { name: providerName(provider) })} ${word("common.tell")}`, "danger");
       heading.focus();
       return { refused: true, lines: ["authorizeUrl refused"] };
     }
@@ -336,7 +336,7 @@ export function createAccountSheets(ctx) {
     const p = providerName(connection.provider);
     const heading = headingOf(`${p} said yes`);
     sheet.show({ heading: `${p} said yes`, opener, focus: focusOn(heading),
-      children: [h("p", { "data-finishing": connection.id, text: "Your blog is finishing up. This takes a few seconds." }), detailsBox(connectionLines(connection))] });
+      children: [h("p", { "data-finishing": connection.id, text: word("social.finishing") }), detailsBox(connectionLines(connection))] });
   }
 
   return { openConnect, openChoose, openBluesky, openReconnect, startAgain, openFinishing, stop, stopButton, errorText };

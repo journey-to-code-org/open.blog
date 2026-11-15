@@ -4,6 +4,7 @@
 // is posted to through the announcements, everything else by hand. Where a place stands is said
 // in Studio's words (rewritten on share-words in R1); docs/specs/studio/r1/ux.md.
 import { deliveryOf, newKey } from "./announcements-rules.js";
+import { say } from "./words.js";
 
 export { newKey };
 
@@ -106,7 +107,7 @@ export const keyFor = (work, digest) => `${work}\n${digest}`;
 /** A refusal from the share routes, in her words. */
 export function jobShareTrouble(error, label = "there") {
   const code = error?.data?.code;
-  if (code === "not-found") return "Your blog couldn't find this job. It may have been deleted or renamed.";
+  if (code === "not-found") return say("share.jobNotFound");
   if (code === "marked-again") return `You marked ${label} again since, so that newer mark stays.`;
   if (code === "not-shareable" || error?.status === 422) return "This isn't a published job, so there's nothing to share.";
   if (code === "changed") return "The job changed while you looked. Here are the new words.";

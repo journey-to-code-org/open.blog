@@ -385,7 +385,7 @@ export const WORDS = {
   // copies
   "notebook.copyOpen": { text: "Save a copy of your notebook…", layer: "her" },
   "notebook.copyTitle": { text: "Save a copy of your notebook?", layer: "her" },
-  "notebook.copyText": { text: "The file holds every passage and note, archived ones too. Keep it somewhere private, never in your blog's folders.", layer: "her" },
+  "notebook.copyText": { text: "The file holds every passage and note, archived ones too. Keep it somewhere private, never in {product}'s folders.", layer: "her" },
   "notebook.copyGo": { text: "Save the copy", layer: "her" },
   "notebook.copyStay": { text: "Not now", layer: "her" },
   "notebook.copied": { text: "Saved {filename}: {passages} passages and {notes} notes.", layer: "her" },

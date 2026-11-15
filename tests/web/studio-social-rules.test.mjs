@@ -45,7 +45,7 @@ test("an app password is four groups of four letters or digits; anything else is
   assert.equal(R.blueskyFieldError({ data: { code: "invalid-identifier" } }).field, "name");
   assert.equal(R.blueskyFieldError({ data: { code: "no-destination" } }).field, "");
   assert.equal(R.blueskyFieldError({ data: { code: "provider-unavailable" } }), null);
-  assert.doesNotMatch(R.appPasswordHelp, /Never type your real/, "the warning is only for the wrong-shape error");
+  assert.doesNotMatch(R.appPasswordHelp(), /Never type your real/, "the warning is only for the wrong-shape error");
 });
 
 test("a return carries only a connection id; anything else is ignored", () => {

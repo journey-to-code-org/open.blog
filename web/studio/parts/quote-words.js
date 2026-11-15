@@ -12,6 +12,9 @@ export const WORDS = {
   "quote.backUnderNew": { text: "{name} is back under New.", layer: "her" },
   "quote.undone": { text: "Undone. {name}'s request is back.", layer: "her" },
   "quote.eraseAsk": { text: "Erase {name}'s request?", layer: "her" },
+  // W-b: sentences that name {product}.
+  "quote.tooOld": { text: "Your requests service needs updating before {product} can clean up.", layer: "her" },
+  "quote.cantOpen": { text: "{product} can't open your quote requests", layer: "her" },
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -103,7 +106,7 @@ export function quoteTrouble(error) {
 
 /** A refusal while cleaning up archived requests; an older requests service is said plainly. */
 export function cleanupTrouble(error) {
-  if (error?.data?.code === "hosted-too-old") return `Your requests service needs updating before your blog can clean up. ${say("common.tell")}`;
+  if (error?.data?.code === "hosted-too-old") return `${say("quote.tooOld")} ${say("common.tell")}`;
   return quoteTrouble(error);
 }
 

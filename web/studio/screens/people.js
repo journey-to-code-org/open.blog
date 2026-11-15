@@ -29,7 +29,7 @@ export async function createPeople(context, route = {}) {
   const element = h("section", { class: "studio-page studio-people-page", "aria-labelledby": "studio-people-h" },
     h("breadcrumb-trail", { items: [{ label: "Home", href: "#/" }, { label: "People", href: "" }] }),
     back, heading,
-    h("p", { class: "studio-lede", text: "The people who write, cook or take photos for your blog. Choose them under Who wrote it on any post." }),
+    h("p", { class: "studio-lede", text: say("people.lede") }),
     h("div", {}, add), status, list, details);
 
   const people = () => Object.entries(data?.contributors || {});
@@ -58,9 +58,9 @@ export async function createPeople(context, route = {}) {
     const author = data.author || {};
     const own = author.name
       ? h("li", { class: "studio-person" }, h("div", { class: "studio-comment-head" },
-        h("strong", { class: "studio-person-name", text: author.name }), h("status-badge", { variant: "outline" }, "Your blog's name")),
-        h("p", { class: "studio-help", text: "Your blog's usual name." }))
-      : h("li", { class: "studio-person" }, h("p", { class: "studio-help", text: `Your blog doesn't have your name yet. ${say("common.tell")}` }));
+        h("strong", { class: "studio-person-name", text: author.name }), h("status-badge", { variant: "outline" }, say("people.blogName"))),
+        h("p", { class: "studio-help", text: say("people.usualName") }))
+      : h("li", { class: "studio-person" }, h("p", { class: "studio-help", text: `${say("people.noName")} ${say("common.tell")}` }));
     const rows = people().map(([id, person]) => {
       const more = h("dropdown-menu", { class: "studio-row-menu", items: [{ value: "remove", label: "Remove…" }], onItemselect: () => remove(id, more) },
         h("span", { slot: "label" }, "More", h("span", { class: "studio-visually-hidden", text: ` for ${person.name || id}` })));

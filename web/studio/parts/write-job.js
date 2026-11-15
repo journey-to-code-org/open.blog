@@ -87,7 +87,7 @@ export async function createWriteJob({ api, meta, fields, capture, body, banner,
   async function writeUp(opener) {
     setup ||= await writeUpSetup(api);
     if (!setup.ready) {
-      say(`Writing it up isn't set up for your blog. ${word("common.tell")}`);
+      say(`${word("job.writeUpOff")} ${word("common.tell")}`);
       return;
     }
     const text = body.text();

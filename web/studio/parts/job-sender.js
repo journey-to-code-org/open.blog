@@ -16,6 +16,7 @@
 import { createCaptureQueue, errorCode, errorText, isRetryable, openIndexedStore, queueLimits, storeExists, DB_NAME } from "./capture-queue.js";
 import { captureBody, captureFields, isPermanentPhotoError, newCaptureId } from "./new-job-rules.js";
 import { addToSentLog } from "./sent-log.js";
+import { say } from "./words.js";
 
 const MIN_TIME_MS = 60_000;
 // How long "sending" heard from another window counts without a word since (where there are no
@@ -413,7 +414,7 @@ export function createJobSender({
           return "signin";
         }
         if (outcome.kind === "waiting") {
-          await queue.update(id, { attempts: current.record.attempts + 1, lastError: errorText(outcome.code, outcome.code === "server" ? "Your blog didn't answer." : "Waiting for a signal.") }).catch(() => {});
+          await queue.update(id, { attempts: current.record.attempts + 1, lastError: errorText(outcome.code, outcome.code === "server" ? say("job.noAnswer") : "Waiting for a signal.") }).catch(() => {});
           return "waiting";
         }
         await queue.update(id, { attempts: current.record.attempts + 1, failed: true, lastError: errorText(outcome.code, error?.message || "") }).catch(() => {});

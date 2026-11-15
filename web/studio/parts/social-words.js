@@ -21,4 +21,18 @@ export const WORDS = {
   "social.connected": { text: "Connected. {product} can post to {name} on {service} now.", layer: "her" },
   "social.connectedFacebook": { text: "Connected. {product} can post to {name} on {service} now. To add another Facebook Page, connect Facebook again.", layer: "her", max: 240 },
   "social.connectedIt": { text: "Connected. {product} can post to it on {service} now.", layer: "her" },
+  // W-b: sentences that name {product}.
+  "social.saidYes": { text: "{name} said yes. {product} is finishing up.", layer: "her" },
+  "social.couldntOpen": { text: "{product} couldn't open {name}.", layer: "her" },
+  "social.finishing": { text: "{product} is finishing up. This takes a few seconds.", layer: "her" },
+  "social.accountsLede": { text: "Where {product} can post for you. It posts only when you share a post.", layer: "her" },
+  "social.connectionGone": { text: "{product} couldn't find that connection. If your account isn't listed, connect it again.", layer: "her" },
+  "bluesky.appPasswordHelp": { text: "Bluesky lets you make a separate password just for {product}, so your own password stays private. In Bluesky: Settings, then Privacy and security, then App passwords. Paste that one here.", layer: "her" },
+  "social.sendsYouBack": { text: "{product} sends you to {where}. Sign in there and say yes; you come back here to finish.", layer: "her" },
+  "social.sendsYouTo": { text: "{product} sends you to {name}. Sign in there and say yes; {name} sends you back here to {pick}.", layer: "her" },
+  "social.roleUnverified": { text: "Facebook didn't say what you can do on this Page, so {product} can't use it.", layer: "her" },
+  "social.cantPostHere": { text: "{product} can't post here.", layer: "her" },
+  "social.scopesMissing": { text: "{name} didn't allow everything {product} needs to post. Try again and leave every box ticked.", layer: "her" },
+  "social.slowDown": { text: "{name} asked {product} to slow down. Wait a few minutes, then try again.", layer: "her" },
+  "social.forgets": { text: "{product} forgets how to post to it. You can connect it again later.", layer: "her" },
 };

@@ -17,7 +17,7 @@ export function blueskySheet({ api, sheet, ctx, say, statusBox, headingOf, openC
     const status = statusBox();
     const nameField = h("text-field", { label: "Your Bluesky name", autocomplete: "username", required: true, value: start, placeholder: word("bluesky.namePlaceholder"),
       onValuechange: () => { if (nameField.value) nameField.error = ""; } });
-    const secret = h("text-field", { label: "App password", type: "password", autocomplete: "off", required: true, description: R.appPasswordHelp,
+    const secret = h("text-field", { label: "App password", type: "password", autocomplete: "off", required: true, description: R.appPasswordHelp(),
       onValuechange: () => { if (secret.value) secret.error = ""; } });
     const input = (field) => field.querySelector("input");
     requestAnimationFrame(() => {

@@ -118,7 +118,7 @@ export function createTrouble({ api, banner, title, day, doc, read, now, paint, 
       day.error = said.words;
       if (!quiet) day.querySelector("input")?.focus();
     } else if (said.where === "gone") {
-      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "This post isn't on your blog any more" },
+      banner.replaceChildren(h("alert-banner", { variant: "danger", heading: say("about.gone") },
         "It may have been deleted on another computer. Your words are still here.",
         h("action-button", { onClick: () => saveAsNew() }, "Save it as a new post"),
         h("action-button", { variant: "secondary", href: "#/posts" }, "Back to your posts")));

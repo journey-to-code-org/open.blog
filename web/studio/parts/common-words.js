@@ -19,4 +19,7 @@ export const WORDS = {
   "common.wordForWord": { text: "Word for word", layer: "her" },
   "common.stopWaiting": { text: "Stop waiting", layer: "her" },
   "common.tryAgain": { text: "Try again", layer: "her" },
+  // W-b: sentences that name {product}.
+  "common.cantReach": { text: "{product} can't be reached right now. Check your connection, then try again.", layer: "her" },
+  "common.signedOut": { text: "You were signed out. Your words are safe; sign in and {product} will finish what it was doing.", layer: "her" },
 };

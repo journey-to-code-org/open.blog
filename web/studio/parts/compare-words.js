@@ -58,7 +58,7 @@ export const WORDS = {
   "compare.uncertain": { text: "Uncertain:", layer: "her" },
   // publication
   "compare.private": { text: "Private: not published.", layer: "her" },
-  "compare.approvedNotPublished": { text: "Approved, but your blog doesn't publish aligned passages yet. {helper} can turn it on.", layer: "her" },
+  "compare.approvedNotPublished": { text: "Approved, but {product} doesn't publish aligned passages yet. {helper} can turn it on.", layer: "her" },
   "compare.published": { text: "Published at {address}.", layer: "her" },
   "compare.rightsYours": { text: "Rights statements are your own.", layer: "her" },
   "compare.placeShown": { text: "Readers see these words, with the version's rights statement.", layer: "her" },
@@ -116,8 +116,8 @@ export const WORDS = {
   "compare.divergent": { text: "You read these places as corresponding but differing", layer: "her" },
   "compare.reasoning": { text: "Your reasoning", layer: "her" },
   "compare.recordedBy": { text: "Who reads them this way", layer: "her" },
-  "compare.approveHelp": { text: "You agree to show these aligned passages on your blog, quoting only words whose rights you cleared.", layer: "her" },
-  "compare.notPublishedHelp": { text: "Your blog doesn't publish aligned passages yet. {helper} can turn it on.", layer: "her" },
+  "compare.approveHelp": { text: "You agree to show these aligned passages on {product}, quoting only words whose rights you cleared.", layer: "her" },
+  "compare.notPublishedHelp": { text: "{product} doesn't publish aligned passages yet. {helper} can turn it on.", layer: "her" },
   // problems
   "compare.keyTaken": { text: "Another alignment has that key. Choose another.", layer: "her" },
   "compare.tooManyPlaces": { text: "At most {max} places in one alignment.", layer: "her" },

@@ -50,7 +50,7 @@ export async function createQuotes({ api, meta }) {
       if (!state.enabled) {
         cards.removeAttribute("aria-busy");
         cards.replaceChildren();
-        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: "Your blog can't open your quote requests" }, `The quote form isn't connected properly. ${word("common.tell")}`));
+        banner.replaceChildren(h("alert-banner", { variant: "danger", heading: word("quote.cantOpen") }, `The quote form isn't connected properly. ${word("common.tell")}`));
         drawDetails(state);
         return;
       }

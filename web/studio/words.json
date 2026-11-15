@@ -77,6 +77,120 @@
         "helper"
       ]
     },
+    "about.goesUpNext": {
+      "text": "It goes up the next time {product} is sent out after that.",
+      "layer": "her",
+      "max": 116,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.goesUpSelf": {
+      "text": "It goes up by itself on {when}, even with {product} closed.",
+      "layer": "her",
+      "max": 118,
+      "vars": [
+        "when",
+        "product"
+      ]
+    },
+    "about.gone": {
+      "text": "This post isn't on {product} any more",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.goneDeleted": {
+      "text": "This post isn't on {product} any more. It may have been deleted on another computer.",
+      "layer": "her",
+      "max": 168,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.listGoes": {
+      "text": "The list on this post goes, and {product}'s usual name shows.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.nameOnEvery": {
+      "text": "The name {product} uses on every post.",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.noAnswer": {
+      "text": "{product} didn't answer. Your words are kept on this computer, and it tries again when you next change something.",
+      "layer": "her",
+      "max": 226,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.noHistory": {
+      "text": "{product} has no history of this post, so its address is kept as it is. It can be changed only in the file.",
+      "layer": "her",
+      "max": 214,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.pinOnly": {
+      "text": "Only used when {product} sends a Pin. Leave them empty to use the title and summary.",
+      "layer": "her",
+      "max": 168,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.readyOn": {
+      "text": "It's ready to go up on {when}. {product} puts it up the next time it's sent out after that.",
+      "layer": "her",
+      "max": 182,
+      "vars": [
+        "when",
+        "product"
+      ]
+    },
+    "about.stopsBuild": {
+      "text": "Something in this post stops {product} from building it.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.summaryHelp": {
+      "text": "One or two sentences. Leave empty and {product} uses the first lines of your post.",
+      "layer": "her",
+      "max": 164,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.unknownRoles": {
+      "text": "Remove roles {product} doesn't know.",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "product"
+      ]
+    },
+    "about.usualLook": {
+      "text": "{product}'s usual look",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "product"
+      ]
+    },
     "add.alreadyThere": {
       "text": "This post already has an {thing}.",
       "layer": "her",
@@ -438,7 +552,7 @@
       "vars": []
     },
     "atlas.approveHelp": {
-      "text": "You agree to show this on your blog's atlas pages once {product} publishes the atlas.",
+      "text": "You agree to show this on {product}'s atlas pages once {product} publishes the atlas.",
       "layer": "her",
       "max": 170,
       "vars": [
@@ -1295,10 +1409,11 @@
       "vars": []
     },
     "atlas.notPublished": {
-      "text": "Your blog doesn't publish the atlas yet. {helper} can turn it on.",
+      "text": "{product} doesn't publish the atlas yet. {helper} can turn it on.",
       "layer": "her",
       "max": 130,
       "vars": [
+        "product",
         "helper"
       ]
     },
@@ -1942,6 +2057,14 @@
       "max": 40,
       "vars": []
     },
+    "bluesky.appPasswordHelp": {
+      "text": "Bluesky lets you make a separate password just for {product}, so your own password stays private. In Bluesky: Settings, then Privacy and security, then App passwords. Paste that one here.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
     "bluesky.nameError": {
       "text": "Type your Bluesky name, like yourname.bsky.social.",
       "layer": "her",
@@ -2386,6 +2509,24 @@
         "helper"
       ]
     },
+    "checklist.listMoved": {
+      "text": "Your recipe list has moved to a new spot on {product}, because your {noun} “{title}” uses its usual one. Links to it still work.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "noun",
+        "title"
+      ]
+    },
+    "checklist.noList": {
+      "text": "There's no list of all your recipes, because two pages are using its spot on {product}.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "product"
+      ]
+    },
     "cite.addSource": {
       "text": "Add a source",
       "layer": "her",
@@ -2568,10 +2709,12 @@
       "vars": []
     },
     "cite.localeSite": {
-      "text": "Your blog's language",
+      "text": "{product}'s language",
       "layer": "her",
       "max": 40,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "cite.malformed": {
       "text": "This citation can't be read.",
@@ -3441,6 +3584,14 @@
         "helper"
       ]
     },
+    "common.cantReach": {
+      "text": "{product} can't be reached right now. Check your connection, then try again.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
     "common.catchesUp": {
       "text": "Your public site catches up when {helper} sends it out.",
       "layer": "her",
@@ -3487,6 +3638,14 @@
       "max": 40,
       "vars": [
         "helper"
+      ]
+    },
+    "common.signedOut": {
+      "text": "You were signed out. Your words are safe; sign in and {product} will finish what it was doing.",
+      "layer": "her",
+      "max": 188,
+      "vars": [
+        "product"
       ]
     },
     "common.stopWaiting": {
@@ -3584,16 +3743,19 @@
       "vars": []
     },
     "compare.approveHelp": {
-      "text": "You agree to show these aligned passages on your blog, quoting only words whose rights you cleared.",
+      "text": "You agree to show these aligned passages on {product}, quoting only words whose rights you cleared.",
       "layer": "her",
       "max": 198,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "compare.approvedNotPublished": {
-      "text": "Approved, but your blog doesn't publish aligned passages yet. {helper} can turn it on.",
+      "text": "Approved, but {product} doesn't publish aligned passages yet. {helper} can turn it on.",
       "layer": "her",
       "max": 172,
       "vars": [
+        "product",
         "helper"
       ]
     },
@@ -3967,10 +4129,11 @@
       "vars": []
     },
     "compare.notPublishedHelp": {
-      "text": "Your blog doesn't publish aligned passages yet. {helper} can turn it on.",
+      "text": "{product} doesn't publish aligned passages yet. {helper} can turn it on.",
       "layer": "her",
       "max": 144,
       "vars": [
+        "product",
         "helper"
       ]
     },
@@ -4298,12 +4461,69 @@
       "max": 40,
       "vars": []
     },
+    "copy.commentsStay": {
+      "text": "Comments stay on {product}.",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "product"
+      ]
+    },
+    "copy.diagramStays": {
+      "text": "The diagram stays on {product}, with a link back to it.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product"
+      ]
+    },
+    "copy.evidenceStays": {
+      "text": "The evidence notes stay on {product}.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "product"
+      ]
+    },
+    "copy.helpsStay": {
+      "text": "The reading helps stay on {product}.",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "product"
+      ]
+    },
     "copy.notReady": {
-      "text": "Your blog can't make a copy for it right now. Try another, or tell {helper}.",
+      "text": "{product} can't make a copy for it right now. Try another, or tell {helper}.",
       "layer": "her",
       "max": 152,
       "vars": [
+        "product",
         "helper"
+      ]
+    },
+    "copy.onlyThere": {
+      "text": "Something readers can use on {product} only works there. The copy links back to it.",
+      "layer": "her",
+      "max": 166,
+      "vars": [
+        "product"
+      ]
+    },
+    "copy.stopsCopy": {
+      "text": "Something in this post stops {product} from making the copy.",
+      "layer": "her",
+      "max": 120,
+      "vars": [
+        "product"
+      ]
+    },
+    "copy.timelineStays": {
+      "text": "The timeline stays on {product}, with a link back to it.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "product"
       ]
     },
     "curate.by": {
@@ -7112,6 +7332,30 @@
       "max": 40,
       "vars": []
     },
+    "front.latestCountHint": {
+      "text": "Leave empty to show the usual number for {product}.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "product"
+      ]
+    },
+    "front.textAbout": {
+      "text": "A few paragraphs about you or {product}.",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "product"
+      ]
+    },
+    "front.textBlank": {
+      "text": "Write something about you or {product}.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "product"
+      ]
+    },
     "helper.alsoNone": {
       "text": "None",
       "layer": "details",
@@ -9213,6 +9457,103 @@
       "max": 40,
       "vars": []
     },
+    "install.addHomeScreen": {
+      "text": "Add {product} to your Home Screen",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.addedPhone": {
+      "text": "Added. Open {product} from its icon from now on.",
+      "layer": "her",
+      "max": 96,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.addedWindow": {
+      "text": "Added. {product} opens in its own window from now on.",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.already": {
+      "text": "You're already using {product} from its icon.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.asApp": {
+      "text": "Install {product} as an app",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.firefox": {
+      "text": "Firefox can't add {product} as an app. It works the same in a tab: bookmark it instead.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.inApp": {
+      "text": "This page is open inside another app. Open {product} in {app}:",
+      "layer": "her",
+      "max": 124,
+      "vars": [
+        "product",
+        "app"
+      ]
+    },
+    "install.openIcon": {
+      "text": "Open {product} from its new icon.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.openInSafari": {
+      "text": "Don't see Add to Home Screen? Open {product} in Safari:",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.openSignIn": {
+      "text": "Open {product} from its new icon and sign in again.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.ownIcon": {
+      "text": "Then {product} opens from its own icon, like your other apps.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "product"
+      ]
+    },
+    "install.ownWindow": {
+      "text": "Then {product} opens in its own window, like your other apps.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "product"
+      ]
+    },
     "install.signInFirst": {
       "text": "You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask {helper} first.",
       "layer": "her",
@@ -9485,12 +9826,95 @@
       "max": 44,
       "vars": []
     },
+    "job.addHomeScreen": {
+      "text": "Add {product} to your Home Screen so jobs waiting here are kept safe.",
+      "layer": "her",
+      "max": 138,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.cantKeep": {
+      "text": "Jobs send straight away instead, so save one where there's a signal. In a normal Safari window {product} can keep them.",
+      "layer": "her",
+      "max": 238,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.deletedThere": {
+      "text": "This job went to {product} before, and was deleted there since.",
+      "layer": "her",
+      "max": 126,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.goesAsYours": {
+      "text": "It goes to {product} as yours.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.inApp": {
+      "text": "This page is open inside another app, which may not keep your jobs. Open {product} in Safari.",
+      "layer": "her",
+      "max": 186,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.lede": {
+      "text": "Take photos and say what you did. It's kept on this {noun} until there's a signal, then goes to {product} as a draft.",
+      "layer": "her",
+      "max": 234,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "job.ledgerVersion": {
+      "text": "{product} was updated in a way this page doesn't understand yet. Reload, then try again.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.micDenied": {
+      "text": "{product} isn't allowed to use the microphone on this {noun}. To change that:",
+      "layer": "her",
+      "max": 154,
+      "vars": [
+        "product",
+        "noun"
+      ]
+    },
     "job.newerVersion": {
-      "text": "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}.",
+      "text": "This job was saved by a newer version of {product}'s pages. Reload to send it. If it still says this, tell {helper}.",
       "layer": "her",
       "max": 232,
       "vars": [
+        "product",
         "helper"
+      ]
+    },
+    "job.noAnswer": {
+      "text": "{product} didn't answer.",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.noAnswerLead": {
+      "text": "{product} didn't answer when it last tried",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "product"
       ]
     },
     "job.noNotes": {
@@ -9505,6 +9929,14 @@
       "max": 92,
       "vars": []
     },
+    "job.notSetUp": {
+      "text": "{product} isn't set up for jobs",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "product"
+      ]
+    },
     "job.noteStillHere": {
       "text": "Your voice note is still here.",
       "layer": "her",
@@ -9516,6 +9948,64 @@
       "layer": "her",
       "max": 116,
       "vars": []
+    },
+    "job.otherWindow": {
+      "text": "Another window updated {product}'s pages. Reload, then save again. This job stays here.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.ownHelper": {
+      "text": "{product}'s helper",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.roomFull": {
+      "text": "The jobs waiting on this {noun} are using all the room {product} has here. Send them first. This one stays here.",
+      "layer": "her",
+      "max": 224,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "job.safariClear": {
+      "text": "Safari may clear jobs kept here if {product} isn't opened for a week. Send it, or save its photos to this {noun}.",
+      "layer": "her",
+      "max": 226,
+      "vars": [
+        "product",
+        "noun"
+      ]
+    },
+    "job.saidNo": {
+      "text": "{product} said no to this job.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.turnsLocal": {
+      "text": "{product} turns it into words on its own computer. Nothing leaves it.",
+      "layer": "her",
+      "max": 138,
+      "vars": [
+        "product"
+      ]
+    },
+    "job.waitingInSafari": {
+      "text": "Saved a job in Safari instead? It's waiting there: open {product} in Safari to send it.",
+      "layer": "her",
+      "max": 174,
+      "vars": [
+        "product"
+      ]
     },
     "job.writeUpGo": {
       "text": "Write it up",
@@ -9534,6 +10024,14 @@
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "job.writeUpOff": {
+      "text": "Writing it up isn't set up for {product}.",
+      "layer": "her",
+      "max": 82,
+      "vars": [
+        "product"
+      ]
     },
     "job.writeUpTitle": {
       "text": "Write it up for me",
@@ -9738,6 +10236,14 @@
       "layer": "her",
       "max": 130,
       "vars": []
+    },
+    "kinds.unknownAsStory": {
+      "text": "{product} shows it as a story.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "product"
+      ]
     },
     "layout.addRound": {
       "text": "Add a round",
@@ -10844,10 +11350,12 @@
       "vars": []
     },
     "notebook.copyText": {
-      "text": "The file holds every passage and note, archived ones too. Keep it somewhere private, never in your blog's folders.",
+      "text": "The file holds every passage and note, archived ones too. Keep it somewhere private, never in {product}'s folders.",
       "layer": "her",
       "max": 228,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "notebook.copyTitle": {
       "text": "Save a copy of your notebook?",
@@ -11251,11 +11759,28 @@
       "vars": []
     },
     "notify.canTurnOn": {
-      "text": "{helper} can turn them on. Your blog works the same without them.",
+      "text": "{helper} can turn them on. {product} works the same without them.",
       "layer": "her",
       "max": 130,
       "vars": [
-        "helper"
+        "helper",
+        "product"
+      ]
+    },
+    "notify.cantLoad": {
+      "text": "{product} couldn't load your notifications. Try again in a minute.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.cantReach": {
+      "text": "Can't reach {product} right now. Check your connection, then try again.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
       ]
     },
     "notify.commentsLink": {
@@ -11263,6 +11788,82 @@
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "notify.didntSeeAndroid": {
+      "text": "In Settings: Apps, then {product} (or Chrome), then Notifications.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.didntSeeApple": {
+      "text": "In the Settings app: Notifications, then {product}. Allow Notifications should be on, with Lock Screen and Banners turned on.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.findAllow": {
+      "text": "Find {product} and choose Allow.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.findInList": {
+      "text": "Find {product} in the list (it has the name under its icon) and tap it.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.gone": {
+      "text": "This {noun} stopped taking notifications, so {product} forgot it. Turn them on again.",
+      "layer": "her",
+      "max": 170,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "notify.holdIcon": {
+      "text": "Touch and hold {product}'s icon.",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.homeScreenFirst": {
+      "text": "On an {noun}, {product} can only send notifications once it's on your Home Screen. It takes four taps.",
+      "layer": "her",
+      "max": 204,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "notify.inApp": {
+      "text": "This page is open inside another app, which can't show notifications. Open {product} in {app}:",
+      "layer": "her",
+      "max": 188,
+      "vars": [
+        "product",
+        "app"
+      ]
+    },
+    "notify.lede": {
+      "text": "Your phone can tell you when {what}, even when {product} is closed.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "what",
+        "product"
+      ]
     },
     "notify.nameHelp": {
       "text": "So you can tell them apart, like Work phone.",
@@ -11276,11 +11877,114 @@
       "max": 64,
       "vars": []
     },
+    "notify.notReady": {
+      "text": "{product} couldn't get this {noun} ready. Reload the page, then try again.",
+      "layer": "her",
+      "max": 148,
+      "vars": [
+        "product",
+        "noun"
+      ]
+    },
+    "notify.notSecure": {
+      "text": "Notifications only work at {product}'s secure address.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.notSetUp": {
+      "text": "Notifications aren't set up for {product}",
+      "layer": "her",
+      "max": 82,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.nothingOn": {
+      "text": "They tell you about comments and quote requests, and neither is turned on for {product}.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.otherGone": {
+      "text": "{name} stopped taking notifications, so {product} forgot it.",
+      "layer": "her",
+      "max": 120,
+      "vars": [
+        "name",
+        "product"
+      ]
+    },
     "notify.readersLink": {
       "text": "a reader sends you something",
       "layer": "her",
       "max": 56,
       "vars": []
+    },
+    "notify.removeAsk": {
+      "text": "It won't get notifications from {product} any more. To get them there again, open {product} on it and turn them on.",
+      "layer": "her",
+      "max": 230,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.removedElsewhere": {
+      "text": "This {noun} was removed from the phones {product} tells, on another phone or computer. Turn them on again.",
+      "layer": "her",
+      "max": 212,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "notify.removedOff": {
+      "text": "This {noun} was removed from the phones {product} tells, so it's off.",
+      "layer": "her",
+      "max": 138,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "notify.saidNo": {
+      "text": "You said no when your {noun} asked, so it can't show notifications from {product}. To change that:",
+      "layer": "her",
+      "max": 196,
+      "vars": [
+        "noun",
+        "product"
+      ]
+    },
+    "notify.serviceDown": {
+      "text": "{product} couldn't reach its notification service. Try again in a minute.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "product"
+      ]
+    },
+    "notify.tooMany": {
+      "text": "{product} can tell up to {limit} phones and computers. Remove one you don't use any more, below.",
+      "layer": "her",
+      "max": 192,
+      "vars": [
+        "product",
+        "limit"
+      ]
+    },
+    "notify.updateFirst": {
+      "text": "This {noun} needs a newer iOS before {product} can send it notifications. In the Settings app: General, then Software Update.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "noun",
+        "product"
+      ]
     },
     "part.addIdea": {
       "text": "Add",
@@ -13030,6 +13734,14 @@
       "max": 50,
       "vars": []
     },
+    "people.blogName": {
+      "text": "{product}'s name",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
     "people.changeAsk": {
       "text": "Change what {name} does?",
       "layer": "her",
@@ -13291,6 +14003,14 @@
       "max": 58,
       "vars": []
     },
+    "people.lede": {
+      "text": "The people who write, cook or take photos for {product}. Choose them under Who wrote it on any post.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "product"
+      ]
+    },
     "people.linkMade": {
       "text": "Send this link to {name} yourself. It works once, until {when}. {product} doesn't email it.",
       "layer": "her",
@@ -13375,11 +14095,27 @@
       "max": 90,
       "vars": []
     },
+    "people.noAnswer": {
+      "text": "Not saved yet. {product} didn't answer. Try again in a moment.",
+      "layer": "her",
+      "max": 124,
+      "vars": [
+        "product"
+      ]
+    },
     "people.noInvitations": {
       "text": "No invitations yet.",
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "people.noName": {
+      "text": "{product} doesn't have your name yet.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "product"
+      ]
     },
     "people.onlyNow": {
       "text": "You won't see this link again. If it's lost, make a new one.",
@@ -13561,6 +14297,14 @@
       "max": 120,
       "vars": []
     },
+    "people.usualName": {
+      "text": "{product}'s usual name.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "product"
+      ]
+    },
     "people.whatTheyDo": {
       "text": "What they do",
       "layer": "her",
@@ -13715,10 +14459,11 @@
       "vars": []
     },
     "public.cantBuild": {
-      "text": "What readers see can't be worked out right now: your blog doesn't build as it stands. Tell {helper}.",
+      "text": "What readers see can't be worked out right now: {product} doesn't build as it stands. Tell {helper}.",
       "layer": "her",
       "max": 200,
       "vars": [
+        "product",
         "helper"
       ]
     },
@@ -14081,10 +14826,11 @@
       "vars": []
     },
     "public.storeOff": {
-      "text": "Your blog doesn't publish this part. {helper} can turn it on.",
+      "text": "{product} doesn't publish this part. {helper} can turn it on.",
       "layer": "her",
       "max": 122,
       "vars": [
+        "product",
         "helper"
       ]
     },
@@ -14181,10 +14927,12 @@
       "vars": []
     },
     "public.whyNotPublished": {
-      "text": "It isn't in what your blog publishes.",
+      "text": "It isn't in what {product} publishes.",
       "layer": "her",
       "max": 74,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "public.whyNotShown": {
       "text": "You haven't let readers see it.",
@@ -14193,10 +14941,12 @@
       "vars": []
     },
     "public.whyPageNotUp": {
-      "text": "The page it links to isn't on your blog yet.",
+      "text": "The page it links to isn't on {product} yet.",
       "layer": "her",
       "max": 88,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "public.whyPassage": {
       "text": "It points into your notebook.",
@@ -14205,10 +14955,12 @@
       "vars": []
     },
     "public.whyPostNotUp": {
-      "text": "Its post isn't on your blog yet.",
+      "text": "Its post isn't on {product} yet.",
       "layer": "her",
       "max": 64,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "public.whyRights": {
       "text": "The words are held back under their rights statement.",
@@ -14217,10 +14969,12 @@
       "vars": []
     },
     "public.whySiteOff": {
-      "text": "Your blog doesn't publish this yet.",
+      "text": "{product} doesn't publish this yet.",
       "layer": "her",
       "max": 70,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "public.whyStale": {
       "text": "It changed after you chose it. Choose it again to show it as it is now.",
@@ -14268,6 +15022,14 @@
         "name"
       ]
     },
+    "quote.cantOpen": {
+      "text": "{product} can't open your quote requests",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "product"
+      ]
+    },
     "quote.eraseAsk": {
       "text": "Erase {name}'s request?",
       "layer": "her",
@@ -14290,6 +15052,14 @@
       "max": 98,
       "vars": [
         "helper"
+      ]
+    },
+    "quote.tooOld": {
+      "text": "Your requests service needs updating before {product} can clean up.",
+      "layer": "her",
+      "max": 134,
+      "vars": [
+        "product"
       ]
     },
     "quote.undone": {
@@ -20203,6 +20973,65 @@
         "product"
       ]
     },
+    "reminders.lede": {
+      "text": "At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "reminders.nothing": {
+      "text": "Nothing to write about for the next month. {product} will tell you when something comes up.",
+      "layer": "her",
+      "max": 182,
+      "vars": [
+        "product"
+      ]
+    },
+    "reminders.stopsSuggesting": {
+      "text": "{product} stops suggesting it. A draft you started from it stays.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "product"
+      ]
+    },
+    "reminders.suggestsFrom": {
+      "text": "{product} suggests “{name}” from {window}.",
+      "layer": "her",
+      "max": 84,
+      "vars": [
+        "product",
+        "name",
+        "window"
+      ]
+    },
+    "reminders.topicsHelp": {
+      "text": "Turn one off, or move when {product} suggests it.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "product"
+      ]
+    },
+    "reminders.turnOn": {
+      "text": "Turn them on and {product} suggests what to write for your trade, at the right time of year. It never publishes anything.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product"
+      ]
+    },
+    "reminders.wontSuggest": {
+      "text": "{product} won't suggest “{topic}” any more.",
+      "layer": "her",
+      "max": 86,
+      "vars": [
+        "product",
+        "topic"
+      ]
+    },
     "research.addFirst": {
       "text": "Add your first source",
       "layer": "her",
@@ -21874,12 +22703,112 @@
       "max": 44,
       "vars": []
     },
+    "share.couldntRead": {
+      "text": "{product} couldn't read that",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.couldntTell": {
+      "text": "{product} couldn't tell whether it posted. Look at the account it was going to. Is it there?",
+      "layer": "her",
+      "max": 184,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.jobNotFound": {
+      "text": "{product} couldn't find this job. It may have been deleted or renamed.",
+      "layer": "her",
+      "max": 140,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.noReply": {
+      "text": "{product} didn't hear back. Look under Sharing in a minute before posting again.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.previewMissing": {
+      "text": "{product} couldn't show this just now. It will still share as you wrote it.",
+      "layer": "her",
+      "max": 150,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.ranOut": {
+      "text": "{product} ran out of time and will try again.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.slowDown": {
+      "text": "{name} asked {product} to slow down.",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "name",
+        "product"
+      ]
+    },
+    "share.stoppedEarly": {
+      "text": "{product} stopped before it heard back.",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "product"
+      ]
+    },
+    "share.stoppedTaking": {
+      "text": "{name} stopped taking posts from {product}. Reconnect it, {same}.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "name",
+        "product",
+        "same"
+      ]
+    },
     "share.tellOrSkip": {
       "text": "Tell {helper}, or choose Don't share it.",
       "layer": "her",
       "max": 80,
       "vars": [
         "helper"
+      ]
+    },
+    "share.unreadable": {
+      "text": "{product} couldn't read what went to {label}, so it isn't here.",
+      "layer": "her",
+      "max": 126,
+      "vars": [
+        "product",
+        "label"
+      ]
+    },
+    "share.wentOutUnsure": {
+      "text": "{product} couldn't tell whether it went out. Look at the account.",
+      "layer": "her",
+      "max": 130,
+      "vars": [
+        "product"
+      ]
+    },
+    "social.accountsLede": {
+      "text": "Where {product} can post for you. It posts only when you share a post.",
+      "layer": "her",
+      "max": 140,
+      "vars": [
+        "product"
       ]
     },
     "social.already": {
@@ -21896,6 +22825,14 @@
       "max": 122,
       "vars": [
         "helper"
+      ]
+    },
+    "social.cantPostHere": {
+      "text": "{product} can't post here.",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "product"
       ]
     },
     "social.connected": {
@@ -21927,6 +22864,23 @@
         "service"
       ]
     },
+    "social.connectionGone": {
+      "text": "{product} couldn't find that connection. If your account isn't listed, connect it again.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "product"
+      ]
+    },
+    "social.couldntOpen": {
+      "text": "{product} couldn't open {name}.",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "product",
+        "name"
+      ]
+    },
     "social.disconnectAsk": {
       "text": "Disconnect {name}?",
       "layer": "her",
@@ -21949,6 +22903,22 @@
       "max": 240,
       "vars": [
         "helper"
+      ]
+    },
+    "social.finishing": {
+      "text": "{product} is finishing up. This takes a few seconds.",
+      "layer": "her",
+      "max": 104,
+      "vars": [
+        "product"
+      ]
+    },
+    "social.forgets": {
+      "text": "{product} forgets how to post to it. You can connect it again later.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "product"
       ]
     },
     "social.gone": {
@@ -22005,6 +22975,51 @@
       "max": 56,
       "vars": []
     },
+    "social.roleUnverified": {
+      "text": "Facebook didn't say what you can do on this Page, so {product} can't use it.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "social.saidYes": {
+      "text": "{name} said yes. {product} is finishing up.",
+      "layer": "her",
+      "max": 86,
+      "vars": [
+        "name",
+        "product"
+      ]
+    },
+    "social.scopesMissing": {
+      "text": "{name} didn't allow everything {product} needs to post. Try again and leave every box ticked.",
+      "layer": "her",
+      "max": 186,
+      "vars": [
+        "name",
+        "product"
+      ]
+    },
+    "social.sendsYouBack": {
+      "text": "{product} sends you to {where}. Sign in there and say yes; you come back here to finish.",
+      "layer": "her",
+      "max": 176,
+      "vars": [
+        "product",
+        "where"
+      ]
+    },
+    "social.sendsYouTo": {
+      "text": "{product} sends you to {name}. Sign in there and say yes; {name} sends you back here to {pick}.",
+      "layer": "her",
+      "max": 190,
+      "vars": [
+        "product",
+        "name",
+        "pick"
+      ]
+    },
     "social.signInAgain": {
       "text": "{service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}.",
       "layer": "her",
@@ -22012,6 +23027,15 @@
       "vars": [
         "service",
         "helper"
+      ]
+    },
+    "social.slowDown": {
+      "text": "{name} asked {product} to slow down. Wait a few minutes, then try again.",
+      "layer": "her",
+      "max": 144,
+      "vars": [
+        "name",
+        "product"
       ]
     },
     "sources.add": {
@@ -26304,10 +27328,12 @@
       "vars": []
     },
     "visitors.how5": {
-      "text": "This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing.",
+      "text": "This counts what reaches {product}'s own computer; if {product} is served from somewhere else, some visits may be missing.",
       "layer": "her",
       "max": 240,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "visitors.howHeading": {
       "text": "How these numbers are counted",
@@ -28786,10 +29812,12 @@
       "vars": []
     },
     "yours.rightsText": {
-      "text": "Quoting them on your blog is your decision.",
+      "text": "Quoting them on {product} is your decision.",
       "layer": "her",
       "max": 86,
-      "vars": []
+      "vars": [
+        "product"
+      ]
     },
     "yours.rightsTitle": {
       "text": "Quote words whose rights {state}?",
@@ -28864,18 +29892,20 @@
       "vars": []
     },
     "yours.siteOff": {
-      "text": "Your blog doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on.",
+      "text": "{product} doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on.",
       "layer": "her",
       "max": 190,
       "vars": [
+        "product",
         "helper"
       ]
     },
     "yours.siteOffCompare": {
-      "text": "Your blog doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on.",
+      "text": "{product} doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on.",
       "layer": "her",
       "max": 204,
       "vars": [
+        "product",
         "helper"
       ]
     },

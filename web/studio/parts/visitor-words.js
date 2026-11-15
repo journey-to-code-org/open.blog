@@ -51,7 +51,7 @@ export const WORDS = {
   "visitors.how2": { text: "A person reading the same page twice in a day is one visit. Nothing links one day to the next, so {product} can't tell how many different people came.", layer: "her" },
   "visitors.how3": { text: "Readers who ask not to be counted aren't counted.", layer: "her" },
   "visitors.how4": { text: "Search engines and AI tools also read your pages. They're not in these numbers.", layer: "her" },
-  "visitors.how5": { text: "This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing.", layer: "her" },
+  "visitors.how5": { text: "This counts what reaches {product}'s own computer; if {product} is served from somewhere else, some visits may be missing.", layer: "her" },
   "visitors.detailsSource": { text: "source {source}", layer: "details" },
   "visitors.detailsRange": { text: "from {from} to {to}, views {views}, visits {visits}, all time {allTime}, first day {first}, kept {kept}, series {series}", layer: "details" },
   "visitors.detailsPath": { text: "{path}  views {views}  visits {visits}  all time {allTime}", layer: "details" },

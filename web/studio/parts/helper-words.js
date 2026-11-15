@@ -5,7 +5,7 @@
 /** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string }>} */
 export const WORDS = {
   "about.aliasFix": { text: "An old address in this post can't be used. {helper} can fix it in the file.", layer: "her" },
-  "copy.notReady": { text: "Your blog can't make a copy for it right now. Try another, or tell {helper}.", layer: "her" },
+  "copy.notReady": { text: "{product} can't make a copy for it right now. Try another, or tell {helper}.", layer: "her" },
   "checklist.freeSpot": { text: "Ask {helper} to free that spot.", layer: "her" },
   "undo.mayFind": { text: "“{title}” can't come back from here. {helper} may still find it.", layer: "her" },
   "undo.askHelp": { text: "There's a new {one} with that name now. Ask {helper} to help bring this one back.", layer: "her" },

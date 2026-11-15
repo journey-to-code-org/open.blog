@@ -3,7 +3,7 @@
 // kinds kept when she changes them, every sentence the screen says, the denied steps for this phone
 // only, and the worker's address rule (a copy of studioAddress in web/studio/sw.js; a test keeps
 // them the same). Pure data and functions: no page. docs/specs/studio/r3/ux.md.
-import { say } from "./words.js";
+import { product, say } from "./words.js";
 
 /** What each kind of news is called, as a switch and inside a sentence. Studio's words, not the server's labels. */
 export const KIND_WORDS = Object.freeze({
@@ -188,13 +188,13 @@ export function stateWords(state, here) {
   const noun = deviceNoun(here);
   const app = here.android ? "Chrome" : "Safari";
   switch (state) {
-    case "removed": return `This ${noun} was removed from the phones your blog tells, so it's off.`;
-    case "denied": return `You said no when your ${noun} asked, so it can't show notifications from your blog. To change that:`;
-    case "home-screen-first": return `On an ${noun}, your blog can only send notifications once it's on your Home Screen. It takes four taps.`;
-    case "update-first": return `This ${noun} needs a newer iOS before your blog can send it notifications. In the Settings app: General, then Software Update.`;
-    case "in-app": return `This page is open inside another app, which can't show notifications. Open your blog in ${app}:`;
-    case "not-secure": return `Notifications only work at your blog's secure address. ${say("common.tell")}`;
-    case "unsupported": return "This browser can't show notifications from your blog. On a computer, try Chrome, Edge, Firefox or Safari. On a phone, use Safari on an iPhone or Chrome on Android.";
+    case "removed": return say("notify.removedOff", { noun });
+    case "denied": return say("notify.saidNo", { noun });
+    case "home-screen-first": return say("notify.homeScreenFirst", { noun });
+    case "update-first": return say("notify.updateFirst", { noun });
+    case "in-app": return say("notify.inApp", { app });
+    case "not-secure": return `${say("notify.notSecure")} ${say("common.tell")}`;
+    case "unsupported": return `This browser can't show notifications from ${product()}. On a computer, try Chrome, Edge, Firefox or Safari. On a phone, use Safari on an iPhone or Chrome on Android.`;
     default: return "";
   }
 }
@@ -213,12 +213,12 @@ export const BAR = "the bar at the top where the address is";
 /** How to allow notifications again, for this phone only. */
 export function deniedSteps(here) {
   if (here.apple) {
-    return ["Open the Settings app.", "Tap Notifications.", "Find your blog in the list (it has the name under its icon) and tap it.", "Turn on Allow Notifications."];
+    return ["Open the Settings app.", "Tap Notifications.", say("notify.findInList"), "Turn on Allow Notifications."];
   }
-  if (here.android && here.standalone) return ["Touch and hold your blog's icon.", "Tap App info (or the small \"i\").", "Tap Notifications and turn them on."];
+  if (here.android && here.standalone) return [say("notify.holdIcon"), "Tap App info (or the small \"i\").", "Tap Notifications and turn them on."];
   if (here.android) return [`Tap the small icon at the left end of ${BAR}.`, "Tap Permissions.", "Turn on Notifications."];
   if (here.browser === "firefox") return [`Click the icon at the left end of ${BAR}.`, "Click the × beside \"Blocked: Send notifications\".", "Reload the page."];
-  if (here.browser === "safari" && here.mac) return ["In the Safari menu, choose Settings.", "Click Websites, then Notifications.", "Find your blog and choose Allow."];
+  if (here.browser === "safari" && here.mac) return ["In the Safari menu, choose Settings.", "Click Websites, then Notifications.", say("notify.findAllow")];
   if (here.browser === "chrome" || here.browser === "edge") return [`Click the small icon at the left end of ${BAR}.`, "Turn on Notifications (in Edge: Permissions for this site, then Notifications, Allow)."];
   return ["Look in this browser's settings for this site's notifications and choose Allow."];
 }
@@ -226,8 +226,8 @@ export function deniedSteps(here) {
 /** "Didn't see the test?": only this phone's lines. */
 export function didntSeeIt(here) {
   const lines = ["Wait a minute. A phone saving battery can be slow.", "Check that Do Not Disturb is off."];
-  if (here.apple) lines.push("In the Settings app: Notifications, then your blog. Allow Notifications should be on, with Lock Screen and Banners turned on.");
-  else if (here.android) lines.push("In Settings: Apps, then your blog (or Chrome), then Notifications.");
+  if (here.apple) lines.push(say("notify.didntSeeApple"));
+  else if (here.android) lines.push(say("notify.didntSeeAndroid"));
   else if (here.mac) lines.push("In System Settings: Notifications, then your browser. Allow notifications should be on.");
   else if (here.windows) lines.push("In Settings: System, Notifications, then your browser.");
   lines.push("Still nothing? Turn notifications off here, then on again.");
@@ -239,7 +239,7 @@ export function ledeWords(offered = []) {
   const comments = offered.includes("comment");
   const quotes = offered.includes("quote");
   const what = comments ? "someone comments" : quotes ? "someone asks for a quote" : "something comes in";
-  return `Your phone can tell you when ${what}, even when your blog is closed.`;
+  return say("notify.lede", { what });
 }
 
 /**
@@ -250,20 +250,20 @@ export function pushTrouble(error = {}, { noun = "iPhone", name = "", limit = 20
   const code = error?.data?.code || error?.code || "";
   const status = Number(error?.status ?? 0);
   if (code === "label-required") return say("notify.nameMissing");
-  if (code === "too-many" || status === 409) return `Your blog can tell up to ${limit} phones and computers. Remove one you don't use any more, below.`;
-  if (code === "invalid-subscription") return "This browser's notifications can't be used by your blog. Try Safari, Chrome, Edge or Firefox.";
+  if (code === "too-many" || status === 409) return say("notify.tooMany", { limit });
+  if (code === "invalid-subscription") return `This browser's notifications can't be used by ${product()}. Try Safari, Chrome, Edge or Firefox.`;
   if (["hosted-key-rejected", "not-enabled", "not-set-up"].includes(code)) return `Notifications aren't working right now. ${say("common.tell")}`;
-  if (during === "other-test" && (code === "gone" || status === 410)) return `${name} stopped taking notifications, so your blog forgot it.`;
-  if (code === "gone" || status === 410) return `This ${noun} stopped taking notifications, so your blog forgot it. Turn them on again.`;
-  if (during === "test" && status === 404) return `This ${noun} was removed from the phones your blog tells, on another phone or computer. Turn them on again.`;
+  if (during === "other-test" && (code === "gone" || status === 410)) return say("notify.otherGone", { name });
+  if (code === "gone" || status === 410) return say("notify.gone", { noun });
+  if (during === "test" && status === 404) return say("notify.removedElsewhere", { noun });
   if (status === 404 && (during === "other-test" || during === "save" || during === "rename" || during === "remove")) return `${name || `This ${noun}`} isn't on your list any more.`;
   if (code === "send-failed" && during === "test") return `The test didn't reach this ${noun}. Try again in a minute. If it still doesn't come, turn notifications off, then on again.`;
   if (code === "send-failed") return `The test didn't reach ${name || `this ${noun}`}. Try again in a minute.`;
-  if (status === 0) return "Can't reach your blog right now. Check your connection, then try again.";
+  if (status === 0) return say("notify.cantReach");
   if (["hosted-unavailable", "hosted-timeout", "storage-unavailable", "bad-reply"].includes(code) || status === 502 || status === 504 || status === 503) {
-    return "Your blog couldn't reach its notification service. Try again in a minute.";
+    return say("notify.serviceDown");
   }
-  if (during === "load") return "Your blog couldn't load your notifications. Try again in a minute.";
+  if (during === "load") return say("notify.cantLoad");
   return "That didn't work. Try again in a minute.";
 }
 
@@ -271,7 +271,7 @@ export function pushTrouble(error = {}, { noun = "iPhone", name = "", limit = 20
 export function stopWords(reason, noun = "iPhone") {
   if (reason === "dismissed") return "You didn't choose Allow, so it's still off. Tap Turn on notifications and choose Allow.";
   if (reason === "denied") return "You said no, so it's off.";
-  if (reason === "worker") return `Your blog couldn't get this ${noun} ready. Reload the page, then try again.`;
+  if (reason === "worker") return say("notify.notReady", { noun });
   if (reason === "refused") return `This ${noun}'s notification service didn't answer. Try again in a minute.`;
   return "That didn't work. Try again in a minute.";
 }

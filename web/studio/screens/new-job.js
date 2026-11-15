@@ -21,6 +21,7 @@ import { createVoiceNote } from "../parts/new-job-voice.js";
 import { createWaitingSide } from "../parts/waiting-side.js";
 import { createPicks } from "../parts/new-job-picks.js";
 import { stepWords } from "../parts/job-sender.js";
+import { say as word } from "../parts/words.js";
 
 const KEEP_MS = 500;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,7 +81,7 @@ export async function createNewJob(context, route = { query: {} }) {
   const element = h("section", { class: "studio-page studio-new-job", "aria-labelledby": "studio-new-job-h" },
     h("breadcrumb-trail", { items: [{ label: "Home", href: "#/" }, { label: "New job", href: "" }] }),
     heading,
-    h("p", { class: "studio-lede", text: `Take photos and say what you did. It's kept on this ${noun} until there's a signal, then goes to your blog as a draft.` }),
+    h("p", { class: "studio-lede", text: word("job.lede", { noun }) }),
     status, undoSlot, banners, side.link, columns, bar);
 
   // ---- words and status
@@ -337,12 +338,12 @@ export async function createNewJob(context, route = { query: {} }) {
 
   function drawBanners(waiting) {
     const nodes = [];
-    if (jobs.unusable()) nodes.push(h("alert-banner", { variant: "warning", heading: "This window can't keep jobs for later" }, "Jobs send straight away instead, so save one where there's a signal. In a normal Safari window your blog can keep them."));
+    if (jobs.unusable()) nodes.push(h("alert-banner", { variant: "warning", heading: "This window can't keep jobs for later" }, word("job.cantKeep")));
     if (here.inApp) {
-      nodes.push(h("alert-banner", { variant: "warning" }, "This page is open inside another app, which may not keep your jobs. Open your blog in Safari. ",
+      nodes.push(h("alert-banner", { variant: "warning" }, `${word("job.inApp")} `,
         h("action-button", { variant: "secondary", size: "sm", onClick: () => navigator.clipboard?.writeText(location.href).then(() => say("Copied. Paste it into Safari."), () => say("Copy it from the address bar instead.")) }, "Copy the address")));
     }
-    if (here.apple && !here.standalone && waiting) nodes.push(h("p", { class: "studio-help" }, h("a", { href: "#/notifications?sheet=home-screen", text: "Add your blog to your Home Screen so jobs waiting here are kept safe." })));
+    if (here.apple && !here.standalone && waiting) nodes.push(h("p", { class: "studio-help" }, h("a", { href: "#/notifications?sheet=home-screen", text: word("job.addHomeScreen") })));
     if ((here.apple || here.android) && !navigator.serviceWorker?.controller) nodes.push(h("p", { class: "studio-help", text: "Open this before you go up. It keeps working when the signal drops." }));
     const start = banners.querySelector("[data-start-over]");
     banners.replaceChildren(...nodes, ...(start ? [start] : []));
@@ -370,7 +371,7 @@ export async function createNewJob(context, route = { query: {} }) {
 
   // ---- not a trade site
   function notForJobs() {
-    columns.replaceChildren(h("empty-state", { heading: "Your blog isn't set up for jobs" },
+    columns.replaceChildren(h("empty-state", { heading: word("job.notSetUp") },
       "This is for posting work from a job site, like a new roof. To write a recipe or a story, start here.",
       h("action-button", { slot: "actions", href: "#/write" }, "Write something new"),
       detailsBox(["New job appears when meta.siteUses.trade is true."])));

@@ -218,13 +218,13 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     const pins = meta.siteUses?.pinterest
       ? h("details", { class: "studio-about-pins", open: Boolean(values.cardTitle || values.cardDescription) },
         h("summary", { text: "Words for a Pinterest Pin" }),
-        h("p", { class: "studio-help", text: "Only used when your blog sends a Pin. Leave them empty to use the title and summary." }),
+        h("p", { class: "studio-help", text: say("about.pinOnly") }),
         controls.text("cardTitle", { label: "Pin title", maxlength: 300, live: () => paintPins() }),
         controls.text("cardDescription", { label: "Pin description", rows: 3, live: () => paintPins() }), pinSay, pinLive)
       : null;
     fill(groups.search,
       h("h3", { id: "studio-about-search-h", tabindex: "-1", text: "In search and when shared" }),
-      controls.text("description", { label: "Summary", rows: 3, maxlength: 500, help: "One or two sentences. Leave empty and your blog uses the first lines of your post." }),
+      controls.text("description", { label: "Summary", rows: 3, maxlength: 500, help: say("about.summaryHelp") }),
       count, countSay, shareCard.element,
       pins);
     paintSearch();

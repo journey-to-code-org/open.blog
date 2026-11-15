@@ -131,6 +131,6 @@ export function peopleProblem(error, name = "They") {
     const words = { name: "Add their name.", url: "A full web address, starting with https://.", sameAs: "Each one needs to be a full web address, starting with https://.", orcid: "That isn't an ORCID iD.", id: `That didn't save. ${say("common.tell")}` }[data.field];
     return { words: words || `That didn't save. ${say("common.tell")}`, field: data.field };
   }
-  if (error?.status === 0) return { words: "Not saved yet. Your blog didn't answer. Try again in a moment." };
+  if (error?.status === 0) return { words: say("people.noAnswer") };
   return { words: `That didn't save. ${say("common.tell")}` };
 }

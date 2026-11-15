@@ -154,7 +154,7 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
       if (error.status === 401) throw error;
       button.loading = false;
       cardProblem(d, error.data?.code === "idempotency-conflict" || !error.status || error.status >= 502
-        ? "Your blog didn't hear back. Look under Sharing in a minute before posting again."
+        ? word("share.noReply")
         : jobShareTrouble(error, d.label));
       drawDetails(error);
     }

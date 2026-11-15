@@ -2,6 +2,7 @@
 // and the CSRF token. A request answered "not signed in" waits while the person signs in again
 // (`onSignedOut` returns once they have), then runs once more with the new token, so nothing they
 // were saving is lost.
+import { say } from "./parts/words.js";
 
 export class ApiError extends Error {
   constructor(message, status, data = null) {
@@ -12,7 +13,7 @@ export class ApiError extends Error {
 }
 
 const PLAIN = {
-  0: "Your blog can't be reached right now. Check your connection, then try again.",
+  get 0() { return say("common.cantReach"); },
   413: "That's too big to save.",
   415: "That kind of file can't be used here.",
   429: "Too many tries. Wait a minute, then try again.",

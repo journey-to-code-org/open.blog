@@ -2,11 +2,23 @@
 // to do; the badge for each; the shortest caption limit across the accounts she chose; and account
 // health. DOM-free, tested. Studio slice 10c; docs/specs/studio/slice-10bc/ux.md.
 import { sayDay, sayShortDay, sayWhen } from "./dates.js";
-import { say } from "./words.js";
+import { product, say } from "./words.js";
 
 /** Word ids a site may change (docs/studio-words.md). */
 export const WORDS = {
   "share.tellOrSkip": { text: "Tell {helper}, or choose Don't share it.", layer: "her" },
+  // W-b: sentences that name {product}.
+  "share.couldntTell": { text: "{product} couldn't tell whether it posted. Look at the account it was going to. Is it there?", layer: "her" },
+  "share.stoppedTaking": { text: "{name} stopped taking posts from {product}. Reconnect it, {same}.", layer: "her" },
+  "share.wentOutUnsure": { text: "{product} couldn't tell whether it went out. Look at the account.", layer: "her" },
+  "share.slowDown": { text: "{name} asked {product} to slow down.", layer: "her" },
+  "share.stoppedEarly": { text: "{product} stopped before it heard back.", layer: "her" },
+  "share.ranOut": { text: "{product} ran out of time and will try again.", layer: "her" },
+  "share.previewMissing": { text: "{product} couldn't show this just now. It will still share as you wrote it.", layer: "her" },
+  "share.couldntRead": { text: "{product} couldn't read that", layer: "her" },
+  "share.unreadable": { text: "{product} couldn't read what went to {label}, so it isn't here.", layer: "her" },
+  "share.jobNotFound": { text: "{product} couldn't find this job. It may have been deleted or renamed.", layer: "her" },
+  "share.noReply": { text: "{product} didn't hear back. Look under Sharing in a minute before posting again.", layer: "her" },
 };
 
 const LIMITS = { linkedin: 3000, facebook: 3000, bluesky: 300, mastodon: 475 };
@@ -21,7 +33,7 @@ const placeWord = (d) => (d?.kind === "page" || d?.kind === "organization" ? "Pa
 /** Check it's question: where to look, naming the account only when it has a name. */
 export function checkQuestion(d) {
   const name = providerName(d?.provider);
-  if (!name) return "Your blog couldn't tell whether it posted. Look at the account it was going to. Is it there?";
+  if (!name) return say("share.couldntTell");
   const shown = typeof d?.displayName === "string" ? d.displayName.trim() : "";
   return `${name} didn't say whether it posted. Look at your ${name} ${placeWord(d)}${shown ? `, ${shown}` : ""}. Is it there?`;
 }
@@ -87,9 +99,9 @@ export function healthWords(account, { now = new Date(), timeZone } = {}) {
   const same = `signing in to the ${name} account you used the first time`;
   if (account?.health === "expiring") {
     const day = sayDay(usableUntil(account), { now, timeZone });
-    return `${name} stops taking posts from your blog ${day ? `on ${day}` : "soon"}. Reconnect it before then, ${same}.`;
+    return `${name} stops taking posts from ${product()} ${day ? `on ${day}` : "soon"}. Reconnect it before then, ${same}.`;
   }
-  if (account?.health === "needs-reauth") return `${name} stopped taking posts from your blog. Reconnect it, ${same}.`;
+  if (account?.health === "needs-reauth") return say("share.stoppedTaking", { name, same });
   if (account?.health === "disconnected") return "Disconnected.";
   return "";
 }
@@ -116,7 +128,7 @@ const PROBLEMS = {
   "attempts-exhausted": "It was tried as many times as allowed.",
   timeout: "It didn't answer, so it may or may not have been shared.",
   "not-delivered": "It said the post didn't go out.",
-  "needs-review": "Your blog couldn't tell whether it went out. Look at the account.",
+  get "needs-review"() { return say("share.wentOutUnsure"); },
   "account-disconnected": "Its account was disconnected.",
 };
 export const problemLine = (code) => PROBLEMS[code] || (code ? "Something went wrong." : "");
@@ -143,12 +155,12 @@ export function shareTrouble(error) {
 // ---- R1: a share's history and running late (docs/specs/studio/r1/ux.md) ------------------
 
 const BUSY = {
-  "rate-limited": (p) => `${p} asked your blog to slow down.`,
+  "rate-limited": (p) => say("share.slowDown", { name: p }),
   "provider-unavailable": (p) => `${p} was busy.`,
   timeout: (p) => `${p} didn't answer.`,
-  "lease-expired": () => "Your blog stopped before it heard back.",
+  "lease-expired": () => say("share.stoppedEarly"),
   "reviewed-not-posted": () => "You checked: it wasn't there.",
-  deferred: () => "Your blog ran out of time and will try again.",
+  deferred: () => say("share.ranOut"),
 };
 const why = (code, provider) => (code ? (BUSY[code] ? BUSY[code](providerName(provider) || "It") : problemLine(code)) : "");
 

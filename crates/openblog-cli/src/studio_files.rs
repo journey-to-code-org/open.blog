@@ -33,6 +33,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/atlas-words.js", include_bytes!("../../../web/studio/parts/atlas-words.js")),
     ("parts/before-publish.js", include_bytes!("../../../web/studio/parts/before-publish.js")),
     ("parts/block-forms.js", include_bytes!("../../../web/studio/parts/block-forms.js")),
+    ("parts/blog-words.js", include_bytes!("../../../web/studio/parts/blog-words.js")),
     ("parts/bluesky-sheet.js", include_bytes!("../../../web/studio/parts/bluesky-sheet.js")),
     ("parts/body-host.js", include_bytes!("../../../web/studio/parts/body-host.js")),
     ("parts/boundary-rules.js", include_bytes!("../../../web/studio/parts/boundary-rules.js")),

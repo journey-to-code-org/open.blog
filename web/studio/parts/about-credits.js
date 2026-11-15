@@ -9,7 +9,7 @@ import {
   AUTHOR_ROLE, creditLineProblems, creditNames, creditState, creditsToSend, moveCredit, nextCredit, normalizeCreditDraft,
   toggleCreditRole, unknownRoles,
 } from "./credit-rules.js";
-import { say as word } from "./words.js";
+import { product, say as word } from "./words.js";
 
 let uid = 0;
 
@@ -52,8 +52,8 @@ export function createCredits({ meta, people, onChange, goPeople }) {
     }
     if (!editing) {
       const shown = s === "inherited"
-        ? (author ? [h("p", { class: "studio-about-name", text: author }), h("p", { class: "studio-help", text: "The name your blog uses on every post." })]
-          : [h("p", { class: "studio-help", text: `Your blog doesn't have your name yet. ${word("common.tell")}` })])
+        ? (author ? [h("p", { class: "studio-about-name", text: author }), h("p", { class: "studio-help", text: word("about.nameOnEvery") })]
+          : [h("p", { class: "studio-help", text: `${word("people.noName")} ${word("common.tell")}` })])
         : s === "empty" ? [h("p", { text: "No one is named on this post." })]
           : [h("ol", { class: "studio-about-names" }, list.map((credit) => h("li", { text: nameOf(credit.contributor) })))];
       const canEdit = s !== "inherited" || author || pool.length;
@@ -121,7 +121,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
 
   async function justMe() {
     const author = registry?.author?.name || "you";
-    const choice = await ask({ heading: `Name only ${author}, as on your other posts?`, text: "The list on this post goes, and your blog's usual name shows.", choices: [{ label: "Yes", value: "yes" }, { label: "Keep the list", value: "no", variant: "secondary" }] });
+    const choice = await ask({ heading: `Name only ${author}, as on your other posts?`, text: word("about.listGoes"), choices: [{ label: "Yes", value: "yes" }, { label: "Keep the list", value: "no", variant: "secondary" }] });
     if (choice !== "yes") return;
     draft = null;
     editing = false;
@@ -162,7 +162,7 @@ export function createCredits({ meta, people, onChange, goPeople }) {
       parts.push(h("details", { class: "studio-about-person-roles" },
         h("summary", { text: `Roles for ${name} (${credit.roles.length})` }),
         credit.roles.length ? null : h("p", { class: "studio-field-error", text: `Give ${name} at least one role.` }),
-        unknown.length ? h("p", { class: "studio-field-error", text: `Not recognised: ${unknown.join(", ")}. Remove roles your blog doesn't know before saving.` }) : null,
+        unknown.length ? h("p", { class: "studio-field-error", text: `Not recognised: ${unknown.join(", ")}. Remove roles ${product()} doesn't know before saving.` }) : null,
         group("crossref", "Publishing roles"), group("credit", "CRediT roles")));
     });
     fill(rolesHost, ...parts);

@@ -6,7 +6,7 @@
 
 import { byLine } from "./credit-rules.js";
 import { groupKeys, kindLabel } from "./profile-words.js";
-import { say } from "./words.js";
+import { product, say } from "./words.js";
 import { looksLikeAddress } from "./route-rules.js";
 
 /** Each value the sheet edits, by Studio's name, with the names the engine reads (first canonical). */
@@ -143,7 +143,7 @@ export function slugEditable({ state, wasPublished } = {}) {
  */
 export function slugHelp({ state, wasPublished, hasHistory } = {}) {
   if (slugEditable({ state, wasPublished })) return "Leave it empty to make it from the title.";
-  if (hasHistory === false && state !== "published" && state !== "scheduled") return "Your blog has no history of this post, so its address is kept as it is. It can be changed only in the file.";
+  if (hasHistory === false && state !== "published" && state !== "scheduled") return say("about.noHistory");
   return "The address stays as it is once a post may have been on your site, so saved links keep working. It can be changed only in the file.";
 }
 
@@ -153,7 +153,7 @@ export function slugHelp({ state, wasPublished, hasHistory } = {}) {
  */
 export function slugPreview({ siteUrl = "", postPath = "/posts/{slug}/", slug = "", title = "", path = "" } = {}) {
   const resolved = slugify(slug) || (path ? fileSlug(path) : slugify(title));
-  let host = "your blog's address";
+  let host = `${product()}'s address`;
   let base = "";
   try {
     const url = new URL(siteUrl);
@@ -261,7 +261,7 @@ export function saveProblem(error) {
   const data = error?.data || {};
   const code = data.code || "";
   if (status === 401) return { where: "signin", words: "Sign in again" };
-  if (status === 404) return { where: "gone", words: "This post isn't on your blog any more. It may have been deleted on another computer." };
+  if (status === 404) return { where: "gone", words: say("about.goneDeleted") };
   if (status === 413 || code === "too-large") return { where: "banner", words: "This post is too long to save in one piece. Split it into two posts. Your words are kept on this computer." };
   if (code === "credits-changed") return { where: "credits", field: "credits", words: "Who wrote this post was changed on another computer." };
   if (status === 409 && code === "exists") return data.slug
@@ -272,8 +272,8 @@ export function saveProblem(error) {
     const issue = (Array.isArray(data.issues) ? data.issues : [])[0] || { code, field: data.field || "" };
     return issueWords(issue);
   }
-  if (status === 0 || status >= 500) return { where: "status", words: "Your blog didn't answer. Your words are kept on this computer, and it tries again when you next change something." };
-  return { where: "banner", words: `Something in this post stops your blog from building it. ${say("common.tell")}` };
+  if (status === 0 || status >= 500) return { where: "status", words: say("about.noAnswer") };
+  return { where: "banner", words: `${say("about.stopsBuild")} ${say("common.tell")}` };
 }
 
 /** One of the build's coded problems, in her words and where it belongs. */
@@ -285,13 +285,13 @@ export function issueWords(issue = {}) {
   if (code === "comments") return { where: "about", field: "comments", words: "Choose one of the three." };
   if (field.startsWith("job")) return { where: "job", field, words: "" };
   if (code === "credit-unknown-person") return { where: "credits", field: "credits", words: "Someone on the list isn't in People any more. Choose someone else, or remove them." };
-  if (code === "credit-unknown-role") return { where: "about", field: "roles", words: "Remove roles your blog doesn't know." };
+  if (code === "credit-unknown-role") return { where: "about", field: "roles", words: say("about.unknownRoles") };
   if (code === "credit-no-role") return { where: "about", field: "roles", words: "Give everyone at least one role." };
   if (code === "credit-duplicate") return { where: "credits", field: "credits", words: "Someone is listed twice. Remove one of them." };
   if (code === "shared-order" || code === "shared-rebind") return { where: "credits", field: "credits", words: "This was written together with others, so who wrote each part can't change here." };
   if (code === "alias") return { where: "about", field: "aliases", words: say("about.aliasFix") };
   if (code === "profile-field" && field) return { where: "about", field, words: PROFILE_FIELD_WORDS[field] || "This doesn't look right. Check it against the help under it." };
-  return { where: "banner", words: `Something in this post stops your blog from building it. ${say("common.tell")}` };
+  return { where: "banner", words: `${say("about.stopsBuild")} ${say("common.tell")}` };
 }
 
 const PROFILE_FIELD_WORDS = {

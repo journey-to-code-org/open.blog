@@ -124,7 +124,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     draw();
     focusTopic(topic.id);
     if (!saved) return;
-    const words = on ? `“${topic.topic}” is back.` : `Your blog won't suggest “${topic.topic}” any more.`;
+    const words = on ? `“${topic.topic}” is back.` : word("reminders.wontSuggest", { topic: topic.topic });
     say(words);
     if (!on) offerUndo(words, M.withDisabled(data().entries, topic.id, false), `“${topic.topic}” is back.`, () => focusTopic(topic.id));
   }
@@ -148,7 +148,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
     }
     const reply = await put(entries);
     if (!reply) return false;
-    const words = `${isNew ? "Added" : "Saved"}. Your blog suggests “${name}” from ${sayWindow(form.start, form.end)}.`;
+    const words = `${isNew ? "Added" : "Saved"}. ${word("reminders.suggestsFrom", { name, window: sayWindow(form.start, form.end) })}`;
     closeForm(id);
     say(words);
     requestAnimationFrame(() => list.querySelector(`[data-topic="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" }));
@@ -180,7 +180,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
   async function remove(topic) {
     const choice = await ask({
       heading: `Remove “${topic.topic}”?`,
-      text: "Your blog stops suggesting it. A draft you started from it stays.",
+      text: word("reminders.stopsSuggesting"),
       choices: [{ label: "Keep it", value: "keep" }, { label: "Remove", value: "remove", variant: "destructive" }],
     });
     if (choice !== "remove") return;
@@ -305,7 +305,7 @@ export async function openTopics({ sheet, api, getData, setData, focusId = null,
   sheet.show({
     heading: heading(),
     opener,
-    children: [h("p", { class: "studio-help", text: "Turn one off, or move when your blog suggests it." }), undoSlot, status, list, add, details],
+    children: [h("p", { class: "studio-help", text: word("reminders.topicsHelp") }), undoSlot, status, list, add, details],
     dirty: formDirty,
     save,
     question: { heading: "Save this topic?", text: "You changed it and didn't save.", save: "Save", leave: "Leave without saving" },

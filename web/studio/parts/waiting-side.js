@@ -12,6 +12,7 @@ import { clearSavedPages, readReleases } from "./releases.js";
 import { readSentLog, sentLogLines } from "./sent-log.js";
 import { ask } from "./dialogs.js";
 import { detailsText } from "./job-sender.js";
+import { say as word } from "./words.js";
 
 /** `{ jobs, meta, api, here, noun, limits, services, say }`. */
 export function createWaitingSide({ jobs, meta, api, here, noun, limits, services, say }) {
@@ -38,7 +39,7 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     done: (entry) => jobs.done(entry.id),
     // Someone else's job goes as hers only once she says so; who saved it stays on the record.
     as: async (entry, button) => {
-      const choice = await ask({ heading: `Send ${entry.record.by}'s job as you?`, text: "It goes to your blog as yours.", choices: [{ label: "Send it", value: "send" }, { label: "Not now", value: "no", variant: "secondary" }] });
+      const choice = await ask({ heading: `Send ${entry.record.by}'s job as you?`, text: word("job.goesAsYours"), choices: [{ label: "Send it", value: "send" }, { label: "Not now", value: "no", variant: "secondary" }] });
       if (choice === "send") return jobs.sendAs(entry.id);
       button?.querySelector?.("button")?.focus();
       return null;
@@ -81,7 +82,7 @@ export function createWaitingSide({ jobs, meta, api, here, noun, limits, service
     const sent = jobs.sentThisVisit();
     sentBox.hidden = sent.length === 0;
     sentList.replaceChildren(...sent.map((item) => h("li", {}, h("span", { text: `${item.title}. ` }), h("a", { href: `#/write/${encodeURIComponent(item.path)}`, text: "Finish it" }))));
-    appHint.textContent = entries.length === 0 && here.apple && here.standalone ? "Saved a job in Safari instead? It's waiting there: open your blog in Safari to send it." : "";
+    appHint.textContent = entries.length === 0 && here.apple && here.standalone ? word("job.waitingInSafari") : "";
     drawDetails(entries);
   }
 

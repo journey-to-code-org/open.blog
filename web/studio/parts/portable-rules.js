@@ -1,6 +1,7 @@
 // Copy it for another blog: which words a destination takes (the preview's `portablePreview`), the
 // differences there in her words, and what "Mark as checked" records. The first six are lifted
 // from the old Admin's Site preview and keep their behaviour and tests. DOM-free.
+import { say } from "./words.js";
 
 /** Where she can copy a post to, in the order the sheet lists them. */
 export const DESTINATIONS = Object.freeze([
@@ -107,18 +108,18 @@ const BY_CAPABILITY = {
   "web-sandbox": "Code readers can run shows as plain code.",
   "interactive-demo": "The demo becomes a few words about it, with a link back to your post.",
   "before-after": "The before and after slider becomes two pictures.",
-  comments: "Comments stay on your blog.",
+  get comments() { return say("copy.commentsStay"); },
   citations: "Notes to your sources become a plain list.",
-  "claim-evidence": "The evidence notes stay on your blog.",
-  "guided-reading-supplements": "The reading helps stay on your blog.",
+  get "claim-evidence"() { return say("copy.evidenceStays"); },
+  get "guided-reading-supplements"() { return say("copy.helpsStay"); },
   "raw-html": "Some of the page's own code is left out.",
-  "historical-timelines": "The timeline stays on your blog, with a link back to it.",
-  diagrams: "The diagram stays on your blog, with a link back to it.",
+  get "historical-timelines"() { return say("copy.timelineStays"); },
+  get diagrams() { return say("copy.diagramStays"); },
 };
 
 /** …and by what happens to it, when the part isn't one Studio has words for. */
 const BY_CODE = {
-  "canonical-only-interaction": "Something readers can use on your blog only works there. The copy links back to it.",
+  get "canonical-only-interaction"() { return say("copy.onlyThere"); },
   "graceful-transformation": "Something in it changes shape there.",
   "removed-markup": "Some of the page's own code is left out.",
   "destination-payload-limit": "It may be too long for that site.",

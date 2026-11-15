@@ -173,4 +173,4 @@ export const DAY_CHOICES = Object.freeze([30, 90, 365]);
 export const daysFrom = (value) => (DAY_CHOICES.includes(Number(value)) ? Number(value) : 30);
 
 /** The one line for each record that couldn't be read, in her words. */
-export const unreadableWords = (label) => `Your blog couldn't read what went to ${label}, so it isn't here. ${say("common.tell")}`;
+export const unreadableWords = (label) => `${say("share.unreadable", { label })} ${say("common.tell")}`;

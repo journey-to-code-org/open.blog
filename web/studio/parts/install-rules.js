@@ -24,7 +24,7 @@ export const onPhone = (here) => Boolean(here.apple || here.android);
 
 /** The sheet's heading. */
 export function sheetLabel(here) {
-  return onPhone(here) ? "Add your blog to your Home Screen" : "Install your blog as an app";
+  return onPhone(here) ? say("install.addHomeScreen") : say("install.asApp");
 }
 
 /** The account menu's item, or null when it would do nothing here. */
@@ -42,7 +42,7 @@ const IOS_STEPS = (ipad) => [
   { text: `Tap the Share button ${ipad ? "at the top right" : "at the bottom of the screen"}.`, share: true, more: ipad ? "" : "Don't see it? Tap the three dots (•••) at the bottom right first." },
   { text: "Scroll down and tap Add to Home Screen." },
   { text: "You can change the name. Tap Add." },
-  { text: "Open your blog from its new icon and sign in again." },
+  { text: say("install.openSignIn") },
 ];
 
 /**
@@ -51,24 +51,24 @@ const IOS_STEPS = (ipad) => [
  */
 export function installSteps(way, here) {
   const phone = onPhone(here);
-  const intro = phone ? "Then your blog opens from its own icon, like your other apps." : "Then your blog opens in its own window, like your other apps.";
+  const intro = phone ? say("install.ownIcon") : say("install.ownWindow");
   const app = here.android ? "Chrome" : "Safari";
   switch (way) {
     case "prompt": return { intro, before: "", steps: [], words: "Your browser asks first. Choose Install.", copy: false, ask: true };
     case "ios-safari": return { intro, before: signInFirst(), steps: IOS_STEPS(here.ipad), words: "", copy: false, ask: false };
-    case "ios-other": return { intro, before: signInFirst(), steps: IOS_STEPS(here.ipad), words: "Don't see Add to Home Screen? Open your blog in Safari:", copy: true, ask: false };
-    case "in-app": return { intro, before: "", steps: [], words: `This page is open inside another app. Open your blog in ${app}:`, copy: true, ask: false };
-    case "android-menu": return { intro, before: "", steps: [{ text: "Open the menu: the three dots at the top right." }, { text: "Tap Add to Home screen, or Install." }, { text: "Open your blog from its new icon." }], words: "", copy: false, ask: false };
+    case "ios-other": return { intro, before: signInFirst(), steps: IOS_STEPS(here.ipad), words: say("install.openInSafari"), copy: true, ask: false };
+    case "in-app": return { intro, before: "", steps: [], words: say("install.inApp", { app }), copy: true, ask: false };
+    case "android-menu": return { intro, before: "", steps: [{ text: "Open the menu: the three dots at the top right." }, { text: "Tap Add to Home screen, or Install." }, { text: say("install.openIcon") }], words: "", copy: false, ask: false };
     case "desktop-chromium": return { intro, before: "", steps: [], words: `Look for the Install button at the right end of ${BAR}. Or open the menu (the three dots at the top right) and choose Install.`, copy: false, ask: false };
     case "mac-safari": return { intro, before: "", steps: [], words: "In the menu bar, choose File, then Add to Dock.", copy: false, ask: false };
-    case "firefox-desktop": return { intro: "", before: "", steps: [], words: "Firefox can't add your blog as an app. It works the same in a tab: bookmark it instead.", copy: false, ask: false };
-    default: return { intro: "", before: "", steps: [], words: "You're already using your blog from its icon.", copy: false, ask: false };
+    case "firefox-desktop": return { intro: "", before: "", steps: [], words: say("install.firefox"), copy: false, ask: false };
+    default: return { intro: "", before: "", steps: [], words: say("install.already"), copy: false, ask: false };
   }
 }
 
 /** After the browser's own question. */
 export function promptOutcomeWords(outcome, here) {
-  if (outcome === "accepted") return onPhone(here) ? "Added. Open your blog from its icon from now on." : "Added. Your blog opens in its own window from now on.";
+  if (outcome === "accepted") return onPhone(here) ? say("install.addedPhone") : say("install.addedWindow");
   return "Not added. You can add it any time from your name's menu.";
 }
 

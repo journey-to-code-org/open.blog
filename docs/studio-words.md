@@ -144,6 +144,20 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | Id | Layer | Built-in words | Variables | Limit |
 | --- | --- | --- | --- | --- |
 | `about.aliasFix` | her | An old address in this post can't be used. {helper} can fix it in the file. | `{helper}` | 150 |
+| `about.goesUpNext` | her | It goes up the next time {product} is sent out after that. | `{product}` | 116 |
+| `about.goesUpSelf` | her | It goes up by itself on {when}, even with {product} closed. | `{when}` `{product}` | 118 |
+| `about.gone` | her | This post isn't on {product} any more | `{product}` | 74 |
+| `about.goneDeleted` | her | This post isn't on {product} any more. It may have been deleted on another computer. | `{product}` | 168 |
+| `about.listGoes` | her | The list on this post goes, and {product}'s usual name shows. | `{product}` | 122 |
+| `about.nameOnEvery` | her | The name {product} uses on every post. | `{product}` | 76 |
+| `about.noAnswer` | her | {product} didn't answer. Your words are kept on this computer, and it tries again when you next change something. | `{product}` | 226 |
+| `about.noHistory` | her | {product} has no history of this post, so its address is kept as it is. It can be changed only in the file. | `{product}` | 214 |
+| `about.pinOnly` | her | Only used when {product} sends a Pin. Leave them empty to use the title and summary. | `{product}` | 168 |
+| `about.readyOn` | her | It's ready to go up on {when}. {product} puts it up the next time it's sent out after that. | `{when}` `{product}` | 182 |
+| `about.stopsBuild` | her | Something in this post stops {product} from building it. | `{product}` | 112 |
+| `about.summaryHelp` | her | One or two sentences. Leave empty and {product} uses the first lines of your post. | `{product}` | 164 |
+| `about.unknownRoles` | her | Remove roles {product} doesn't know. | `{product}` | 72 |
+| `about.usualLook` | her | {product}'s usual look | `{product}` | 44 |
 | `add.alreadyThere` | her | This post already has an {thing}. | `{thing}` | 66 |
 | `add.alreadyThereRefs` | her | This post already has its {thing}. | `{thing}` | 68 |
 | `add.asWritten` | details | Show the words as written | none | 50 |
@@ -198,7 +212,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `atlas.and` | her | and | none | 40 |
 | `atlas.anyAspect` | her | Anything | none | 40 |
 | `atlas.anyKind` | her | Any kind | none | 40 |
-| `atlas.approveHelp` | her | You agree to show this on your blog's atlas pages once {product} publishes the atlas. | `{product}` | 170 |
+| `atlas.approveHelp` | her | You agree to show this on {product}'s atlas pages once {product} publishes the atlas. | `{product}` | 170 |
 | `atlas.aspectActive` | her | activity | none | 40 |
 | `atlas.aspectBirth` | her | birth | none | 40 |
 | `atlas.aspectComposition` | her | composition | none | 40 |
@@ -329,7 +343,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `atlas.notBefore` | her | not before | none | 40 |
 | `atlas.notComplete` | her | not complete yet | none | 40 |
 | `atlas.notCompleteOther` | her | not complete yet: choose the other entry and which of its dates | none | 126 |
-| `atlas.notPublished` | her | Your blog doesn't publish the atlas yet. {helper} can turn it on. | `{helper}` | 130 |
+| `atlas.notPublished` | her | {product} doesn't publish the atlas yet. {helper} can turn it on. | `{product}` `{helper}` | 130 |
 | `atlas.notesHere` | her | Notes in your notebook on this concept ({count}) | `{count}` | 96 |
 | `atlas.nowPrivate` | her | It's private again. | none | 40 |
 | `atlas.nowShown` | her | Readers can see it once your atlas is published. | none | 96 |
@@ -428,6 +442,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `atlas.year` | her | Year: {which} | `{which}` | 40 |
 | `atlas.yearHelp` | her | Whole years, with BCE or CE. There is no year 0. | none | 96 |
 | `atlas.you` | her | you | none | 40 |
+| `bluesky.appPasswordHelp` | her | Bluesky lets you make a separate password just for {product}, so your own password stays private. In Bluesky: Settings, then Privacy and security, then App passwords. Paste that one here. | `{product}` | 240 |
 | `bluesky.nameError` | her | Type your Bluesky name, like yourname.bsky.social. | none | 100 |
 | `bluesky.namePlaceholder` | her | yourname.bsky.social | none | 60 |
 | `card.answers` | her | {count} answers | `{count}` | 40 |
@@ -491,6 +506,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `check.useWords` | her | Use these words | none | 40 |
 | `check.vagueLink` | her | The link “{words}” doesn't say where it goes. Words that name the place are easier to follow. | `{words}` | 186 |
 | `checklist.freeSpot` | her | Ask {helper} to free that spot. | `{helper}` | 62 |
+| `checklist.listMoved` | her | Your recipe list has moved to a new spot on {product}, because your {noun} “{title}” uses its usual one. Links to it still work. | `{product}` `{noun}` `{title}` | 240 |
+| `checklist.noList` | her | There's no list of all your recipes, because two pages are using its spot on {product}. | `{product}` | 174 |
 | `cite.addSource` | her | Add a source | none | 40 |
 | `cite.archived` | her | archived | none | 40 |
 | `cite.badPlace` | her | Place {n} needs a kind and a value, like page 514. | `{n}` | 100 |
@@ -518,7 +535,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `cite.keyLine` | details | Key: {key} | `{key}` | 40 |
 | `cite.libraryChanged` | her | Your library changed. The list is up to date now; choose again. | none | 126 |
 | `cite.locale` | her | Language of the notes | none | 42 |
-| `cite.localeSite` | her | Your blog's language | none | 40 |
+| `cite.localeSite` | her | {product}'s language | `{product}` | 40 |
 | `cite.malformed` | her | This citation can't be read. | none | 56 |
 | `cite.malformedNow` | her | That citation can't be read. Choose the source again. | none | 106 |
 | `cite.needSource` | her | Choose the source to cite. | none | 52 |
@@ -651,12 +668,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `common.ask` | her | Ask {helper}. | `{helper}` | 40 |
 | `common.canChange` | her | {helper} can change that. | `{helper}` | 50 |
 | `common.canTurnOn` | her | {helper} can turn it on. | `{helper}` | 48 |
+| `common.cantReach` | her | {product} can't be reached right now. Check your connection, then try again. | `{product}` | 152 |
 | `common.catchesUp` | her | Your public site catches up when {helper} sends it out. | `{helper}` | 110 |
 | `common.chose` | her | {helper} chose this. | `{helper}` | 40 |
 | `common.detailsFor` | her | Details for {helper} | `{helper}` | 40 |
 | `common.forHelper` | her | For {helper} | `{helper}` | 40 |
 | `common.keepsHappening` | her | Try again, and if it keeps happening, tell {helper}. | `{helper}` | 104 |
 | `common.letKnow` | her | Let {helper} know. | `{helper}` | 40 |
+| `common.signedOut` | her | You were signed out. Your words are safe; sign in and {product} will finish what it was doing. | `{product}` | 188 |
 | `common.stopWaiting` | her | Stop waiting | none | 40 |
 | `common.tell` | her | Tell {helper}. | `{helper}` | 40 |
 | `common.tryAgain` | her | Try again | none | 40 |
@@ -672,8 +691,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `compare.allVersions` | her | All versions | none | 40 |
 | `compare.anInterpretation` | her | An interpretation | none | 40 |
 | `compare.anonymous` | her | Made by: nobody named | none | 42 |
-| `compare.approveHelp` | her | You agree to show these aligned passages on your blog, quoting only words whose rights you cleared. | none | 198 |
-| `compare.approvedNotPublished` | her | Approved, but your blog doesn't publish aligned passages yet. {helper} can turn it on. | `{helper}` | 172 |
+| `compare.approveHelp` | her | You agree to show these aligned passages on {product}, quoting only words whose rights you cleared. | `{product}` | 198 |
+| `compare.approvedNotPublished` | her | Approved, but {product} doesn't publish aligned passages yet. {helper} can turn it on. | `{product}` `{helper}` | 172 |
 | `compare.archived` | her | Archived | none | 40 |
 | `compare.backToList` | her | ‹ Your alignments | none | 40 |
 | `compare.browser` | her | app | none | 40 |
@@ -731,7 +750,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `compare.notAWork` | her | Choose an edition, translation or manuscript for place {n}: a work has no words of its own. | `{n}` | 182 |
 | `compare.notInLibrary` | her | Not in your library | none | 40 |
 | `compare.notNow` | her | Not now | none | 40 |
-| `compare.notPublishedHelp` | her | Your blog doesn't publish aligned passages yet. {helper} can turn it on. | `{helper}` | 144 |
+| `compare.notPublishedHelp` | her | {product} doesn't publish aligned passages yet. {helper} can turn it on. | `{product}` `{helper}` | 144 |
 | `compare.notesHelp` | her | Your notes are private, so they're left out unless you include them. | none | 136 |
 | `compare.notice` | her | An alignment records where you read these places as corresponding. It doesn't say they mean the same thing, and no version is treated as the right one. | none | 240 |
 | `compare.oneAfter` | her | One after another | none | 40 |
@@ -780,7 +799,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `compare.where` | her | Where it is (place {n}) | `{n}` | 46 |
 | `compare.whichInterpretation` | her | Interpretation for place {n} | `{n}` | 56 |
 | `compare.why` | her | Why: | none | 40 |
-| `copy.notReady` | her | Your blog can't make a copy for it right now. Try another, or tell {helper}. | `{helper}` | 152 |
+| `copy.commentsStay` | her | Comments stay on {product}. | `{product}` | 54 |
+| `copy.diagramStays` | her | The diagram stays on {product}, with a link back to it. | `{product}` | 110 |
+| `copy.evidenceStays` | her | The evidence notes stay on {product}. | `{product}` | 74 |
+| `copy.helpsStay` | her | The reading helps stay on {product}. | `{product}` | 72 |
+| `copy.notReady` | her | {product} can't make a copy for it right now. Try another, or tell {helper}. | `{product}` `{helper}` | 152 |
+| `copy.onlyThere` | her | Something readers can use on {product} only works there. The copy links back to it. | `{product}` | 166 |
+| `copy.stopsCopy` | her | Something in this post stops {product} from making the copy. | `{product}` | 120 |
+| `copy.timelineStays` | her | The timeline stays on {product}, with a link back to it. | `{product}` | 112 |
 | `curate.by` | her | By | none | 40 |
 | `curate.changed` | her | Your choices changed somewhere else. Here they are now. | none | 110 |
 | `curate.chooseComment` | her | Add my comment on this source | none | 58 |
@@ -1206,6 +1232,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `found.useThis` | her | Use this | none | 40 |
 | `found.useThisName` | her | Use this: change “{from}” to “{to}” | `{from}` `{to}` | 240 |
 | `found.used` | her | Used | none | 40 |
+| `front.latestCountHint` | her | Leave empty to show the usual number for {product}. | `{product}` | 102 |
+| `front.textAbout` | her | A few paragraphs about you or {product}. | `{product}` | 80 |
+| `front.textBlank` | her | Write something about you or {product}. | `{product}` | 78 |
 | `helper.alsoNone` | details | None | none | 40 |
 | `helper.alsoPost` | details | Also send another post | none | 44 |
 | `helper.alsoSend` | details | Also send | none | 40 |
@@ -1526,6 +1555,18 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `hsetup.twoAtOnce` | details | Two helper calls can run at once on this server, shared by everyone signed in. | none | 156 |
 | `hsetup.where` | details | Where it's kept | none | 40 |
 | `hsetup.yours` | details | Yours | none | 40 |
+| `install.addHomeScreen` | her | Add {product} to your Home Screen | `{product}` | 66 |
+| `install.addedPhone` | her | Added. Open {product} from its icon from now on. | `{product}` | 96 |
+| `install.addedWindow` | her | Added. {product} opens in its own window from now on. | `{product}` | 106 |
+| `install.already` | her | You're already using {product} from its icon. | `{product}` | 90 |
+| `install.asApp` | her | Install {product} as an app | `{product}` | 54 |
+| `install.firefox` | her | Firefox can't add {product} as an app. It works the same in a tab: bookmark it instead. | `{product}` | 174 |
+| `install.inApp` | her | This page is open inside another app. Open {product} in {app}: | `{product}` `{app}` | 124 |
+| `install.openIcon` | her | Open {product} from its new icon. | `{product}` | 66 |
+| `install.openInSafari` | her | Don't see Add to Home Screen? Open {product} in Safari: | `{product}` | 110 |
+| `install.openSignIn` | her | Open {product} from its new icon and sign in again. | `{product}` | 102 |
+| `install.ownIcon` | her | Then {product} opens from its own icon, like your other apps. | `{product}` | 122 |
+| `install.ownWindow` | her | Then {product} opens in its own window, like your other apps. | `{product}` | 122 |
 | `install.signInFirst` | her | You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask {helper} first. | `{helper}` | 228 |
 | `item.abstract` | her | Abstract | none | 40 |
 | `item.abstractAbout` | her | The short summary research posts start with. | none | 88 |
@@ -1571,14 +1612,33 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `item.tipAbout` | her | A box that stands out, like “Book a week ahead.” | none | 96 |
 | `item.video` | her | A video | none | 40 |
 | `item.videoAbout` | her | From YouTube or Vimeo. | none | 44 |
-| `job.newerVersion` | her | This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}. | `{helper}` | 232 |
+| `job.addHomeScreen` | her | Add {product} to your Home Screen so jobs waiting here are kept safe. | `{product}` | 138 |
+| `job.cantKeep` | her | Jobs send straight away instead, so save one where there's a signal. In a normal Safari window {product} can keep them. | `{product}` | 238 |
+| `job.deletedThere` | her | This job went to {product} before, and was deleted there since. | `{product}` | 126 |
+| `job.goesAsYours` | her | It goes to {product} as yours. | `{product}` | 60 |
+| `job.inApp` | her | This page is open inside another app, which may not keep your jobs. Open {product} in Safari. | `{product}` | 186 |
+| `job.lede` | her | Take photos and say what you did. It's kept on this {noun} until there's a signal, then goes to {product} as a draft. | `{noun}` `{product}` | 234 |
+| `job.ledgerVersion` | her | {product} was updated in a way this page doesn't understand yet. Reload, then try again. | `{product}` | 176 |
+| `job.micDenied` | her | {product} isn't allowed to use the microphone on this {noun}. To change that: | `{product}` `{noun}` | 154 |
+| `job.newerVersion` | her | This job was saved by a newer version of {product}'s pages. Reload to send it. If it still says this, tell {helper}. | `{product}` `{helper}` | 232 |
+| `job.noAnswer` | her | {product} didn't answer. | `{product}` | 48 |
+| `job.noAnswerLead` | her | {product} didn't answer when it last tried | `{product}` | 84 |
 | `job.noNotes` | her | Write a few words about the job first. | none | 76 |
 | `job.noWordsHeard` | her | No words were heard in it. Type a few instead. | none | 92 |
+| `job.notSetUp` | her | {product} isn't set up for jobs | `{product}` | 62 |
 | `job.noteStillHere` | her | Your voice note is still here. | none | 60 |
 | `job.notesTooLong` | her | That's more words than it can take. Shorten them a little. | none | 116 |
+| `job.otherWindow` | her | Another window updated {product}'s pages. Reload, then save again. This job stays here. | `{product}` | 174 |
+| `job.ownHelper` | her | {product}'s helper | `{product}` | 40 |
+| `job.roomFull` | her | The jobs waiting on this {noun} are using all the room {product} has here. Send them first. This one stays here. | `{noun}` `{product}` | 224 |
+| `job.safariClear` | her | Safari may clear jobs kept here if {product} isn't opened for a week. Send it, or save its photos to this {noun}. | `{product}` `{noun}` | 226 |
+| `job.saidNo` | her | {product} said no to this job. | `{product}` | 60 |
+| `job.turnsLocal` | her | {product} turns it into words on its own computer. Nothing leaves it. | `{product}` | 138 |
+| `job.waitingInSafari` | her | Saved a job in Safari instead? It's waiting there: open {product} in Safari to send it. | `{product}` | 174 |
 | `job.writeUpGo` | her | Write it up | none | 40 |
 | `job.writeUpLikeMe` | her | Make it sound like me | none | 42 |
 | `job.writeUpNotNow` | her | Not now | none | 40 |
+| `job.writeUpOff` | her | Writing it up isn't set up for {product}. | `{product}` | 82 |
 | `job.writeUpTitle` | her | Write it up for me | none | 40 |
 | `job.writeUpWorking` | her | Writing it up… | none | 40 |
 | `join.declined` | her | You said no thanks. They can invite you again. | none | 92 |
@@ -1611,6 +1671,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `kinds.collectionsAbout` | her | A collection gathers posts on one page, like all your posts on one topic. Put a post in one from the post itself. | none | 226 |
 | `kinds.collectionsEmpty` | her | A collection gathers posts on one page, like all your posts on one topic. | none | 146 |
 | `kinds.pagesAbout` | her | Pages stay put, like About or Contact. Posts come and go by date. | none | 130 |
+| `kinds.unknownAsStory` | her | {product} shows it as a story. | `{product}` | 60 |
 | `layout.addRound` | her | Add a round | none | 40 |
 | `layout.addTurn` | her | Add a turn | none | 40 |
 | `layout.alternatingDialogue` | her | Back and forth | none | 40 |
@@ -1783,7 +1844,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `notebook.copyGo` | her | Save the copy | none | 40 |
 | `notebook.copyOpen` | her | Save a copy of your notebook… | none | 58 |
 | `notebook.copyStay` | her | Not now | none | 40 |
-| `notebook.copyText` | her | The file holds every passage and note, archived ones too. Keep it somewhere private, never in your blog's folders. | none | 228 |
+| `notebook.copyText` | her | The file holds every passage and note, archived ones too. Keep it somewhere private, never in {product}'s folders. | `{product}` | 228 |
 | `notebook.copyTitle` | her | Save a copy of your notebook? | none | 58 |
 | `notebook.dropTitle` | her | Leave out your changes to this entry? | none | 74 |
 | `notebook.emptyText` | her | Keep the exact words you read, with where they are, and your own notes and questions beside them. | none | 194 |
@@ -1849,11 +1910,34 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `notebook.words` | her | The exact words | none | 40 |
 | `notebook.wordsHelp` | her | Kept exactly as you type them, as someone else's words. | none | 110 |
 | `notify.appSwitch` | her | News from your other apps | none | 50 |
-| `notify.canTurnOn` | her | {helper} can turn them on. Your blog works the same without them. | `{helper}` | 130 |
+| `notify.canTurnOn` | her | {helper} can turn them on. {product} works the same without them. | `{helper}` `{product}` | 130 |
+| `notify.cantLoad` | her | {product} couldn't load your notifications. Try again in a minute. | `{product}` | 132 |
+| `notify.cantReach` | her | Can't reach {product} right now. Check your connection, then try again. | `{product}` | 142 |
 | `notify.commentsLink` | her | someone comments | none | 40 |
+| `notify.didntSeeAndroid` | her | In Settings: Apps, then {product} (or Chrome), then Notifications. | `{product}` | 132 |
+| `notify.didntSeeApple` | her | In the Settings app: Notifications, then {product}. Allow Notifications should be on, with Lock Screen and Banners turned on. | `{product}` | 240 |
+| `notify.findAllow` | her | Find {product} and choose Allow. | `{product}` | 64 |
+| `notify.findInList` | her | Find {product} in the list (it has the name under its icon) and tap it. | `{product}` | 142 |
+| `notify.gone` | her | This {noun} stopped taking notifications, so {product} forgot it. Turn them on again. | `{noun}` `{product}` | 170 |
+| `notify.holdIcon` | her | Touch and hold {product}'s icon. | `{product}` | 64 |
+| `notify.homeScreenFirst` | her | On an {noun}, {product} can only send notifications once it's on your Home Screen. It takes four taps. | `{noun}` `{product}` | 204 |
+| `notify.inApp` | her | This page is open inside another app, which can't show notifications. Open {product} in {app}: | `{product}` `{app}` | 188 |
+| `notify.lede` | her | Your phone can tell you when {what}, even when {product} is closed. | `{what}` `{product}` | 134 |
 | `notify.nameHelp` | her | So you can tell them apart, like Work phone. | none | 88 |
 | `notify.nameMissing` | her | Give it a name, like Work phone. | none | 64 |
+| `notify.notReady` | her | {product} couldn't get this {noun} ready. Reload the page, then try again. | `{product}` `{noun}` | 148 |
+| `notify.notSecure` | her | Notifications only work at {product}'s secure address. | `{product}` | 108 |
+| `notify.notSetUp` | her | Notifications aren't set up for {product} | `{product}` | 82 |
+| `notify.nothingOn` | her | They tell you about comments and quote requests, and neither is turned on for {product}. | `{product}` | 176 |
+| `notify.otherGone` | her | {name} stopped taking notifications, so {product} forgot it. | `{name}` `{product}` | 120 |
 | `notify.readersLink` | her | a reader sends you something | none | 56 |
+| `notify.removeAsk` | her | It won't get notifications from {product} any more. To get them there again, open {product} on it and turn them on. | `{product}` | 230 |
+| `notify.removedElsewhere` | her | This {noun} was removed from the phones {product} tells, on another phone or computer. Turn them on again. | `{noun}` `{product}` | 212 |
+| `notify.removedOff` | her | This {noun} was removed from the phones {product} tells, so it's off. | `{noun}` `{product}` | 138 |
+| `notify.saidNo` | her | You said no when your {noun} asked, so it can't show notifications from {product}. To change that: | `{noun}` `{product}` | 196 |
+| `notify.serviceDown` | her | {product} couldn't reach its notification service. Try again in a minute. | `{product}` | 146 |
+| `notify.tooMany` | her | {product} can tell up to {limit} phones and computers. Remove one you don't use any more, below. | `{product}` `{limit}` | 192 |
+| `notify.updateFirst` | her | This {noun} needs a newer iOS before {product} can send it notifications. In the Settings app: General, then Software Update. | `{noun}` `{product}` | 240 |
 | `part.addIdea` | her | Add | none | 40 |
 | `part.addIdeaLabel` | her | Add “{idea}” to your words | `{idea}` | 52 |
 | `part.asWritten` | her | Show the words as written | none | 50 |
@@ -2130,6 +2214,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `paths.writtenHelp` | details | The file exactly as it is kept. Shown for {helper}; changes are made on the form. | `{helper}` | 162 |
 | `people.alreadyIn` | her | {name} is already in this, or already invited. | `{name}` | 92 |
 | `people.bindingGone` | details | binding no longer current | none | 50 |
+| `people.blogName` | her | {product}'s name | `{product}` | 40 |
 | `people.changeAsk` | her | Change what {name} does? | `{name}` | 48 |
 | `people.changeGo` | her | Change it | none | 40 |
 | `people.changeKeep` | her | Keep it as it is | none | 40 |
@@ -2168,6 +2253,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `people.inviteStateRevoked` | her | Withdrawn. The link doesn't work any more. | none | 84 |
 | `people.invited` | her | Invitation made. | none | 40 |
 | `people.keepsWords` | her | What they wrote stays theirs. | none | 58 |
+| `people.lede` | her | The people who write, cook or take photos for {product}. Choose them under Who wrote it on any post. | `{product}` | 200 |
 | `people.linkMade` | her | Send this link to {name} yourself. It works once, until {when}. {product} doesn't email it. | `{name}` `{when}` `{product}` | 240 |
 | `people.loseCharge` | her | {name} won't be in charge of it any more. | `{name}` | 82 |
 | `people.loseRun` | her | {name} won't be able to invite people or choose the layout. | `{name}` | 200 |
@@ -2180,7 +2266,9 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `people.newLinkMade` | her | New link made. The old one doesn't work any more. | none | 98 |
 | `people.newSignIn` | her | They're new: make them a sign-in | none | 64 |
 | `people.newSignInHelp` | her | They choose their own password from the link. | none | 90 |
+| `people.noAnswer` | her | Not saved yet. {product} didn't answer. Try again in a moment. | `{product}` | 124 |
 | `people.noInvitations` | her | No invitations yet. | none | 40 |
+| `people.noName` | her | {product} doesn't have your name yet. | `{product}` | 74 |
 | `people.onlyNow` | her | You won't see this link again. If it's lost, make a new one. | none | 120 |
 | `people.ownerOnly` | her | Only someone in charge can do that. | none | 70 |
 | `people.readOnlyHelp` | her | Whoever runs it can invite people and change what they do. | none | 116 |
@@ -2209,6 +2297,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `people.theLink` | her | The invitation link | none | 40 |
 | `people.theirName` | her | Their name | none | 40 |
 | `people.theirNameHelp` | her | From People. Someone who isn't there yet can be added first. | none | 120 |
+| `people.usualName` | her | {product}'s usual name. | `{product}` | 46 |
 | `people.whatTheyDo` | her | What they do | none | 40 |
 | `people.withdraw` | her | Withdraw | none | 40 |
 | `people.withdrawAsk` | her | Withdraw {name}'s invitation? | `{name}` | 58 |
@@ -2232,7 +2321,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `place.timestamp` | her | time | none | 40 |
 | `place.toRow` | her | Place {n} ends at | `{n}` | 40 |
 | `public.at` | her | At | none | 40 |
-| `public.cantBuild` | her | What readers see can't be worked out right now: your blog doesn't build as it stands. Tell {helper}. | `{helper}` | 200 |
+| `public.cantBuild` | her | What readers see can't be worked out right now: {product} doesn't build as it stands. Tell {helper}. | `{product}` `{helper}` | 200 |
 | `public.checkAgain` | her | Check again | none | 40 |
 | `public.checked` | her | Checked again. | none | 40 |
 | `public.checksFailed` | her | The research checks didn't run. What readers see is still listed above. | none | 142 |
@@ -2291,7 +2380,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `public.storeDatings` | her | Datings | none | 40 |
 | `public.storeInterpretations` | her | Readings side by side | none | 42 |
 | `public.storeLinks` | her | Links to research pages | none | 46 |
-| `public.storeOff` | her | Your blog doesn't publish this part. {helper} can turn it on. | `{helper}` | 122 |
+| `public.storeOff` | her | {product} doesn't publish this part. {helper} can turn it on. | `{product}` `{helper}` | 122 |
 | `public.storePaths` | her | Reading paths | none | 40 |
 | `public.storeSources` | her | Sources your posts cite | none | 46 |
 | `public.tab` | her | What readers see | none | 40 |
@@ -2307,13 +2396,13 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `public.whyNeedsGone` | her | Something it needs isn't there. | none | 62 |
 | `public.whyNeedsHeld` | her | Something it needs is held back. | none | 64 |
 | `public.whyNoPost` | her | No published post, atlas or aligned passages show it yet. | none | 114 |
-| `public.whyNotPublished` | her | It isn't in what your blog publishes. | none | 74 |
+| `public.whyNotPublished` | her | It isn't in what {product} publishes. | `{product}` | 74 |
 | `public.whyNotShown` | her | You haven't let readers see it. | none | 62 |
-| `public.whyPageNotUp` | her | The page it links to isn't on your blog yet. | none | 88 |
+| `public.whyPageNotUp` | her | The page it links to isn't on {product} yet. | `{product}` | 88 |
 | `public.whyPassage` | her | It points into your notebook. | none | 58 |
-| `public.whyPostNotUp` | her | Its post isn't on your blog yet. | none | 64 |
+| `public.whyPostNotUp` | her | Its post isn't on {product} yet. | `{product}` | 64 |
 | `public.whyRights` | her | The words are held back under their rights statement. | none | 106 |
-| `public.whySiteOff` | her | Your blog doesn't publish this yet. | none | 70 |
+| `public.whySiteOff` | her | {product} doesn't publish this yet. | `{product}` | 70 |
 | `public.whyStale` | her | It changed after you chose it. Choose it again to show it as it is now. | none | 142 |
 | `public.whyTooBig` | her | It's over a size limit, so it's left out. Tell {helper}. | `{helper}` | 112 |
 | `public.whyUnsourced` | her | It's a draft with no evidence yet. | none | 68 |
@@ -2321,9 +2410,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `public.whyWordsMoved` | her | The words it's about have changed. | none | 68 |
 | `quotation.changeHelp` | her | The quoted words stay exactly as you kept them. Change them in your notebook. | none | 154 |
 | `quote.backUnderNew` | her | {name} is back under New. | `{name}` | 50 |
+| `quote.cantOpen` | her | {product} can't open your quote requests | `{product}` | 80 |
 | `quote.eraseAsk` | her | Erase {name}'s request? | `{name}` | 46 |
 | `quote.handled` | her | {name}: handled. | `{name}` | 40 |
 | `quote.hostChose` | her | {helper} chose this, so it can't be changed here. | `{helper}` | 98 |
+| `quote.tooOld` | her | Your requests service needs updating before {product} can clean up. | `{product}` | 134 |
 | `quote.undone` | her | Undone. {name}'s request is back. | `{name}` | 66 |
 | `read.agree` | her | Agree to publish this | none | 42 |
 | `read.agreeAsk` | her | Agree to publish exactly what you just read? | none | 88 |
@@ -3242,6 +3333,13 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `recipe.askAddName` | her | This recipe doesn't say who wrote it. Ask {helper} to add your name. | `{helper}` | 136 |
 | `recipe.notesHeading` | her | Notes | none | 60 |
 | `recipe.numberedStep` | her | Step {n} starts with its own number. Take it out; {product} numbers the steps. | `{n}` `{product}` | 156 |
+| `reminders.lede` | her | At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself. | `{product}` | 240 |
+| `reminders.nothing` | her | Nothing to write about for the next month. {product} will tell you when something comes up. | `{product}` | 182 |
+| `reminders.stopsSuggesting` | her | {product} stops suggesting it. A draft you started from it stays. | `{product}` | 130 |
+| `reminders.suggestsFrom` | her | {product} suggests “{name}” from {window}. | `{product}` `{name}` `{window}` | 84 |
+| `reminders.topicsHelp` | her | Turn one off, or move when {product} suggests it. | `{product}` | 98 |
+| `reminders.turnOn` | her | Turn them on and {product} suggests what to write for your trade, at the right time of year. It never publishes anything. | `{product}` | 240 |
+| `reminders.wontSuggest` | her | {product} won't suggest “{topic}” any more. | `{product}` `{topic}` | 86 |
 | `research.addFirst` | her | Add your first source | none | 42 |
 | `research.backToPost` | her | Back to your post | none | 40 |
 | `research.checkField` | her | Check this against the help under it. | none | 74 |
@@ -3497,15 +3595,32 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.whole` | her | The whole thing | none | 40 |
 | `rules.wholeHelp` | her | Each person agrees to everyone's parts, so any change asks everyone again. | none | 148 |
 | `rules.whoseAgreement` | her | Whose agreement counts | none | 44 |
+| `share.couldntRead` | her | {product} couldn't read that | `{product}` | 56 |
+| `share.couldntTell` | her | {product} couldn't tell whether it posted. Look at the account it was going to. Is it there? | `{product}` | 184 |
+| `share.jobNotFound` | her | {product} couldn't find this job. It may have been deleted or renamed. | `{product}` | 140 |
+| `share.noReply` | her | {product} didn't hear back. Look under Sharing in a minute before posting again. | `{product}` | 160 |
+| `share.previewMissing` | her | {product} couldn't show this just now. It will still share as you wrote it. | `{product}` | 150 |
+| `share.ranOut` | her | {product} ran out of time and will try again. | `{product}` | 90 |
+| `share.slowDown` | her | {name} asked {product} to slow down. | `{name}` `{product}` | 72 |
+| `share.stoppedEarly` | her | {product} stopped before it heard back. | `{product}` | 78 |
+| `share.stoppedTaking` | her | {name} stopped taking posts from {product}. Reconnect it, {same}. | `{name}` `{product}` `{same}` | 130 |
 | `share.tellOrSkip` | her | Tell {helper}, or choose Don't share it. | `{helper}` | 80 |
+| `share.unreadable` | her | {product} couldn't read what went to {label}, so it isn't here. | `{product}` `{label}` | 126 |
+| `share.wentOutUnsure` | her | {product} couldn't tell whether it went out. Look at the account. | `{product}` | 130 |
+| `social.accountsLede` | her | Where {product} can post for you. It posts only when you share a post. | `{product}` | 140 |
 | `social.already` | her | {name} is already connected. Use Reconnect on it if it stopped working. | `{name}` | 142 |
 | `social.canTurnOn` | her | {helper} can turn it on. Your site works the same without it. | `{helper}` | 122 |
+| `social.cantPostHere` | her | {product} can't post here. | `{product}` | 52 |
 | `social.connected` | her | Connected. {product} can post to {name} on {service} now. | `{product}` `{name}` `{service}` | 114 |
 | `social.connectedFacebook` | her | Connected. {product} can post to {name} on {service} now. To add another Facebook Page, connect Facebook again. | `{product}` `{name}` `{service}` | 240 |
 | `social.connectedIt` | her | Connected. {product} can post to it on {service} now. | `{product}` `{service}` | 106 |
+| `social.connectionGone` | her | {product} couldn't find that connection. If your account isn't listed, connect it again. | `{product}` | 176 |
+| `social.couldntOpen` | her | {product} couldn't open {name}. | `{product}` `{name}` | 62 |
 | `social.disconnectAsk` | her | Disconnect {name}? | `{name}` | 40 |
 | `social.disconnected` | her | Disconnected {name}. | `{name}` | 40 |
 | `social.facebookNoPage` | her | Facebook didn't show any Page you can post to. You need to run the Page. If you do, ask {helper} to add you to its Facebook app. | `{helper}` | 240 |
+| `social.finishing` | her | {product} is finishing up. This takes a few seconds. | `{product}` | 104 |
+| `social.forgets` | her | {product} forgets how to post to it. You can connect it again later. | `{product}` | 136 |
 | `social.gone` | her | {name} isn't connected any more. Connect it again. | `{name}` | 100 |
 | `social.noPlaces` | her | {helper} needs to add Facebook or another place first. | `{helper}` | 108 |
 | `social.orgsTruncated` | her | LinkedIn sent only some of your company pages. If yours isn't here, tell {helper}. | `{helper}` | 164 |
@@ -3513,7 +3628,13 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `social.reconnectTitle` | her | Reconnect {name} | `{name}` | 40 |
 | `social.reconnected` | her | Reconnected. {name} works again. | `{name}` | 64 |
 | `social.reconnectedIt` | her | Reconnected. It works again. | none | 56 |
+| `social.roleUnverified` | her | Facebook didn't say what you can do on this Page, so {product} can't use it. | `{product}` | 152 |
+| `social.saidYes` | her | {name} said yes. {product} is finishing up. | `{name}` `{product}` | 86 |
+| `social.scopesMissing` | her | {name} didn't allow everything {product} needs to post. Try again and leave every box ticked. | `{name}` `{product}` | 186 |
+| `social.sendsYouBack` | her | {product} sends you to {where}. Sign in there and say yes; you come back here to finish. | `{product}` `{where}` | 176 |
+| `social.sendsYouTo` | her | {product} sends you to {name}. Sign in there and say yes; {name} sends you back here to {pick}. | `{product}` `{name}` `{pick}` | 190 |
 | `social.signInAgain` | her | {service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}. | `{service}` `{helper}` | 240 |
+| `social.slowDown` | her | {name} asked {product} to slow down. Wait a few minutes, then try again. | `{name}` `{product}` | 144 |
 | `sources.add` | her | Add a source | none | 40 |
 | `sources.addId` | her | Add an identifier | none | 40 |
 | `sources.addIt` | her | Add the source | none | 40 |
@@ -4157,7 +4278,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `visitors.how2` | her | A person reading the same page twice in a day is one visit. Nothing links one day to the next, so {product} can't tell how many different people came. | `{product}` | 240 |
 | `visitors.how3` | her | Readers who ask not to be counted aren't counted. | none | 98 |
 | `visitors.how4` | her | Search engines and AI tools also read your pages. They're not in these numbers. | none | 158 |
-| `visitors.how5` | her | This counts what reaches your blog's own computer; if your blog is served from somewhere else, some visits may be missing. | none | 240 |
+| `visitors.how5` | her | This counts what reaches {product}'s own computer; if {product} is served from somewhere else, some visits may be missing. | `{product}` | 240 |
 | `visitors.howHeading` | her | How these numbers are counted | none | 58 |
 | `visitors.keptFor` | her | {product} keeps numbers for {n} days, so the start of this period isn't here. | `{product}` `{n}` | 154 |
 | `visitors.noSignal` | her | {product} can't reach your site right now, so there are no numbers to show. Try again when you have a signal. | `{product}` | 218 |
@@ -4530,7 +4651,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `yours.rightsGo` | her | Quote them | none | 40 |
 | `yours.rightsReserved` | her | are reserved | none | 40 |
 | `yours.rightsStay` | her | Not now | none | 40 |
-| `yours.rightsText` | her | Quoting them on your blog is your decision. | none | 86 |
+| `yours.rightsText` | her | Quoting them on {product} is your decision. | `{product}` | 86 |
 | `yours.rightsTitle` | her | Quote words whose rights {state}? | `{state}` | 66 |
 | `yours.rightsUnknown` | her | nobody has checked | none | 40 |
 | `yours.rowName` | her | {type}: {title}, {visibility} | `{type}` `{title}` `{visibility}` | 58 |
@@ -4542,8 +4663,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `yours.showNotes` | her | My notes | none | 40 |
 | `yours.showPassages` | her | Passages | none | 40 |
 | `yours.showSources` | her | Sources | none | 40 |
-| `yours.siteOff` | her | Your blog doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on. | `{helper}` | 190 |
-| `yours.siteOffCompare` | her | Your blog doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on. | `{helper}` | 204 |
+| `yours.siteOff` | her | {product} doesn't publish the atlas yet, so a link would lead nowhere. {helper} can turn it on. | `{product}` `{helper}` | 190 |
+| `yours.siteOffCompare` | her | {product} doesn't publish aligned passages yet, so a link would lead nowhere. {helper} can turn it on. | `{product}` `{helper}` | 204 |
 | `yours.sourceHelp` | her | Only the key and the places you give go into your post. | none | 110 |
 | `yours.sourceKey` | her | {kind}, key {key} | `{kind}` `{key}` | 40 |
 | `yours.title` | her | Your research | none | 40 |

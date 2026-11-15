@@ -52,7 +52,7 @@ export async function createAccounts(context, route = { query: {} }) {
   const element = h("section", { class: "studio-page studio-accounts", "aria-labelledby": "studio-accounts-page-h" },
     h("a", { class: "studio-more-link", href: "#/sharing", text: "< Back to Sharing" }),
     heading,
-    h("p", { class: "studio-lede", text: "Where your blog can post for you. It posts only when you share a post." }),
+    h("p", { class: "studio-lede", text: word("social.accountsLede") }),
     primarySlot, top, status,
     h("div", { class: "studio-account-columns" }, h("div", { class: "studio-account-main" }, main), side));
 
@@ -264,7 +264,7 @@ export async function createAccounts(context, route = { query: {} }) {
     if (id) {
       const found = connections.find((c) => c.id === id);
       if (!found) {
-        say("Your blog couldn't find that connection. If your account isn't listed, connect it again.");
+        say(word("social.connectionGone"));
         requestAnimationFrame(() => status.focus());
         return;
       }

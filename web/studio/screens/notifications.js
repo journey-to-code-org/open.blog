@@ -87,7 +87,7 @@ export async function createNotifications(context, route = { query: {} }) {
         ? ["These settings aren't valid:", ...(state.problems || [])]
         : ["The push function answered but isn't switched on: set OPENBLOG_PUSH_ENABLED=true and its other settings there."]));
     } else {
-      main.replaceChildren(h("empty-state", { heading: "Notifications aren't set up for your blog" }, word("notify.canTurnOn")));
+      main.replaceChildren(h("empty-state", { heading: word("notify.notSetUp") }, word("notify.canTurnOn")));
       side.replaceChildren(detailsBox(["Set OPENBLOG_PUSH_ENDPOINT and OPENBLOG_PUSH_ADMIN_KEY where Studio runs, after the steps in docs/notifications.md."]));
     }
     followLink();
@@ -97,7 +97,7 @@ export async function createNotifications(context, route = { query: {} }) {
     main.removeAttribute("aria-busy");
     lede.textContent = R.ledeWords(offered());
     if (!offered().length && !found.mine) {
-      main.replaceChildren(h("empty-state", { heading: "There's nothing for notifications to tell you about yet" }, "They tell you about comments and quote requests, and neither is turned on for your blog."));
+      main.replaceChildren(h("empty-state", { heading: "There's nothing for notifications to tell you about yet" }, word("notify.nothingOn")));
     } else {
       main.replaceChildren(card.draw());
     }
@@ -163,7 +163,7 @@ export async function createNotifications(context, route = { query: {} }) {
     async remove(device, opener) {
       const choice = await ask({
         heading: `Remove ${device.label}?`,
-        text: "It won't get notifications from your blog any more. To get them there again, open your blog on it and turn them on.",
+        text: word("notify.removeAsk"),
         choices: [{ label: "Keep it", value: "keep", variant: "secondary" }, { label: "Remove", value: "go", variant: "destructive" }],
       });
       if (choice !== "go") { opener?.focus?.(); return; }

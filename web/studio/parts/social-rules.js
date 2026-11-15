@@ -5,7 +5,7 @@
 // tests/web/studio-social-rules.test.mjs; docs/specs/studio/r2/ux.md.
 import { providerName } from "./share-words.js";
 import { sayClock } from "./dates.js";
-import { say } from "./words.js";
+import { product, say } from "./words.js";
 
 // ---- Safety ------------------------------------------------------------------------------------
 
@@ -73,7 +73,7 @@ export const VISIBILITY_WORDS = Object.freeze({
 });
 
 /** The Bluesky sheet's help, under the app-password field. */
-export const appPasswordHelp = "Bluesky lets you make a separate password just for your blog, so your own password stays private. In Bluesky: Settings, then Privacy and security, then App passwords. Paste that one here.";
+export const appPasswordHelp = () => say("bluesky.appPasswordHelp");
 
 const host = (origin) => {
   try { return new URL(origin).host; } catch { return ""; }
@@ -96,7 +96,7 @@ export function stepOneWords(provider) {
   if (provider?.provider === "mastodon") {
     const where = host(provider.instance) || "your Mastodon server";
     return [
-      `Your blog sends you to ${where}. Sign in there and say yes; you come back here to finish.`,
+      say("social.sendsYouBack", { where }),
       VISIBILITY_WORDS[provider.visibility] || "",
       provider.media === "cover" ? "Your post's photo goes with it." : "",
     ].filter(Boolean);
@@ -104,7 +104,7 @@ export function stepOneWords(provider) {
   const pick = provider?.provider === "facebook" ? "pick your Facebook Page"
     : provider?.provider === "linkedin" ? (provider.organizations ? "pick where posts go: your profile, or a company page you run" : "pick where posts go")
       : "finish";
-  return [`Your blog sends you to ${name}. Sign in there and say yes; ${name} sends you back here to ${pick}.`];
+  return [say("social.sendsYouTo", { name, pick })];
 }
 
 /** An account's provider and kind: "Facebook Page", "LinkedIn company page". */
@@ -130,7 +130,7 @@ const REASONS = Object.freeze({
   "missing-scope": "Facebook didn't allow posting here. Connect again and leave every box ticked.",
   "not-administrator": "LinkedIn doesn't let your account post on this page.",
   "no-posting-role": "Facebook doesn't let your account post on this Page.",
-  "role-unverified": "Facebook didn't say what you can do on this Page, so your blog can't use it.",
+  get "role-unverified"() { return say("social.roleUnverified"); },
   "no-page-token": "Facebook didn't give access to this Page. Connect again and choose it on Facebook.",
   "account-inactive": "Bluesky says this account isn't active.",
   "account-suspended": "Mastodon says this account is suspended.",
@@ -139,7 +139,7 @@ const REASONS = Object.freeze({
 /** Why a place can't be picked. `missing-scope` names the provider it came from. */
 export function reasonWords(reason, provider = "facebook") {
   if (reason === "missing-scope" && provider !== "facebook") return `${providerName(provider) || "It"} didn't allow posting here. Connect again and leave every box ticked.`;
-  return REASONS[reason] || "Your blog can't post here.";
+  return REASONS[reason] || say("social.cantPostHere");
 }
 
 const FIRST_NOTES = Object.freeze({
@@ -161,7 +161,7 @@ export function outcomeWords(code, provider, { reconnecting = false, name = "" }
   const p = providerName(provider) || "It";
   switch (code) {
     case "denied": return `You said no on ${p}, so nothing was connected.`;
-    case "scopes-missing": return `${p} didn't allow everything your blog needs to post. Try again and leave every box ticked.`;
+    case "scopes-missing": return say("social.scopesMissing", { name: p });
     case "no-destination":
       if (provider === "facebook") return say("social.facebookNoPage");
       if (provider === "linkedin") return "LinkedIn didn't show anywhere you can post.";
@@ -172,7 +172,7 @@ export function outcomeWords(code, provider, { reconnecting = false, name = "" }
     case "provider-error":
     case "invalid-request": return `${p} didn't finish connecting. Try again.`;
     case "provider-unavailable": return `${p} couldn't be reached. Try again in a few minutes.`;
-    case "provider-rate-limited": return `${p} asked your blog to slow down. Wait a few minutes, then try again.`;
+    case "provider-rate-limited": return say("social.slowDown", { name: p });
     case "identity-mismatch": return mismatchWords(provider, { reconnecting, name });
     case "storage-failed": return "Your site couldn't save the connection. Try again.";
     default: return "That didn't connect. Try again.";
@@ -196,7 +196,7 @@ export function actionTrouble(error, provider = "") {
   if (code === "provider-not-configured") return `${p} isn't set up on your site any more. ${say("common.tell")}`;
   if (code === "hosted-key-rejected" || code === "hosted-unavailable" || code === "not-set-up" || status === 404) return `Sharing isn't working right now. ${say("common.tell")}`;
   if (code === "provider-unavailable") return `${p} couldn't be reached. Try again in a few minutes.`;
-  if (code === "provider-rate-limited" || status === 429) return `${p} asked your blog to slow down. Wait a few minutes, then try again.`;
+  if (code === "provider-rate-limited" || status === 429) return say("social.slowDown", { name: p });
   if (status === 502 || status === 503 || status === 504) return "Your sharing service couldn't be reached. Try again in a minute.";
   return "That didn't go through. Try again.";
 }
@@ -260,7 +260,7 @@ export function attemptCard(connection, { hasLink = false, timeZone } = {}) {
   const p = providerName(connection?.provider);
   const until = untilWords(connection?.expiresAt, { timeZone });
   if (connection?.status === "exchanging") {
-    return { heading: `${p} said yes`, words: "Your blog is finishing up. This takes a few seconds.", buttons: [] };
+    return { heading: `${p} said yes`, words: say("social.finishing"), buttons: [] };
   }
   if (connection?.status === "authorized") {
     const what = connection.provider === "facebook" ? "choose your Facebook Page" : connection.provider === "linkedin" ? "choose where posts go" : "choose your account";
@@ -318,8 +318,8 @@ export function retriedWords(done, failed) {
 
 /** The Disconnect question's words. */
 export function disconnectWords(waiting) {
-  if (waiting > 0) return `${waiting === 1 ? "1 post waiting to go there won't" : `${waiting} posts waiting to go there won't`} be shared. Your blog forgets how to post to it; you can connect it again later.`;
-  return "Your blog forgets how to post to it. You can connect it again later.";
+  if (waiting > 0) return `${waiting === 1 ? "1 post waiting to go there won't" : `${waiting} posts waiting to go there won't`} be shared. ${product({ start: true })} forgets how to post to it; you can connect it again later.`;
+  return say("social.forgets");
 }
 
 /** "Disconnected Grammi's House." plus how many waiting posts won't be shared. */

@@ -34,7 +34,7 @@ export async function createReminders({ api, go }) {
   const details = h("details", { class: "studio-help" });
   const element = h("section", { class: "studio-page studio-reminders", "aria-labelledby": "studio-reminders-h" },
     h("div", { class: "studio-today" }, h("div", { class: "studio-comment-head" }, heading, screenMore),
-      h("p", { class: "studio-lede", text: "At the right time of year, your blog suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself." }),
+      h("p", { class: "studio-lede", text: say("reminders.lede") }),
       tradeHelp),
     undoSlot, banner, status, body, details);
 
@@ -63,14 +63,14 @@ export async function createReminders({ api, go }) {
     drawDetails();
     if (!data.enabled) {
       body.replaceChildren(h("empty-state", { heading: "Reminders are off" },
-        "Turn them on and your blog suggests what to write for your trade, at the right time of year. It never publishes anything.",
+        say("reminders.turnOn"),
         h("action-button", { slot: "actions", onClick: () => setEnabled(true) }, "Turn on reminders")));
       return;
     }
     const due = data.reminders.filter((r) => r.status === "due");
     const later = data.reminders.filter((r) => r.status !== "due");
     if (!due.length && !later.length) {
-      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, "Nothing to write about for the next month. Your blog will tell you when something comes up."));
+      body.replaceChildren(h("empty-state", { heading: "Nothing for now" }, say("reminders.nothing")));
       return;
     }
     body.replaceChildren(...[
@@ -167,7 +167,7 @@ export async function createReminders({ api, go }) {
 
   async function stopTopic(r) {
     if (!(await put(true, M.withDisabled(data.entries, r.id, true)))) return;
-    const words = `Your blog won't suggest “${r.topic}” any more.`;
+    const words = say("reminders.wontSuggest", { topic: r.topic });
     status.textContent = words;
     const undo = h("action-button", { size: "sm", onClick: async () => { undoSlot.replaceChildren(); if (await put(true, M.withDisabled(data.entries, r.id, false))) status.textContent = `“${r.topic}” is back.`; } }, "Undo");
     undoSlot.replaceChildren(h("alert-banner", { variant: "info", dismissible: true, heading: words }, undo));

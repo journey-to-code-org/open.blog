@@ -5,6 +5,7 @@ import { h, toast } from "./dom.js";
 import { sendOut, wentOutWords } from "./publish.js";
 import { statusLine } from "./post-fields.js";
 import { takeOffQuestion } from "./take-off.js";
+import { say } from "./words.js";
 
 export function postActions({ api, meta, ask, kept, keptKey, doc, context, title, formTitle, isDirty, isPublished, saveNow, settle, paint, published,
   banner, form, now, schedule, read, verb, focusTitle }) {
@@ -49,7 +50,7 @@ export function postActions({ api, meta, ask, kept, keptKey, doc, context, title
     published(result);
     const when = doc.state === "scheduled" ? statusLine({ state: "scheduled", date: form().date }, now()) : "";
     if (result.sent === "failed") notSentOut(result.message);
-    else if (when) toast(`${when}.${schedule() === "self" ? "" : " It goes up the next time your blog is sent out after that."}`);
+    else if (when) toast(`${when}.${schedule() === "self" ? "" : ` ${say("about.goesUpNext")}`}`);
     else {
       const said = wentOutWords(result, { meta, action: wasLive ? "updated" : "published" });
       toast(said.words, { variant: said.variant });
