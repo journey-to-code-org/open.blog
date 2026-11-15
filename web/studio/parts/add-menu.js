@@ -16,6 +16,8 @@ import { sketch } from "./piece-cards.js";
 import { BANNER_CODES } from "./piece-rules.js";
 import { insertAbstract, insertResearchSection, sectionHeadingIn } from "./research-sections.js";
 import { pasteToMarkdown, pasteWords } from "./paste.js";
+import { generateView } from "./helper-generate.js";
+import { interactionSource } from "./quiz-rules.js";
 
 const DETAILS_KEY = "studio-add-details";
 const store = (() => { try { return globalThis.sessionStorage; } catch { return null; } })();
@@ -195,6 +197,7 @@ export async function createAddMenu(ctx) {
     // everything its onChange reads exists before buildForm runs.
     let opened = null;
     let linked = [];
+    let afterGenerate = null; // R8: the next edit after a helper filled the form takes Put back away
     function clearProblems() {
       for (const control of linked) control.error = "";
       linked = [];
@@ -209,7 +212,7 @@ export async function createAddMenu(ctx) {
       selection: link ? "" : box?.selection?.() || "",
       posts: () => (ctx.context.posts?.list?.() || ctx.api.get("documents?kind=posts").then((r) => r.items || []))
         .then((list) => list.filter((item) => item.url && item.status !== "draft").sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map((item) => ({ url: item.url, title: item.title || item.url }))),
-      onChange: () => { drawSketch(); clearProblems(); },
+      onChange: () => { drawSketch(); clearProblems(); afterGenerate?.(); },
     });
     const saved = kept(waitingKey(kind));
     if (saved && !changing) opened.restore(saved);
@@ -220,10 +223,15 @@ export async function createAddMenu(ctx) {
     const addIt = h("action-button", { class: "studio-add-it", onClick: () => commit() }, changing ? say("form.done") : say("form.addIt"));
     const takeOff = link ? h("action-button", { variant: "secondary", onClick: () => unlink() }, say("form.takeLinkOff")) : null;
     drawSketch();
+    // R8: Write questions for me / Draft it for me, when the helper is set up and there's a signal.
+    const generated = h("p", { class: "studio-help studio-row studio-generated", role: "status" });
+    const canGenerate = !changing && (kind === "quiz" || kind === "runnable") && typeof opened.fill === "function" && ctx.helper?.ready() && globalThis.navigator?.onLine !== false;
+    const generate = canGenerate ? h("action-button", { variant: "secondary", class: "studio-generate", onClick: () => showGenerate() }, kind === "quiz" ? say("hgen.quizButton") : say("hgen.codeButton")) : null;
     const content = [
       changing ? null : back,
       h("p", { class: "studio-help studio-add-where", text: changing ? "" : where() }),
       banner,
+      generate, generated,
       opened.element,
       h("section", { class: "studio-add-looks", "aria-label": say("form.howItLooks") }, h("h3", { class: "studio-label", text: say("form.howItLooks") }), live),
       h("details", { class: "studio-form-details" }, h("summary", { text: say("form.whatItWrites") }), writes),
@@ -237,8 +245,34 @@ export async function createAddMenu(ctx) {
       if (event.altKey && event.key === "ArrowLeft" && !changing) { event.preventDefault(); backToList(); }
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); commit(); }
     };
-    sheet.show({ heading: title, children: content, opener: target?.opener, focus: () => opened.focus(), onClose: () => afterClose(), ...guard });
+    const showThisForm = (focus = () => opened.focus()) => sheet.show({ heading: title, children: content, opener: target?.opener, focus, onClose: () => afterClose(), ...guard });
+    showThisForm();
     sheet.element.onkeydown = keys;
+
+    // R8: the step that says what goes, then fills this form with what the helper wrote.
+    function showGenerate() {
+      const helperForm = ctx.helper.form();
+      const at = box ? ctx.helper.offsetOf(box) : null;
+      const source = interactionSource({ selection: box?.selection?.() || "", caret: at === null ? null : at + (target?.caret ?? box.caret()) }, helperForm);
+      const values = opened.values();
+      const view = generateView({
+        api: ctx.api, kind, company: ctx.helper.company(), source, asked: kind === "runnable" ? { kind: values.kind, language: values.language } : {},
+        hasTyping: opened.dirty(), backLabel: title,
+        onBack: () => showThisForm(() => generate.querySelector("button")?.focus()),
+        onWritten: (written) => {
+          const had = opened.values();
+          afterGenerate = null;
+          opened.fill(written);
+          drawSketch();
+          const putBack = h("action-button", { variant: "link", onClick: () => { afterGenerate = null; opened.fill(had); drawSketch(); generated.replaceChildren(say("hgen.backAgain")); opened.focus(); } }, say("hgen.putBack"));
+          generated.replaceChildren(h("span", { text: kind === "quiz" ? say("hgen.written") : say("hgen.codeWritten") }), " ", putBack);
+          // Until the next edit: after that, what she had is no longer what would be lost.
+          afterGenerate = () => { afterGenerate = null; putBack.remove(); };
+          showThisForm();
+        },
+      });
+      sheet.show({ heading: view.heading, children: view.children, opener: target?.opener, focus: view.focus, onClose: () => afterClose(), ...guard });
+    }
 
     function showProblems(problems) {
       clearProblems();

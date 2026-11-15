@@ -17,7 +17,7 @@ export async function writeUpSetup(api) {
   if (!status?.configured) return { ready: false, status, guide: null };
   let guide = null;
   try {
-    const catalog = await api.get("assistant/context");
+    const catalog = await api.get("assistant/context?content=none");
     const usable = (catalog?.voiceGuides || []).filter((doc) => doc?.contextType === "voice" && doc.exists === true && doc.valid === true && typeof doc.id === "string");
     const picked = usable.find((doc) => doc.visibility === "private") || usable[0];
     if (picked) guide = { id: picked.id };
@@ -42,6 +42,7 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
       settled = true;
       resolve(value);
     };
+    const company = companyName({ company: setup.status?.company, provider: setup.status?.providerType, destination: setup.status?.destination });
     const like = setup.guide ? h("toggle-switch", { label: "Make it sound like me", checked: true }) : null;
     const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
     const go = h("action-button", {
@@ -51,9 +52,9 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
         try {
           const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [] } });
           const draft = normalizeDraft(reply?.draft);
-          finish(draft ? { draft } : { error: writeUpTrouble({}) });
+          finish(draft ? { draft } : { error: writeUpTrouble({}, { company }) });
         } catch (error) {
-          finish({ error: writeUpTrouble(error) });
+          finish({ error: writeUpTrouble(error, { company }) });
         }
         sheet.close();
       },
@@ -63,7 +64,7 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
       heading: "Write it up for me",
       opener,
       children: [
-        h("p", { text: writeUpDisclosure({ words: wordCount(request.notes), destination: companyName({ provider: setup.status?.providerType, destination: setup.status?.destination }) }) }),
+        h("p", { text: writeUpDisclosure({ words: wordCount(request.notes), destination: company }) }),
         like, status, h("div", { class: "studio-sheet-actions" }, go, later),
       ],
       focus: () => go.querySelector("button")?.focus(),

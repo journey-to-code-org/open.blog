@@ -31,6 +31,7 @@ import { KINDS } from "../parts/doc-kinds.js";
 import { createNewPost, hasRecipes } from "./new-post.js";
 import { createNewJob } from "./new-job.js";
 import { createPeople } from "./people.js";
+import { createHelper } from "./helper.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -79,6 +80,9 @@ export const SCREENS = [
   // R5: who can be named on her posts (the old Contributors). Not in the navigation: reached from
   // Who wrote it on any post, and from Find. ?from=<post>&add=1 returns to that post.
   { name: "people", area: "people", create: (context, route) => createPeople(context, route) },
+  // R8: the writing helper's setup and what it knows. Not in the navigation: the account menu,
+  // Find, and the sheet in Write. ?setup=1 opens Connection.
+  { name: "helper", area: "helper", create: (context, route) => createHelper(context, route) },
   // An old Admin address for something Studio doesn't do yet (router.js legacyRoute).
   { name: "not-yet", create: (context, route) => createNotYet(context, route) },
   { name: "pictures", nav: "Pictures", area: "pictures", create: (context) => createPictures(context) },

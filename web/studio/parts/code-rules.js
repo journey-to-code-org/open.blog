@@ -107,3 +107,28 @@ export function codeInteractionProblems({ kind, language, title, instructions, c
   if (kind === "challenge" && !/^\s*(?:\/\/|#|--|;|\/\*|<!--).*\bTODO\b/im.test(code)) problems.push({ field: "code", code: "todo" });
   return problems;
 }
+
+// ---- Draft it for me (Studio R8)
+
+const plainText = (value, max) => Array.from((typeof value === "string" ? value : "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f​‪-‮⁦-⁩﻿]/g, "")).slice(0, max).join("").trim();
+
+/**
+ * Runnable code a helper drafted, made into what the form holds. Everything is untrusted text:
+ * bounded, with no control characters; the kind and language are the ones she asked for, never the
+ * ones the reply claims. Nothing is run here, and it still goes through `codeInteractionProblems`
+ * on Add it. `null` when nothing usable came back.
+ */
+export function interactionFromGenerated(result, { kind = "example", language = "rust" } = {}) {
+  if (!result || typeof result !== "object") return null;
+  const out = {
+    kind: kind === "challenge" ? "challenge" : "example",
+    language: normalizeCodeRunnerLanguage(language) || "rust",
+    title: plainText(result.title, 120).replace(/["'\n]/g, " ").replace(/\s+/g, " ").trim(),
+    instructions: plainText(result.instructions, 2000),
+    code: plainText(result.code, 20000),
+    expectedOutput: plainText(result.expectedOutput, 2000),
+    hint: plainText(result.hint, 1000),
+    explanation: plainText(result.explanation, 2000),
+  };
+  return out.title && out.code ? out : null;
+}

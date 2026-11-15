@@ -2,6 +2,7 @@
 // docs/specs/studio/r4/ux.md). "This phone" is the phone in her hand (`deviceNoun`); nothing here
 // says upload, sync, offline, queue, storage or capture. DOM-free and tested
 // (tests/web/studio-job-words.test.mjs).
+import { companyName, helperProblem } from "./helper-rules.js";
 import { sayClock, sayWhen } from "./dates.js";
 import { say } from "./words.js";
 
@@ -159,20 +160,8 @@ export function flushWords({ total = 0, done = 0, sent = 0, blocked = "", waitin
 /** "Sent. Roof repair in Elkins is a draft on your blog." */
 export const sentWords = (title) => `Sent. ${title} is a draft on your blog.`;
 
-const COMPANIES = { "open-ai": "OpenAI", openai: "OpenAI", anthropic: "Anthropic", google: "Google", gemini: "Google", mistral: "Mistral" };
-
-/** The company a helper sends to, by name: "OpenAI", never an address or a model. */
-export function companyName({ provider = "", destination = "" } = {}) {
-  if (COMPANIES[String(provider).toLowerCase()]) return COMPANIES[String(provider).toLowerCase()];
-  const text = String(destination || "").trim();
-  try {
-    const host = new URL(text).hostname.replace(/^(api|www)\./, "");
-    const known = Object.entries(COMPANIES).find(([key]) => host.includes(key.replace("-", "")));
-    return known ? known[1] : host;
-  } catch {
-    return text || "another company";
-  }
-}
+// The company a helper sends to, by name (moved to helper-rules.js in R8; kept here for R4's callers).
+export { companyName };
 
 /** Where the voice note goes to be turned into words: the place, never the model. */
 export function transcribeDisclosure(disclosure = {}) {
@@ -181,22 +170,25 @@ export function transcribeDisclosure(disclosure = {}) {
   return `Your voice note goes to ${where} to be turned into words. Only the recording goes: not your photos or your notes. ${where}'s own rules cover what it keeps.`;
 }
 
-/** Turning the voice note into words didn't work, by the server's code. */
-export function transcribeTrouble(error = {}) {
+/**
+ * Turning the voice note into words didn't work. Its own lines for what only it can say; every
+ * other failure in the writing helper's one table of words (R8, `helperProblem`).
+ */
+export function transcribeTrouble(error = {}, { company = "" } = {}) {
   const code = error?.data?.code;
   if (code === "not-configured") return "";
   if (code === "empty-transcript") return "No words were heard in it. Type a few instead.";
-  if (code === "concurrency-limit" || error?.status === 429) return "Your blog is busy with another one. Try again in a minute.";
-  return "That didn't work. Your voice note is still here; try again, or type instead.";
+  return `${helperProblem(error, { company }).words} Your voice note is still here.`;
 }
 
-/** Writing it up didn't work. */
-export function writeUpTrouble(error = {}) {
+/** Writing it up didn't work: its own lines, then the writing helper's (R8). */
+export function writeUpTrouble(error = {}, { company = "" } = {}) {
   const code = error?.data?.code;
   if (code === "notes-too-long") return "That's more words than it can take. Shorten them a little.";
-  if (error?.status === 429 || code === "concurrency-limit") return "Your blog's helper is busy. Try again in a minute.";
   if (code === "no-notes") return "Write a few words about the job first.";
-  return "It didn't send back anything usable. Your words are as they were.";
+  // Nothing usable came back (no error at all): the same words as an answer that made no sense.
+  if (!error?.status && !code) return helperProblem({ status: 502, data: { code: "invalid-result" } }, { company }).words;
+  return helperProblem(error, { company }).words;
 }
 
 /** A job check problem in her words. `service` is the service's name, for an unknown one. */

@@ -18,6 +18,7 @@ import { createJobSender } from "./parts/job-sender.js";
 import { captureTitle } from "./parts/new-job-rules.js";
 import { sentWords } from "./parts/job-words.js";
 import { tradeSite } from "./parts/record-kinds.js";
+import { say } from "./parts/words.js";
 
 const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta))).map((s) => ({ id: s.name, label: s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
@@ -32,6 +33,7 @@ function accountMenu(meta, jobs) {
     ...(jobs?.entries().length ? [{ value: "send-jobs", label: "Send waiting jobs now" }] : []),
     ...(meta.push ? [{ value: "notifications", label: "Notifications" }] : []),
     ...(install ? [{ value: "home-screen", label: install }] : []),
+    { value: "helper", label: say("helper.name") },
     { value: "tools", label: "More tools" },
     { value: "signout", label: "Sign out" },
   ];
@@ -103,6 +105,7 @@ export async function startShell(root, api, meta) {
     if (choice === "site") open(meta.siteUrl || "/", "_blank", "noopener");
     if (choice === "tools") router.go("#/tools");
     if (choice === "notifications") router.go("#/notifications");
+    if (choice === "helper") router.go("#/helper");
     if (choice === "home-screen") router.go("#/notifications?sheet=home-screen");
     if (choice === "new-job") router.go("#/new-job");
     if (choice === "send-jobs") jobs.sendNow();
@@ -130,6 +133,9 @@ export async function startShell(root, api, meta) {
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
     { id: "go-people", label: "People", group: "Go to", href: "#/people" },
+    // R8: on a post, Write lists its own "Writing helper" (the sheet) first; anywhere else, the screen.
+    { id: "go-helper", label: say("helper.name"), group: "Go to", href: "#/helper" },
+    { id: "go-helper-setup", label: say("helper.findSetup"), group: "Do", href: "#/helper?setup=1" },
     { id: "site", label: "View my site", group: "Do" },
     ...(meta.push ? [
       { id: "go-notifications", label: "Notifications", group: "Go to", href: "#/notifications" },

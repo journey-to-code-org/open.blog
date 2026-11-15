@@ -474,8 +474,331 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `form.wordsUnder` | her | Words under it | none | 40 |
 | `form.wordsUnderHelp` | her | Shown under the photo. | none | 44 |
 | `form.yourPosts` | her | Your posts | none | 40 |
+| `found.back` | her | ‹ Read it over again | none | 40 |
+| `found.bringBack` | her | Bring it back | none | 40 |
+| `found.bringBackName` | her | Bring it back: suggestion {n} | `{n}` | 58 |
+| `found.cantUndo` | her | Your words changed here since, so this one can't be put back for you. | none | 138 |
+| `found.cantUse` | her | Your words changed here, so this one can't be used. Show me to change it yourself. | none | 164 |
+| `found.changed` | her | Changed. | none | 40 |
+| `found.changedMany` | her | Changed {count} places. | `{count}` | 46 |
+| `found.count` | her | {count} suggestions. From your writing helper. It can be wrong. | `{count}` | 126 |
+| `found.countOne` | her | 1 suggestion. From your writing helper. It can be wrong. | none | 112 |
+| `found.detail` | details | Skill {skill} {version} · {category} · {severity} · {verification} · letters {start}–{end} | `{skill}` `{version}` `{category}` `{severity}` `{verification}` `{start}` `{end}` | 240 |
+| `found.fromNotes` | her | Based on your notes. | none | 40 |
+| `found.heading` | her | What your helper found | none | 44 |
+| `found.inBox` | her | In {box} | `{box}` | 40 |
+| `found.near` | her | Near “{words}” | `{words}` | 40 |
+| `found.notThis` | her | Not this one | none | 40 |
+| `found.notThisList` | her | Not this one ({count}) | `{count}` | 44 |
+| `found.notThisName` | her | Not this one: suggestion {n} | `{n}` | 56 |
+| `found.putBack` | her | Put back as it was. | none | 40 |
+| `found.showAll` | her | Show all | none | 40 |
+| `found.showMe` | her | Show me | none | 40 |
+| `found.showMeName` | her | Show me: suggestion {n}, {place} | `{n}` `{place}` | 64 |
+| `found.sources` | details | Sources: {list} | `{list}` | 240 |
+| `found.try` | her | Try: “{words}” | `{words}` | 40 |
+| `found.tryNothing` | her | Try: take these words out | none | 50 |
+| `found.undo` | her | Undo | none | 40 |
+| `found.useAll` | her | Use all {count} | `{count}` | 40 |
+| `found.useThis` | her | Use this | none | 40 |
+| `found.useThisName` | her | Use this: change “{from}” to “{to}” | `{from}` `{to}` | 240 |
+| `found.used` | her | Used | none | 40 |
+| `helper.alsoNone` | details | None | none | 40 |
+| `helper.alsoPost` | details | Also send another post | none | 44 |
+| `helper.alsoSend` | details | Also send | none | 40 |
+| `helper.budget` | details | {samples} of {maxSamples} samples, {letters} of {maxLetters} letters | `{samples}` `{maxSamples}` `{letters}` `{maxLetters}` | 160 |
+| `helper.budgetOver` | details | That's too many voice samples for one go. Choose fewer. | none | 110 |
+| `helper.busy` | her | Your writing helper is busy with something else. Try again in a minute. | none | 142 |
+| `helper.busyDetail` | details | Two helper calls are already running on this server (shared by every user). | none | 150 |
+| `helper.cardName` | her | Writing helper: {line} | `{line}` | 44 |
+| `helper.changedUnder` | her | Something your helper uses has changed. Close this and open it again. | none | 138 |
+| `helper.changedUnderDetail` | details | No longer usable: {id}. | `{id}` | 240 |
+| `helper.changedWhile` | her | You changed the post while it was reading, so some suggestions may not fit any more. | none | 168 |
+| `helper.checking` | her | Checking your writing helper… | none | 58 |
+| `helper.close` | her | Close | none | 40 |
+| `helper.companyBusy` | her | {company} is busy right now. Try again in a few minutes. | `{company}` | 112 |
+| `helper.companyBusyDetail` | details | Provider answered HTTP 429; retry after {seconds} s. | `{seconds}` | 104 |
+| `helper.companyBusyPlain` | details | Provider answered HTTP 429. | none | 54 |
+| `helper.companyDown` | her | {company} didn't answer, so nothing came back. Your words are as they were. Try again later. | `{company}` | 184 |
+| `helper.cutShort` | her | The answer was cut off, so nothing changed. Try a smaller part. | none | 126 |
+| `helper.didntWork` | her | That didn't work, and nothing changed. Try again. | none | 98 |
+| `helper.findSelected` | her | Read the words I selected | none | 50 |
+| `helper.findSetup` | her | Set up the writing helper | none | 50 |
+| `helper.finishedToast` | her | Your helper finished reading. | none | 58 |
+| `helper.foundNothing` | her | Your helper found nothing to change. It can miss things. | none | 112 |
+| `helper.goToSetup` | details | Go to setup | none | 40 |
+| `helper.goesDetails` | her | This post's details: {list} | `{list}` | 54 |
+| `helper.goesNever` | her | Not your photos, other posts, or anything about your readers. It doesn't look anything up on the web. {company}'s own rules cover what it keeps. | `{company}` | 240 |
+| `helper.goesNeverPosts` | her | Not your photos or anything about your readers. It doesn't look anything up on the web. {company}'s own rules cover what it keeps. | `{company}` | 240 |
+| `helper.goesNotes` | her | Your notes: {list} | `{list}` | 40 |
+| `helper.goesOther` | her | Also, chosen by {helper}: {list} | `{helper}` `{list}` | 64 |
+| `helper.goesPart` | her | Your title and the part you're in, about {count}, and the rest of the post, so it reads them in place | `{count}` | 202 |
+| `helper.goesSelected` | her | Your title and the words you selected, about {count}, and the rest of the post, so it reads them in place | `{count}` | 210 |
+| `helper.goesTo` | her | What goes to {company} | `{company}` | 44 |
+| `helper.goesVoice` | her | Your voice guide | none | 40 |
+| `helper.goesWords` | her | Your title and your words, about {count} | `{count}` | 80 |
+| `helper.groupJob` | her | job details | none | 40 |
+| `helper.groupOther` | her | what kind of post it is | none | 46 |
+| `helper.groupRecipe` | her | recipe facts | none | 40 |
+| `helper.groupSummary` | her | summary | none | 40 |
+| `helper.groupTags` | her | tags | none | 40 |
+| `helper.groupTrip` | her | trip numbers | none | 40 |
+| `helper.groupVideo` | her | video facts | none | 40 |
+| `helper.groupWhen` | her | when it appears | none | 40 |
+| `helper.keyRejected` | her | {company} didn't accept the key for {product}. Tell {helper}. | `{company}` `{product}` `{helper}` | 122 |
+| `helper.keyRejectedDetail` | details | The key was refused (HTTP 401/403). Replace it on the Writing helper screen. | none | 152 |
+| `helper.lineFinished` | her | Your helper finished reading. {count} suggestions. | `{count}` | 100 |
+| `helper.lineFinishedOne` | her | Your helper finished reading. 1 suggestion. | none | 86 |
+| `helper.lineIdle` | her | Read it over, or get a quiz. | none | 56 |
+| `helper.lineLeft` | her | {count} suggestions left | `{count}` | 48 |
+| `helper.lineLeftOne` | her | 1 suggestion left | none | 40 |
+| `helper.lineNoSignal` | her | Needs a signal. | none | 40 |
+| `helper.lineNoneLeft` | her | Nothing left to look at. | none | 48 |
+| `helper.lineReading` | her | Reading it over… | none | 40 |
+| `helper.lookCopy` | her | Spelling, grammar and clear sentences | none | 74 |
+| `helper.lookFacts` | her | Facts that need a source | none | 48 |
+| `helper.lookFlow` | her | How it flows from start to finish | none | 66 |
+| `helper.lookFor` | her | What to look for | none | 40 |
+| `helper.lookNone` | her | Choose at least one thing to look for. | none | 76 |
+| `helper.lookVoice` | her | Whether it sounds like me | none | 50 |
+| `helper.moreHelp` | her | More help | none | 40 |
+| `helper.name` | her | Writing helper | none | 40 |
+| `helper.noSignal` | her | Your helper needs a signal. Your words are kept here. | none | 106 |
+| `helper.nonsense` | her | Your helper sent back something that didn't make sense, so nothing changed. Try again. | none | 172 |
+| `helper.noteAuthor` | her | About you | none | 40 |
+| `helper.notePost` | her | About this post | none | 40 |
+| `helper.noteSite` | her | About {product} | `{product}` | 40 |
+| `helper.nothingThere` | her | There are no words there yet. Choose the whole post, or write a little first. | none | 154 |
+| `helper.offHeading` | her | Your writing helper isn't turned on | none | 70 |
+| `helper.offText` | her | {helper} can turn it on. | `{helper}` | 48 |
+| `helper.open` | her | Writing helper… | none | 40 |
+| `helper.otherSkills` | details | Other things it can look for | none | 56 |
+| `helper.overBudget` | her | That's too many voice samples for one go. Choose fewer under For {helper}. | `{helper}` | 200 |
+| `helper.overBudgetDetail` | details | {samples} samples, {letters} letters; one request carries at most {maxSamples} and {maxLetters}. | `{samples}` `{letters}` `{maxSamples}` `{maxLetters}` | 200 |
+| `helper.part` | her | The part I'm in | none | 40 |
+| `helper.partAll` | her | All of {box} | `{box}` | 40 |
+| `helper.partFrom` | her | From “{heading}” to the next heading | `{heading}` | 72 |
+| `helper.readOver` | her | Read it over | none | 40 |
+| `helper.reading` | her | Reading it over… This can take a minute. | none | 80 |
+| `helper.ready` | her | Your helper reads what you choose and suggests changes. Nothing changes until you say so. | none | 178 |
+| `helper.reasonBadAddress` | details | The address isn't https. | none | 48 |
+| `helper.reasonNoAddress` | details | No address is set. | none | 40 |
+| `helper.reasonNoKey` | details | No key is set. | none | 40 |
+| `helper.reasonNoModel` | details | No model is chosen. | none | 40 |
+| `helper.reasonOtherKey` | details | The saved key is for another company or address. | none | 96 |
+| `helper.reasonUnknown` | details | The server says it isn't ready. | none | 62 |
+| `helper.refused` | her | {company} wouldn't answer this one. Your words are as they were. | `{company}` | 128 |
+| `helper.selectedCount` | her | The words I selected ({count} words) | `{count}` | 72 |
+| `helper.selectedOne` | her | The words I selected (1 word) | none | 58 |
+| `helper.sendsContext` | details | Context: {list} | `{list}` | 240 |
+| `helper.sendsContextNone` | details | Context: none | none | 40 |
+| `helper.sendsModel` | details | Model: {model}. Destination: {destination}. Research: off. | `{model}` `{destination}` | 240 |
+| `helper.sendsSkills` | details | Skills: {list} | `{list}` | 240 |
+| `helper.setItUp` | her | Set it up | none | 40 |
+| `helper.signIn` | her | Sign in again, then try once more. Your choices are still here. | none | 126 |
+| `helper.skillNoFit` | details | Not for the words you selected | none | 60 |
+| `helper.soundLikeMe` | her | Sound like me | none | 40 |
+| `helper.stillReading` | her | Still reading. Long posts take longer. | none | 76 |
+| `helper.stopWaiting` | her | Stop waiting | none | 40 |
+| `helper.stopped` | her | Stopped waiting. Nothing changed in your post. | none | 92 |
+| `helper.stoppedDetail` | details | The request may still finish on the server and holds one of its two places until it does. | none | 178 |
+| `helper.tooLong` | her | That's more than your helper can read at once. Select a smaller part. | none | 138 |
+| `helper.tooLongDetail` | details | At most {max} {unit} ({field}). | `{max}` `{unit}` `{field}` | 62 |
+| `helper.tooLongReview` | her | That's more than your helper can read at once. Choose the part you're in, or select less. | none | 178 |
+| `helper.tooMuch` | her | That's more than your helper reads at once (about 3,000 words). Select less, or read the whole post. | none | 200 |
+| `helper.tookTooLong` | her | {company} took too long, so nothing came back. Try a smaller part. | `{company}` | 132 |
+| `helper.tookTooLongDetail` | details | Provider timeout. | none | 40 |
+| `helper.turnedOff` | her | Your writing helper was turned off. Tell {helper}. | `{helper}` | 100 |
+| `helper.useNotes` | her | Use what your helper knows about you | none | 72 |
+| `helper.wfwCant` | her | (This one couldn't be shown just now. It still goes.) | none | 106 |
+| `helper.wfwDetails` | her | This post's details: | none | 40 |
+| `helper.wfwLoading` | her | Getting the words… | none | 40 |
+| `helper.wfwNote` | her | {name}: | `{name}` | 40 |
+| `helper.wfwReading` | her | Reading this part: | none | 40 |
+| `helper.wfwTitle` | her | Title: {title} | `{title}` | 40 |
+| `helper.wfwWords` | her | Your words: | none | 40 |
+| `helper.whatToRead` | her | What to read | none | 40 |
+| `helper.whole` | her | The whole post | none | 40 |
+| `helper.wordForWord` | her | Word for word | none | 40 |
+| `helper.writeUp` | her | Write it up for me | none | 40 |
+| `hgen.backAgain` | her | Back as you had it. | none | 40 |
+| `hgen.badLanguage` | details | This site can't run {language}. Choose Rust or Web, or ask {helper}. | `{language}` `{helper}` | 200 |
+| `hgen.codeButton` | details | Draft it for me | none | 40 |
+| `hgen.codeKind` | details | {kind}, in {language} | `{kind}` `{language}` | 42 |
+| `hgen.codeWrite` | details | Draft it | none | 40 |
+| `hgen.codeWriting` | details | Drafting the code… | none | 40 |
+| `hgen.codeWritten` | details | Drafted. Read the code before you add it. It can be wrong, and nothing has run. | none | 158 |
+| `hgen.empty` | her | Write a little first, or select some words. | none | 86 |
+| `hgen.goesAll` | her | All your words, about {count} | `{count}` | 58 |
+| `hgen.goesPart` | her | The part you're in, about {count} words (“{heading}”) | `{count}` `{heading}` | 106 |
+| `hgen.goesSelected` | her | The words you selected, about {count} | `{count}` | 74 |
+| `hgen.howMany` | her | How many questions | none | 40 |
+| `hgen.never` | her | Never mind | none | 40 |
+| `hgen.nothingElse` | her | Nothing else: not your title, notes, photos or readers. It writes questions with answers for you to check. Nothing goes in your post until you press Add it. | none | 240 |
+| `hgen.nothingElseCode` | details | Nothing else: not your title, notes, photos or readers. Nothing runs here, and nothing goes in your post until you press Add it. | none | 240 |
+| `hgen.putBack` | her | Put back what I had | none | 40 |
+| `hgen.quizButton` | her | Write questions for me | none | 44 |
+| `hgen.replaces` | her | This replaces the question you started. | none | 78 |
+| `hgen.replacesCode` | details | This replaces what's in the form. | none | 66 |
+| `hgen.tooMuch` | her | That's more than your helper can read at once (about 8,000 words). Select a part first. | none | 174 |
+| `hgen.write` | her | Write them | none | 40 |
+| `hgen.writing` | her | Writing questions… | none | 40 |
+| `hgen.written` | her | Written. Check each answer before you add it. Your helper can be wrong. | none | 142 |
+| `hnote.about` | her | About you | none | 40 |
+| `hnote.aboutHelp` | her | Things like how you write and who you write for. Saves by itself. | none | 130 |
+| `hnote.backAgain` | her | Your note is back. | none | 40 |
+| `hnote.cantRead` | details | This note's file can't be read, so it isn't used. {why} | `{why}` | 240 |
+| `hnote.conflict` | her | This note was changed somewhere else. Here it is now; make your change again. | none | 154 |
+| `hnote.constraints` | details | Anything else it should keep to | none | 62 |
+| `hnote.goWith` | her | These go with your posts only when you leave “Use what your helper knows about you” on. | none | 174 |
+| `hnote.goal` | her | What you want it to do | none | 44 |
+| `hnote.goalHelp` | her | Like: get someone through it the first time. | none | 88 |
+| `hnote.keptPrivate` | details | Kept private: {path}, out of Git. | `{path}` | 200 |
+| `hnote.keptShared` | details | Shared with the project: {path}, in Git. | `{path}` | 200 |
+| `hnote.knows` | her | What your helper knows about you | none | 64 |
+| `hnote.notPrivate` | her | Your notes may not stay private. Tell {helper}. | `{helper}` | 94 |
+| `hnote.notSaved` | her | That note wasn't saved. Try again. | none | 68 |
+| `hnote.outcomes` | details | Learning outcomes | none | 40 |
+| `hnote.removed` | her | Note removed. | none | 40 |
+| `hnote.saveFirst` | her | Save your post first, then you can tell your helper about it. | none | 122 |
+| `hnote.saved` | her | Saved. | none | 40 |
+| `hnote.saving` | her | Saving… | none | 40 |
+| `hnote.site` | her | About {product} | `{product}` | 40 |
+| `hnote.siteHelp` | her | What it's for and what you put on it. Saves by itself. | none | 108 |
+| `hnote.soundsLike` | her | Your helper can make suggestions sound like you, from your voice guide. | none | 142 |
+| `hnote.sources` | details | Sources | none | 40 |
+| `hnote.tell` | her | Tell your helper about this post | none | 64 |
+| `hnote.tooLong` | her | That's too long for your helper. Shorten it a little. | none | 106 |
+| `hnote.waiting` | her | Waiting for a signal to save this note. It's kept while this page is open. | none | 148 |
+| `hnote.who` | her | Who it's for | none | 40 |
+| `hnote.whoHelp` | her | Like: people new to this, or friends who already know it. | none | 114 |
 | `home.filesVanish` | her | This server doesn't keep its files when it restarts. Ask {helper} to fix that. | `{helper}` | 156 |
 | `home.notUpdated` | her | Your site couldn't be updated. Your work is saved. Let {helper} know; the details are under Your site. | `{helper}` | 204 |
+| `hsetup.accepted` | details | {company} accepted the key. Checked just now. | `{company}` | 90 |
+| `hsetup.add` | details | Add | none | 40 |
+| `hsetup.added` | details | Added. | none | 40 |
+| `hsetup.address` | details | Address | none | 40 |
+| `hsetup.addressHelp` | details | An https address that takes open.blog's helper requests. | none | 112 |
+| `hsetup.backAgain` | details | It's back. | none | 40 |
+| `hsetup.badAddress` | details | The address has to start with https:// and have no name or password in it. | none | 148 |
+| `hsetup.badCompany` | details | Choose a company from the list. | none | 62 |
+| `hsetup.badgeChecking` | her | Checking | none | 40 |
+| `hsetup.badgeOff` | her | Off | none | 40 |
+| `hsetup.badgeReady` | her | Ready | none | 40 |
+| `hsetup.billed` | details | Each request goes to {destination} and is billed to that key. | `{destination}` | 240 |
+| `hsetup.builtIn` | details | Built in | none | 40 |
+| `hsetup.cancelSkill` | details | Never mind | none | 40 |
+| `hsetup.cantLoad` | details | The settings couldn't be read just now. Close this and open it again. | none | 138 |
+| `hsetup.changeSkill` | details | Change | none | 40 |
+| `hsetup.changeSkillName` | details | Change {name} | `{name}` | 160 |
+| `hsetup.checkIt` | details | Check it | none | 40 |
+| `hsetup.checking` | details | Checking the key… | none | 40 |
+| `hsetup.company` | details | Company | none | 40 |
+| `hsetup.conflict` | details | These settings were changed somewhere else. They're shown again now; the key you typed wasn't saved. Paste it again. | none | 240 |
+| `hsetup.conflictPlain` | details | These settings were changed somewhere else. They're shown again now; make your change again. | none | 240 |
+| `hsetup.connection` | details | Connection | none | 40 |
+| `hsetup.engineGuide` | details | Every request carries open.blog's engine guide: what the build supports, as facts, not instructions. | none | 200 |
+| `hsetup.getHeading` | details | Get this page once? | none | 40 |
+| `hsetup.getIt` | details | Get it | none | 40 |
+| `hsetup.getOnce` | details | Get it once | none | 40 |
+| `hsetup.getText` | details | {product} fetches it now and keeps the text; it's never fetched again. | `{product}` | 140 |
+| `hsetup.getting` | details | Getting the page… | none | 40 |
+| `hsetup.got` | details | Got it. Read it before you keep it. | none | 70 |
+| `hsetup.home` | her | Home | none | 40 |
+| `hsetup.insecure` | details | This page isn't sent privately (http), so a key typed here could be read on the way. Set up https first. | none | 240 |
+| `hsetup.insecureServer` | details | The server refused the key because the request didn't reach it over https. It wasn't saved. Put the proxy in admin.trustedProxies, or set the key in the server's environment. | none | 240 |
+| `hsetup.keepIt` | details | Keep it | none | 40 |
+| `hsetup.keepIt2` | details | Keep it | none | 40 |
+| `hsetup.kept` | details | Kept. It's never fetched again. | none | 62 |
+| `hsetup.key` | details | Key | none | 40 |
+| `hsetup.keyChanged` | details | The saved key is for {was}. After you save, paste a key for {company}. | `{was}` `{company}` | 140 |
+| `hsetup.keyNone` | details | No key is set. | none | 40 |
+| `hsetup.keyOther` | details | The saved key is for another company or address, so it isn't used. Paste a key for {company}. | `{company}` | 186 |
+| `hsetup.keyRemoved` | details | Key removed. | none | 40 |
+| `hsetup.keySaved` | details | Key saved. It won't be shown again. | none | 70 |
+| `hsetup.keyServer` | details | A key is set by the server ({name}). It's used instead of any key saved here. | `{name}` | 154 |
+| `hsetup.keyServerAlso` | details | A saved key is also kept. | none | 50 |
+| `hsetup.keySet` | details | A key is set. It's kept on the computer that runs {product} and never shown. | `{product}` | 152 |
+| `hsetup.keyTooLong` | details | That's too long to be a key. | none | 56 |
+| `hsetup.leave` | details | Leave | none | 40 |
+| `hsetup.leaveHeading` | details | Leave without saving the key? | none | 58 |
+| `hsetup.leaveText` | details | It isn't kept anywhere. | none | 46 |
+| `hsetup.lede` | her | {product} can read your posts over and suggest changes, using {company}'s AI. It only sends what you choose, and says what before it does. | `{product}` `{company}` | 240 |
+| `hsetup.ledeOff` | her | {product} can read your posts over and suggest changes, using AI from a company {helper} chooses. It only sends what you choose, and says what before it does. | `{product}` `{helper}` | 240 |
+| `hsetup.model` | details | Model | none | 40 |
+| `hsetup.modelHelp` | details | The model's name as {company} writes it. | `{company}` | 80 |
+| `hsetup.move` | details | Move | none | 40 |
+| `hsetup.moveName` | details | Move {name} | `{name}` | 40 |
+| `hsetup.moveTaken` | details | There's already a note in the other place. Remove one of them first. | none | 136 |
+| `hsetup.moved` | details | Moved. | none | 40 |
+| `hsetup.nameBad` | details | The name needs to end in .md or .txt, with letters, numbers and dashes before it. | none | 162 |
+| `hsetup.nameTaken` | details | Something with that name is already kept. Choose another name. | none | 124 |
+| `hsetup.newKey` | details | New key | none | 40 |
+| `hsetup.newKeyHelp` | details | Paste a new key to replace it. Leave it empty to keep the one that's set. Replacing a key can't be undone here. | none | 222 |
+| `hsetup.newKeyHelpNone` | details | Paste the key. It's sent once and never shown again. | none | 104 |
+| `hsetup.newSkill` | details | New skill | none | 40 |
+| `hsetup.noSignal` | her | Your helper needs a signal. | none | 54 |
+| `hsetup.notDone` | details | That didn't work. {why} | `{why}` | 240 |
+| `hsetup.notNow` | details | Not now | none | 40 |
+| `hsetup.notSaved` | details | That wasn't saved. {why} | `{why}` | 240 |
+| `hsetup.notSavedPlain` | details | That wasn't saved, and the key you typed wasn't kept. Try again. | none | 128 |
+| `hsetup.off` | her | Your writing helper isn't turned on. {helper} can turn it on here. | `{helper}` | 132 |
+| `hsetup.on` | her | Your helper is on. | none | 40 |
+| `hsetup.page` | details | A web page | none | 40 |
+| `hsetup.pageAddress` | details | The page's address | none | 40 |
+| `hsetup.pageBad` | details | Type the page's whole address, starting with https://. | none | 108 |
+| `hsetup.pageFacts` | details | From {source}. Final address {final}. Fetched {when}. Type {type}. | `{source}` `{final}` `{when}` `{type}` | 240 |
+| `hsetup.pageHelp` | details | Text from web pages is someone else's words. Your helper is told to treat it as data, but read it before you keep it. | none | 240 |
+| `hsetup.pageName` | details | Name to keep it under | none | 42 |
+| `hsetup.pageText` | details | What the page says (someone else's words) | none | 82 |
+| `hsetup.private` | details | Private (out of Git) | none | 40 |
+| `hsetup.raw` | details | Status, raw | none | 40 |
+| `hsetup.readLine` | details | {where} · {letters} letters | `{where}` `{letters}` | 240 |
+| `hsetup.reads` | details | Things it can read | none | 40 |
+| `hsetup.remove` | details | Remove | none | 40 |
+| `hsetup.removeHeading` | details | Remove the saved key? | none | 42 |
+| `hsetup.removeIt` | details | Remove it | none | 40 |
+| `hsetup.removeKey` | details | Remove the saved key | none | 40 |
+| `hsetup.removeName` | details | Remove {name} | `{name}` | 160 |
+| `hsetup.removeText` | details | Your helper stops working until another key is set. The key can't be shown or brought back here. | none | 192 |
+| `hsetup.removeTextServer` | details | The server's key keeps working. The saved key can't be shown or brought back here. | none | 164 |
+| `hsetup.removed` | details | Removed. | none | 40 |
+| `hsetup.replacedByYours` | details | Replaced by yours | none | 40 |
+| `hsetup.replacesBuiltIn` | details | Replaces the built-in one | none | 50 |
+| `hsetup.save` | details | Save | none | 40 |
+| `hsetup.saveAnyway` | details | Save it anyway | none | 40 |
+| `hsetup.saveSkill` | details | Save skill | none | 40 |
+| `hsetup.saved` | details | Saved. | none | 40 |
+| `hsetup.saving` | details | Saving… | none | 40 |
+| `hsetup.scopePart` | details | a part | none | 40 |
+| `hsetup.scopeSelected` | details | selected words | none | 40 |
+| `hsetup.scopeWhole` | details | the whole post | none | 40 |
+| `hsetup.shape` | details | That doesn't look like a key from {company} (they start with {prefix}). Check you pasted the key, not a password. | `{company}` `{prefix}` | 240 |
+| `hsetup.shared` | details | Shared with the project (in Git) | none | 64 |
+| `hsetup.signedOut` | details | You were signed out, so that wasn't saved. Sign in, then save again. | none | 136 |
+| `hsetup.signedOutKey` | details | You were signed out, so that wasn't saved, and the key you typed wasn't kept. Sign in, then paste it again. | none | 214 |
+| `hsetup.skillBack` | details | The skill is back as it was. | none | 56 |
+| `hsetup.skillConflict` | details | This skill was changed somewhere else. Open it again to see it as it is now. | none | 152 |
+| `hsetup.skillEmpty` | details | Write the skill first. | none | 44 |
+| `hsetup.skillInvalid` | details | {source} · needs fixing | `{source}` | 46 |
+| `hsetup.skillLine` | details | {source} · version {version} · reads {scopes} | `{source}` `{version}` `{scopes}` | 200 |
+| `hsetup.skillNotSaved` | details | The skill wasn't saved. {why} | `{why}` | 240 |
+| `hsetup.skillSaved` | details | Skill saved. | none | 40 |
+| `hsetup.skillSource` | details | The skill, as written | none | 42 |
+| `hsetup.skills` | details | What it can look for | none | 40 |
+| `hsetup.skillsHelp` | details | Skills are instructions only: they can't run anything, reach the network or read files. Posts and notes are always handed over as data, never as instructions. | none | 240 |
+| `hsetup.stay` | details | Stay | none | 40 |
+| `hsetup.text` | details | Text | none | 40 |
+| `hsetup.textEmpty` | details | Paste the text first. | none | 42 |
+| `hsetup.textName` | details | Name (ends in .md or .txt) | none | 52 |
+| `hsetup.textTooLong` | details | That's more than it can read (64 KiB). Shorten it. | none | 100 |
+| `hsetup.texts` | details | Text you add | none | 40 |
+| `hsetup.title` | her | Writing helper | none | 40 |
+| `hsetup.tooLongSetting` | details | The address or the model's name is too long. | none | 88 |
+| `hsetup.tooSoon` | details | It was checked a moment ago. Wait ten seconds, then check again. | none | 128 |
+| `hsetup.twoAtOnce` | details | Two helper calls can run at once on this server, shared by everyone signed in. | none | 156 |
+| `hsetup.where` | details | Where it's kept | none | 40 |
+| `hsetup.yours` | details | Yours | none | 40 |
 | `install.signInFirst` | her | You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask {helper} first. | `{helper}` | 228 |
 | `item.abstract` | her | Abstract | none | 40 |
 | `item.abstractAbout` | her | The short summary research posts start with. | none | 88 |
@@ -764,6 +1087,25 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `social.orgsTruncated` | her | LinkedIn sent only some of your company pages. If yours isn't here, tell {helper}. | `{helper}` | 164 |
 | `social.pagesTruncated` | her | Facebook sent only some of your Pages. If yours isn't here, tell {helper}. | `{helper}` | 148 |
 | `social.signInAgain` | her | {service} will ask you to sign in. Use the {service} account you used the first time. If {service} shows someone else's name, tell {helper}. | `{service}` `{helper}` | 240 |
+| `suggest.added` | her | Added. | none | 40 |
+| `suggest.announce` | her | Suggestion: “{words}”. Press Tab to use it, Escape to skip. | `{words}` | 240 |
+| `suggest.billed` | details | Each pause is one billed request. | none | 66 |
+| `suggest.findOff` | her | Suggestions as you type: turn off | none | 66 |
+| `suggest.findOn` | her | Suggestions as you type: turn on | none | 64 |
+| `suggest.label` | her | Suggestion | none | 40 |
+| `suggest.noThanks` | her | No thanks | none | 40 |
+| `suggest.offToast` | her | Suggestions as you type are off. | none | 64 |
+| `suggest.on` | her | Suggestions as you type: on | none | 54 |
+| `suggest.onToast` | her | Suggestions as you type are on for this post. | none | 90 |
+| `suggest.stopped` | her | Suggestions as you type stopped: {why} | `{why}` | 240 |
+| `suggest.toggle` | her | Suggest the next words as I type | none | 64 |
+| `suggest.tooLong` | her | Your post is too long for suggestions as you type. | none | 100 |
+| `suggest.turnOff` | her | Turn off | none | 40 |
+| `suggest.useIt` | her | Use it | none | 40 |
+| `suggest.useItName` | her | Use it: suggested words | none | 46 |
+| `suggest.waiting` | her | Suggestions as you type: waiting for a signal | none | 90 |
+| `suggest.what` | her | While this is on, each time you stop typing your post goes to {company}, which suggests the next few words. Nothing goes in unless you choose it. | `{company}` | 240 |
+| `suggest.whatNotes` | her | Your notes go with it: {list}. | `{list}` | 60 |
 | `thing.abstract` | her | Abstract | none | 40 |
 | `thing.button` | her | Button | none | 40 |
 | `thing.caution` | her | Caution | none | 40 |

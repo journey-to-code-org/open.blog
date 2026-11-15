@@ -501,6 +501,7 @@ const FORMS = {
   quiz(ctx) {
     const parsed = ctx.block ? parseQuiz(ctx.block.source) : null;
     const list = h("div", { class: "studio-form-fields" });
+    const list_ = list;
     const questions = [];
     const live = h("p", { class: "studio-help", "aria-live": "polite" });
     function question(initial) {
@@ -545,6 +546,15 @@ const FORMS = {
       focus: () => focusField(questions[0].q),
       values,
       restore() {},
+      /** R8: put a whole set of questions in (ones a helper wrote, or what she had before them). */
+      fill(list) {
+        const next = (Array.isArray(list) && list.length ? list : [null]).slice(0, 3);
+        questions.length = 0;
+        list_.replaceChildren();
+        for (const one of next) question(one && { question: one.question || "", answers: one.answers?.length ? one.answers : ["", ""], right: Number.isInteger(one.right) ? one.right : -1, explanation: one.explanation || "" });
+        if (another) another.hidden = questions.length >= 3;
+        ctx.onChange?.();
+      },
       async read() {
         const v = values();
         const kept = same(ctx, v, start);
@@ -614,6 +624,19 @@ const FORMS = {
       focus: () => focusField(title),
       values,
       restore(v) { title.value = v.title || ""; instructions.value = v.instructions || ""; code.value = v.code || ""; },
+      /** R8: put a whole draft in (one a helper wrote, or what she had before it). */
+      fill(v) {
+        kind.value = v.kind === "challenge" ? "challenge" : "example";
+        if (runnableLanguages(ctx.meta).includes(v.language)) language.value = v.language;
+        title.value = v.title || "";
+        instructions.value = v.instructions || "";
+        code.value = v.code || "";
+        expected.value = v.expectedOutput || "";
+        hint.value = v.hint || "";
+        explanation.value = v.explanation || "";
+        sync();
+        ctx.onChange?.();
+      },
       async read() {
         const v = values();
         const problems = codeInteractionProblems(v).map((p) => ({ ...p, code: `run-${p.code}` }));

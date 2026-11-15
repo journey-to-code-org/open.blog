@@ -75,7 +75,7 @@ test("turning the voice note into words names where it goes, never the model", (
   assert.doesNotMatch(provider, /whisper/);
   assert.equal(words.transcribeTrouble({ status: 404, data: { code: "not-configured" } }), "");
   assert.match(words.transcribeTrouble({ data: { code: "empty-transcript" } }), /No words were heard/);
-  assert.match(words.transcribeTrouble({ status: 429 }), /busy with another one/);
+  assert.match(words.transcribeTrouble({ status: 429 }), /busy with something else/); // R8: one table of failure words
   assert.match(words.transcribeTrouble({ status: 500 }), /still here/);
   assert.match(words.writeUpTrouble({ data: { code: "notes-too-long" } }), /Shorten them/);
   assert.match(words.writeUpTrouble({ status: 429 }), /helper is busy/);

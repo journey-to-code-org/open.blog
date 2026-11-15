@@ -32,9 +32,9 @@ const OLD_FOLDERS = { posts: "write", pages: "page", series: "collection", servi
 /**
  * The old editor's panes and the Write sheet each opens: Settings is About this post (R5); Social,
  * Optimize and Accessibility are Before you publish, Release kit is Words for YouTube, Field review
- * is Your route (R7). Evidence waits for R12 and opens the post.
+ * is Your route (R7), Assistant is the Writing helper (R8). Evidence waits for R12 and opens the post.
  */
-export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route" });
+export const PANE_SHEETS = Object.freeze({ settings: "about", social: "ready", optimize: "ready", accessibility: "ready", release: "youtube", field: "route", assistant: "helper" });
 const NOT_YET = new Set(["comparisons", "design", "paths", "research", "shared", "voice"]);
 
 /**

@@ -3,7 +3,7 @@
 // keeps the first copy) and asks for the words. The words come back untrusted: the caller adds them
 // with appendTranscript, which makes them plain.
 import { h } from "./dom.js";
-import { transcribeDisclosure, transcribeTrouble } from "./job-words.js";
+import { companyName, transcribeDisclosure, transcribeTrouble } from "./job-words.js";
 
 /** Whether turning a note into words is set up: `{ available, disclosure }`. Anything odd is "not here". */
 export async function transcribeSetup(api) {
@@ -40,7 +40,9 @@ export function askToTranscribe({ api, sheet, captureId, blob = null, disclosure
           sheet.close();
         } catch (error) {
           go.loading = false;
-          const words = transcribeTrouble(error);
+          // The company is named only when the recording really went to one.
+          const local = disclosure?.engine === "local" || disclosure?.leavesServer === false;
+          const words = transcribeTrouble(error, { company: local ? "" : companyName(disclosure || {}) });
           finish({ error: words, hide: !words });
           sheet.close();
         }

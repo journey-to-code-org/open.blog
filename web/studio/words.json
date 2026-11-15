@@ -2265,6 +2265,1331 @@
       "max": 40,
       "vars": []
     },
+    "found.back": {
+      "text": "‹ Read it over again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.bringBack": {
+      "text": "Bring it back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.bringBackName": {
+      "text": "Bring it back: suggestion {n}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "n"
+      ]
+    },
+    "found.cantUndo": {
+      "text": "Your words changed here since, so this one can't be put back for you.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "found.cantUse": {
+      "text": "Your words changed here, so this one can't be used. Show me to change it yourself.",
+      "layer": "her",
+      "max": 164,
+      "vars": []
+    },
+    "found.changed": {
+      "text": "Changed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.changedMany": {
+      "text": "Changed {count} places.",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "count"
+      ]
+    },
+    "found.count": {
+      "text": "{count} suggestions. From your writing helper. It can be wrong.",
+      "layer": "her",
+      "max": 126,
+      "vars": [
+        "count"
+      ]
+    },
+    "found.countOne": {
+      "text": "1 suggestion. From your writing helper. It can be wrong.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "found.detail": {
+      "text": "Skill {skill} {version} · {category} · {severity} · {verification} · letters {start}–{end}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "skill",
+        "version",
+        "category",
+        "severity",
+        "verification",
+        "start",
+        "end"
+      ]
+    },
+    "found.fromNotes": {
+      "text": "Based on your notes.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.heading": {
+      "text": "What your helper found",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "found.inBox": {
+      "text": "In {box}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "box"
+      ]
+    },
+    "found.near": {
+      "text": "Near “{words}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "words"
+      ]
+    },
+    "found.notThis": {
+      "text": "Not this one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.notThisList": {
+      "text": "Not this one ({count})",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "count"
+      ]
+    },
+    "found.notThisName": {
+      "text": "Not this one: suggestion {n}",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "n"
+      ]
+    },
+    "found.putBack": {
+      "text": "Put back as it was.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.showAll": {
+      "text": "Show all",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.showMe": {
+      "text": "Show me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.showMeName": {
+      "text": "Show me: suggestion {n}, {place}",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "n",
+        "place"
+      ]
+    },
+    "found.sources": {
+      "text": "Sources: {list}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "list"
+      ]
+    },
+    "found.try": {
+      "text": "Try: “{words}”",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "words"
+      ]
+    },
+    "found.tryNothing": {
+      "text": "Try: take these words out",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "found.undo": {
+      "text": "Undo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.useAll": {
+      "text": "Use all {count}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "count"
+      ]
+    },
+    "found.useThis": {
+      "text": "Use this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "found.useThisName": {
+      "text": "Use this: change “{from}” to “{to}”",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "from",
+        "to"
+      ]
+    },
+    "found.used": {
+      "text": "Used",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.alsoNone": {
+      "text": "None",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.alsoPost": {
+      "text": "Also send another post",
+      "layer": "details",
+      "max": 44,
+      "vars": []
+    },
+    "helper.alsoSend": {
+      "text": "Also send",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.budget": {
+      "text": "{samples} of {maxSamples} samples, {letters} of {maxLetters} letters",
+      "layer": "details",
+      "max": 160,
+      "vars": [
+        "samples",
+        "maxSamples",
+        "letters",
+        "maxLetters"
+      ]
+    },
+    "helper.budgetOver": {
+      "text": "That's too many voice samples for one go. Choose fewer.",
+      "layer": "details",
+      "max": 110,
+      "vars": []
+    },
+    "helper.busy": {
+      "text": "Your writing helper is busy with something else. Try again in a minute.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "helper.busyDetail": {
+      "text": "Two helper calls are already running on this server (shared by every user).",
+      "layer": "details",
+      "max": 150,
+      "vars": []
+    },
+    "helper.cardName": {
+      "text": "Writing helper: {line}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "line"
+      ]
+    },
+    "helper.changedUnder": {
+      "text": "Something your helper uses has changed. Close this and open it again.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "helper.changedUnderDetail": {
+      "text": "No longer usable: {id}.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "id"
+      ]
+    },
+    "helper.changedWhile": {
+      "text": "You changed the post while it was reading, so some suggestions may not fit any more.",
+      "layer": "her",
+      "max": 168,
+      "vars": []
+    },
+    "helper.checking": {
+      "text": "Checking your writing helper…",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "helper.close": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.companyBusy": {
+      "text": "{company} is busy right now. Try again in a few minutes.",
+      "layer": "her",
+      "max": 112,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.companyBusyDetail": {
+      "text": "Provider answered HTTP 429; retry after {seconds} s.",
+      "layer": "details",
+      "max": 104,
+      "vars": [
+        "seconds"
+      ]
+    },
+    "helper.companyBusyPlain": {
+      "text": "Provider answered HTTP 429.",
+      "layer": "details",
+      "max": 54,
+      "vars": []
+    },
+    "helper.companyDown": {
+      "text": "{company} didn't answer, so nothing came back. Your words are as they were. Try again later.",
+      "layer": "her",
+      "max": 184,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.cutShort": {
+      "text": "The answer was cut off, so nothing changed. Try a smaller part.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "helper.didntWork": {
+      "text": "That didn't work, and nothing changed. Try again.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "helper.findSelected": {
+      "text": "Read the words I selected",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "helper.findSetup": {
+      "text": "Set up the writing helper",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "helper.finishedToast": {
+      "text": "Your helper finished reading.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "helper.foundNothing": {
+      "text": "Your helper found nothing to change. It can miss things.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "helper.goToSetup": {
+      "text": "Go to setup",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.goesDetails": {
+      "text": "This post's details: {list}",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "list"
+      ]
+    },
+    "helper.goesNever": {
+      "text": "Not your photos, other posts, or anything about your readers. It doesn't look anything up on the web. {company}'s own rules cover what it keeps.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.goesNeverPosts": {
+      "text": "Not your photos or anything about your readers. It doesn't look anything up on the web. {company}'s own rules cover what it keeps.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.goesNotes": {
+      "text": "Your notes: {list}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "list"
+      ]
+    },
+    "helper.goesOther": {
+      "text": "Also, chosen by {helper}: {list}",
+      "layer": "her",
+      "max": 64,
+      "vars": [
+        "helper",
+        "list"
+      ]
+    },
+    "helper.goesPart": {
+      "text": "Your title and the part you're in, about {count}, and the rest of the post, so it reads them in place",
+      "layer": "her",
+      "max": 202,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.goesSelected": {
+      "text": "Your title and the words you selected, about {count}, and the rest of the post, so it reads them in place",
+      "layer": "her",
+      "max": 210,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.goesTo": {
+      "text": "What goes to {company}",
+      "layer": "her",
+      "max": 44,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.goesVoice": {
+      "text": "Your voice guide",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.goesWords": {
+      "text": "Your title and your words, about {count}",
+      "layer": "her",
+      "max": 80,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.groupJob": {
+      "text": "job details",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupOther": {
+      "text": "what kind of post it is",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "helper.groupRecipe": {
+      "text": "recipe facts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupSummary": {
+      "text": "summary",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupTags": {
+      "text": "tags",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupTrip": {
+      "text": "trip numbers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupVideo": {
+      "text": "video facts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.groupWhen": {
+      "text": "when it appears",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.keyRejected": {
+      "text": "{company} didn't accept the key for {product}. Tell {helper}.",
+      "layer": "her",
+      "max": 122,
+      "vars": [
+        "company",
+        "product",
+        "helper"
+      ]
+    },
+    "helper.keyRejectedDetail": {
+      "text": "The key was refused (HTTP 401/403). Replace it on the Writing helper screen.",
+      "layer": "details",
+      "max": 152,
+      "vars": []
+    },
+    "helper.lineFinished": {
+      "text": "Your helper finished reading. {count} suggestions.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.lineFinishedOne": {
+      "text": "Your helper finished reading. 1 suggestion.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "helper.lineIdle": {
+      "text": "Read it over, or get a quiz.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "helper.lineLeft": {
+      "text": "{count} suggestions left",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.lineLeftOne": {
+      "text": "1 suggestion left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.lineNoSignal": {
+      "text": "Needs a signal.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.lineNoneLeft": {
+      "text": "Nothing left to look at.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "helper.lineReading": {
+      "text": "Reading it over…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.lookCopy": {
+      "text": "Spelling, grammar and clear sentences",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "helper.lookFacts": {
+      "text": "Facts that need a source",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "helper.lookFlow": {
+      "text": "How it flows from start to finish",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "helper.lookFor": {
+      "text": "What to look for",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.lookNone": {
+      "text": "Choose at least one thing to look for.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "helper.lookVoice": {
+      "text": "Whether it sounds like me",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "helper.moreHelp": {
+      "text": "More help",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.name": {
+      "text": "Writing helper",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.noSignal": {
+      "text": "Your helper needs a signal. Your words are kept here.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "helper.nonsense": {
+      "text": "Your helper sent back something that didn't make sense, so nothing changed. Try again.",
+      "layer": "her",
+      "max": 172,
+      "vars": []
+    },
+    "helper.noteAuthor": {
+      "text": "About you",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.notePost": {
+      "text": "About this post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.noteSite": {
+      "text": "About {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "helper.nothingThere": {
+      "text": "There are no words there yet. Choose the whole post, or write a little first.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "helper.offHeading": {
+      "text": "Your writing helper isn't turned on",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "helper.offText": {
+      "text": "{helper} can turn it on.",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "helper"
+      ]
+    },
+    "helper.open": {
+      "text": "Writing helper…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.otherSkills": {
+      "text": "Other things it can look for",
+      "layer": "details",
+      "max": 56,
+      "vars": []
+    },
+    "helper.overBudget": {
+      "text": "That's too many voice samples for one go. Choose fewer under For {helper}.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "helper"
+      ]
+    },
+    "helper.overBudgetDetail": {
+      "text": "{samples} samples, {letters} letters; one request carries at most {maxSamples} and {maxLetters}.",
+      "layer": "details",
+      "max": 200,
+      "vars": [
+        "samples",
+        "letters",
+        "maxSamples",
+        "maxLetters"
+      ]
+    },
+    "helper.part": {
+      "text": "The part I'm in",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.partAll": {
+      "text": "All of {box}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "box"
+      ]
+    },
+    "helper.partFrom": {
+      "text": "From “{heading}” to the next heading",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "heading"
+      ]
+    },
+    "helper.readOver": {
+      "text": "Read it over",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.reading": {
+      "text": "Reading it over… This can take a minute.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "helper.ready": {
+      "text": "Your helper reads what you choose and suggests changes. Nothing changes until you say so.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "helper.reasonBadAddress": {
+      "text": "The address isn't https.",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "helper.reasonNoAddress": {
+      "text": "No address is set.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.reasonNoKey": {
+      "text": "No key is set.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.reasonNoModel": {
+      "text": "No model is chosen.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.reasonOtherKey": {
+      "text": "The saved key is for another company or address.",
+      "layer": "details",
+      "max": 96,
+      "vars": []
+    },
+    "helper.reasonUnknown": {
+      "text": "The server says it isn't ready.",
+      "layer": "details",
+      "max": 62,
+      "vars": []
+    },
+    "helper.refused": {
+      "text": "{company} wouldn't answer this one. Your words are as they were.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.selectedCount": {
+      "text": "The words I selected ({count} words)",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "count"
+      ]
+    },
+    "helper.selectedOne": {
+      "text": "The words I selected (1 word)",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "helper.sendsContext": {
+      "text": "Context: {list}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "list"
+      ]
+    },
+    "helper.sendsContextNone": {
+      "text": "Context: none",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.sendsModel": {
+      "text": "Model: {model}. Destination: {destination}. Research: off.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "model",
+        "destination"
+      ]
+    },
+    "helper.sendsSkills": {
+      "text": "Skills: {list}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "list"
+      ]
+    },
+    "helper.setItUp": {
+      "text": "Set it up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.signIn": {
+      "text": "Sign in again, then try once more. Your choices are still here.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "helper.skillNoFit": {
+      "text": "Not for the words you selected",
+      "layer": "details",
+      "max": 60,
+      "vars": []
+    },
+    "helper.soundLikeMe": {
+      "text": "Sound like me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.stillReading": {
+      "text": "Still reading. Long posts take longer.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "helper.stopWaiting": {
+      "text": "Stop waiting",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.stopped": {
+      "text": "Stopped waiting. Nothing changed in your post.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "helper.stoppedDetail": {
+      "text": "The request may still finish on the server and holds one of its two places until it does.",
+      "layer": "details",
+      "max": 178,
+      "vars": []
+    },
+    "helper.tooLong": {
+      "text": "That's more than your helper can read at once. Select a smaller part.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "helper.tooLongDetail": {
+      "text": "At most {max} {unit} ({field}).",
+      "layer": "details",
+      "max": 62,
+      "vars": [
+        "max",
+        "unit",
+        "field"
+      ]
+    },
+    "helper.tooLongReview": {
+      "text": "That's more than your helper can read at once. Choose the part you're in, or select less.",
+      "layer": "her",
+      "max": 178,
+      "vars": []
+    },
+    "helper.tooMuch": {
+      "text": "That's more than your helper reads at once (about 3,000 words). Select less, or read the whole post.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "helper.tookTooLong": {
+      "text": "{company} took too long, so nothing came back. Try a smaller part.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "company"
+      ]
+    },
+    "helper.tookTooLongDetail": {
+      "text": "Provider timeout.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "helper.turnedOff": {
+      "text": "Your writing helper was turned off. Tell {helper}.",
+      "layer": "her",
+      "max": 100,
+      "vars": [
+        "helper"
+      ]
+    },
+    "helper.useNotes": {
+      "text": "Use what your helper knows about you",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "helper.wfwCant": {
+      "text": "(This one couldn't be shown just now. It still goes.)",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "helper.wfwDetails": {
+      "text": "This post's details:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.wfwLoading": {
+      "text": "Getting the words…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.wfwNote": {
+      "text": "{name}:",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "helper.wfwReading": {
+      "text": "Reading this part:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.wfwTitle": {
+      "text": "Title: {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "helper.wfwWords": {
+      "text": "Your words:",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.whatToRead": {
+      "text": "What to read",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.whole": {
+      "text": "The whole post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.wordForWord": {
+      "text": "Word for word",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "helper.writeUp": {
+      "text": "Write it up for me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.backAgain": {
+      "text": "Back as you had it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.badLanguage": {
+      "text": "This site can't run {language}. Choose Rust or Web, or ask {helper}.",
+      "layer": "details",
+      "max": 200,
+      "vars": [
+        "language",
+        "helper"
+      ]
+    },
+    "hgen.codeButton": {
+      "text": "Draft it for me",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.codeKind": {
+      "text": "{kind}, in {language}",
+      "layer": "details",
+      "max": 42,
+      "vars": [
+        "kind",
+        "language"
+      ]
+    },
+    "hgen.codeWrite": {
+      "text": "Draft it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.codeWriting": {
+      "text": "Drafting the code…",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.codeWritten": {
+      "text": "Drafted. Read the code before you add it. It can be wrong, and nothing has run.",
+      "layer": "details",
+      "max": 158,
+      "vars": []
+    },
+    "hgen.empty": {
+      "text": "Write a little first, or select some words.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "hgen.goesAll": {
+      "text": "All your words, about {count}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "count"
+      ]
+    },
+    "hgen.goesPart": {
+      "text": "The part you're in, about {count} words (“{heading}”)",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "count",
+        "heading"
+      ]
+    },
+    "hgen.goesSelected": {
+      "text": "The words you selected, about {count}",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "count"
+      ]
+    },
+    "hgen.howMany": {
+      "text": "How many questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.never": {
+      "text": "Never mind",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.nothingElse": {
+      "text": "Nothing else: not your title, notes, photos or readers. It writes questions with answers for you to check. Nothing goes in your post until you press Add it.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "hgen.nothingElseCode": {
+      "text": "Nothing else: not your title, notes, photos or readers. Nothing runs here, and nothing goes in your post until you press Add it.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hgen.putBack": {
+      "text": "Put back what I had",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.quizButton": {
+      "text": "Write questions for me",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "hgen.replaces": {
+      "text": "This replaces the question you started.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "hgen.replacesCode": {
+      "text": "This replaces what's in the form.",
+      "layer": "details",
+      "max": 66,
+      "vars": []
+    },
+    "hgen.tooMuch": {
+      "text": "That's more than your helper can read at once (about 8,000 words). Select a part first.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "hgen.write": {
+      "text": "Write them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.writing": {
+      "text": "Writing questions…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hgen.written": {
+      "text": "Written. Check each answer before you add it. Your helper can be wrong.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "hnote.about": {
+      "text": "About you",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.aboutHelp": {
+      "text": "Things like how you write and who you write for. Saves by itself.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "hnote.backAgain": {
+      "text": "Your note is back.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.cantRead": {
+      "text": "This note's file can't be read, so it isn't used. {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "hnote.conflict": {
+      "text": "This note was changed somewhere else. Here it is now; make your change again.",
+      "layer": "her",
+      "max": 154,
+      "vars": []
+    },
+    "hnote.constraints": {
+      "text": "Anything else it should keep to",
+      "layer": "details",
+      "max": 62,
+      "vars": []
+    },
+    "hnote.goWith": {
+      "text": "These go with your posts only when you leave “Use what your helper knows about you” on.",
+      "layer": "her",
+      "max": 174,
+      "vars": []
+    },
+    "hnote.goal": {
+      "text": "What you want it to do",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "hnote.goalHelp": {
+      "text": "Like: get someone through it the first time.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "hnote.keptPrivate": {
+      "text": "Kept private: {path}, out of Git.",
+      "layer": "details",
+      "max": 200,
+      "vars": [
+        "path"
+      ]
+    },
+    "hnote.keptShared": {
+      "text": "Shared with the project: {path}, in Git.",
+      "layer": "details",
+      "max": 200,
+      "vars": [
+        "path"
+      ]
+    },
+    "hnote.knows": {
+      "text": "What your helper knows about you",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "hnote.notPrivate": {
+      "text": "Your notes may not stay private. Tell {helper}.",
+      "layer": "her",
+      "max": 94,
+      "vars": [
+        "helper"
+      ]
+    },
+    "hnote.notSaved": {
+      "text": "That note wasn't saved. Try again.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "hnote.outcomes": {
+      "text": "Learning outcomes",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.removed": {
+      "text": "Note removed.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.saveFirst": {
+      "text": "Save your post first, then you can tell your helper about it.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "hnote.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.saving": {
+      "text": "Saving…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.site": {
+      "text": "About {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "hnote.siteHelp": {
+      "text": "What it's for and what you put on it. Saves by itself.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "hnote.soundsLike": {
+      "text": "Your helper can make suggestions sound like you, from your voice guide.",
+      "layer": "her",
+      "max": 142,
+      "vars": []
+    },
+    "hnote.sources": {
+      "text": "Sources",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.tell": {
+      "text": "Tell your helper about this post",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "hnote.tooLong": {
+      "text": "That's too long for your helper. Shorten it a little.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "hnote.waiting": {
+      "text": "Waiting for a signal to save this note. It's kept while this page is open.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "hnote.who": {
+      "text": "Who it's for",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hnote.whoHelp": {
+      "text": "Like: people new to this, or friends who already know it.",
+      "layer": "her",
+      "max": 114,
+      "vars": []
+    },
     "home.filesVanish": {
       "text": "This server doesn't keep its files when it restarts. Ask {helper} to fix that.",
       "layer": "her",
@@ -2280,6 +3605,810 @@
       "vars": [
         "helper"
       ]
+    },
+    "hsetup.accepted": {
+      "text": "{company} accepted the key. Checked just now.",
+      "layer": "details",
+      "max": 90,
+      "vars": [
+        "company"
+      ]
+    },
+    "hsetup.add": {
+      "text": "Add",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.added": {
+      "text": "Added.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.address": {
+      "text": "Address",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.addressHelp": {
+      "text": "An https address that takes open.blog's helper requests.",
+      "layer": "details",
+      "max": 112,
+      "vars": []
+    },
+    "hsetup.backAgain": {
+      "text": "It's back.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.badAddress": {
+      "text": "The address has to start with https:// and have no name or password in it.",
+      "layer": "details",
+      "max": 148,
+      "vars": []
+    },
+    "hsetup.badCompany": {
+      "text": "Choose a company from the list.",
+      "layer": "details",
+      "max": 62,
+      "vars": []
+    },
+    "hsetup.badgeChecking": {
+      "text": "Checking",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.badgeOff": {
+      "text": "Off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.badgeReady": {
+      "text": "Ready",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.billed": {
+      "text": "Each request goes to {destination} and is billed to that key.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "destination"
+      ]
+    },
+    "hsetup.builtIn": {
+      "text": "Built in",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.cancelSkill": {
+      "text": "Never mind",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.cantLoad": {
+      "text": "The settings couldn't be read just now. Close this and open it again.",
+      "layer": "details",
+      "max": 138,
+      "vars": []
+    },
+    "hsetup.changeSkill": {
+      "text": "Change",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.changeSkillName": {
+      "text": "Change {name}",
+      "layer": "details",
+      "max": 160,
+      "vars": [
+        "name"
+      ]
+    },
+    "hsetup.checkIt": {
+      "text": "Check it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.checking": {
+      "text": "Checking the key…",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.company": {
+      "text": "Company",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.conflict": {
+      "text": "These settings were changed somewhere else. They're shown again now; the key you typed wasn't saved. Paste it again.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.conflictPlain": {
+      "text": "These settings were changed somewhere else. They're shown again now; make your change again.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.connection": {
+      "text": "Connection",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.engineGuide": {
+      "text": "Every request carries open.blog's engine guide: what the build supports, as facts, not instructions.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "hsetup.getHeading": {
+      "text": "Get this page once?",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.getIt": {
+      "text": "Get it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.getOnce": {
+      "text": "Get it once",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.getText": {
+      "text": "{product} fetches it now and keeps the text; it's never fetched again.",
+      "layer": "details",
+      "max": 140,
+      "vars": [
+        "product"
+      ]
+    },
+    "hsetup.getting": {
+      "text": "Getting the page…",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.got": {
+      "text": "Got it. Read it before you keep it.",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "hsetup.home": {
+      "text": "Home",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.insecure": {
+      "text": "This page isn't sent privately (http), so a key typed here could be read on the way. Set up https first.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.insecureServer": {
+      "text": "The server refused the key because the request didn't reach it over https. It wasn't saved. Put the proxy in admin.trustedProxies, or set the key in the server's environment.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.keepIt": {
+      "text": "Keep it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.keepIt2": {
+      "text": "Keep it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.kept": {
+      "text": "Kept. It's never fetched again.",
+      "layer": "details",
+      "max": 62,
+      "vars": []
+    },
+    "hsetup.key": {
+      "text": "Key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.keyChanged": {
+      "text": "The saved key is for {was}. After you save, paste a key for {company}.",
+      "layer": "details",
+      "max": 140,
+      "vars": [
+        "was",
+        "company"
+      ]
+    },
+    "hsetup.keyNone": {
+      "text": "No key is set.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.keyOther": {
+      "text": "The saved key is for another company or address, so it isn't used. Paste a key for {company}.",
+      "layer": "details",
+      "max": 186,
+      "vars": [
+        "company"
+      ]
+    },
+    "hsetup.keyRemoved": {
+      "text": "Key removed.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.keySaved": {
+      "text": "Key saved. It won't be shown again.",
+      "layer": "details",
+      "max": 70,
+      "vars": []
+    },
+    "hsetup.keyServer": {
+      "text": "A key is set by the server ({name}). It's used instead of any key saved here.",
+      "layer": "details",
+      "max": 154,
+      "vars": [
+        "name"
+      ]
+    },
+    "hsetup.keyServerAlso": {
+      "text": "A saved key is also kept.",
+      "layer": "details",
+      "max": 50,
+      "vars": []
+    },
+    "hsetup.keySet": {
+      "text": "A key is set. It's kept on the computer that runs {product} and never shown.",
+      "layer": "details",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "hsetup.keyTooLong": {
+      "text": "That's too long to be a key.",
+      "layer": "details",
+      "max": 56,
+      "vars": []
+    },
+    "hsetup.leave": {
+      "text": "Leave",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.leaveHeading": {
+      "text": "Leave without saving the key?",
+      "layer": "details",
+      "max": 58,
+      "vars": []
+    },
+    "hsetup.leaveText": {
+      "text": "It isn't kept anywhere.",
+      "layer": "details",
+      "max": 46,
+      "vars": []
+    },
+    "hsetup.lede": {
+      "text": "{product} can read your posts over and suggest changes, using {company}'s AI. It only sends what you choose, and says what before it does.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "company"
+      ]
+    },
+    "hsetup.ledeOff": {
+      "text": "{product} can read your posts over and suggest changes, using AI from a company {helper} chooses. It only sends what you choose, and says what before it does.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "hsetup.model": {
+      "text": "Model",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.modelHelp": {
+      "text": "The model's name as {company} writes it.",
+      "layer": "details",
+      "max": 80,
+      "vars": [
+        "company"
+      ]
+    },
+    "hsetup.move": {
+      "text": "Move",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.moveName": {
+      "text": "Move {name}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "hsetup.moveTaken": {
+      "text": "There's already a note in the other place. Remove one of them first.",
+      "layer": "details",
+      "max": 136,
+      "vars": []
+    },
+    "hsetup.moved": {
+      "text": "Moved.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.nameBad": {
+      "text": "The name needs to end in .md or .txt, with letters, numbers and dashes before it.",
+      "layer": "details",
+      "max": 162,
+      "vars": []
+    },
+    "hsetup.nameTaken": {
+      "text": "Something with that name is already kept. Choose another name.",
+      "layer": "details",
+      "max": 124,
+      "vars": []
+    },
+    "hsetup.newKey": {
+      "text": "New key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.newKeyHelp": {
+      "text": "Paste a new key to replace it. Leave it empty to keep the one that's set. Replacing a key can't be undone here.",
+      "layer": "details",
+      "max": 222,
+      "vars": []
+    },
+    "hsetup.newKeyHelpNone": {
+      "text": "Paste the key. It's sent once and never shown again.",
+      "layer": "details",
+      "max": 104,
+      "vars": []
+    },
+    "hsetup.newSkill": {
+      "text": "New skill",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.noSignal": {
+      "text": "Your helper needs a signal.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "hsetup.notDone": {
+      "text": "That didn't work. {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "hsetup.notNow": {
+      "text": "Not now",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.notSaved": {
+      "text": "That wasn't saved. {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "hsetup.notSavedPlain": {
+      "text": "That wasn't saved, and the key you typed wasn't kept. Try again.",
+      "layer": "details",
+      "max": 128,
+      "vars": []
+    },
+    "hsetup.off": {
+      "text": "Your writing helper isn't turned on. {helper} can turn it on here.",
+      "layer": "her",
+      "max": 132,
+      "vars": [
+        "helper"
+      ]
+    },
+    "hsetup.on": {
+      "text": "Your helper is on.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.page": {
+      "text": "A web page",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.pageAddress": {
+      "text": "The page's address",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.pageBad": {
+      "text": "Type the page's whole address, starting with https://.",
+      "layer": "details",
+      "max": 108,
+      "vars": []
+    },
+    "hsetup.pageFacts": {
+      "text": "From {source}. Final address {final}. Fetched {when}. Type {type}.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "source",
+        "final",
+        "when",
+        "type"
+      ]
+    },
+    "hsetup.pageHelp": {
+      "text": "Text from web pages is someone else's words. Your helper is told to treat it as data, but read it before you keep it.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.pageName": {
+      "text": "Name to keep it under",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "hsetup.pageText": {
+      "text": "What the page says (someone else's words)",
+      "layer": "details",
+      "max": 82,
+      "vars": []
+    },
+    "hsetup.private": {
+      "text": "Private (out of Git)",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.raw": {
+      "text": "Status, raw",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.readLine": {
+      "text": "{where} · {letters} letters",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "where",
+        "letters"
+      ]
+    },
+    "hsetup.reads": {
+      "text": "Things it can read",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.remove": {
+      "text": "Remove",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.removeHeading": {
+      "text": "Remove the saved key?",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "hsetup.removeIt": {
+      "text": "Remove it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.removeKey": {
+      "text": "Remove the saved key",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.removeName": {
+      "text": "Remove {name}",
+      "layer": "details",
+      "max": 160,
+      "vars": [
+        "name"
+      ]
+    },
+    "hsetup.removeText": {
+      "text": "Your helper stops working until another key is set. The key can't be shown or brought back here.",
+      "layer": "details",
+      "max": 192,
+      "vars": []
+    },
+    "hsetup.removeTextServer": {
+      "text": "The server's key keeps working. The saved key can't be shown or brought back here.",
+      "layer": "details",
+      "max": 164,
+      "vars": []
+    },
+    "hsetup.removed": {
+      "text": "Removed.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.replacedByYours": {
+      "text": "Replaced by yours",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.replacesBuiltIn": {
+      "text": "Replaces the built-in one",
+      "layer": "details",
+      "max": 50,
+      "vars": []
+    },
+    "hsetup.save": {
+      "text": "Save",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.saveAnyway": {
+      "text": "Save it anyway",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.saveSkill": {
+      "text": "Save skill",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.saved": {
+      "text": "Saved.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.saving": {
+      "text": "Saving…",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.scopePart": {
+      "text": "a part",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.scopeSelected": {
+      "text": "selected words",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.scopeWhole": {
+      "text": "the whole post",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.shape": {
+      "text": "That doesn't look like a key from {company} (they start with {prefix}). Check you pasted the key, not a password.",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "company",
+        "prefix"
+      ]
+    },
+    "hsetup.shared": {
+      "text": "Shared with the project (in Git)",
+      "layer": "details",
+      "max": 64,
+      "vars": []
+    },
+    "hsetup.signedOut": {
+      "text": "You were signed out, so that wasn't saved. Sign in, then save again.",
+      "layer": "details",
+      "max": 136,
+      "vars": []
+    },
+    "hsetup.signedOutKey": {
+      "text": "You were signed out, so that wasn't saved, and the key you typed wasn't kept. Sign in, then paste it again.",
+      "layer": "details",
+      "max": 214,
+      "vars": []
+    },
+    "hsetup.skillBack": {
+      "text": "The skill is back as it was.",
+      "layer": "details",
+      "max": 56,
+      "vars": []
+    },
+    "hsetup.skillConflict": {
+      "text": "This skill was changed somewhere else. Open it again to see it as it is now.",
+      "layer": "details",
+      "max": 152,
+      "vars": []
+    },
+    "hsetup.skillEmpty": {
+      "text": "Write the skill first.",
+      "layer": "details",
+      "max": 44,
+      "vars": []
+    },
+    "hsetup.skillInvalid": {
+      "text": "{source} · needs fixing",
+      "layer": "details",
+      "max": 46,
+      "vars": [
+        "source"
+      ]
+    },
+    "hsetup.skillLine": {
+      "text": "{source} · version {version} · reads {scopes}",
+      "layer": "details",
+      "max": 200,
+      "vars": [
+        "source",
+        "version",
+        "scopes"
+      ]
+    },
+    "hsetup.skillNotSaved": {
+      "text": "The skill wasn't saved. {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "hsetup.skillSaved": {
+      "text": "Skill saved.",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.skillSource": {
+      "text": "The skill, as written",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "hsetup.skills": {
+      "text": "What it can look for",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.skillsHelp": {
+      "text": "Skills are instructions only: they can't run anything, reach the network or read files. Posts and notes are always handed over as data, never as instructions.",
+      "layer": "details",
+      "max": 240,
+      "vars": []
+    },
+    "hsetup.stay": {
+      "text": "Stay",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.text": {
+      "text": "Text",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.textEmpty": {
+      "text": "Paste the text first.",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "hsetup.textName": {
+      "text": "Name (ends in .md or .txt)",
+      "layer": "details",
+      "max": 52,
+      "vars": []
+    },
+    "hsetup.textTooLong": {
+      "text": "That's more than it can read (64 KiB). Shorten it.",
+      "layer": "details",
+      "max": 100,
+      "vars": []
+    },
+    "hsetup.texts": {
+      "text": "Text you add",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.title": {
+      "text": "Writing helper",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.tooLongSetting": {
+      "text": "The address or the model's name is too long.",
+      "layer": "details",
+      "max": 88,
+      "vars": []
+    },
+    "hsetup.tooSoon": {
+      "text": "It was checked a moment ago. Wait ten seconds, then check again.",
+      "layer": "details",
+      "max": 128,
+      "vars": []
+    },
+    "hsetup.twoAtOnce": {
+      "text": "Two helper calls can run at once on this server, shared by everyone signed in.",
+      "layer": "details",
+      "max": 156,
+      "vars": []
+    },
+    "hsetup.where": {
+      "text": "Where it's kept",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "hsetup.yours": {
+      "text": "Yours",
+      "layer": "details",
+      "max": 40,
+      "vars": []
     },
     "install.signInFirst": {
       "text": "You'll sign in once more from the new icon, so have your password handy. If you don't know it, ask {helper} first.",
@@ -4183,6 +6312,128 @@
       "vars": [
         "service",
         "helper"
+      ]
+    },
+    "suggest.added": {
+      "text": "Added.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "suggest.announce": {
+      "text": "Suggestion: “{words}”. Press Tab to use it, Escape to skip.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "words"
+      ]
+    },
+    "suggest.billed": {
+      "text": "Each pause is one billed request.",
+      "layer": "details",
+      "max": 66,
+      "vars": []
+    },
+    "suggest.findOff": {
+      "text": "Suggestions as you type: turn off",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "suggest.findOn": {
+      "text": "Suggestions as you type: turn on",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "suggest.label": {
+      "text": "Suggestion",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "suggest.noThanks": {
+      "text": "No thanks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "suggest.offToast": {
+      "text": "Suggestions as you type are off.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "suggest.on": {
+      "text": "Suggestions as you type: on",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "suggest.onToast": {
+      "text": "Suggestions as you type are on for this post.",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "suggest.stopped": {
+      "text": "Suggestions as you type stopped: {why}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "suggest.toggle": {
+      "text": "Suggest the next words as I type",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "suggest.tooLong": {
+      "text": "Your post is too long for suggestions as you type.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "suggest.turnOff": {
+      "text": "Turn off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "suggest.useIt": {
+      "text": "Use it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "suggest.useItName": {
+      "text": "Use it: suggested words",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "suggest.waiting": {
+      "text": "Suggestions as you type: waiting for a signal",
+      "layer": "her",
+      "max": 90,
+      "vars": []
+    },
+    "suggest.what": {
+      "text": "While this is on, each time you stop typing your post goes to {company}, which suggests the next few words. Nothing goes in unless you choose it.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "company"
+      ]
+    },
+    "suggest.whatNotes": {
+      "text": "Your notes go with it: {list}.",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "list"
       ]
     },
     "thing.abstract": {

@@ -29,6 +29,7 @@ import { portabilitySourceSelection } from "../parts/portable-rules.js";
 import { createAddMenu } from "../parts/add-menu.js";
 import { createSuggestions } from "../parts/write-suggestions.js";
 import { createWriteReady } from "../parts/write-ready.js";
+import { createWriteHelper } from "../parts/write-helper.js";
 import { saveRouteProblem } from "../parts/route-rules.js";
 import { say } from "../parts/words.js";
 
@@ -65,6 +66,7 @@ export async function createWrite(context, arg, route = {}) {
   let picker = null;
   let sheetOnOpen = null; // ?sheet=about|copy|ready|youtube|route: opened once the screen has focus
   let sheets = null; // R7: Before you publish, Words for YouTube and Your route
+  let helper = null; // R8: the writing helper's sheet, side card and suggestions as she types
 
   // ---- the page
   // R6: Add something, and the cards in every box of her words.
@@ -80,6 +82,8 @@ export async function createWrite(context, arg, route = {}) {
     removedPhoto: (url) => job()?.bodyOptions().removed(url),
     // A job's photos are numbered across its four parts: the other parts follow an add or a move.
     afterPiece: (box) => { if (isJob()) body.redrawPhotos(box); },
+    // R8: Write questions for me and Draft it for me, in their forms, when the helper is set up.
+    helper: { ready: () => Boolean(helper?.confirmed()), company: () => helper.company(), form: () => helper.form(), offsetOf: (box) => helper.offsetOf(box) },
   });
   body = await createBodyHost({ onChange: () => changed(), pieces: addMenu.host });
   suggestions = createSuggestions({ boxes: () => body.boxes(), did: (box, before, words) => addMenu.did(box, before, words), reveal: (box, start, end) => box.reveal(start, end),
@@ -124,6 +128,13 @@ export async function createWrite(context, arg, route = {}) {
     publish: () => saveNow("publish", { checked: true }), recipeGoTo: (target) => goTo(target), signedOut: () => api.onSignedOut?.(),
   });
   aboutButton.after(sheets.card);
+  // R8: the writing helper, under Before you publish, only when it is set up.
+  helper = await createWriteHelper({
+    api, meta, doc, body, read: () => read(), fieldsFor: (values, intent) => fieldsFor(values, intent), kind: () => kind(), job: () => job(),
+    canWriteUp: () => writeUpReady, go: (hash) => context.go(hash), repaint: () => { more.items = menuItems(); },
+  });
+  sheets.card.after(helper.card);
+  suggestions.element.after(helper.line);
   about.onLine((line) => { aboutLine.textContent = line; aboutButton.label = `About this post: ${line}`; });
 
   // ---- reading the form
@@ -173,6 +184,7 @@ export async function createWrite(context, arg, route = {}) {
     aboutLine.textContent = about.line({ unsent: isPublished() && dirty });
     aboutButton.label = `About this post: ${aboutLine.textContent}`;
     sheets?.changed();
+    helper?.changed();
     when.paint();
     about.paintFooter();
     more.items = menuItems();
@@ -184,7 +196,8 @@ export async function createWrite(context, arg, route = {}) {
   });
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
   const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })),
-    ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
+    ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
+    ...(helper ? helper.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
 
   /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
   async function switchKind(from, to, options) {
@@ -447,6 +460,7 @@ export async function createWrite(context, arg, route = {}) {
     const opener = more.querySelector("button") || aboutButton;
     if (value === "suggestions") { suggestions.open(); return; }
     if (sheets.run(value, more.querySelector("button") || aboutButton)) return;
+    if (helper.run(value, helper.card.hidden ? opener : helper.card)) return;
     if (addMenu.command(value)) return;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
@@ -497,6 +511,7 @@ export async function createWrite(context, arg, route = {}) {
   const leave = async () => {
     if (!(await addMenu.leave())) return false;
     if (!(await sheets.leave())) return false;
+    await helper.leave();
     clearTimeout(timer);
     timer = 0;
     return leaveNow();
@@ -581,10 +596,11 @@ export async function createWrite(context, arg, route = {}) {
     // ?sheet=about|copy (an old Settings link, Find, People's Back): opened once Write has focus.
     const query = route.query || {};
     if (query.add && query.sheet) about.addPerson(String(query.add));
-    if (query.sheet === "about" || (query.sheet === "copy" && doc.path) || sheets.isSheet(query.sheet)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
+    if (query.sheet === "about" || (query.sheet === "copy" && doc.path) || sheets.isSheet(query.sheet) || helper.isSheet(query.sheet)) sheetOnOpen = { sheet: query.sheet, group: query.group || (query.add ? "credits" : "") };
     // ?add=1 (the list) or ?add=<kind> (that form), when it isn't a person for Who wrote it.
     else if (query.add && !query.sheet) sheetOnOpen = { add: String(query.add) };
     paint();
+    helper.refresh();
     element.removeAttribute("aria-busy");
     await asking;
   }
@@ -615,6 +631,7 @@ export async function createWrite(context, arg, route = {}) {
         const { sheet, group } = sheetOnOpen;
         sheetOnOpen = null;
         if (sheet === "copy") copySheet.open({ from: more, closed: plainAddress });
+        else if (helper.isSheet(sheet)) { plainAddress(); helper.open(helper.card.hidden ? more : helper.card); }
         else if (sheets.isSheet(sheet)) { plainAddress(); sheets.open(sheet, sheets.card); }
         else about.open({ group, from: aboutButton, closed: plainAddress });
       }
@@ -624,6 +641,7 @@ export async function createWrite(context, arg, route = {}) {
         ...commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint })),
         ...addMenu.palette().map((c) => ({ ...c, group: "This post" })),
         ...sheets.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
+        ...helper.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
         { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },
       ];
     },

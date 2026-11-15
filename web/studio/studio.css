@@ -673,3 +673,56 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-about-route { display: grid; gap: var(--space-2); min-width: 0; }
 .studio-about-route > action-button, .studio-about-youtube { justify-self: start; }
 .studio-youtube-description textarea { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- Writing helper (R8): the sheet in Write, what it found, suggestions as she types, and the
+   Writing helper screen. The "what goes" box is tinted so it reads as one thing, above the
+   button that sends. */
+.studio-helper-form h3, .studio-found h3 { margin: 0; font-size: var(--text-lg); }
+.studio-helper-form h4, .studio-helper-section h4 { margin: 0; font-size: var(--text-base); }
+.studio-helper-tick { min-width: 0; }
+.studio-helper-tick .studio-tick-label span { overflow-wrap: anywhere; min-width: 0; }
+.studio-helper-run { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.studio-helper-sends { margin: 0; padding-inline-start: var(--space-5); overflow-wrap: anywhere; }
+.studio-goes { background: var(--studio-sage); border-radius: var(--radius); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); min-width: 0; }
+.studio-goes-heading { margin: 0; font-size: var(--text-base); font-weight: 600; overflow-wrap: anywhere; }
+.studio-goes-list { margin: 0; padding-inline-start: var(--space-5); display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
+.studio-goes-never { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.studio-goes-never[hidden] { display: none; }
+.studio-goes-words > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.studio-goes-exact { margin: 0; padding: var(--space-3); max-height: 40vh; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm); background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); border-radius: var(--radius); }
+.studio-goes-exact:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.studio-found-list { display: grid; gap: var(--space-4); min-width: 0; }
+.studio-found-card { display: block; min-width: 0; overflow-wrap: anywhere; }
+.studio-found-card p, .studio-found-card blockquote { margin: 0 0 var(--space-2); }
+.studio-found-card h3 { font-size: var(--text-sm); font-weight: 600; color: var(--studio-ink-soft); }
+.studio-found-quote { padding-inline-start: var(--space-3); border-inline-start: 4px solid var(--studio-linen); font-family: var(--font-writing); }
+.studio-found-try { font-weight: 600; }
+.studio-found-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio-found-used { font-weight: 600; }
+.studio-found-details > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; }
+.studio-helper-sheet action-button[size="sm"] .action-button, .studio-suggest-card action-button[size="sm"] .action-button, .studio-suggest-line action-button[size="sm"] .action-button { min-height: 2.75rem; }
+@media (max-width: 30rem) {
+  .studio-found-actions action-button, .studio-helper-run action-button { flex: 1 1 100%; }
+  .studio-found-actions .action-button, .studio-helper-run .action-button { width: 100%; }
+}
+.studio-suggest-line { align-items: center; margin: var(--space-2) 0 0; color: var(--studio-ink-soft); }
+.studio-suggest-line[hidden], .studio-suggest-card[hidden] { display: none; }
+.studio-suggest-card { margin-top: var(--space-2); padding: var(--space-3); border: 1px dashed var(--studio-field); border-radius: var(--radius); display: grid; gap: var(--space-2); min-width: 0; }
+.studio-suggest-text { margin: 0; overflow-wrap: anywhere; }
+.studio-suggest-words { font-family: var(--font-writing); }
+.studio-helper-page { max-width: 40rem; }
+.studio-helper-state { align-items: center; margin: 0; }
+.studio-helper-notes, .studio-helper-section, .studio-note { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-helper-notes h3, .studio-helper-section h3 { margin: 0; font-size: var(--text-lg); }
+.studio-helper-setup { display: grid; gap: var(--space-5); min-width: 0; }
+.studio-helper-setup > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.studio-helper-setup[open] > summary { margin-bottom: var(--space-4); }
+.studio-helper-setup > * + * { margin-top: var(--space-5); }
+.studio-helper-section { padding-top: var(--space-4); border-top: 1px solid var(--studio-linen); }
+.studio-helper-raw, .studio-skill-errors { margin: 0; padding-inline-start: var(--space-5); overflow-wrap: anywhere; }
+.studio-note-status:empty, .studio-key-state:empty { display: none; }
+.studio-note-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.studio-post-note > summary { font-weight: 600; }
+.studio-generated:empty { display: none; }
+.studio-generated { align-items: center; }
+@media (prefers-reduced-motion: reduce) { .studio-helper-sheet loading-spinner, .studio-helper-page loading-spinner { display: none; } }
