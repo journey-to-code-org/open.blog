@@ -888,6 +888,24 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.btnPutBack` | her | Put it back in Waiting | none | 44 |
 | `readers.btnShow` | her | Show it | none | 40 |
 | `readers.btnTakeDown` | her | Take it down | none | 40 |
+| `readers.bulkDone` | her | {done} not shown. | `{done}` | 40 |
+| `readers.bulkGroup` | her | Decide many at once | none | 40 |
+| `readers.bulkHide` | her | Don't show {n} | `{n}` | 40 |
+| `readers.bulkHideText` | her | Only you will see them, under Not shown. You can undo this. Pick one reason for all of them. | none | 184 |
+| `readers.bulkHideTitle` | her | Don't show {n}? | `{n}` | 40 |
+| `readers.bulkLineChanged` | her | This changed somewhere else, so it wasn't decided. | none | 100 |
+| `readers.bulkLineFailed` | her | This one didn't go through. | none | 54 |
+| `readers.bulkNone` | her | None of them went through. They're still here, marked. | none | 108 |
+| `readers.bulkNotNow` | her | Not now | none | 40 |
+| `readers.bulkNotThis` | her | Decide this one by itself. | none | 52 |
+| `readers.bulkPartial` | her | {done} done. {failed} didn't go through; they're still here, marked. | `{done}` `{failed}` | 136 |
+| `readers.bulkShow` | her | Show {n} | `{n}` | 40 |
+| `readers.bulkShowText` | her | Everyone will be able to read them. | none | 70 |
+| `readers.bulkShowTitle` | her | Show {n} on your posts? | `{n}` | 46 |
+| `readers.bulkShowYes` | her | Show them | none | 40 |
+| `readers.bulkShown` | her | {done} shown. | `{done}` | 40 |
+| `readers.bulkUndoNote` | her | Not shown: {n}. | `{n}` | 40 |
+| `readers.bulkUndone` | her | {n} are back in Waiting. | `{n}` | 48 |
 | `readers.cancel` | her | Cancel | none | 40 |
 | `readers.cardComment` | her | Comment from {name}{on} | `{name}` `{on}` | 46 |
 | `readers.cardFailed` | her | That didn't go through. Nothing changed. Try again. | none | 102 |
@@ -1118,6 +1136,10 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.roleCoordinator` | her | You look after this as a coordinator of a shared post. Only the site's owner sees private names or decides again. | none | 226 |
 | `readers.seeShown` | her | See what's shown | none | 40 |
 | `readers.seeWaiting` | her | See what's waiting | none | 40 |
+| `readers.select` | her | Select | none | 40 |
+| `readers.selectAll` | her | Select all {m} | `{m}` | 40 |
+| `readers.selectOne` | her | Select {label} | `{label}` | 40 |
+| `readers.selected` | her | {n} selected | `{n}` | 40 |
 | `readers.setupCommentsHeading` | her | Comments | none | 40 |
 | `readers.setupConflict` | her | Your comment settings changed somewhere else. Here they are now; switch again if you still want to. | none | 198 |
 | `readers.setupElseHeading` | her | What else readers can send | none | 52 |

@@ -741,3 +741,10 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-table-scroll { overflow-x: auto; max-width: 100%; }
 .studio-table-scroll table { border-collapse: collapse; min-width: 16rem; }
 .studio-table-scroll th, .studio-table-scroll td { padding: var(--space-1) var(--space-3); text-align: start; border-block-end: 1px solid var(--studio-linen); }
+
+/* R10: deciding many at once */
+.studio-select-toggle { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; }
+.studio-select-toggle input, .studio-select-one { inline-size: 1.25rem; block-size: 1.25rem; }
+.studio-select-cell { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 2.75rem; min-block-size: 2.75rem; }
+.studio-bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--studio-border, currentColor); border-radius: 0.5rem; }
+.studio-bulk-count { font-weight: 600; margin-inline-end: auto; }

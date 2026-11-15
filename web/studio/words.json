@@ -4966,6 +4966,133 @@
       "max": 40,
       "vars": []
     },
+    "readers.bulkDone": {
+      "text": "{done} not shown.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "done"
+      ]
+    },
+    "readers.bulkGroup": {
+      "text": "Decide many at once",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkHide": {
+      "text": "Don't show {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkHideText": {
+      "text": "Only you will see them, under Not shown. You can undo this. Pick one reason for all of them.",
+      "layer": "her",
+      "max": 184,
+      "vars": []
+    },
+    "readers.bulkHideTitle": {
+      "text": "Don't show {n}?",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkLineChanged": {
+      "text": "This changed somewhere else, so it wasn't decided.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "readers.bulkLineFailed": {
+      "text": "This one didn't go through.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "readers.bulkNone": {
+      "text": "None of them went through. They're still here, marked.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "readers.bulkNotNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkNotThis": {
+      "text": "Decide this one by itself.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "readers.bulkPartial": {
+      "text": "{done} done. {failed} didn't go through; they're still here, marked.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "done",
+        "failed"
+      ]
+    },
+    "readers.bulkShow": {
+      "text": "Show {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkShowText": {
+      "text": "Everyone will be able to read them.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "readers.bulkShowTitle": {
+      "text": "Show {n} on your posts?",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkShowYes": {
+      "text": "Show them",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.bulkShown": {
+      "text": "{done} shown.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "done"
+      ]
+    },
+    "readers.bulkUndoNote": {
+      "text": "Not shown: {n}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "readers.bulkUndone": {
+      "text": "{n} are back in Waiting.",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "n"
+      ]
+    },
     "readers.cancel": {
       "text": "Cancel",
       "layer": "her",
@@ -6460,6 +6587,36 @@
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "readers.select": {
+      "text": "Select",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "readers.selectAll": {
+      "text": "Select all {m}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "m"
+      ]
+    },
+    "readers.selectOne": {
+      "text": "Select {label}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "label"
+      ]
+    },
+    "readers.selected": {
+      "text": "{n} selected",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
     },
     "readers.setupCommentsHeading": {
       "text": "Comments",

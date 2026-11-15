@@ -1134,6 +1134,7 @@ fn authenticated_api_routes(
         ("GET", "engagement/health") => engagement_health(state, req),
         ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
         ("GET", "engagement/moderation/item") => moderation_inbox_one(state, req, session),
+        ("PATCH", "engagement/moderation/batch") => moderate_inbox_batch(state, req, session),
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
         ("POST", "engagement/author-response") => author_answer(state, req, session),
         ("PATCH", "engagement/author-response") => withdraw_author_answer(state, req, session),
@@ -8892,6 +8893,87 @@ fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Re
             "more": plan.truncated || plan.items.len() > 200,
         }),
     )
+}
+
+/// The most items one batch decides.
+const MAX_BATCH_ITEMS: usize = 50;
+
+/// Decide each item with `decide` (which is given that item's own decision body), in order, each on its
+/// own: one refused or changed item never stops the rest, and nothing is all-or-nothing. A hosted service
+/// that cannot be reached (502, 503, 504) would fail every item the same slow way, so the rest are
+/// marked `service-down` without asking again.
+fn batch_results(bodies: &[Json], mut decide: impl FnMut(&Json) -> Response) -> Vec<Json> {
+    let mut results = Vec::with_capacity(bodies.len());
+    let mut down = false;
+    for body in bodies {
+        let id = body["id"].clone();
+        if down {
+            results.push(json!({ "id": id, "ok": false, "code": "service-down" }));
+            continue;
+        }
+        let response = with_engagement_code(decide(body));
+        let answer = serde_json::from_slice::<Json>(&response.body).unwrap_or(Json::Null);
+        if response.status == 200 {
+            results.push(json!({ "id": id, "ok": true, "item": answer["item"] }));
+            continue;
+        }
+        down = matches!(response.status, 502..=504);
+        let code = answer["code"].as_str().unwrap_or("failed");
+        results.push(json!({ "id": id, "ok": false, "code": code }));
+    }
+    results
+}
+
+/// `PATCH engagement/moderation/batch` (R10 G82): `{items: [{source, id, from, version, confirm?}] (at most
+/// 50), action: approve | reject | reopen | erase, reason?}`. Each item is decided exactly as the single
+/// route decides it (so every check, every audit event and every refusal is the same, including a note whose
+/// passage must be read first, which this refuses), and the answer is `{results: [{id, ok, item?, code?}]}`.
+fn moderate_inbox_batch(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let action = body["action"].as_str().unwrap_or_default();
+    if !["approve", "reject", "reopen", "erase"].contains(&action) {
+        return Response::json(
+            422,
+            &json!({ "error": "Choose approve, reject, reopen or erase.", "code": "not-offered" }),
+        );
+    }
+    let Some(items) = body["items"]
+        .as_array()
+        .filter(|items| !items.is_empty() && items.len() <= MAX_BATCH_ITEMS)
+    else {
+        return Response::json(
+            422,
+            &json!({ "error": "Send between 1 and 50 notes.", "code": "too-many" }),
+        );
+    };
+    let bodies: Vec<Json> = items
+        .iter()
+        .map(|item| {
+            let mut one = json!({
+                "source": item["source"], "id": item["id"], "from": item["from"],
+                "version": item["version"], "action": action,
+            });
+            for key in ["reason", "confirm"] {
+                if let Some(value) = item
+                    .get(key)
+                    .or_else(|| body.get(key))
+                    .filter(|v| !v.is_null())
+                {
+                    one[key] = value.clone();
+                }
+            }
+            one
+        })
+        .collect();
+    let results = batch_results(&bodies, |one| {
+        let mut single = req.clone();
+        single.body = serde_json::to_vec(one).unwrap_or_default();
+        moderate_inbox_item(state, &single, session)
+    });
+    Response::json(200, &json!({ "results": results }))
 }
 
 /// `PATCH engagement/moderation`: one decision on one item. The request names
@@ -32291,6 +32373,90 @@ What I read:
             body_json(&with_engagement_code(Response::error(404, "No such item")))["error"],
             "No such item"
         );
+    }
+
+    #[test]
+    fn a_batch_decides_each_note_on_its_own_and_stops_asking_when_the_service_is_down() {
+        let bodies: Vec<Json> = (1..=4)
+            .map(|n| json!({ "source": "comment", "id": format!("id{n}"), "action": "reject" }))
+            .collect();
+        let mut asked = Vec::new();
+        let results = batch_results(&bodies, |body| {
+            asked.push(body["id"].as_str().unwrap().to_string());
+            match body["id"].as_str().unwrap() {
+                "id1" => Response::json(
+                    200,
+                    &json!({ "ok": true, "item": { "id": "id1", "status": "rejected" } }),
+                ),
+                "id2" => Response::json(409, &json!({ "error": "changed", "code": "conflict" })),
+                _ => Response::error(502, "Hosted engagement request failed"),
+            }
+        });
+        assert_eq!(
+            asked,
+            ["id1", "id2", "id3"],
+            "nothing is asked after the service is down"
+        );
+        assert_eq!(
+            results[0],
+            json!({ "id": "id1", "ok": true, "item": { "id": "id1", "status": "rejected" } })
+        );
+        assert_eq!(
+            results[1],
+            json!({ "id": "id2", "ok": false, "code": "conflict" })
+        );
+        assert_eq!(
+            results[2],
+            json!({ "id": "id3", "ok": false, "code": "service-down" })
+        );
+        assert_eq!(
+            results[3],
+            json!({ "id": "id4", "ok": false, "code": "service-down" })
+        );
+    }
+
+    #[test]
+    fn the_batch_route_takes_one_to_fifty_notes_and_only_the_four_actions() {
+        let f = fixture("engagement-batch-route");
+        let session = login_ok(&f);
+        let send = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PATCH", "/admin/api/engagement/moderation/batch", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let one = json!({ "source": "comment", "id": "00000000-0000-4000-8000-000000000001", "from": "pending", "version": 1 });
+        let refused = send(json!({ "items": [one], "action": "publish" }));
+        assert_eq!(
+            (refused.status, body_json(&refused)["code"].clone()),
+            (422, json!("not-offered"))
+        );
+        for items in [json!([]), json!(vec![one.clone(); 51]), json!("nope")] {
+            let refused = send(json!({ "items": items, "action": "reject" }));
+            assert_eq!(
+                (refused.status, body_json(&refused)["code"].clone()),
+                (422, json!("too-many"))
+            );
+        }
+        // A well-formed batch answers 200 with one result per note, each its own, even when each fails.
+        let answer = send(json!({ "items": [one, one], "action": "reject", "reason": "spam" }));
+        assert_eq!(answer.status, 200);
+        let results = body_json(&answer)["results"].clone();
+        assert_eq!(results.as_array().unwrap().len(), 2);
+        assert!(results
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["ok"] == false && r["code"].is_string()));
+        let signed_out = handle(
+            &f.state,
+            &json_req("PATCH", "/admin/api/engagement/moderation/batch", json!({})),
+        );
+        assert_eq!(signed_out.status, 401);
     }
 
     #[test]

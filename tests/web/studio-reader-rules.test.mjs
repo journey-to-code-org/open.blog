@@ -122,3 +122,22 @@ test("a refusal's code is read from the answer, and a 409 is always 'changed'", 
   assert.equal(readerProblem({ status: 404, data: { code: "gone" } }, "card").id, "readers.gone");
   assert.equal(readerProblem({ status: 422, data: { code: "reasonNotAllowed" } }, "card").id, "readers.chooseWhy");
 });
+
+test("bulk: only waiting notes that offer both answers and need no passage read; one shared reason; the batch body", async () => {
+  const { bulkEligible, sharedReasons, bulkRequest, bulkOutcome, bulkWords } = await import("../../web/studio/parts/reader-rules.js");
+  assert.equal(bulkEligible(comment()), true);
+  assert.equal(bulkEligible(comment({ status: "approved" })), false);
+  assert.equal(bulkEligible(comment({ passage: { acknowledge: true } })), false);
+  assert.equal(bulkEligible(comment({ source: "report" })), false);
+  assert.equal(bulkEligible(comment({ actions: [{ action: "approve", reasons: [] }] })), false);
+  const other = comment({ id: "c2", actions: [{ action: "approve", reasons: [] }, { action: "reject", reasons: [{ id: "spam", label: "Spam" }, { id: "x", label: "X" }] }] });
+  assert.deepEqual(sharedReasons([comment(), other]).map((r) => r.id), ["spam"]);
+  const body = bulkRequest([comment(), other], "reject", "spam");
+  assert.deepEqual(body, { items: [{ source: "comment", id: "c1", from: "pending", version: 3 }, { source: "comment", id: "c2", from: "pending", version: 3 }], action: "reject", reason: "spam" });
+  assert.equal("reason" in bulkRequest([comment()], "approve"), false);
+  const outcome = bulkOutcome([comment(), other], { results: [{ id: "c1", ok: true, item: { version: 4, status: "rejected" } }, { id: "c2", ok: false, code: "conflict" }] });
+  assert.deepEqual([outcome.done.length, outcome.done[0].version, outcome.failed[0].code], [1, 4, "conflict"]);
+  assert.match(bulkWords(outcome, "reject"), /1 done\. 1 didn't go through/);
+  assert.match(bulkWords({ done: [{}, {}], failed: [] }, "reject"), /^2 not shown\.$/);
+  assert.match(bulkWords({ done: [], failed: [{}] }, "approve"), /None of them/);
+});

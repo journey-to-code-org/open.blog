@@ -236,3 +236,54 @@ test("Readers passes axe at 320 px without sideways scrolling", async ({ page })
   expect(results).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });
+
+test("bulk: select by keyboard, one reason for all, a partial answer marks the one that didn't go through, and Undo puts the rest back", async ({ page }) => {
+  const items = [item(21, { reader: { name: "Ann", publishName: true } }), item(22, { reader: { name: "Bea", publishName: true } }), item(23, { reader: { name: "Cy", publishName: true } })];
+  await mockInbox(page, items);
+  const sent = [];
+  await page.route("**/admin/api/engagement/moderation/batch", async (route) => {
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    const results = body.items.map((one) => {
+      const found = items.find((i) => i.id === one.id);
+      if (body.action === "reject" && one.id === ID(23)) return { id: one.id, ok: false, code: "conflict" };
+      found.status = body.action === "reopen" ? "pending" : "rejected";
+      found.version += 1;
+      return { id: one.id, ok: true, item: { ...found } };
+    });
+    return json(route, 200, { results });
+  });
+  await signIn(page);
+  await expect(page.getByRole("heading", { name: "What have readers sent you?" })).toBeVisible();
+  const toggle = page.getByLabel("Select", { exact: true });
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("checkbox", { name: /^Select Comment from Ann/ })).toBeVisible();
+  await page.getByRole("button", { name: "Select all 3" }).click();
+  await expect(page.getByText("3 selected")).toBeVisible();
+  await page.getByRole("button", { name: "Don't show 3" }).click();
+  await expect(page.getByRole("heading", { name: "Don't show 3?" })).toBeVisible();
+  await page.getByRole("button", { name: "It's spam" }).click();
+  await expect(page.locator("main p[role=status]").filter({ hasText: "2 done. 1 didn't go through" })).toBeVisible();
+  expect(sent[0]).toMatchObject({ action: "reject", reason: "spam" });
+  expect(sent[0].items.map((i) => i.id)).toEqual([ID(21), ID(22), ID(23)]);
+  await expect(page.locator(".studio-comment")).toHaveCount(1);
+  await expect(page.locator(".studio-comment .studio-comment-trouble")).toHaveText("This changed somewhere else, so it wasn't decided.");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => sent.at(-1)?.action).toBe("reopen");
+  expect(sent.at(-1).items.map((i) => i.id)).toEqual([ID(21), ID(22)]);
+  expect(sent.at(-1).items.every((i) => i.from === "rejected" && i.version === 2)).toBe(true);
+  await expect(page.locator(".studio-comment")).toHaveCount(3);
+});
+
+test("bulk bar passes axe at 320 px", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockInbox(page, [item(31), item(32)]);
+  await signIn(page);
+  await page.getByLabel("Select", { exact: true }).check();
+  await page.getByRole("button", { name: "Select all 2" }).click();
+  await page.evaluate(axeSource);
+  const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`));
+  expect(results).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+});
