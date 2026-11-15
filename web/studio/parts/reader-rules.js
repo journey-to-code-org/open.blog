@@ -326,6 +326,57 @@ export function readerWords(id, vars = {}) {
   }
 }
 
+// ---- deciding many at once ----------------------------------------------------------------------
+
+/**
+ * Whether a card can be part of a bulk decision: waiting, and the server offers both Show and Don't show,
+ * and showing it does not need the passage read first. Anything else is decided by itself.
+ */
+export function bulkEligible(item) {
+  if (item.status !== "pending") return false;
+  const offered = new Set((item.actions || []).map((a) => a.action));
+  return offered.has("approve") && offered.has("reject") && !needsAcknowledge(item, "approve") && item.source !== "report";
+}
+
+/** The reasons the server takes for Don't show on every one of these notes (the ones they all share). */
+export function sharedReasons(items) {
+  const lists = items.map((item) => (item.actions || []).find((a) => a.action === "reject")?.reasons || []);
+  if (!lists.length) return [];
+  return lists[0].filter((reason) => lists.every((list) => list.some((r) => r.id === reason.id)));
+}
+
+/** The body for `engagement/moderation/batch`: each note as the server sent it, and one action and reason. */
+export function bulkRequest(items, action, reason = null) {
+  const body = { items: items.map((i) => ({ source: i.source, id: i.id, from: i.status, version: i.version })), action };
+  if (reason) body.reason = reason;
+  return body;
+}
+
+/** What a batch did: the notes that were decided (with the server's new version) and each that wasn't, by code. */
+export function bulkOutcome(items, reply) {
+  const byId = new Map((reply?.results || []).map((r) => [r.id, r]));
+  const done = [];
+  const failed = [];
+  for (const item of items) {
+    const result = byId.get(item.id);
+    if (result?.ok) done.push({ ...item, ...(result.item || {}), source: item.source });
+    else failed.push({ item, code: result?.code || "failed" });
+  }
+  return { done, failed };
+}
+
+/** The line a batch ends with, in her words. */
+export function bulkWords(outcome, action) {
+  const done = outcome.done.length;
+  const failed = outcome.failed.length;
+  if (!done) return say("readers.bulkNone");
+  if (failed) return say("readers.bulkPartial", { done, failed });
+  return action === "approve" ? say("readers.bulkShown", { done }) : say("readers.bulkDone", { done });
+}
+
+/** The line under a card that didn't go through. */
+export const bulkLine = (code) => (code === "conflict" || code === "changed" ? say("readers.bulkLineChanged") : say("readers.bulkLineFailed"));
+
 /** The decision and what it says: `{ id, vars, text }`; a public note also says when readers will see it (the screen adds that). */
 export function didWords(item, action, result = {}) {
   const post = where(item);

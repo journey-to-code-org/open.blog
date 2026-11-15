@@ -16,7 +16,7 @@ import { cardDetails, screenDetails } from "../parts/reader-details.js";
 import {
   shownViews, viewOf, viewLabel, viewLede, emptyWords, otherViewWords, kindsOffered, kindFilterWords, kindKnown, hasBeyondComments,
   readersHash, parseItemRef, reasonWords, quietReason, reportReason, decisionRequest, needsAcknowledge, didWords, undoWords,
-  readerProblem, problemWords, readerWords, fixRoute, waitingLine, cardLabel, VIEWS,
+  readerProblem, problemWords, readerWords, bulkEligible, sharedReasons, bulkRequest, bulkOutcome, bulkWords, bulkLine, fixRoute, waitingLine, cardLabel, VIEWS,
 } from "../parts/reader-rules.js";
 
 export async function createReaders(context, route) {
@@ -45,9 +45,17 @@ export async function createReaders(context, route) {
   const after = h("div", { class: "studio-comment-after" });
   const details = h("details", { class: "studio-help" });
   const notifyLink = h("p", { class: "studio-quiet-link" });
+  // Deciding many at once (Waiting only): Select turns on a checkbox on each card that can be decided in bulk.
+  let selecting = false;
+  const chosen = new Set();
+  const selectBox = h("input", { type: "checkbox", id: "studio-readers-select" });
+  const selectLabel = h("label", { class: "studio-select-toggle", for: "studio-readers-select", hidden: true }, selectBox, " ", say("readers.select"));
+  selectBox.addEventListener("change", () => setSelecting(selectBox.checked));
+  const bulkBar = h("div", { class: "studio-bulk-bar", role: "group", "aria-label": say("readers.bulkGroup"), hidden: true });
+
   const element = h("section", { class: "studio-page studio-readers", "aria-labelledby": "studio-readers-h" },
-    trail, tabs, h("div", { class: "studio-today" }, heading, lede, notifyLink, viewPicker, kindPicker),
-    undoSlot, banner, status,
+    trail, tabs, h("div", { class: "studio-today" }, heading, lede, notifyLink, viewPicker, kindPicker, selectLabel),
+    undoSlot, bulkBar, banner, status,
     h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, list, moreButton, after), h("div", { class: "studio-comment-side" }, details)));
 
   // ---- loading ----------------------------------------------------------------------------------
@@ -174,10 +182,12 @@ export async function createReaders(context, route) {
     more: (item, value, line) => moreMenu(item, value, line),
     focusRef: (ref) => focusCard(ref),
     cardDetails: (item, row) => row.append(cardDetails(item)),
+    select: (item, label) => (selecting ? selectCheckbox(item, label) : null),
   };
 
   function draw() {
     list.removeAttribute("aria-busy");
+    drawBar();
     moreButton.hidden = !next;
     after.replaceChildren();
     if (page?.invalid > 0) after.append(h("p", { class: "studio-help", text: say("readers.invalid") }));
@@ -195,6 +205,106 @@ export async function createReaders(context, route) {
   }
 
   const focusCard = (ref) => requestAnimationFrame(() => list.querySelector(`[data-ref="${ref}"] .studio-comment-who`)?.focus());
+
+  // ---- bulk ---------------------------------------------------------------------------------------
+
+  const ref = (item) => `${item.source}:${item.id}`;
+  const eligible = () => items.filter(bulkEligible);
+  const picked = () => items.filter((i) => chosen.has(ref(i)));
+
+  function selectCheckbox(item, label) {
+    const ok = bulkEligible(item);
+    const box = h("input", { type: "checkbox", "aria-label": say("readers.selectOne", { label }), checked: chosen.has(ref(item)), disabled: !ok, class: "studio-select-one" });
+    if (!ok) box.setAttribute("aria-describedby", `studio-bulk-no-${item.id}`);
+    box.addEventListener("change", () => {
+      if (box.checked) chosen.add(ref(item)); else chosen.delete(ref(item));
+      drawBar();
+    });
+    return h("span", { class: "studio-select-cell" }, box, ok ? null : h("span", { id: `studio-bulk-no-${item.id}`, class: "studio-visually-hidden", text: say("readers.bulkNotThis") }));
+  }
+
+  function setSelecting(on) {
+    selecting = on && view.state === "pending";
+    if (!selecting) chosen.clear();
+    selectBox.checked = selecting;
+    draw();
+    if (selecting) selectLabel.querySelector("input")?.focus();
+  }
+
+  function drawBar() {
+    const canSelect = view.state === "pending" && eligible().length >= 2;
+    selectLabel.hidden = !canSelect && !selecting;
+    if (!canSelect && selecting) { selecting = false; chosen.clear(); selectBox.checked = false; }
+    for (const r of [...chosen]) if (!items.some((i) => ref(i) === r)) chosen.delete(r);
+    bulkBar.hidden = !selecting;
+    if (!selecting) { bulkBar.replaceChildren(); return; }
+    const n = chosen.size;
+    bulkBar.replaceChildren(
+      h("span", { class: "studio-bulk-count", role: "status", "aria-live": "polite", text: say("readers.selected", { n }) }),
+      h("action-button", { variant: "secondary", size: "sm", onClick: () => { eligible().forEach((i) => chosen.add(ref(i))); draw(); } }, say("readers.selectAll", { m: eligible().length })),
+      h("action-button", { size: "sm", disabled: n < 1, onClick: () => bulkAsk("approve") }, say("readers.bulkShow", { n })),
+      h("action-button", { variant: "secondary", size: "sm", disabled: n < 1, onClick: () => bulkAsk("reject") }, say("readers.bulkHide", { n })),
+      h("action-button", { variant: "ghost", size: "sm", onClick: () => setSelecting(false) }, say("readers.cancel")),
+    );
+  }
+
+  async function bulkAsk(action) {
+    const them = picked();
+    if (!them.length) return;
+    let reason = null;
+    if (action === "approve") {
+      if (them.length >= 2) {
+        const choice = await ask({
+          heading: say("readers.bulkShowTitle", { n: them.length }), text: say("readers.bulkShowText"),
+          choices: [{ label: say("readers.bulkShowYes"), value: "yes", variant: "secondary" }, { label: say("readers.bulkNotNow"), value: "no" }], focus: 1,
+        });
+        if (choice !== "yes") return;
+      }
+    } else {
+      const reasons = sharedReasons(them);
+      const choice = await ask({
+        heading: say("readers.bulkHideTitle", { n: them.length }), text: say("readers.bulkHideText"),
+        choices: [...reasons.map((r) => ({ label: reasonWords(r), value: r.id, variant: "secondary" })), { label: say("readers.cancel"), value: "", variant: "ghost" }],
+      });
+      if (!choice) return;
+      reason = choice;
+    }
+    return bulkRun(them, action, reason);
+  }
+
+  async function bulkRun(them, action, reason) {
+    bulkBar.querySelectorAll("action-button").forEach((b) => { b.disabled = true; });
+    let reply;
+    try {
+      reply = await api.patch("engagement/moderation/batch", bulkRequest(them, action, reason));
+    } catch (error) {
+      if (error.status === 401) throw error;
+      status.textContent = problemWords(readerProblem(error, "list"));
+      drawBar();
+      return;
+    }
+    const outcome = bulkOutcome(them, reply);
+    const gone = new Set(outcome.done.map(ref));
+    items = items.filter((i) => !gone.has(ref(i)));
+    outcome.done.forEach((i) => chosen.delete(ref(i)));
+    draw();
+    for (const { item, code } of outcome.failed) {
+      const line = list.querySelector(`[data-ref="${ref(item)}"] .studio-comment-trouble`);
+      if (line) { line.textContent = bulkLine(code); line.hidden = false; }
+    }
+    const said = bulkWords(outcome, action);
+    status.textContent = said;
+    toast(said);
+    if (outcome.done.length && action === "reject") {
+      undo = { bulk: outcome.done, words: say("readers.bulkUndoNote", { n: outcome.done.length }) };
+      const button = h("action-button", { size: "sm", onClick: () => runUndo() }, say("readers.undo"));
+      const alert = h("alert-banner", { variant: "info", dismissible: true, heading: undo.words }, button);
+      alert.addEventListener("close", () => clearUndo());
+      undoSlot.replaceChildren(alert);
+    } else clearUndo();
+    const near = outcome.failed[0] ? ref(outcome.failed[0].item) : items[0] ? ref(items[0]) : "";
+    if (near) focusCard(near); else heading.focus();
+  }
 
   // ---- deciding ---------------------------------------------------------------------------------
 
@@ -349,10 +459,18 @@ export async function createReaders(context, route) {
   async function runUndo() {
     if (!undo || undoing) return;
     undoing = true;
-    const { item } = undo;
+    const { item, bulk } = undo;
     const button = undoSlot.querySelector("action-button");
     if (button) button.loading = true;
     try {
+      if (bulk) {
+        const reply = await api.patch("engagement/moderation/batch", bulkRequest(bulk.map((i) => ({ ...i, status: "rejected" })), "reopen"));
+        const back = bulkOutcome(bulk, reply).done.length;
+        clearUndo();
+        status.textContent = say("readers.bulkUndone", { n: back });
+        await load();
+        return;
+      }
       await api.patch("engagement/moderation", decisionRequest(item, "reopen", null));
       clearUndo();
       status.textContent = say("readers.didBack");
