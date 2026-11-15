@@ -39667,7 +39667,8 @@ series: letters
         // Decided 3: files under `<paths.web>/admin/` no longer replace Admin's (icons still do), and a
         // build never publishes the folder.
         let f = fixture("old-overrides");
-        let web = f.dir.join("the old Admin");
+        let config = site::load_config(&f.state.root).unwrap_or_default();
+        let web = f.state.root.join(&config.paths.web).join("admin");
         fs::create_dir_all(web.join("icons")).unwrap();
         fs::write(web.join("admin.js"), "window.OVERRIDE_SENTINEL = 1;").unwrap();
         fs::write(web.join("index.html"), "<p>OVERRIDE_SENTINEL</p>").unwrap();

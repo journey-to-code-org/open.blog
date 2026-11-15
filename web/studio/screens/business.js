@@ -1,6 +1,6 @@
 // Business facts: the name, phone, hours, license and payments a trade site says once and uses at
-// the bottom of every page, on the front page and for search engines. The rules are the old Admin's
-// (/admin/business.js), so a fact can never pass here and fail there; Studio draws its own fields.
+// the bottom of every page, on the front page and for search engines. The rules are
+// parts/business-rules.js (moved from the old Admin with their tests); Studio draws its own fields.
 // Studio slice 10a; docs/specs/studio/slice-10a/ux.md.
 import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
