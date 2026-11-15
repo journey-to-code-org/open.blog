@@ -22,8 +22,12 @@ import {
   roomProblem,
   storeExists,
 } from "../../web/studio/parts/capture-queue.js";
-import * as old from "../../web/admin/capture-queue.js";
 import { readFileSync } from "node:fs";
+
+// The old Admin's capture-queue.js as it was when R15 deleted it (constants and a record it wrote).
+const frozen = JSON.parse(readFileSync(new URL("./fixtures/old-admin-capture.json", import.meta.url), "utf8"));
+/** A record as the old Admin wrote it, with its photos' blobs made again. */
+const revive = (record) => ({ ...record, photos: record.photos.map((p) => ({ ...p, blob: new Blob([new Uint8Array(p.blob.blobBytes)]) })) });
 
 const idOf = (n) => String(n).padStart(32, "0");
 const photo = (name, size = 100) => ({ name, type: "image/jpeg", size, blob: new Blob([new Uint8Array(size)]) });
@@ -41,22 +45,22 @@ test("the database, its version, store and record version are the old Admin's, a
   assert.equal(STORE_NAME, "captures");
   assert.equal(RECORD_VERSION, 1);
   assert.equal(DB_VERSION, 1);
-  assert.equal(DB_NAME, old.DB_NAME);
-  assert.equal(STORE_NAME, old.STORE_NAME);
-  assert.equal(RECORD_VERSION, old.RECORD_VERSION);
-  assert.match(readFileSync(new URL("../../web/admin/capture-queue.js", import.meta.url), "utf8"), /const DB_VERSION = 1;/);
-  assert.deepEqual(QUEUE_LIMITS, old.QUEUE_LIMITS);
+  assert.equal(DB_NAME, frozen.constants.DB_NAME);
+  assert.equal(STORE_NAME, frozen.constants.STORE_NAME);
+  assert.equal(RECORD_VERSION, frozen.constants.RECORD_VERSION);
+  assert.equal(DB_VERSION, frozen.constants.DB_VERSION);
+  assert.deepEqual(QUEUE_LIMITS, frozen.constants.QUEUE_LIMITS);
 });
 
 test("a record is the old format plus who saved it, and each side reads the other's", () => {
   const now = new Date("2026-11-13T16:40:00Z");
   const mine = makeRecord(capture(1), now, "dana");
-  const theirs = old.makeRecord(capture(1), now);
+  const theirs = revive(frozen.record);
   const { by, ...rest } = mine;
   assert.equal(by, "dana");
-  assert.deepEqual(rest, theirs, "the same keys and values as the old Admin's");
+  assert.deepEqual({ ...rest, photos: rest.photos.map((p) => ({ ...p, blob: p.blob.size })) }, { ...theirs, photos: theirs.photos.map((p) => ({ ...p, blob: p.blob.size })) }, "the same keys and values as the old Admin's");
   assert.equal(readRecord(theirs).state, "ok");
-  assert.equal(old.readRecord(mine).state, "ok", "the old Admin reads Studio's records");
+  assert.equal(frozen.readsStudioRecord, "ok", "the old Admin read Studio's records");
   assert.deepEqual(Object.keys(makeRecord(capture(2))).sort(), ["attempts", "audio", "createdAt", "failed", "fields", "id", "lastError", "photos", "v"]);
 });
 

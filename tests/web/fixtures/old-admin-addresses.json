@@ -1,0 +1,913 @@
+{
+  "note": "Every address the old Admin answered (web/admin/admin.js dispatch, canonicalAdminHash, RESEARCH_PANELS, KINDS, the queries it read), written in R15 before admin.js was deleted. Each lands on `studio` (what legacyRoute gives, or the address itself when it is already Studio's) and shows `screen`.",
+  "heads": [
+    "edit",
+    "new",
+    "analytics",
+    "moderation",
+    "feedback",
+    "contributors",
+    "voice",
+    "social",
+    "quotes",
+    "greetings",
+    "notifications",
+    "capture",
+    "landing",
+    "announcements",
+    "share",
+    "paths",
+    "comparisons",
+    "appearance",
+    "look",
+    "business",
+    "seasons",
+    "design",
+    "reminders",
+    "distribution",
+    "services",
+    "reviews",
+    "research",
+    "shared",
+    "overview"
+  ],
+  "addresses": [
+    {
+      "old": "#/",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#",
+      "studio": "#",
+      "screen": "home"
+    },
+    {
+      "old": "",
+      "studio": "#",
+      "screen": "home"
+    },
+    {
+      "old": "#/overview",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#/overview?focus=x",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#/posts",
+      "studio": "#/posts",
+      "screen": "posts"
+    },
+    {
+      "old": "#/posts?status=draft",
+      "studio": "#/posts?status=draft",
+      "screen": "posts"
+    },
+    {
+      "old": "#/posts?status=scheduled",
+      "studio": "#/posts?status=scheduled",
+      "screen": "posts"
+    },
+    {
+      "old": "#/posts?status=published",
+      "studio": "#/posts?status=published",
+      "screen": "posts"
+    },
+    {
+      "old": "#/pages",
+      "studio": "#/pages",
+      "screen": "pages"
+    },
+    {
+      "old": "#/pages?status=draft",
+      "studio": "#/pages?status=draft",
+      "screen": "pages"
+    },
+    {
+      "old": "#/pages?status=scheduled",
+      "studio": "#/pages?status=scheduled",
+      "screen": "pages"
+    },
+    {
+      "old": "#/pages?status=published",
+      "studio": "#/pages?status=published",
+      "screen": "pages"
+    },
+    {
+      "old": "#/series",
+      "studio": "#/collections",
+      "screen": "collections"
+    },
+    {
+      "old": "#/series?status=draft",
+      "studio": "#/collections?status=draft",
+      "screen": "collections"
+    },
+    {
+      "old": "#/series?status=scheduled",
+      "studio": "#/collections?status=scheduled",
+      "screen": "collections"
+    },
+    {
+      "old": "#/series?status=published",
+      "studio": "#/collections?status=published",
+      "screen": "collections"
+    },
+    {
+      "old": "#/unknown-head",
+      "studio": "#/unknown-head",
+      "screen": "home"
+    },
+    {
+      "old": "#/unknown-head?status=draft",
+      "studio": "#/unknown-head?status=draft",
+      "screen": "home"
+    },
+    {
+      "old": "#/new/posts",
+      "studio": "#/write",
+      "screen": "write"
+    },
+    {
+      "old": "#/new/pages",
+      "studio": "#/page/new",
+      "screen": "page"
+    },
+    {
+      "old": "#/new/series",
+      "studio": "#/collection/new",
+      "screen": "collection"
+    },
+    {
+      "old": "#/new/recipe",
+      "studio": "#/write/new/recipe",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md",
+      "studio": "#/write/posts%2Fpie.md",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts/pie.md",
+      "studio": "#/write/posts%2Fpie.md",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/pages%2Fabout.md",
+      "studio": "#/page/pages%2Fabout.md",
+      "screen": "page"
+    },
+    {
+      "old": "#/edit/series%2Fholidays.md",
+      "studio": "#/collection/series%2Fholidays.md",
+      "screen": "collection"
+    },
+    {
+      "old": "#/edit/services%2Froofing.md",
+      "studio": "#/service/services%2Froofing.md",
+      "screen": "service"
+    },
+    {
+      "old": "#/edit/proof%2Fmrs-g.md",
+      "studio": "#/review/proof%2Fmrs-g.md",
+      "screen": "review"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=write",
+      "studio": "#/write/posts%2Fpie.md",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=preview",
+      "studio": "#/write/posts%2Fpie.md",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=settings",
+      "studio": "#/write/posts%2Fpie.md?sheet=about",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=social",
+      "studio": "#/write/posts%2Fpie.md?sheet=ready",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=optimize",
+      "studio": "#/write/posts%2Fpie.md?sheet=ready",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=accessibility",
+      "studio": "#/write/posts%2Fpie.md?sheet=ready",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=release",
+      "studio": "#/write/posts%2Fpie.md?sheet=youtube",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=field",
+      "studio": "#/write/posts%2Fpie.md?sheet=route",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=evidence",
+      "studio": "#/write/posts%2Fpie.md?sheet=claims",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/posts%2Fpie.md?pane=assistant",
+      "studio": "#/write/posts%2Fpie.md?sheet=helper",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/pages%2Fabout.md?pane=settings",
+      "studio": "#/page/pages%2Fabout.md",
+      "screen": "page"
+    },
+    {
+      "old": "#/analytics",
+      "studio": "#/readers/visitors",
+      "screen": "readers"
+    },
+    {
+      "old": "#/analytics/7",
+      "studio": "#/readers/visitors/7",
+      "screen": "readers"
+    },
+    {
+      "old": "#/analytics/30",
+      "studio": "#/readers/visitors",
+      "screen": "readers"
+    },
+    {
+      "old": "#/analytics/90",
+      "studio": "#/readers/visitors/90",
+      "screen": "readers"
+    },
+    {
+      "old": "#/analytics/365",
+      "studio": "#/readers/visitors/365",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/pending",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/clarification",
+      "studio": "#/readers/asked",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/approved",
+      "studio": "#/readers/shown",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/rejected",
+      "studio": "#/readers/not-shown",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/removed",
+      "studio": "#/readers/taken-down",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/withdrawn",
+      "studio": "#/readers/taken-back",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation/pending?kind=abuse-report",
+      "studio": "#/readers?kind=abuse-report",
+      "screen": "readers"
+    },
+    {
+      "old": "#/moderation?kind=third-perspective",
+      "studio": "#/readers?kind=third-perspective",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/pending",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/clarification",
+      "studio": "#/readers/asked",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/approved",
+      "studio": "#/readers/shown",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/rejected",
+      "studio": "#/readers/not-shown",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/removed",
+      "studio": "#/readers/taken-down",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/withdrawn",
+      "studio": "#/readers/taken-back",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback/pending?kind=abuse-report",
+      "studio": "#/readers?kind=abuse-report",
+      "screen": "readers"
+    },
+    {
+      "old": "#/feedback?kind=third-perspective",
+      "studio": "#/readers?kind=third-perspective",
+      "screen": "readers"
+    },
+    {
+      "old": "#/contributors",
+      "studio": "#/people",
+      "screen": "people"
+    },
+    {
+      "old": "#/voice",
+      "studio": "#/voice",
+      "screen": "voice"
+    },
+    {
+      "old": "#/voice/session",
+      "studio": "#/voice/session",
+      "screen": "voice"
+    },
+    {
+      "old": "#/voice/library",
+      "studio": "#/voice",
+      "screen": "voice"
+    },
+    {
+      "old": "#/voice/library/2026-11-01-pie",
+      "studio": "#/voice/piece/2026-11-01-pie",
+      "screen": "voice"
+    },
+    {
+      "old": "#/voice?pack=kitchen",
+      "studio": "#/voice/write?pack=kitchen",
+      "screen": "voice"
+    },
+    {
+      "old": "#/social",
+      "studio": "#/sharing/accounts",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/social/connect",
+      "studio": "#/sharing/accounts",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/announcements",
+      "studio": "#/sharing",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/quotes",
+      "studio": "#/quotes",
+      "screen": "quotes"
+    },
+    {
+      "old": "#/greetings",
+      "studio": "#/cards",
+      "screen": "cards"
+    },
+    {
+      "old": "#/notifications",
+      "studio": "#/notifications",
+      "screen": "notifications"
+    },
+    {
+      "old": "#/notifications?sheet=home-screen",
+      "studio": "#/notifications?sheet=home-screen",
+      "screen": "notifications"
+    },
+    {
+      "old": "#/capture",
+      "studio": "#/new-job",
+      "screen": "new-job"
+    },
+    {
+      "old": "#/capture/x",
+      "studio": "#/new-job",
+      "screen": "new-job"
+    },
+    {
+      "old": "#/capture?q=1",
+      "studio": "#/new-job?q=1",
+      "screen": "new-job"
+    },
+    {
+      "old": "#/capture/x?q=1",
+      "studio": "#/new-job?q=1",
+      "screen": "new-job"
+    },
+    {
+      "old": "#/landing",
+      "studio": "#/front-page",
+      "screen": "front-page"
+    },
+    {
+      "old": "#/look",
+      "studio": "#/look",
+      "screen": "look"
+    },
+    {
+      "old": "#/appearance",
+      "studio": "#/look",
+      "screen": "look"
+    },
+    {
+      "old": "#/business",
+      "studio": "#/business",
+      "screen": "business"
+    },
+    {
+      "old": "#/seasons",
+      "studio": "#/decorations",
+      "screen": "decorations"
+    },
+    {
+      "old": "#/design",
+      "studio": "#/look/design",
+      "screen": "look"
+    },
+    {
+      "old": "#/reminders",
+      "studio": "#/reminders",
+      "screen": "reminders"
+    },
+    {
+      "old": "#/distribution",
+      "studio": "#/sharing?view=posts",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/distribution?post=posts%2Fpie.md",
+      "studio": "#/sharing?view=posts&post=posts%2Fpie.md",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/services",
+      "studio": "#/services",
+      "screen": "services"
+    },
+    {
+      "old": "#/services/new",
+      "studio": "#/service/new",
+      "screen": "service"
+    },
+    {
+      "old": "#/services/edit/services%2Froofing.md",
+      "studio": "#/service/services%2Froofing.md",
+      "screen": "service"
+    },
+    {
+      "old": "#/reviews",
+      "studio": "#/reviews",
+      "screen": "reviews"
+    },
+    {
+      "old": "#/reviews/new",
+      "studio": "#/review/new",
+      "screen": "review"
+    },
+    {
+      "old": "#/reviews/edit/proof%2Fmrs-g.md",
+      "studio": "#/review/proof%2Fmrs-g.md",
+      "screen": "review"
+    },
+    {
+      "old": "#/share/posts%2Froof-job.md",
+      "studio": "#/sharing/job/posts%2Froof-job.md",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/share",
+      "studio": "#/sharing",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/paths",
+      "studio": "#/paths",
+      "screen": "paths"
+    },
+    {
+      "old": "#/paths/new",
+      "studio": "#/paths/new",
+      "screen": "paths"
+    },
+    {
+      "old": "#/paths/edit/winter-reading",
+      "studio": "#/path/winter-reading",
+      "screen": "path"
+    },
+    {
+      "old": "#/comparisons",
+      "studio": "#/research/readings",
+      "screen": "research"
+    },
+    {
+      "old": "#/comparisons/new",
+      "studio": "#/research/readings/new",
+      "screen": "research"
+    },
+    {
+      "old": "#/comparisons/edit/two-readings",
+      "studio": "#/research/reading/two-readings",
+      "screen": "research"
+    },
+    {
+      "old": "#/research",
+      "studio": "#/research",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/overview",
+      "studio": "#/research",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/sources",
+      "studio": "#/research/sources",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/sources/src-1",
+      "studio": "#/research/sources/src-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/notebook",
+      "studio": "#/research/notebook",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/atlas",
+      "studio": "#/research/atlas",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/atlas/plato",
+      "studio": "#/research/atlas/plato",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/atlas/relationships/rel-1",
+      "studio": "#/research/atlas/relationships/rel-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/compare",
+      "studio": "#/research/compare",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/compare/al-1",
+      "studio": "#/research/compare/al-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/public",
+      "studio": "#/research/public",
+      "screen": "research"
+    },
+    {
+      "old": "#/research/nonsense",
+      "studio": "#/research",
+      "screen": "research"
+    },
+    {
+      "old": "#/sources",
+      "studio": "#/research/sources",
+      "screen": "research"
+    },
+    {
+      "old": "#/sources/x-1",
+      "studio": "#/research/sources/x-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/atlas",
+      "studio": "#/research/atlas",
+      "screen": "research"
+    },
+    {
+      "old": "#/atlas/x-1",
+      "studio": "#/research/atlas/x-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/compare",
+      "studio": "#/research/compare",
+      "screen": "research"
+    },
+    {
+      "old": "#/compare/x-1",
+      "studio": "#/research/compare/x-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/atlas/relationships/rel-1",
+      "studio": "#/research/atlas/relationships/rel-1",
+      "screen": "research"
+    },
+    {
+      "old": "#/shared",
+      "studio": "#/together",
+      "screen": "together"
+    },
+    {
+      "old": "#/shared/new",
+      "studio": "#/together/new",
+      "screen": "together"
+    },
+    {
+      "old": "#/shared/accept/tok123secret",
+      "studio": "#/together/join",
+      "screen": "together"
+    },
+    {
+      "old": "#/shared/xyz",
+      "studio": "#/together",
+      "screen": "together"
+    },
+    {
+      "old": "#/tools",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#/not-yet/shared",
+      "studio": "#/together",
+      "screen": "together"
+    },
+    {
+      "old": "#/not-yet/voice",
+      "studio": "#/voice",
+      "screen": "voice"
+    },
+    {
+      "old": "#/not-yet/research",
+      "studio": "#/research",
+      "screen": "research"
+    },
+    {
+      "old": "#/not-yet/comparisons",
+      "studio": "#/research/readings",
+      "screen": "research"
+    },
+    {
+      "old": "#/not-yet/paths",
+      "studio": "#/paths",
+      "screen": "paths"
+    },
+    {
+      "old": "#/not-yet/distribution",
+      "studio": "#/sharing?view=posts",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/not-yet/capture",
+      "studio": "#/new-job",
+      "screen": "new-job"
+    },
+    {
+      "old": "#/not-yet/notifications",
+      "studio": "#/notifications",
+      "screen": "notifications"
+    },
+    {
+      "old": "#/not-yet/design",
+      "studio": "#/look/design",
+      "screen": "look"
+    },
+    {
+      "old": "#/not-yet/contributors",
+      "studio": "#/people",
+      "screen": "people"
+    },
+    {
+      "old": "#/not-yet/reminders",
+      "studio": "#/reminders",
+      "screen": "reminders"
+    },
+    {
+      "old": "#/not-yet/business",
+      "studio": "#/business",
+      "screen": "business"
+    },
+    {
+      "old": "#/not-yet/quotes",
+      "studio": "#/quotes",
+      "screen": "quotes"
+    },
+    {
+      "old": "#/not-yet/greetings",
+      "studio": "#/cards",
+      "screen": "cards"
+    },
+    {
+      "old": "#/not-yet/social",
+      "studio": "#/sharing/accounts",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/not-yet/announcements",
+      "studio": "#/sharing",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/not-yet/share",
+      "studio": "#/sharing",
+      "screen": "sharing"
+    },
+    {
+      "old": "#/not-yet/services",
+      "studio": "#/services",
+      "screen": "services"
+    },
+    {
+      "old": "#/not-yet/reviews",
+      "studio": "#/reviews",
+      "screen": "reviews"
+    },
+    {
+      "old": "#/not-yet/atlas",
+      "studio": "#/research/atlas",
+      "screen": "research"
+    },
+    {
+      "old": "#/not-yet/sources",
+      "studio": "#/research/sources",
+      "screen": "research"
+    },
+    {
+      "old": "#/not-yet/compare",
+      "studio": "#/research/compare",
+      "screen": "research"
+    },
+    {
+      "old": "#/not-yet/seasons",
+      "studio": "#/decorations",
+      "screen": "decorations"
+    },
+    {
+      "old": "#/not-yet/look",
+      "studio": "#/look",
+      "screen": "look"
+    },
+    {
+      "old": "#/not-yet/landing",
+      "studio": "#/front-page",
+      "screen": "front-page"
+    },
+    {
+      "old": "#/not-yet/appearance",
+      "studio": "#/look",
+      "screen": "look"
+    },
+    {
+      "old": "#/not-yet/analytics",
+      "studio": "#/readers/visitors",
+      "screen": "readers"
+    },
+    {
+      "old": "#/not-yet/moderation",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/not-yet/feedback",
+      "studio": "#/readers",
+      "screen": "readers"
+    },
+    {
+      "old": "#/not-yet/",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#/not-yet/nonsense",
+      "studio": "#/",
+      "screen": "home"
+    },
+    {
+      "old": "#/edit/posts%2",
+      "studio": "#/write/posts%252",
+      "screen": "write"
+    },
+    {
+      "old": "#/edit/%E0%A4%A",
+      "studio": "#/write/%25E0%25A4%25A",
+      "screen": "write"
+    },
+    {
+      "old": "#/write/%zz",
+      "studio": "#/write/%zz",
+      "screen": "write"
+    },
+    {
+      "old": "#/research/sources/%E0%A4%A",
+      "studio": "#/research/sources/%E0%A4%A",
+      "screen": "research"
+    }
+  ],
+  "notices": [
+    {
+      "url": "/admin/#/moderation",
+      "from": "engagement.mjs v0.33 to R10 (comment)",
+      "screen": "readers"
+    },
+    {
+      "url": "/admin/#/feedback",
+      "from": "engagement.mjs v0.33 to R10 (notes, author answers)",
+      "screen": "readers"
+    },
+    {
+      "url": "/admin/#/quotes",
+      "from": "quote.mjs before R3",
+      "screen": "quotes"
+    },
+    {
+      "url": "/admin/#/notifications",
+      "from": "push.mjs test before R3",
+      "screen": "notifications"
+    },
+    {
+      "url": "/admin/",
+      "from": "push-store.mjs default before R3",
+      "screen": "home"
+    },
+    {
+      "url": "/admin/#/shared/accept/tok123secret",
+      "from": "invitation_link before G119",
+      "screen": "together"
+    },
+    {
+      "url": "/admin/studio/#/readers",
+      "from": "engagement.mjs since R10",
+      "screen": "readers"
+    },
+    {
+      "url": "/admin/studio/#/readers?kind=comment&item=comment:0f8fad5b-d9cb-469f-a165-70867728950e",
+      "from": "engagement.mjs since R10",
+      "screen": "readers"
+    },
+    {
+      "url": "/admin/studio/#/readers?kind=passage-feedback&item=feedback:0f8fad5b-d9cb-469f-a165-70867728950e",
+      "from": "engagement.mjs since R10",
+      "screen": "readers"
+    },
+    {
+      "url": "/admin/studio/#/quotes",
+      "from": "quote.mjs since R3",
+      "screen": "quotes"
+    },
+    {
+      "url": "/admin/studio/#/notifications",
+      "from": "push.mjs since R3",
+      "screen": "notifications"
+    },
+    {
+      "url": "/admin/studio/",
+      "from": "push-store.mjs STUDIO_HOME since R3",
+      "screen": "home"
+    },
+    {
+      "url": "/admin/studio/#/together/join/tok123secret",
+      "from": "invitation_link since G119",
+      "screen": "together"
+    }
+  ]
+}

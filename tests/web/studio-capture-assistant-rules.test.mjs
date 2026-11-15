@@ -4,11 +4,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DRAFT_LIMITS, SECTION_KEYS, appendTranscript, draftBody, draftIsWords, normalizeDraft, plainNotes } from "../../web/studio/parts/capture-assistant-rules.js";
-import * as old from "../../web/admin/capture-assistant.js";
+import { readFileSync } from "node:fs";
+
+// What the old Admin's capture-assistant.js gave, frozen in R15 before it was deleted.
+const frozen = JSON.parse(readFileSync(new URL("./fixtures/old-admin-capture.json", import.meta.url), "utf8"));
 
 test("a transcript is made plain before it can reach the post's Markdown, the same as the old Admin did", () => {
-  const said = "# Heading\n> quote\n- list\n1. one\n<script>x</script> [link](javascript:x) &amp; ```\n---";
-  assert.equal(plainNotes(said), old.plainNotes(said));
+  assert.equal(plainNotes(frozen.plainNotes.said), frozen.plainNotes.plain);
   assert.equal(plainNotes("<b>hi</b>"), "&lt;b>hi&lt;/b>");
   assert.equal(plainNotes("[x](y)"), "\\[x](y)");
   assert.equal(plainNotes("# not a heading"), "\\# not a heading");
@@ -33,7 +35,8 @@ test("a write-up is read defensively, bounded and never empty", () => {
 test("a write-up fills the scaffold's own headings and nothing else", () => {
   const sections = { problem: "Leak", found: "", did: "Fixed", result: "Dry" };
   assert.equal(draftBody({ scaffold: "## A\n\n## B\n\n## C\n\n## D\n\n", sections }), "## A\n\nLeak\n\n## B\n\n## C\n\nFixed\n\n## D\n\nDry\n\n");
-  assert.equal(draftBody({ sections }), old.draftBody({ sections }));
+  assert.deepEqual(frozen.draftBody.sections, sections);
+  assert.equal(draftBody({ sections }), frozen.draftBody.body);
 });
 
 // Studio R8, B1: a write-up goes into her post's boxes, so it is words or it is nothing.

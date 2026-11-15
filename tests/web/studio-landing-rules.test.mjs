@@ -379,7 +379,7 @@ test("the starters shared with the Rust render test are up to date", () => {
   const path = new URL("../../crates/openblog-core/tests/fixtures/landing-starters.json", import.meta.url);
   const expected = JSON.stringify(Object.fromEntries(starterCases()), null, 2) + "\n";
   if (process.env.UPDATE_STARTERS) writeFixture(path, expected);
-  assert.equal(readFileSync(path, "utf8").replace(/\r\n/g, "\n"), expected, "run UPDATE_STARTERS=1 node --test tests/web/admin-landing.test.mjs");
+  assert.equal(readFileSync(path, "utf8").replace(/\r\n/g, "\n"), expected, "run UPDATE_STARTERS=1 node --test tests/web/studio-landing-rules.test.mjs");
 });
 
 // ---------------------------------------------------------------- plain-language copy and the tour (ADR 0259, #339)

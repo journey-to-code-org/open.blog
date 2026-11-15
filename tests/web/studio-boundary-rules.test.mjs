@@ -1,7 +1,6 @@
 // What readers see's rules (Studio R12), ported from admin-boundary.test.mjs: the pure cases. The
 // view is in tests/browser/studio-research-public.spec.mjs.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import * as rules from "../../web/studio/parts/boundary-rules.js";
 import { sayId } from "../../web/studio/parts/research-says.js";
@@ -11,10 +10,6 @@ const { BOUNDARY_STORES,HIDDEN_PROJECTIONS,boundaryStoreWords,BOUNDARY_REASONS,b
 // switch, every item it publishes with the fields it copies and the fields it keeps private,
 // every item it withholds with the reason in words and a link to where it is changed, what is
 // never published, and failures scoped to the projection or file they belong to.
-
-const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
-
-const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
 
 // ---------------------------------------------------------------- DOM shim
 
@@ -259,33 +254,3 @@ test("every withheld item links to where it is changed, by its own address", () 
   }
 });
 
-test("the preview builds DOM safely, adds no motion, reflows, and is reachable from the workspace and Evidence Studio", () => {
-  const start = admin.indexOf("// ---------------------------------------------------------------- what will be public");
-  const end = admin.indexOf("export function evidenceStudioState(");
-  const source = admin.slice(start, end);
-  assert.ok(start > 0 && end > start);
-  assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|outerHTML|localStorage|sessionStorage|indexedDB/);
-  assert.match(admin, /Object\.freeze\(\{ id: "public", label: "What will be public"/);
-  assert.match(admin, /else if \(panel === "public"\) await this\.showPublicPreview\(\);/);
-  assert.match(admin, /this\.api\.call\("GET", "research\/boundary"\)/);
-  assert.match(admin, /this\.app\.api\.call\("POST", "research\/boundary"/);
-  assert.match(admin, /"data-boundary-post-open": "true"/);
-  assert.match(admin, /\{ label: "What will be public", category: "Research"/);
-  const css = styles.slice(styles.indexOf("/* What will be public (ADR 0125)"));
-  assert.doesNotMatch(css, /transition|animation/);
-  assert.match(css, /overflow-wrap: anywhere/);
-  assert.match(css, /min-width: 0/);
-});
-
-test("the site preview sits under the panel's h2 and the post preview's button controls and reports its region", () => {
-  const panel = admin.slice(admin.indexOf("async showPublicPreview()"), admin.indexOf("// ---- what will be public (#63, ADR 0125)") + 4000);
-  assert.match(admin, /level: 3, scope: "site", postPaths/, "projections are h3 under the panel's h2");
-  assert.match(panel, /h\("h2", \{ id: "oba-boundary-heading" \}/);
-  assert.match(admin, /"data-boundary-post-open": "true", "aria-controls": "oba-boundary-post", "aria-expanded": "false"/);
-  assert.match(admin, /\{ id: "oba-boundary-post", class: "oba-boundary-post"/, "the button controls the region, not its heading");
-  assert.match(admin, /setAttribute\("aria-expanded", "true"\)/);
-  // A read of the post goes stale as soon as the draft is edited again.
-  assert.match(admin, /markBoundaryStale\(\) \{\s+if \(!this\.boundaryRead \|\| this\.boundaryStale/);
-  assert.match(admin, /markDirty\(\) \{\s+if \(!this\.ui\?\.saveState\) return;\s+this\.markBoundaryStale\(\);/);
-  assert.match(admin, /data-boundary-post-stale/);
-});

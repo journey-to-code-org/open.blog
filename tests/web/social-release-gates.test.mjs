@@ -194,7 +194,7 @@ test("each default provider API version is still served, as its provider documen
 
 test("every ADR the social code, SQL, settings and guide name exists", () => {
   const adrs = new Set(readdirSync(join(ROOT, "docs/adr")).map((name) => name.slice(0, 4)));
-  const sources = [...hosted, ...adminSide, "netlify.toml", "docs/social-publishing.md", "web/admin/social.js", "web/admin/announcements.js", ...readdirSync(join(ROOT, "supabase")).filter((name) => name.startsWith("social")).map((name) => `supabase/${name}`)];
+  const sources = [...hosted, ...adminSide, "netlify.toml", "docs/social-publishing.md", "web/studio/parts/social-rules.js", "web/studio/parts/announcements-rules.js", ...readdirSync(join(ROOT, "supabase")).filter((name) => name.startsWith("social")).map((name) => `supabase/${name}`)];
   for (const path of sources) {
     for (const match of read(path).matchAll(/ADRs?\s+(\d{4}(?:(?:\s*,\s*|\s+and\s+|\s+to\s+|-)\d{4})*)/g)) {
       for (const number of match[1].match(/\d{4}/g)) assert.ok(adrs.has(number), `${path} names ADR ${number}, which does not exist`);

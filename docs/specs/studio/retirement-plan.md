@@ -8,6 +8,8 @@ Sources: `web/admin/admin.js` route dispatch (l.12350–12381), `canonicalAdminH
 editor panes (l.22519), palette (l.12095), Advanced tools (l.11961), Personalize (l.12011); the
 route table in `crates/openblog-cli/src/admin.rs` (l.593–1140); `web/studio/screens/index.js`, `tools.js`.
 
+Status after R15 (2026-11-15): every row is **covered** or **drop**.
+
 Status: **covered** (Studio screen named) · **partial** (what's missing) · **missing** · **drop** (why).
 
 ## 1. Inventory: the definition of done
@@ -19,17 +21,17 @@ Status: **covered** (Studio screen named) · **partial** (what's missing) · **m
 | Session ended | Sign in again, work kept | `session` | covered: shell "Sign in again" dialog |
 | Sign out | | `logout` | covered: account menu |
 | `#/overview` | Quick create, publishing health, issues, inventory, recent posts | `status`, `documents`, `publish` | covered: Home |
-| Overview: recipe notes | Site-wide recipe advice | `recipe-notes` | **missing** (R1, on Home) |
-| Overview: ten-minute checklist | Trade-site setup steps | `trade-checklist` | **missing** (R1, on Home) |
-| Overview: voice invitation | "Write a voice sample" nudge | `voice/status` | **missing** (R9) |
+| Overview: recipe notes | Site-wide recipe advice | `recipe-notes` | covered: Home, recipe notes (R1) |
+| Overview: ten-minute checklist | Trade-site setup steps | `trade-checklist` | covered: Home, the ten-minute checklist (R1) |
+| Overview: voice invitation | "Write a voice sample" nudge | `voice/status` | covered: Home, the voice invitation (R9) |
 | Header publish box | Send out what's waiting | `publish` GET/POST, `rebuild` | covered: Home, `parts/publish.js` |
 | Command palette (Ctrl K) | Every route + "Show <pane>" | — | covered: Find (`shell.js`); panes come with R5–R8 |
 | Advanced tools dialog | Hidden tools of Simple preset | — | drop: Studio shows a screen when the site uses it; More tools disappears in R15 |
 | Personalize workspace | Preset, density, default editor mode, module order | `preferences` GET/PUT | drop (Decide 1): Studio has one layout; delete routes and `admin_preferences.rs` |
 | Admin light/dark button | Admin's own scheme | localStorage `ob-admin-scheme` | drop: Studio follows the system (`studio.css`) |
 | Saved work may vanish | `filesMayVanish` notice | `status`, `publish` | covered: `parts/site-health.js` |
-| Kept panels across the research workspace | Unsaved panels kept while moving | — | **missing** (R11; Studio's leave-guard covers single screens) |
-| Installed app | Manifest, icons, service worker | `/admin/manifest.webmanifest`, `/admin/icons/*`, `/admin/sw.js` | **missing** (R3) |
+| Kept panels across the research workspace | Unsaved panels kept while moving | — | covered: research keeps a form you leave within it until you come back (R11) |
+| Installed app | Manifest, icons, service worker | `/admin/manifest.webmanifest`, `/admin/icons/*`, `/admin/sw.js` | covered: `web/studio/sw.js`, icons and manifest (R3) |
 
 ### B. Lists and the post editor (`#/posts|pages|series`, `#/new/<kind>`, `#/new/recipe`, `#/edit/<path>[?pane=]`)
 | Old Admin | Does | API | Studio |
@@ -38,28 +40,28 @@ Status: **covered** (Studio screen named) · **partial** (what's missing) · **m
 | New post / recipe / page / series | | `document` POST | covered: `#/write/new/*`, Pages, Collections |
 | Write + Site preview panes | Words, photos, preview | `document`, `upload`, `images`, `preview` | covered: Write, page-edit |
 | Delete and restore | | `document` DELETE, `document/restore` | covered (Undo) |
-| Unreadable file | "Fix its front matter in a text editor" | `document` (`raw`) | partial: Studio says "open the old Admin", which can't open it either; say the server's reason (R0) |
+| Unreadable file | "Fix its front matter in a text editor" | `document` (`raw`) | covered: Write says the server's reason (R0, R5) |
 | Settings pane: core | Title, date, tags, cover + alt, series | `document` | covered: Write details |
-| Settings pane: the rest | Subtitle, slug, description, canonical, photo credit, pin title/description, comments, theme, part number, list order, abstract, authorship source | `document` | partial (R5) |
-| Content profile + its fields | article, recipe, job, video, field-journal, research | `meta.profiles` | partial: recipe only (R4 job, R5 the rest) |
-| Job form | `job.*` fields, checks | `job/check` | **missing** (R4) |
-| Credits | Ordered contributor credits per post | `document` (`credits`, `creditEtag`) | **missing** (R5) |
+| Settings pane: the rest | Subtitle, slug, description, canonical, photo credit, pin title/description, comments, theme, part number, list order, abstract, authorship source | `document` | covered: About this post and its details (R5) |
+| Content profile + its fields | article, recipe, job, video, field-journal, research | `meta.profiles` | covered: About this post, one kind's own facts (R4, R5) |
+| Job form | `job.*` fields, checks | `job/check` | covered: About this job and the job check on Publish (R4) |
+| Credits | Ordered contributor credits per post | `document` (`credits`, `creditEtag`) | covered: About this post › Who wrote it (R5) |
 | Visual / Markdown modes | WYSIWYG beside source | — | drop: Studio's Words box and recipe boxes replace both; blocks get forms in R6 |
-| Add something | Callouts, tables, task lists, embeds, before/after, pieces | `pieces` | **missing** (R6) |
-| Paste cleanup (`paste.js`) | Clipboard HTML to Markdown | — | partial: recipe boxes only (R6) |
-| Plain-language checks | Suggestions with "Fix it" | — | **missing** (R6) |
-| Portable output | Ghost, Hashnode, Medium copy/download | `portability/acknowledge` | **missing** (R5) |
-| Share this job link | | — | **missing** (R1) |
-| GPX track upload | | `track-upload` POST/DELETE | **missing** (R7) |
-| Pane: Social | OpenGraph card preview | `preview` | **missing** (R7) |
-| Pane: Optimize | Search and sharing readiness | `preview` | **missing** (R7) |
-| Pane: Accessibility | Findings and repairs | `preview` | **missing** (R7) |
-| Pane: Release kit | Video chapters, YouTube description | — (client) | **missing** (R7) |
-| Pane: Field review | Route facts, location privacy | — (client) | **missing** (R7) |
-| Publication review | Research review before publish | `research/review`, `research/review/acknowledgements` | **missing** (R7) |
-| Pane: Evidence | Claims, links, anchors, references, bibliography | `research/claims*`, `citations/library`, `citations/check` | **missing** (R12) |
-| Pane: Assistant | Review, autocomplete, knowledge check, runnable code, skills, context, references, URL context, provider | `assistant/*`, `quiz/generate` | **missing** (R8) |
-| Beside the draft: research insert, curation | | `research/draft`, `research/curation*` | **missing** (R11, R12) |
+| Add something | Callouts, tables, task lists, embeds, before/after, pieces | `pieces` | covered: Add something (R6) |
+| Paste cleanup (`paste.js`) | Clipboard HTML to Markdown | — | covered: every box (R6, `parts/paste.js`) |
+| Plain-language checks | Suggestions with "Fix it" | — | covered: Suggestions under the words (R6, `parts/checks.js`) |
+| Portable output | Ghost, Hashnode, Medium copy/download | `portability/acknowledge` | covered: Copy it for another blog (R5) |
+| Share this job link | | — | covered: Sharing › Share this job (R1) |
+| GPX track upload | | `track-upload` POST/DELETE | covered: Your route (R7) |
+| Pane: Social | OpenGraph card preview | `preview` | covered: Before you publish (R7) |
+| Pane: Optimize | Search and sharing readiness | `preview` | covered: Before you publish (R7) |
+| Pane: Accessibility | Findings and repairs | `preview` | covered: Before you publish (R7) |
+| Pane: Release kit | Video chapters, YouTube description | — (client) | covered: Words for YouTube (R7) |
+| Pane: Field review | Route facts, location privacy | — (client) | covered: Your route (R7) |
+| Publication review | Research review before publish | `research/review`, `research/review/acknowledgements` | covered: Before you publish, research review (R7) |
+| Pane: Evidence | Claims, links, anchors, references, bibliography | `research/claims*`, `citations/library`, `citations/check` | covered: Claims and evidence (R12) |
+| Pane: Assistant | Review, autocomplete, knowledge check, runnable code, skills, context, references, URL context, provider | `assistant/*`, `quiz/generate` | covered: Writing helper (R8) |
+| Beside the draft: research insert, curation | | `research/draft`, `research/curation*` | covered: Your research beside the words, For readers (R11, R12) |
 
 ### C. Site and look
 | Old Admin | Does | API | Studio |
@@ -67,56 +69,56 @@ Status: **covered** (Studio screen named) · **partial** (what's missing) · **m
 | `#/landing` | Sections, components, history | `landing*` | covered: Front page |
 | `#/look`, `#/appearance` | Look; light/dark button | `look*`, `appearance` | covered: Look |
 | `#/seasons` | Theme by calendar | `seasons`, `seasons/preview` | covered: Decorations |
-| `#/design` | Describe a theme, preview, save | `theme-draft*` | **missing** (R9) |
+| `#/design` | Describe a theme, preview, save | `theme-draft*` | covered: Look › Describe a new look (R9) |
 | `#/business` | Business facts | `business` | covered: Business |
 | `#/services[/new\|/edit/…]`, `#/reviews[…]` | | `documents?kind=`, `document` | covered: Services, Reviews |
-| `#/reminders` | Seasonal prompts; topics and dates | `seasonal*` | partial: changing topics and dates (`PUT seasonal`) (R1) |
-| `#/distribution` "Where it went" | Every post and where it went | `distribution`, `social/announcements` | **missing** (R1) |
-| `#/contributors` | Site contributors, ORCID, roles | `contributors` GET/PUT | **missing** (R5) |
+| `#/reminders` | Seasonal prompts; topics and dates | `seasonal*` | covered: Reminders, Change topics and dates (R1) |
+| `#/distribution` "Where it went" | Every post and where it went | `distribution`, `social/announcements` | covered: Sharing, Where each post went (R1) |
+| `#/contributors` | Site contributors, ORCID, roles | `contributors` GET/PUT | covered: People (R5) |
 
 ### D. Customers, family, sharing
 | Old Admin | Does | API | Studio |
 |---|---|---|---|
-| `#/quotes` | Requests, status, export, erase | `quote/*` | partial: auto-erase setting (`quote/retention`, `/retention/run`), date-range export (R1) |
+| `#/quotes` | Requests, status, export, erase | `quote/*` | covered: Quote requests, export and clean up (R1) |
 | `#/greetings` | Cards, contacts, test | `greetings/*` | covered: Cards |
-| `#/social` | Connect, reconnect, choose destination, cancel, disconnect | `social/status`, `social/connections*`, `social/accounts/*` | partial: list + disconnect; connect/reconnect/select/cancel missing (R2) |
-| `#/announcements` | Compose, queue, edit, reschedule, resolve, attempts, health | `social/announcements*`, `social/preview`, `social/posts`, `social/destinations` | partial: compose, cancel, retry; edit (PATCH), reschedule, resolve, attempts, health, preview missing (R1) |
-| `#/share/<path>` | One job to Google, Facebook, Nextdoor | `job-share`, `job-share/by-hand` | **missing** (R1) |
-| `#/capture` | Phone capture: photos, voice note, offline queue | `upload`, `capture-audio`, `document`, `assistant/transcribe`, `assistant/job-draft` | **missing** (R4) |
-| `#/notifications` | Push on this device, topics, test, devices | `push/*` | **missing** (R3) |
+| `#/social` | Connect, reconnect, choose destination, cancel, disconnect | `social/status`, `social/connections*`, `social/accounts/*` | covered: Sharing › Your accounts (R2) |
+| `#/announcements` | Compose, queue, edit, reschedule, resolve, attempts, health | `social/announcements*`, `social/preview`, `social/posts`, `social/destinations` | covered: Sharing, each share's sheets and Delivery health (R1) |
+| `#/share/<path>` | One job to Google, Facebook, Nextdoor | `job-share`, `job-share/by-hand` | covered: Sharing › Share this job (R1) |
+| `#/capture` | Phone capture: photos, voice note, offline queue | `upload`, `capture-audio`, `document`, `assistant/transcribe`, `assistant/job-draft` | covered: New job (R4) |
+| `#/notifications` | Push on this device, topics, test, devices | `push/*` | covered: Notifications (R3) |
 
 ### E. Readers
 | Old Admin | Does | API | Studio |
 |---|---|---|---|
-| `#/analytics[/<days>]` | Reader numbers | `analytics?days`, `engagement/analytics` | partial: 7/30/90 days; add 365 (R10) |
-| Hosted comments and analytics setup | Endpoint, credential, captcha, switches | `engagement/settings` | partial: comments on/off only (R10) |
-| `#/moderation[/<state>][?kind=]`, `#/feedback` | Ten kinds, incl. clarification and withdrawn | `engagement/moderation*`, `author-response` | partial: comments and abuse reports only (R10) |
-| Inbox: published notes | Publish/unpublish feedback, third perspectives, author responses; respond; revision notes | `engagement/feedback/*`, `third-perspectives/*`, `author-responses/*` | **missing** (R10) |
-| Inbox: suggestions | Export, link to a post | `engagement/suggestions/*` | **missing** (R10) |
-| Inbox: community features | Preview, feature, note, unfeature | `engagement/community/*` | **missing** (R10) |
-| Inbox: continuations | Preview, link, unlink, sweep | `engagement/continuations*` | **missing** (R10) |
-| Inbox: retention | Dry run, run | `engagement/retention` | **missing** (R10) |
+| `#/analytics[/<days>]` | Reader numbers | `analytics?days`, `engagement/analytics` | covered: Readers › Visitors, 7 to 365 days (R10) |
+| Hosted comments and analytics setup | Endpoint, credential, captcha, switches | `engagement/settings` | covered: Readers › How readers reach you (R10) |
+| `#/moderation[/<state>][?kind=]`, `#/feedback` | Ten kinds, incl. clarification and withdrawn | `engagement/moderation*`, `author-response` | covered: Readers, every kind and view (R10) |
+| Inbox: published notes | Publish/unpublish feedback, third perspectives, author responses; respond; revision notes | `engagement/feedback/*`, `third-perspectives/*`, `author-responses/*` | covered: Readers, a card's decisions (R10) |
+| Inbox: suggestions | Export, link to a post | `engagement/suggestions/*` | covered: Readers, suggestions (R10) |
+| Inbox: community features | Preview, feature, note, unfeature | `engagement/community/*` | covered: Readers, community features (R10) |
+| Inbox: continuations | Preview, link, unlink, sweep | `engagement/continuations*` | covered: Readers, links to later posts (R10) |
+| Inbox: retention | Dry run, run | `engagement/retention` | covered: Readers › How readers reach you, clearing out (R10) |
 
 ### F. Research, comparisons, reading paths
 | Old Admin | Does | API | Studio |
 |---|---|---|---|
-| `#/research/overview` | Workflow from source to draft | (aggregates below) | **missing** (R11) |
-| `#/research/sources[/<id>]` (old `#/sources`) | Library, import, export, archive | `sources*` | **missing** (R11) |
-| `#/research/notebook` (old `#/research`) | Passages, notes, search, backlinks, import/export | `research/notebook`, `passages`, `notes`, `search`, `backlinks`, `archive`, `import`, `export` | **missing** (R11) |
-| `#/research/atlas[/<id>\|/relationships/<id>]` (old `#/atlas`) | Entries, relationships, chronology, explore | `research/atlas*` | **missing** (R12) |
-| `#/research/compare[/<id>]` (old `#/compare`) | Aligned passages | `research/alignments` | **missing** (R12) |
-| `#/research/public` | What will be public | `research/boundary` GET/POST, `research/readiness` | **missing** (R12) |
-| `#/comparisons[/new\|/edit/<slug>]` | Interpretation comparison pages, approve/revoke | `comparisons*` | **missing** (R13) |
-| `#/paths[/new\|/edit/<slug>]` | Reading paths | `reading-paths*` | **missing** (R13) |
+| `#/research/overview` | Workflow from source to draft | (aggregates below) | covered: Research home (R11) |
+| `#/research/sources[/<id>]` (old `#/sources`) | Library, import, export, archive | `sources*` | covered: Research › Sources (R11) |
+| `#/research/notebook` (old `#/research`) | Passages, notes, search, backlinks, import/export | `research/notebook`, `passages`, `notes`, `search`, `backlinks`, `archive`, `import`, `export` | covered: Research › Notebook (R11) |
+| `#/research/atlas[/<id>\|/relationships/<id>]` (old `#/atlas`) | Entries, relationships, chronology, explore | `research/atlas*` | covered: Research › Atlas (R12) |
+| `#/research/compare[/<id>]` (old `#/compare`) | Aligned passages | `research/alignments` | covered: Research › Compare (R12) |
+| `#/research/public` | What will be public | `research/boundary` GET/POST, `research/readiness` | covered: Research › What readers see (R12) |
+| `#/comparisons[/new\|/edit/<slug>]` | Interpretation comparison pages, approve/revoke | `comparisons*` | covered: Research › Readings side by side (R13) |
+| `#/paths[/new\|/edit/<slug>]` | Reading paths | `reading-paths*` | covered: Reading paths (R13) |
 
 ### G. Collaboration and voice
 | Old Admin | Does | API | Studio |
 |---|---|---|---|
-| `#/shared`, `#/shared/new` | Shared reflections; start one from a source | `collaboration/publications*` | **missing** (R14) |
-| Shared reflection workspace | Invitations, members, roles, own draft, reveal, approval policy, arrangement, preview, series, synthesis, moments | `collaboration/*` | **missing** (R14) |
-| `#/shared/accept/<token>` | Accept or decline an invitation | `collaboration/invitations/accept\|decline` | **missing** (R14) |
-| `#/voice` session | Draw prompts, timed rough draft, polished copy | `voice/status`, `draw`, `session*` | **missing** (R9) |
-| `#/voice` library, erase, move guide | | `voice/samples*`, `voice/erase`, `voice/guide/move` | **missing** (R9) |
+| `#/shared`, `#/shared/new` | Shared reflections; start one from a source | `collaboration/publications*` | covered: Writing together (R14a) |
+| Shared reflection workspace | Invitations, members, roles, own draft, reveal, approval policy, arrangement, preview, series, synthesis, moments | `collaboration/*` | covered: Writing together (R14a, R14b) |
+| `#/shared/accept/<token>` | Accept or decline an invitation | `collaboration/invitations/accept\|decline` | covered: Writing together › Join (R14a) |
+| `#/voice` session | Draw prompts, timed rough draft, polished copy | `voice/status`, `draw`, `session*` | covered: Your writing voice (R9) |
+| `#/voice` library, erase, move guide | | `voice/samples*`, `voice/erase`, `voice/guide/move` | covered: Your writing voice (R9) |
 
 ### H. Routes with no caller anywhere
 `document/rename`, `reading-paths/reorder`, `collaboration/approve`, `approve/withdraw`, `schedule`, `publish`,

@@ -151,10 +151,3 @@ function panelServer(extra = () => null) {
   };
 }
 
-test("the page ships the styles that keep the section inside 320 pixels", () => {
-  const css = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
-  const block = css.slice(css.indexOf(".oba-curation {"));
-  assert.match(block, /\.oba-curation \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/s);
-  assert.match(css, /\.oba-curation-exact pre \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/s);
-  assert.match(css, /@media \(max-width: 24rem\)[^{]*\{[^}]*\.oba-curation-item \.oba-toolbar \.oba-btn/s);
-});

@@ -7,7 +7,12 @@ import test from "node:test";
 
 import { createCaptureQueue, createMemoryStore, makeRecord } from "../../web/studio/parts/capture-queue.js";
 import { createJobSender, detailsText, entryState, freshCopy, retryDelay, sendCapture, sendOutcome, stepWords, timeLimit } from "../../web/studio/parts/job-sender.js";
-import * as old from "../../web/admin/capture-queue.js";
+import { readFileSync } from "node:fs";
+
+// A job the old Admin's capture-queue.js wrote, frozen in R15 before it was deleted.
+const frozen = JSON.parse(readFileSync(new URL("./fixtures/old-admin-capture.json", import.meta.url), "utf8"));
+/** A record as the old Admin wrote it, with its photos' blobs made again. */
+const revive = (record) => ({ ...record, photos: record.photos.map((p) => ({ ...p, blob: new Blob([new Uint8Array(p.blob.blobBytes)]) })) });
 
 const SCAFFOLD = "## Problem\n\n## What we found\n\n## What we did\n\n## Result\n\n";
 const idOf = (n) => String(n).padStart(32, "0");
@@ -210,7 +215,7 @@ test("a job kept with no signal goes when the signal comes back, and is taken of
 test("a job saved by the old Admin is read and sent by Studio, and its write-up still sends as before", async () => {
   const blog = fakeBlog();
   const store = createMemoryStore();
-  const written = old.makeRecord({ ...capture(7), fields: { ...capture(7).fields, draft: { title: "New roof", description: "", sections: { problem: "Leak", found: "", did: "Fixed", result: "" } } } }, new Date("2026-11-12T10:00:00Z"));
+  const written = revive(frozen.recordWithDraft);
   await store.put(written);
   const jobs = sender(blog, store);
   assert.equal(await jobs.start(), true);
@@ -258,23 +263,6 @@ test("two windows sending one job make one draft and lose nothing, with or witho
     const documents = blog.calls.filter((call) => call.path === "document").length;
     if (locks) assert.equal(documents, 1, "only one window sends it");
   }
-});
-
-test("the old Admin and Studio open together on one store lose nothing: a job either sends or stays", async () => {
-  const blog = fakeBlog();
-  const store = createMemoryStore();
-  // The old Admin keeps a job and starts sending it; Studio sends the same one at the same time.
-  const oldQueue = old.createCaptureQueue({ store, send: async (record) => {
-    const { path } = await sendCapture({ api: blog.api, capture: record, scaffold: SCAFFOLD });
-    return { path, skipped: [] };
-  } });
-  assert.deepEqual(await oldQueue.add(capture(1)), { ok: true });
-  const jobs = sender(blog, store);
-  await jobs.start();
-  await jobs.add(capture(2));
-  await Promise.all([oldQueue.flush(), jobs.flush()]);
-  assert.equal(blog.drafts.size, 2);
-  assert.equal((await store.all()).length, 0);
 });
 
 test("a refused job is marked with its code and the next still goes; Try again sends it when asked", async () => {

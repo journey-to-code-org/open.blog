@@ -8,10 +8,12 @@ import {
   POLISHED_COPY_TTL_MS, ROUGH_COPY_TTL_MS, clearVoiceCopies, createPolishedDraftStore, createVoiceDraftStore, draftKey, forgetMemoryCopies, polishedKey, voiceCopiesAtRisk, voiceCopiesOnPhone,
 } from "../../web/studio/parts/voice-copies.js";
 import { VOICE_LIMITS } from "../../web/studio/parts/voice-rules.js";
-import * as old from "../../web/admin/voice.js";
+import { readFileSync } from "node:fs";
 import { fakeStorage } from "./voice-harness.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
+// What the old Admin's voice.js kept for the same two saves, frozen in R15 before it was deleted.
+const frozen = JSON.parse(readFileSync(new URL("./fixtures/old-admin-voice.json", import.meta.url), "utf8"));
 
 test("the copy is bounded, versioned, and ignores records it doesn't recognise", () => {
   forgetMemoryCopies();
@@ -118,8 +120,7 @@ test("the keys and records are byte for byte the old Admin's, both ways", () => 
   assert.equal(draftKey("grammi"), "ob-voice-draft:grammi");
   assert.equal(polishedKey("grammi", "2026-10-20-a-rough.md"), "ob-voice-polished:grammi:2026-10-20-a-rough.md");
   // Written by the old Admin's code, read by Studio's.
-  old.createVoiceDraftStore(draftKey("grammi"), () => storage).save({ sessionId: "a@1", deadline: "2026-10-28T09:03:00Z", text: "typed in the old Admin" }, 77);
-  old.createPolishedDraftStore(polishedKey("grammi", "a-rough.md"), () => storage).save({ base: "rev1", title: "Old", body: "polished there" }, 78);
+  for (const [key, value] of frozen.values) storage.values.set(key, value);
   const fromOld = new Map(storage.values);
   assert.deepEqual(createVoiceDraftStore(draftKey("grammi"), () => storage).load(100), { v: 1, sessionId: "a@1", deadline: "2026-10-28T09:03:00Z", text: "typed in the old Admin", savedAt: 77 });
   assert.deepEqual(createPolishedDraftStore(polishedKey("grammi", "a-rough.md"), () => storage).load(100), { v: 1, base: "rev1", title: "Old", body: "polished there", savedAt: 78 });
@@ -127,9 +128,7 @@ test("the keys and records are byte for byte the old Admin's, both ways", () => 
   const mine = fakeStorage();
   createVoiceDraftStore(draftKey("grammi"), () => mine).save({ sessionId: "a@1", deadline: "2026-10-28T09:03:00Z", text: "typed in the old Admin" }, 77);
   createPolishedDraftStore(polishedKey("grammi", "a-rough.md"), () => mine).save({ base: "rev1", title: "Old", body: "polished there" }, 78);
-  assert.deepEqual([...mine.values], [...fromOld], "identical keys and identical JSON");
-  assert.equal(old.createVoiceDraftStore(draftKey("grammi"), () => mine).load(100).text, "typed in the old Admin");
-  assert.equal(old.createPolishedDraftStore(polishedKey("grammi", "a-rough.md"), () => mine).load(100).body, "polished there");
+  assert.deepEqual([...mine.values], [...fromOld], "identical keys and identical JSON, so the old Admin read Studio's too");
 });
 
 test("signing out clears every voice copy by prefix and nothing else", () => {
