@@ -58,8 +58,13 @@ export const SCREENS = [
   // navigation shows it only on a site that uses research (G92). #/research is home,
   // #/research/sources[/<key>] the library, #/research/notebook[/<id>] the notebook; R12 adds
   // #/research/atlas[/…], #/research/compare[/<id>] and #/research/public.
-  { name: "research", get nav() { return say("research.nav"); }, area: "research", navWhen: researchUsed,
-    create: (context, route) => (/^atlas(\/|$)/.test(route.arg) ? createAtlas(context, route)
+  // R13 adds Readings side by side under #/research/readings (list), #/research/readings/new and
+  // #/research/reading/<address> (editor); a site with readings and no other research still gets the door.
+  { name: "research", get nav() { return say("research.nav"); }, area: "research", navWhen: (meta) => researchUsed(meta) || meta.siteUses?.readings === true,
+    create: (context, route) => (/^readings\/new$/.test(route.arg) ? createReadingEdit(context, { ...route, arg: "new" })
+      : /^readings$/.test(route.arg) ? createReadings(context)
+      : /^reading\/./.test(route.arg) ? createReadingEdit(context, { ...route, arg: route.arg.slice("reading/".length) })
+      : /^atlas(\/|$)/.test(route.arg) ? createAtlas(context, route)
       : /^compare(\/|$)/.test(route.arg) ? createCompare(context, route)
       : /^public(\/|$)/.test(route.arg) ? createResearchPublic(context, route)
       : /^sources(\/|$)/.test(route.arg) ? createSources(context, route)
@@ -76,16 +81,6 @@ export const SCREENS = [
   // address and Find ("Make a reading path") reach them. #/paths/new and #/path/<address> are the editor.
   { name: "paths", nav: () => say("paths.nav"), area: "paths", navWhen: (meta) => meta.siteUses?.paths === true, create: (context, route) => (route.arg === "new" ? createPathEdit(context, route) : createPaths(context)) },
   { name: "path", area: "paths", create: (context, route) => createPathEdit(context, route) },
-  // R13: readings side by side. There is no Research area on this branch, so Readings is its own door under
-  // #/research/readings (list), #/research/readings/new and #/research/reading/<address> (editor); any other
-  // #/research address is still "not yet".
-  { name: "research", nav: () => say("readings.findList"), href: "#/research/readings", area: "research", navWhen: (meta) => meta.siteUses?.readings === true, create: (context, route) => {
-    const [part, ...rest] = String(route.arg || "").split("/");
-    if (part === "readings" && rest[0] === "new") return createReadingEdit(context, { ...route, arg: "new" });
-    if (part === "readings") return createReadings(context);
-    if (part === "reading" && rest.length) return createReadingEdit(context, { ...route, arg: rest.join("/") });
-    return createNotYet(context, { ...route, arg: "research" });
-  } },
   { name: "front-page", nav: "Front page", area: "front-page", create: (context) => createLanding(context) },
   // R10: Readers (what readers sent, Visitors, How readers reach you). In the navigation when comments are
   // set up or there are visitor numbers; always routable, so an old address and Find reach How readers reach you.
