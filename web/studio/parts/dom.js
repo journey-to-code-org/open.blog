@@ -31,6 +31,12 @@ export function h(tag, props = {}, ...children) {
   return node;
 }
 
+/**
+ * A mark that is only for the eye (the arrow of a way back): shown, and left out of the control's
+ * name, so a screen reader says the words alone.
+ */
+export const glyph = (mark) => h("span", { "aria-hidden": "true", text: mark });
+
 export function append(node, children) {
   for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;

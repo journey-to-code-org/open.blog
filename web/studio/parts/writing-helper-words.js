@@ -118,7 +118,8 @@ export const WORDS = {
   "helper.nonsense": { text: "Your helper sent back something that didn't make sense, so nothing changed. Try again.", layer: "her" },
   "helper.refused": { text: "{company} wouldn't answer this one. Your words are as they were.", layer: "her" },
   "helper.cutShort": { text: "The answer was cut off, so nothing changed. Try a smaller part.", layer: "her" },
-  "helper.keyRejected": { text: "{company} didn't accept the key for {product}. Tell {helper}.", layer: "her" },
+  // The one her-layer sentence outside Getting started's key step that says "key" (R8, N1).
+  "helper.keyRejected": { text: "{company} didn't accept {product}'s key. Tell {helper}.", layer: "her", allows: ["key"] },
   "helper.keyRejectedDetail": { text: "The key was refused (HTTP 401/403). Replace it on the Writing helper screen.", layer: "details" },
   "helper.goToSetup": { text: "Go to setup", layer: "details" },
   "helper.turnedOff": { text: "Your writing helper was turned off. Tell {helper}.", layer: "her" },
@@ -134,11 +135,13 @@ export const WORDS = {
 
   // ---- what your helper found
   "found.heading": { text: "What your helper found", layer: "her" },
-  "found.back": { text: "‹ Read it over again", layer: "her" },
+  "found.back": { text: "Read it over again", layer: "her" },
   "found.countOne": { text: "1 suggestion. From your writing helper. It can be wrong.", layer: "her" },
   "found.count": { text: "{count} suggestions. From your writing helper. It can be wrong.", layer: "her" },
   "found.inBox": { text: "In {box}", layer: "her" },
   "found.near": { text: "Near “{words}”", layer: "her" },
+  "found.inBoxWithin": { text: "in {box}", layer: "her" },
+  "found.nearWithin": { text: "near “{words}”", layer: "her" },
   "found.try": { text: "Try: “{words}”", layer: "her" },
   "found.tryNothing": { text: "Try: take these words out", layer: "her" },
   "found.fromNotes": { text: "Based on your notes.", layer: "her" },

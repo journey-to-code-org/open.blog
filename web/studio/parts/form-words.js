@@ -46,7 +46,7 @@ export const WORDS = {
   "form.photoAdd": { text: "Add a photo", layer: "her" },
   "form.photoAddHelp": { text: "From your phone or computer.", layer: "her" },
   "form.photoOnSite": { text: "Or use one already on your site", layer: "her" },
-  "form.photoLoading": { text: "Finding your photos", layer: "her" },
+  "form.photoLoading": { text: "Looking for your photos", layer: "her" },
   "form.photoNone": { text: "There are no photos on your site yet. Add one above.", layer: "her" },
   "form.photoNoSignal": { text: "Your photos show here when there's a signal.", layer: "her" },
   "form.photoAdding": { text: "Adding your photo…", layer: "her" },

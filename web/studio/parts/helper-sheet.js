@@ -6,7 +6,7 @@
 //
 // Nothing leaves before she presses Read it over; what the list says is computed from her choices
 // only; results live in this page's memory for this visit and nowhere else.
-import { fill, h, toast } from "./dom.js";
+import { fill, glyph, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { trapFocus } from "./focus-trap.js";
@@ -40,7 +40,7 @@ export async function createHelperSheet({ api, write }) {
   const heading = h("span", { slot: "heading", tabindex: "-1" });
   const status = h("p", { class: "studio-ready-status", role: "status", tabindex: "-1" });
   const formHost = h("div", { class: "studio-ready-body studio-helper-form" });
-  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => showForm({ focus: true }) }, say("found.back"));
+  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => showForm({ focus: true }) }, glyph("‹ "), say("found.back"));
   const close_ = h("action-button", { variant: "secondary", onClick: () => close() }, say("helper.close"));
   const useAllLabel = h("span", {});
   const useAll = h("action-button", { hidden: true, onClick: () => found.useAll() }, useAllLabel);

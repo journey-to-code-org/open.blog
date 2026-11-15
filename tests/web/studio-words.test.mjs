@@ -183,14 +183,33 @@ test("her-layer defaults never use a banned word", () => {
     assert.equal(bannedExcept(entry.text, entry.allows), "", id);
     assert.equal(bannedExcept(say(id), entry.allows), "", `${id} filled in`);
   }
-  // The one exception (R9, decided): "a piece" of her own writing, on Your writing voice and
-  // Getting started only. No other id may allow anything.
+  // The exceptions, each decided and each held to its own place. No other id may allow anything:
+  // - "a piece" of her own writing (R9), on Your writing voice and Getting started only;
+  // - a writing "prompt" (R9), on Your writing voice and its line on Home only;
+  // - "key" (R8), on Getting started's key step, where a sentence explains it, and in the two
+  //   sentences for a key the company refused; "API" only as the name another app shows there.
+  const MAY = {
+    piece: /^(voice|home|helper|start)\./,
+    prompt: /^(voice|home)\./,
+    key: /^(start\.key[A-Z0-9]\w*|start\.voiceKeyProblem|helper\.keyRejected)$/,
+    api: /^start\.keyStep3$/,
+  };
   for (const [id, entry] of Object.entries(catalog())) {
     if (!entry.allows) continue;
-    assert.deepEqual(entry.allows, ["piece"], id);
-    assert.match(id, /^(voice|home|helper|start)\./, `${id} may not allow a banned word`);
-    assert.match(entry.text, /\bpiece\b/i, `${id} allows a word it doesn't use`);
+    assert.equal(entry.layer, "her", `${id}: only a her-layer id needs to allow a word`);
+    for (const word of entry.allows) {
+      assert.ok(MAY[word], `${id} allows "${word}", which nothing may`);
+      assert.match(id, MAY[word], `${id} may not allow "${word}"`);
+      assert.match(entry.text, new RegExp(`\\b${word}\\b`, "i"), `${id} allows a word it doesn't use`);
+    }
   }
+  // R8's machinery is on the list, so every her-layer sentence is held to it (N6).
+  for (const word of ["provider", "ai provider", "model", "api key", "api", "key", "credential", "prompt", "token", "completion", "autocomplete", "skill", "context", "snapshot", "severity", "scope", "finding"]) {
+    assert.ok(HER_BANNED_WORDS.includes(word), word);
+    assert.equal(bannedIn(`Your ${word} here`), word === "api key" ? "api key" : word === "ai provider" ? "ai provider" : word, word);
+  }
+  assert.equal(bannedIn("Use the keyboard, a modelled tokenised contextual skillful thing"), "", "whole words only");
+  assert.equal(say("helper.keyRejected", { company: "Anthropic" }), "Anthropic didn't accept your blog's key. Tell the person who set up your site.");
   assert.equal(bannedExcept("Write a piece", ["piece"]), "");
   assert.equal(bannedExcept("Sync a piece", ["piece"]), "sync");
   assert.equal(bannedExcept("Write a piece"), "piece");

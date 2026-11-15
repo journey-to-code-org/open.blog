@@ -20,6 +20,14 @@ const PLAIN = {
   503: "Your site's server is busy. Try again in a moment.",
 };
 
+/** The fields of a request that hold a secret: a key, a token, a password. */
+const SECRET_FIELDS = ["credential", "appPassword", "password", "newPassword", "currentPassword", "token", "secret"];
+
+/** Whether a request's JSON carries a secret (a field of `SECRET_FIELDS` with something in it). */
+export function carriesSecret(json) {
+  return Boolean(json) && typeof json === "object" && SECRET_FIELDS.some((name) => typeof json[name] === "string" && json[name] !== "");
+}
+
 export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globalThis.fetch(...args) } = {}) {
   const api = {
     csrf: "",
@@ -30,6 +38,10 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
     /**
      * `retry: false` never asks her to sign in again (a background send marks "Needs you" instead);
      * `signal` limits how long it may take: running out is "no answer" (status 0).
+     *
+     * A request that carries a secret (`carriesSecret`) is sent once and never again by this
+     * code: not when the site is busy, and not after a new sign-in. It fails with what the server
+     * said, and the screen asks her to paste the secret again.
      */
     async call(method, path, { json, body, headers = {}, retry = true, busyTries = 0, signal } = {}) {
       const init = { method, credentials: "same-origin", headers: { ...headers } };
@@ -49,14 +61,16 @@ export function createApi({ base = "/admin/api/", fetchImpl = (...args) => globa
       }
       const data = await response.json().catch(() => null);
       if (response.ok) return data;
-      // A read that found the site busy (another request holds its lock for a moment), or any
+      // A read that found the site busy (another request holds its lock for a moment), or a
       // request refused as `busy` (the lock was taken before anything happened), changes nothing,
-      // so it's asked again shortly, a few times, before saying so.
-      if (response.status === 409 && (method === "GET" || data?.code === "busy") && (busyTries ?? 0) < 4) {
+      // so it's asked again shortly, a few times, before saying so. Except one that carries a
+      // secret: that is never sent twice, nor kept waiting to be.
+      const once = carriesSecret(json);
+      if (!once && response.status === 409 && (method === "GET" || data?.code === "busy") && (busyTries ?? 0) < 4) {
         await new Promise((resolve) => setTimeout(resolve, 120 * ((busyTries ?? 0) + 1)));
         return api.call(method, path, { json, body, headers, retry, busyTries: (busyTries ?? 0) + 1, signal });
       }
-      if (response.status === 401 && retry && path !== "login" && api.onSignedOut) {
+      if (!once && response.status === 401 && retry && path !== "login" && api.onSignedOut) {
         await api.onSignedOut(data?.error);
         return api.call(method, path, { json, body, headers, retry: false, signal });
       }

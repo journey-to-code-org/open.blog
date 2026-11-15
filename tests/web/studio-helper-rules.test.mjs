@@ -15,7 +15,7 @@ import {
 } from "../../web/studio/parts/helper-rules.js";
 import { defaultContextIds } from "../../web/studio/parts/helper-context-rules.js";
 import { completionRequest, plainCompletion } from "../../web/studio/parts/suggest-rules.js";
-import { configureWords } from "../../web/studio/parts/words.js";
+import { configureWords, say } from "../../web/studio/parts/words.js";
 import { transcribeTrouble, writeUpTrouble } from "../../web/studio/parts/job-words.js";
 
 const SKILLS = [
@@ -166,7 +166,7 @@ test("every failed helper call has one sentence for her and the facts for the he
   assert.equal(say_(502, { code: "refused" }).words, "Anthropic wouldn't answer this one. Your words are as they were.");
   assert.equal(say_(502, { code: "cut-short" }).words, "The answer was cut off, so nothing changed. Try a smaller part.");
   const rejected = say_(502, { code: "key-rejected", error: "Anthropic returned HTTP 401" });
-  assert.equal(rejected.words, "Anthropic didn't accept the key for your blog. Tell the person who set up your site.");
+  assert.equal(rejected.words, "Anthropic didn't accept your blog's key. Tell the person who set up your site.");
   assert.equal(rejected.setup, true);
   for (const code of ["missing-credential", "not-configured", "invalid-configuration"]) {
     const off = say_(code === "not-configured" ? 404 : 503, { code });
@@ -211,7 +211,7 @@ test("R4's voice note and write-up keep their own lines and share the rest", () 
   assert.equal(transcribeTrouble({ status: 504, data: { code: "timeout" } }), "Your helper took too long, so nothing came back. Try a smaller part. Your voice note is still here.");
   assert.match(writeUpTrouble({ data: { code: "notes-too-long" } }), /Shorten them/);
   assert.match(writeUpTrouble({ data: { code: "no-notes" } }), /Write a few words/);
-  assert.equal(writeUpTrouble({ status: 502, data: { code: "key-rejected" } }, { company: "Anthropic" }), "Anthropic didn't accept the key for your blog. Tell the person who set up your site.");
+  assert.equal(writeUpTrouble({ status: 502, data: { code: "key-rejected" } }, { company: "Anthropic" }), "Anthropic didn't accept your blog's key. Tell the person who set up your site.");
   assert.equal(writeUpTrouble({}), "Your helper sent back something that didn't make sense, so nothing changed. Try again.");
 });
 
@@ -435,6 +435,10 @@ test("a suggestion's place is said by the box it is in", () => {
   const at = Array.from(RECIPE.body.slice(0, RECIPE.body.indexOf("Keep"))).length;
   assert.equal(findingPlace({ start: at, end: at + 4 }, spans, "Keep"), "In Notes");
   assert.equal(findingPlace({ start: 2, end: 8 }, spans, "ory ab"), "In Your story");
+  // N3: inside a sentence (a button's name) the place starts small: "Show me: suggestion 2, in Your story".
+  assert.equal(findingPlace({ start: 2, end: 8 }, spans, "ory ab", { within: true }), "in Your story");
+  assert.equal(findingPlace({ start: 10, end: 40 }, spans, "pie.\n\n## Ingredients", { within: true }), "near “pie. ## Ingredients”");
+  assert.equal(say("found.showMeName", { n: 2, place: findingPlace({ start: 2, end: 8 }, spans, "ory ab", { within: true }) }), "Show me: suggestion 2, in Your story");
   assert.equal(findingPlace({ start: 10, end: 40 }, spans, "pie.\n\n## Ingredients and then quite a lot more"), "Near “pie. ## Ingredients and then q…”", "one that spans boxes");
 });
 
@@ -557,7 +561,7 @@ test("Show me finds the quoted words in their box", () => {
 test("her layer never says the machinery's words, and says AI once", async () => {
   configureWords();
   const { WORDS } = await import("../../web/studio/parts/writing-helper-words.js");
-  const { HER_BANNED } = await import("../../web/studio/parts/plain-words.js");
+  const { bannedExcept } = await import("../../web/studio/parts/plain-words.js");
   const { say } = await import("../../web/studio/parts/words.js");
   // R8's own list (ux.md, "Never on her layer"), beside the one every her-layer id is held to.
   const MACHINERY = /\b(AI provider|provider|model|API key|credential|endpoint|prompt|tokens?|completion|autocomplete|skills?|context|snapshot|references?|findings?|severity|scope|portable|Git|capability|schema|JSON|Studio|Admin|review)\b/i;
@@ -566,7 +570,9 @@ test("her layer never says the machinery's words, and says AI once", async () =>
   const withAi = [];
   for (const [id, entry] of her) {
     assert.doesNotMatch(entry.text, MACHINERY, id);
-    assert.doesNotMatch(entry.text, HER_BANNED, id);
+    // "key" is said once here: the sentence for a key the company refused (N1).
+    assert.equal(bannedExcept(entry.text, entry.allows), "", id);
+    if (entry.allows) assert.deepEqual([id, entry.allows], ["helper.keyRejected", ["key"]]);
     if (/\bAI\b/.test(entry.text)) withAi.push(id);
     // No pronoun for whoever helps her: the sentence must read right with any name.
     if (entry.text.includes("{helper}")) assert.doesNotMatch(entry.text, /\b(him|her|his|he|she)\b/i, id);
@@ -581,6 +587,6 @@ test("her layer never says the machinery's words, and says AI once", async () =>
   // A site that names its helper person reads right everywhere.
   configureWords({ vars: { helper: "Hillside Web Care", product: "your website" } });
   assert.equal(say("helper.offText"), "Hillside Web Care can turn it on.");
-  assert.equal(helperProblem({ status: 502, data: { code: "key-rejected" } }, { company: "Anthropic" }).words, "Anthropic didn't accept the key for your website. Tell Hillside Web Care.");
+  assert.equal(helperProblem({ status: 502, data: { code: "key-rejected" } }, { company: "Anthropic" }).words, "Anthropic didn't accept your website's key. Tell Hillside Web Care.");
   configureWords();
 });

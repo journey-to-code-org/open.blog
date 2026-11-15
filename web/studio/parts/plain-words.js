@@ -12,6 +12,12 @@ export const HER_BANNED_WORDS = Object.freeze([
   // R6: what she puts in her words is "a tip", "a photo", "a table", never its syntax.
   "markdown", "shortcode", "syntax", "fence", "block", "piece", "snippet", "embed", "iframe", "html",
   "callout", "alt text", "caption",
+  // R8: the helper is "your writing helper", never its machinery. "key" may be said only by
+  // Getting started's key step and by the one sentence for a key the company refused, and a
+  // writing "prompt" only on Your writing voice: each such id names the word in its `allows`.
+  "ai provider", "provider", "model", "api key", "api", "key", "credential", "prompt", "token",
+  "completion", "autocomplete", "skill", "context", "snapshot", "severity", "scope", "finding",
+  "schema", "capability",
 ]);
 
 /** Matches any banned word or phrase as a whole word, in any case. */

@@ -9,6 +9,11 @@ import { say } from "./words.js";
 /** Word ids a site may change (docs/studio-words.md). */
 export const WORDS = {
   "job.newerVersion": { text: "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}.", layer: "her" },
+  // What only a voice note or a write-up can say (R8): every other failure is the writing helper's.
+  "job.noWordsHeard": { text: "No words were heard in it. Type a few instead.", layer: "her" },
+  "job.notesTooLong": { text: "That's more words than it can take. Shorten them a little.", layer: "her" },
+  "job.noNotes": { text: "Write a few words about the job first.", layer: "her" },
+  "job.noteStillHere": { text: "Your voice note is still here.", layer: "her" },
 };
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -177,15 +182,15 @@ export function transcribeDisclosure(disclosure = {}) {
 export function transcribeTrouble(error = {}, { company = "" } = {}) {
   const code = error?.data?.code;
   if (code === "not-configured") return "";
-  if (code === "empty-transcript") return "No words were heard in it. Type a few instead.";
-  return `${helperProblem(error, { company }).words} Your voice note is still here.`;
+  if (code === "empty-transcript") return say("job.noWordsHeard");
+  return `${helperProblem(error, { company }).words} ${say("job.noteStillHere")}`;
 }
 
 /** Writing it up didn't work: its own lines, then the writing helper's (R8). */
 export function writeUpTrouble(error = {}, { company = "" } = {}) {
   const code = error?.data?.code;
-  if (code === "notes-too-long") return "That's more words than it can take. Shorten them a little.";
-  if (code === "no-notes") return "Write a few words about the job first.";
+  if (code === "notes-too-long") return say("job.notesTooLong");
+  if (code === "no-notes") return say("job.noNotes");
   // Nothing usable came back (no error at all): the same words as an answer that made no sense.
   if (!error?.status && !code) return helperProblem({ status: 502, data: { code: "invalid-result" } }, { company }).words;
   return helperProblem(error, { company }).words;

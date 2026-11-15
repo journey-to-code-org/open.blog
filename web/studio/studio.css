@@ -6,6 +6,8 @@
 @font-face { font-family: "Atkinson Hyperlegible Mono"; src: url("/admin/studio/fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
 
 :root {
+  /* The smallest a control may be, each way (studio-ux: targets 44 px). */
+  --studio-target: 44px;
   --studio-flour: #f8f7f2;
   --studio-flour-lift: #fdfdfa;
   --studio-ink: #291d27;
@@ -149,6 +151,9 @@ tag-input .hint { position: absolute; width: 1px; height: 1px; overflow: hidden;
 .studio-mine { white-space: pre-wrap; max-height: 14rem; overflow: auto; font-family: var(--font-writing); background: var(--studio-flour); padding: var(--space-3); border-radius: var(--radius); }
 /* tag-input's remove buttons reach 44 px (design gap 4). */
 tag-input button { min-width: 44px; min-height: 44px; }
+/* side-sheet's own × is 2rem (36 px) in Zubra UI; every Studio control is at least 44 px (R8, N2).
+   Zubra UI's styles sit in a layer, so this rule wins without a fork; the size belongs upstream. */
+side-sheet .sheet-close { width: var(--studio-target); height: var(--studio-target); flex: none; }
 
 /* Pictures on the site */
 .studio-picture-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); max-height: 60dvh; overflow: auto; }

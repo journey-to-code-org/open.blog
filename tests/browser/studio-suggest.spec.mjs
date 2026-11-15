@@ -178,7 +178,7 @@ test("what comes back is only ever plain words; markup is dropped; three failure
   await page.waitForTimeout(300);
   await expect(line(page)).toContainText("Suggestions as you type: on");
   await typeAtEnd(page, " six more");
-  await expect(line(page)).toContainText("Suggestions as you type stopped: Anthropic didn't accept the key for your blog. Tell the person who set up your site.", { timeout: 8000 });
+  await expect(line(page)).toContainText("Suggestions as you type stopped: Anthropic didn't accept your blog's key. Tell the person who set up your site.", { timeout: 8000 });
   await expect(line(page).getByRole("button", { name: "Turn off", exact: true })).toBeHidden();
   const stopped = sent.length;
   await typeAtEnd(page, " seven more");

@@ -214,7 +214,7 @@ test("failures are said in her words with the code for the helper person, and wa
   await open(page, site, "#/voice/guide");
   const make = screen(page).getByRole("button", { name: "Make my voice guide" });
   await make.click();
-  await expect(screen(page)).toContainText("Anthropic didn't accept the key for your blog.");
+  await expect(screen(page)).toContainText("Anthropic didn't accept your blog's key.");
   answer = { status: 409, json: { error: "The voice-guide skill cannot be used: missing." } };
   await make.click();
   await expect(screen(page)).toContainText("Your helper can't make a voice guide right now.");

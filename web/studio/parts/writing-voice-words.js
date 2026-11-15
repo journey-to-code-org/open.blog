@@ -325,7 +325,14 @@ const ENTRIES = {
   "helper.voiceLink": her("Your writing voice"),
 };
 
+// "a piece" of her own writing, and a writing "prompt" (Your writing voice and its line on Home
+// only): the two listed words these ids may say.
+const allowed = (id, entry) => [
+  ...(/\bpiece\b/i.test(entry.text) ? ["piece"] : []),
+  ...(/^(voice|home)\./.test(id) && /\bprompt\b/i.test(entry.text) ? ["prompt"] : []),
+];
+
 /** @type {Record<string, { text: string, layer: "her" | "details", max?: number, bare?: string, allows?: string[] }>} */
 export const WORDS = Object.fromEntries(Object.entries(ENTRIES).map(([id, entry]) => [
-  id, entry.layer === "her" && /\bpiece\b/i.test(entry.text) ? { ...entry, allows: ["piece"] } : entry,
+  id, entry.layer === "her" && allowed(id, entry).length ? { ...entry, allows: allowed(id, entry) } : entry,
 ]));
