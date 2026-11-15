@@ -1,0 +1,420 @@
+// Readers, what readers sent: one list for every kind of note, six views, a kind filter, a card per
+// note with only the decisions the server offers, Undo for the no's, and a way to fix what is on the
+// post. `#/readers/visitors` and `#/readers/setup` are the area's other two places. Studio R10;
+// docs/specs/studio/r10/ux.md.
+import { h, toast } from "../parts/dom.js";
+import { use } from "../zubra.js";
+import { ask } from "../parts/dialogs.js";
+import { sayWhen } from "../parts/dates.js";
+import { sendOut, siteLink, wentOutWords } from "../parts/publish.js";
+import { routeHash } from "../router.js";
+import { quietNotifyLink } from "../parts/notify-link.js";
+import { say } from "../parts/words.js";
+import { readerHeader } from "../parts/reader-tabs.js";
+import { createReaderCard } from "../parts/reader-card.js";
+import { cardDetails, screenDetails } from "../parts/reader-details.js";
+import {
+  shownViews, viewOf, viewLabel, viewLede, emptyWords, otherViewWords, kindsOffered, kindFilterWords, kindKnown, hasBeyondComments,
+  readersHash, parseItemRef, reasonWords, quietReason, reportReason, decisionRequest, needsAcknowledge, didWords, undoWords,
+  readerProblem, problemWords, readerWords, fixRoute, waitingLine, cardLabel, VIEWS,
+} from "../parts/reader-rules.js";
+
+export async function createReaders(context, route) {
+  await use("action-button", "alert-banner", "breadcrumb-trail", "dropdown-menu", "empty-state", "select-field", "skeleton-block", "status-badge");
+  const { api, meta, go } = context;
+  const view = viewOf(route.arg);
+  const kind = kindKnown(route.query.kind) ? route.query.kind : "";
+  const wanted = parseItemRef(route.query.item);
+  let items = [];
+  let next = null;
+  let page = null;
+  let settings = null;
+  let undo = null; // { item, words }: the last decision that can go back to Waiting
+  const busy = new Set();
+
+  const { trail, tabs } = readerHeader({ tab: "sent", visitors: Boolean(meta.visitors) });
+  const heading = h("h2", { id: "studio-readers-h", class: "studio-question", tabindex: "-1", text: say("readers.title") });
+  const lede = h("p", { class: "studio-lede", text: viewLede(view) });
+  const viewPicker = h("select-field", { label: say("readers.whichOnes"), value: view.id || "waiting", onValuechange: (e) => go(readersHash(e.detail === "waiting" ? "" : e.detail, kind)) });
+  const kindPicker = h("select-field", { label: say("readers.whatKind"), hidden: true, onValuechange: (e) => go(readersHash(view.id, e.detail === "all" ? "" : e.detail)) });
+  const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
+  const banner = h("div", { class: "studio-banner" });
+  const undoSlot = h("div", { class: "studio-banner" });
+  const list = h("ul", { class: "studio-comment-list", "aria-labelledby": "studio-readers-h", "aria-busy": "true" }, ...[1, 2, 3].map(() => h("li", {}, h("skeleton-block", { lines: 3 }))));
+  const moreButton = h("action-button", { variant: "secondary", hidden: true, onClick: () => showMore() }, say("readers.showMore"));
+  const after = h("div", { class: "studio-comment-after" });
+  const details = h("details", { class: "studio-help" });
+  const notifyLink = h("p", { class: "studio-quiet-link" });
+  const element = h("section", { class: "studio-page studio-readers", "aria-labelledby": "studio-readers-h" },
+    trail, tabs, h("div", { class: "studio-today" }, heading, lede, notifyLink, viewPicker, kindPicker),
+    undoSlot, banner, status,
+    h("div", { class: "studio-comment-columns" }, h("div", { class: "studio-comment-main" }, list, moreButton, after), h("div", { class: "studio-comment-side" }, details)));
+
+  // ---- loading ----------------------------------------------------------------------------------
+
+  const fetchPage = (cursor) => {
+    const query = new URLSearchParams({ state: view.state });
+    if (kind) query.set("kind", kind);
+    if (cursor) query.set("after", cursor);
+    return api.get(`engagement/moderation?${query}`);
+  };
+
+  const commentsOnly = () => !hasBeyondComments(kindsOffered(settings, page, kind));
+
+  function drawChrome() {
+    const kinds = kindsOffered(settings, page, kind);
+    const beyond = hasBeyondComments(kinds);
+    viewPicker.options = shownViews(beyond || view.beyondComments).map((v) => ({ value: v.id || "waiting", label: viewLabel(v) }));
+    viewPicker.value = view.id || "waiting";
+    kindPicker.hidden = kinds.length < 2;
+    kindPicker.options = ["", ...kinds].map((id) => ({ value: id || "all", label: kindFilterWords(id) }));
+    kindPicker.value = kind || "all";
+    lede.textContent = viewLede(view, { privateKinds: kinds.includes("future-suggestion") || kinds.includes("abuse-report") });
+    banner.querySelector(".studio-comments-off")?.remove();
+    if (settings && settings.comments === false) {
+      banner.prepend(h("alert-banner", { class: "studio-comments-off", variant: "info", heading: say("readers.offTitle") },
+        say("readers.offText"), " ", h("action-button", { size: "sm", onClick: () => go("#/readers/setup") }, say("readers.turnOn"))));
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      settings = await api.get("engagement/settings");
+    } catch (error) {
+      if (error.status === 401) throw error;
+      settings = null;
+    }
+    drawChrome();
+    if (!items.length && list.getAttribute("aria-busy") !== "true") draw();
+  }
+
+  async function load() {
+    quietNotifyLink(notifyLink, { meta, what: hasBeyondComments(kindsOffered(settings, page, kind)) ? say("notify.readersLink") : say("notify.commentsLink") });
+    if (!meta.engagementSetUp && meta.engagement !== true) {
+      list.removeAttribute("aria-busy");
+      list.replaceChildren(h("li", {}, h("empty-state", { heading: say("readers.notSetUpTitle") }, say("readers.notSetUpText"), " ", say("common.canTurnOn"))));
+      return;
+    }
+    if (meta.engagement !== true) {
+      list.removeAttribute("aria-busy");
+      list.replaceChildren();
+      banner.replaceChildren(h("alert-banner", { variant: "warning", heading: say("readers.notReadyTitle") }, say("readers.notReadyText"), " ", say("common.tell"), " ",
+        h("a", { href: "#/readers/setup", text: say("readers.setupLink") })));
+      return;
+    }
+    list.setAttribute("aria-busy", "true");
+    loadSettings();
+    try {
+      page = await fetchPage(null);
+      items = page.items || [];
+      next = page.next || null;
+      banner.querySelector(".studio-load-trouble")?.remove();
+      drawChrome();
+      draw();
+      if (wanted) await showWanted();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      list.removeAttribute("aria-busy");
+      list.replaceChildren();
+      const problem = readerProblem(error, "list");
+      if (problem.id === "readers.listReset" && (kind || view.id)) { status.textContent = say("readers.listReset"); go("#/readers"); return; }
+      banner.append(h("alert-banner", { class: "studio-load-trouble", variant: "danger", heading: say("readers.listFailed") },
+        problemWords(problem), " ", h("action-button", { variant: "secondary", size: "sm", onClick: () => load() }, say("readers.tryAgain"))));
+    }
+  }
+
+  async function showMore() {
+    if (!next) return;
+    moreButton.loading = true;
+    const first = items.length;
+    try {
+      const more = await fetchPage(next);
+      items = items.concat(more.items || []);
+      next = more.next || null;
+      page = { ...page, invalid: (page.invalid || 0) + (more.invalid || 0), next };
+      draw();
+      status.textContent = say("readers.showing", { n: items.length });
+      focusCard(items[first] && `${items[first].source}:${items[first].id}`);
+    } catch (error) {
+      status.textContent = problemWords(readerProblem(error, "list"));
+    } finally {
+      moreButton.loading = false;
+    }
+  }
+
+  // The card a notification names: on the page, focused; not on it, shown first when the server can
+  // say (one item), else said in words.
+  async function showWanted() {
+    const ref = `${wanted.source}:${wanted.id}`;
+    if (items.some((i) => `${i.source}:${i.id}` === ref)) { focusCard(ref); return; }
+    try {
+      const one = await api.get(`engagement/moderation/item?source=${encodeURIComponent(wanted.source)}&id=${encodeURIComponent(wanted.id)}`);
+      const item = one.item || one;
+      const there = VIEWS.find((v) => v.state === item.status) || VIEWS[0];
+      if (there.state !== view.state) {
+        status.textContent = say("readers.itemDecided", { view: viewLabel(there) });
+        banner.append(h("p", { class: "studio-help" }, h("a", { href: readersHash(there.id, kind, ref), text: viewLabel(there) })));
+        return;
+      }
+      items = [item, ...items.filter((i) => `${i.source}:${i.id}` !== ref)];
+      draw();
+      status.textContent = say("readers.itemHere");
+      focusCard(ref);
+    } catch {
+      status.textContent = say("readers.decidedElsewhere");
+    }
+  }
+
+  // ---- drawing ----------------------------------------------------------------------------------
+
+  const on = {
+    decide: (item, action, reason, line, control) => decide(item, action, reason, line, control),
+    start: (item, button, line, control) => startDecision(item, button, line, control),
+    fix: (item, state, line, control) => fix(item, state, line, control),
+    more: (item, value, line) => moreMenu(item, value, line),
+    focusRef: (ref) => focusCard(ref),
+    cardDetails: (item, row) => row.append(cardDetails(item)),
+  };
+
+  function draw() {
+    list.removeAttribute("aria-busy");
+    moreButton.hidden = !next;
+    after.replaceChildren();
+    if (page?.invalid > 0) after.append(h("p", { class: "studio-help", text: say("readers.invalid") }));
+    details.replaceChildren(...screenDetails({ view, kind, page, next, settings }));
+    if (!items.length) {
+      const off = view.state === "pending" && settings && settings.comments === false;
+      const [title, text] = emptyWords(view, { commentsOnly: commentsOnly() });
+      const action = off
+        ? h("action-button", { slot: "actions", onClick: () => go("#/readers/setup") }, say("readers.turnOn"))
+        : h("action-button", { slot: "actions", variant: "secondary", onClick: () => go(readersHash(view.other, kind)) }, otherViewWords(view));
+      list.replaceChildren(h("li", {}, h("empty-state", { heading: title }, off ? say("readers.emptyOff") : text, action)));
+      return;
+    }
+    list.replaceChildren(...items.map((item) => createReaderCard({ item, meta, view, on })));
+  }
+
+  const focusCard = (ref) => requestAnimationFrame(() => list.querySelector(`[data-ref="${ref}"] .studio-comment-who`)?.focus());
+
+  // ---- deciding ---------------------------------------------------------------------------------
+
+  async function startDecision(item, b, line, control) {
+    if (b.action === "erase") {
+      const choice = await ask({
+        heading: say("readers.eraseTitle", { name: item.reader?.name || say("readers.someone"), kind: item.source === "report" ? say("readers.kind.abuseReport").toLowerCase() : say("readers.kind.comment").toLowerCase() }),
+        text: say("readers.eraseText"),
+        choices: [{ label: say("readers.eraseKeep"), value: "keep", variant: "secondary" }, { label: say("readers.eraseYes"), value: "erase", variant: "destructive" }],
+      });
+      return choice === "erase" ? decide(item, "erase", null, line, control) : undefined;
+    }
+    if (b.asks) {
+      const choice = await ask({
+        heading: say("readers.whyTitle"),
+        text: b.offer.guidance && b.offer.guidance.length < 120 ? b.offer.guidance : say("readers.whyText"),
+        choices: [...b.offer.reasons.map((r) => ({ label: reasonWords(r), value: r.id, variant: "secondary" })), { label: say("readers.cancel"), value: "", variant: "ghost" }],
+      });
+      return choice ? decide(item, b.action, choice, line, control) : undefined;
+    }
+    if (needsAcknowledge(item, b.action)) {
+      const postUrl = item.post?.url ? siteLink(meta, item.post.url) : "";
+      const choice = await ask({
+        heading: say("readers.ackTitle"), text: say("readers.ackText"),
+        choices: [{ label: say("readers.ackNo"), value: "no", variant: "primary" }, { label: say("readers.ackYes"), value: "yes", variant: "secondary" }, ...(postUrl ? [{ label: say("readers.ackOpen"), value: "open", variant: "ghost" }] : [])],
+      });
+      if (choice === "open") { window.open(postUrl, "_blank", "noopener"); return; }
+      return choice === "yes" ? decide(item, b.action, null, line, control, { acknowledged: true }) : undefined;
+    }
+    const reason = item.source !== "report" ? null : b.action === "reject" ? quietReason(b.offer) : b.action === "uphold-report" ? reportReason(item) : null;
+    return decide(item, b.action, reason, line, control);
+  }
+
+  async function decide(item, action, reason, line, control, options = {}) {
+    const ref = `${item.source}:${item.id}`;
+    if (busy.has(ref)) return;
+    busy.add(ref);
+    if (control && "loading" in control) control.loading = true;
+    line.hidden = true;
+    try {
+      const reply = await api.patch("engagement/moderation", decisionRequest(item, action, reason, options));
+      let said = didWords(item, action, reply).text;
+      if (reply.publishError) said += ` ${say("readers.postNotUpdated")}`;
+      if (reply.continuationsError) said += ` ${say("readers.linksNotUpdated")}`;
+      if (reply.published) {
+        const out = await sendOut(api, "A note from a reader");
+        const sent = wentOutWords(out, { meta, action: "saved" }).words.replace(/^Saved\.\s*/, "");
+        said = `${said} ${sent}`.trim();
+      }
+      const index = items.findIndex((i) => `${i.source}:${i.id}` === ref);
+      items = items.filter((i) => `${i.source}:${i.id}` !== ref);
+      draw();
+      status.textContent = said;
+      toast(said);
+      const near = items[index] || items[index - 1];
+      if (near) focusCard(`${near.source}:${near.id}`);
+      else requestAnimationFrame(() => list.querySelector("empty-state")?.focus?.() || heading.focus());
+      const undoText = undoWords(item, action);
+      if (undoText && reply?.item?.version) offerUndo({ ...item, ...reply.item, source: item.source }, undoText);
+      else if (action !== "reopen") clearUndo();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      const problem = readerProblem(error, "card");
+      if (problem.reload) {
+        await reloadKeeping(ref, problem.id);
+        return;
+      }
+      line.textContent = problemWords(problem);
+      line.hidden = false;
+      line.focus();
+    } finally {
+      busy.delete(ref);
+      if (control && "loading" in control) control.loading = false;
+    }
+  }
+
+  async function reloadKeeping(ref, id) {
+    const want = items.length;
+    try {
+      let fresh = await fetchPage(null);
+      let all = fresh.items || [];
+      while (fresh.next && all.length < want) {
+        fresh = await fetchPage(fresh.next);
+        all = all.concat(fresh.items || []);
+      }
+      page = { ...fresh, invalid: page?.invalid || 0 };
+      items = all;
+      next = fresh.next || null;
+      draw();
+      if (items.some((i) => `${i.source}:${i.id}` === ref)) {
+        focusCard(ref);
+        const line = list.querySelector(`[data-ref="${ref}"] .studio-comment-trouble`);
+        if (line) { line.textContent = readerWords(id); line.hidden = false; }
+      } else {
+        status.textContent = say("readers.decidedElsewhere");
+        heading.focus();
+      }
+    } catch (error) {
+      status.textContent = problemWords(readerProblem(error, "list"));
+    }
+  }
+
+  // What is on the post: one button, the opposite call for Undo.
+  async function fix(item, state, line, control) {
+    if (control) control.loading = true;
+    try {
+      const body = { id: item.id, version: item.version };
+      await api.post(fixRoute(item, state.action), body);
+      const out = await sendOut(api, "A note from a reader");
+      const said = `${say("readers.fixDone")} ${wentOutWords(out, { meta, action: "saved" }).words.replace(/^Saved\.\s*/, "")}`.trim();
+      status.textContent = said;
+      toast(said);
+      await reloadKeeping(`${item.source}:${item.id}`, "readers.changedHere");
+    } catch (error) {
+      if (error.status === 401) throw error;
+      line.textContent = say("readers.fixFailed");
+      line.hidden = false;
+      line.focus();
+    } finally {
+      if (control) control.loading = false;
+    }
+  }
+
+  async function moreMenu(item, value, line) {
+    if (value !== "copy-link") return;
+    const link = `${location.origin}${location.pathname}${readersHash(viewOf(VIEWS.find((v) => v.state === item.status)?.id || "").id, "", `${item.source}:${item.id}`)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      status.textContent = say("readers.menuCopied");
+    } catch {
+      line.textContent = link;
+      line.hidden = false;
+    }
+  }
+
+  // ---- undo: the last no goes back to Waiting ---------------------------------------------------
+
+  function offerUndo(item, words) {
+    undo = { item, words };
+    const button = h("action-button", { size: "sm", onClick: () => runUndo() }, say("readers.undo"));
+    const alert = h("alert-banner", { variant: "info", dismissible: true, heading: words }, button);
+    alert.addEventListener("close", () => clearUndo());
+    undoSlot.replaceChildren(alert);
+  }
+
+  function clearUndo() {
+    undo = null;
+    undoSlot.replaceChildren();
+  }
+
+  let undoing = false;
+  async function runUndo() {
+    if (!undo || undoing) return;
+    undoing = true;
+    const { item } = undo;
+    const button = undoSlot.querySelector("action-button");
+    if (button) button.loading = true;
+    try {
+      await api.patch("engagement/moderation", decisionRequest(item, "reopen", null));
+      clearUndo();
+      status.textContent = say("readers.didBack");
+      toast(say("readers.didBack"));
+      if (view.state === "pending") await load();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      const there = VIEWS.find((v) => v.state === item.status) || VIEWS[0];
+      status.textContent = error.status === 409 ? say("readers.undoChanged", { where: viewLabel(there) }) : problemWords(readerProblem(error, "card"));
+    } finally {
+      undoing = false;
+      if (button) button.loading = false;
+    }
+  }
+
+  // ---- keys: only while a card has focus (WCAG 2.1.4) -------------------------------------------
+
+  list.addEventListener("keydown", (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.target.closest?.("input, textarea, select, [contenteditable], dropdown-menu, [role=menu]")) return;
+    const card = event.target.closest?.(".studio-reader");
+    if (!card) return;
+    const key = event.key.toLowerCase();
+    const cards = [...list.querySelectorAll(".studio-reader")];
+    const at = cards.indexOf(card);
+    if (key === "j" || key === "k") {
+      const target = cards[at + (key === "j" ? 1 : -1)];
+      if (target) { event.preventDefault(); target.querySelector(".studio-comment-who")?.focus(); }
+    } else if (key === "s") {
+      card.querySelector('action-button[data-action="approve"] button, action-button[data-action="approve"]')?.click();
+    } else if (key === "n" || key === "t") {
+      const menu = card.querySelector(`dropdown-menu[data-action="${key === "n" ? "reject" : "remove"}"]`);
+      (menu?.querySelector("button") || menu)?.click();
+    } else if (key === "u") {
+      runUndo();
+    } else return;
+    if (key !== "j" && key !== "k") event.preventDefault();
+  });
+
+  return {
+    title: say("readers.nav"),
+    element,
+    load,
+    reload: load,
+    focus: () => heading.focus(),
+    get palette() {
+      const group = say("readers.findGroup");
+      return [
+        ...shownViews(true).map((v) => ({ id: `view:${v.id}`, label: viewLabel(v), group })),
+        ...kindsOffered(settings, page, kind).map((id) => ({ id: `kind:${id}`, label: say("readers.findKind", { kind: kindFilterWords(id).toLowerCase() }), group })),
+        { id: "kind:", label: say("readers.findEveryKind"), group },
+        ...(settings ? [{ id: "switch", label: settings.comments === false ? say("readers.findSwitchOn") : say("readers.findSwitchOff"), group }] : []),
+        ...(undo ? [{ id: "undo", label: say("readers.findUndo"), group }] : []),
+      ];
+    },
+    command(id) {
+      if (id.startsWith("view:")) go(readersHash(id.slice(5), kind));
+      else if (id.startsWith("kind:")) go(readersHash(view.id, id.slice(5)));
+      else if (id === "switch") go("#/readers/setup");
+      else if (id === "undo") runUndo();
+    },
+  };
+}
+
+export { routeHash, cardLabel, waitingLine, sayWhen };

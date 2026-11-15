@@ -377,15 +377,15 @@ test("another computer: send it a test, change what it tells you (asking before 
 });
 
 test("the account menu, the palette, the quiet link on Comments, and a tapped notification's message", async ({ page }) => {
-  await open(page, configured, "#/comments");
+  await open(page, configured, "#/readers");
   const link = page.getByRole("link", { name: "Get a notification on this computer when someone comments" });
   await expect(link).toBeVisible();
   await link.click();
   await expect(page.locator("h1")).toHaveText("Notifications");
   await here(page).getByRole("button", { name: "Turn on notifications" }).click();
   await expect(here(page).locator("status-badge")).toHaveText("On");
-  await page.goto(`${configured.origin}/admin/studio/#/comments`);
-  await expect(page.locator(".studio-comments")).toBeVisible();
+  await page.goto(`${configured.origin}/admin/studio/#/readers`);
+  await expect(page.locator(".studio-readers")).toBeVisible();
   await expect(page.locator(".studio-quiet-link a")).toHaveCount(0);
 
   // A tapped notification asks this window to move: through the router.

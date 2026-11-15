@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { legacyRoute, parseRoute } from "../../web/studio/router.js";
 
 test("Studio's own addresses are left alone", () => {
-  for (const hash of ["#/", "#/posts", "#/write/posts%2Fx.md", "#/comments/shown", "#/cards/new", "#/front-page", "#/look"]) assert.equal(legacyRoute(hash), null, hash);
+  for (const hash of ["#/", "#/posts", "#/write/posts%2Fx.md", "#/readers/shown", "#/cards/new", "#/front-page", "#/look"]) assert.equal(legacyRoute(hash), null, hash);
 });
 
 test("an old editor address opens the right Studio editor by folder", () => {
@@ -31,10 +31,10 @@ test("renamed screens, new things and the old inbox's states", () => {
   assert.equal(legacyRoute("#/appearance"), "#/look");
   assert.equal(legacyRoute("#/seasons"), "#/decorations");
   assert.equal(legacyRoute("#/greetings"), "#/cards");
-  assert.equal(legacyRoute("#/analytics"), "#/visitors");
-  assert.equal(legacyRoute("#/moderation/pending?kind=comment"), "#/comments?kind=comment");
-  assert.equal(legacyRoute("#/moderation/approved"), "#/comments/shown");
-  assert.equal(legacyRoute("#/moderation/removed"), "#/comments/taken-down");
+  assert.equal(legacyRoute("#/analytics"), "#/readers/visitors");
+  assert.equal(legacyRoute("#/moderation/pending?kind=comment"), "#/readers?kind=comment");
+  assert.equal(legacyRoute("#/moderation/approved"), "#/readers/shown");
+  assert.equal(legacyRoute("#/moderation/removed"), "#/readers/taken-down");
 });
 
 test("an old screen Studio doesn't have yet says so, never a blank Home", () => {
@@ -62,8 +62,8 @@ test("R3: Notifications is Studio's own; anything after it goes, the query stays
   assert.equal(legacyRoute("#/notifications/devices"), "#/notifications");
   assert.equal(legacyRoute("#/notifications/x/y?sheet=home-screen"), "#/notifications?sheet=home-screen");
   // Old notice addresses the worker hands over as Studio's keep landing on their screens.
-  assert.equal(legacyRoute("#/moderation"), "#/comments");
-  assert.equal(legacyRoute("#/feedback"), "#/comments");
+  assert.equal(legacyRoute("#/moderation"), "#/readers");
+  assert.equal(legacyRoute("#/feedback"), "#/readers");
   assert.equal(legacyRoute("#/quotes"), null);
 });
 
@@ -86,4 +86,10 @@ test("R2: the old accounts page, and anything after it, opens Your accounts; ann
   assert.equal(legacyRoute("#/announcements"), "#/sharing");
   assert.equal(legacyRoute("#/sharing/accounts"), null, "Studio's own address is left alone");
   assert.equal(legacyRoute("#/sharing/accounts?connection=11111111-1111-4111-8111-111111111111"), null);
+});
+
+test("R10: Studio's earlier Comments and Visitors addresses open Readers", () => {
+  assert.equal(legacyRoute("#/comments"), "#/readers");
+  assert.equal(legacyRoute("#/comments/shown"), "#/readers/shown");
+  assert.equal(legacyRoute("#/visitors/7"), "#/readers/visitors/7");
 });
