@@ -1190,3 +1190,114 @@ fn durable(state: &AppState, run: impl FnOnce() -> Response) -> Response {
     }
     response
 }
+
+// ---------------------------------------------------------------------------
+// G120 (R14b): the sign-ins of people writing with you
+// ---------------------------------------------------------------------------
+
+/// `GET collaboration/co-writers` (owner accounts only): every co-writer sign-in, the reflections
+/// it is in, and whether it is still waiting for its invited person to choose a password. Names and
+/// titles only; never a hash.
+pub(crate) fn co_writers(state: &AppState, session: &auth::Session) -> Response {
+    if session.co_writer {
+        return refused();
+    }
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let users = match Users::load(&state.root.join(&config.admin.users_file)) {
+        Ok(users) => users,
+        Err(error) => return Response::error(500, &error),
+    };
+    let records = {
+        let _content_transaction = lock(&state.build);
+        match crate::shared_publications::load_all(&state.root) {
+            Ok(records) => records,
+            Err(error) => return Response::error(500, &error),
+        }
+    };
+    let list = users
+        .users
+        .iter()
+        .filter(|user| user.is_co_writer())
+        .map(|user| {
+            let reflections = records
+                .iter()
+                .filter(|(_, record)| {
+                    record
+                        .authorization
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.admin_user == user.name)
+                })
+                .map(|(_, record)| {
+                    json!({
+                        "publicationId": record.publication_id,
+                        "title": record.title.clone().or_else(|| record.guiding_question.clone()),
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({ "name": user.name, "waiting": user.is_reserved(), "reflections": reflections })
+        })
+        .collect::<Vec<_>>();
+    Response::json(200, &json!({ "coWriters": list }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoWriterRemoveRequest {
+    name: String,
+}
+
+/// `POST collaboration/co-writers/remove` (owner accounts only): the sign-in goes, and so does every
+/// binding and pending invitation under its name (ADR 0006), so a name made again later inherits
+/// nothing. Credit for what they wrote stays with the reflection's participant.
+pub(crate) fn remove_co_writer(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    if session.co_writer {
+        return refused();
+    }
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<CoWriterRemoveRequest>(&req.body) else {
+        return problem(422, "invalid", "This request is not valid.", Some("name"));
+    };
+    let _build = lock(&state.build);
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let path = state.root.join(&config.admin.users_file);
+    let mut users = match Users::load(&path) {
+        Ok(users) => users,
+        Err(error) => return Response::error(500, &error),
+    };
+    // Only a co-writer sign-in is removed here; an owner account is the developer's to remove.
+    if !users
+        .find(&body.name)
+        .is_some_and(auth::UserRecord::is_co_writer)
+    {
+        return problem(404, "not-found", "There is no such sign-in.", Some("name"));
+    }
+    users.remove(&body.name);
+    if let Err(error) = users.save(&path) {
+        eprintln!("admin: co-writer sign-in not removed: {error}");
+        return problem(500, "storage", "Nothing was changed; try again.", None);
+    }
+    match crate::shared_publications::revoke_admin_user(&state.root, &body.name) {
+        Ok(changed) => {
+            eprintln!(
+                "admin: removed a co-writer sign-in and its bindings in {changed} reflection(s)"
+            );
+            Response::json(200, &json!({ "removed": true, "reflections": changed }))
+        }
+        Err(error) => {
+            eprintln!("admin: co-writer bindings not revoked: {error}");
+            problem(
+                500,
+                "storage",
+                "The sign-in is removed; its reflections could not all be updated. Try again.",
+                None,
+            )
+        }
+    }
+}

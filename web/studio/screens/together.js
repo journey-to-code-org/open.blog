@@ -35,6 +35,14 @@ export function reflectionPalette(summary) {
     items.push({ id: `together-part-${summary.publicationId}`, label: say("together.findPart", { title }), group: say("together.nav"), href: `#/together/${id}/write` });
     items.push({ id: `together-read-${summary.publicationId}`, label: say("together.findRead", { title }), group: say("together.nav"), href: `#/together/${id}/read` });
   }
+  // R14b: shaping it, by name.
+  items.push({ id: `together-layout-${summary.publicationId}`, label: `${say("layout.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=layout` });
+  items.push({ id: `together-collection-${summary.publicationId}`, label: `${say("collection.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=collection` });
+  if (summary.you?.runsIt) items.push({ id: `together-rules-${summary.publicationId}`, label: `${say("rules.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=rules` });
+  if (summary.you?.drafter) {
+    items.push({ id: `together-talk-${summary.publicationId}`, label: say("talk.find", { title }), group: say("together.nav"), href: `#/together/${id}/together` });
+    items.push({ id: `together-moments-${summary.publicationId}`, label: `${say("moments.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}/write?sheet=moments` });
+  }
   if (summary.you?.canInvite) {
     items.push({ id: `together-people-${summary.publicationId}`, label: say("together.findPeople", { title }), group: say("together.nav"), href: `#/together/${id}?sheet=people` });
     items.push({ id: `together-invite-${summary.publicationId}`, label: say("together.findInvite", { title }), group: say("together.nav"), href: `#/together/${id}?sheet=people` });
@@ -50,6 +58,7 @@ export async function createTogetherScreen(context, route) {
   const [id, page = ""] = arg.split("/");
   if (id && page === "write") return (await import("./together-part.js")).createTogetherPart(context, id, route);
   if (id && page === "read") return (await import("./together-read.js")).createTogetherRead(context, id, route);
+  if (id && page === "together") return (await import("./together-talk.js")).createTogetherTalk(context, id, route);
   if (id) return (await import("./together-one.js")).createTogetherOne(context, id, route);
   return createTogetherList(context, route);
 }

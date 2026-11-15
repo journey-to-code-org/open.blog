@@ -259,8 +259,41 @@ export async function createPeopleSheet({ api, context, id, onChange }) {
     paintSignIn();
     inviteHost.replaceChildren(who, h("a", { class: "studio-more-link", href: "#/people", text: say("people.someoneNew") }),
       newOne, signIn, what, h("p", { class: "studio-help", text: say("people.roleHelp") }), make,
+      coWritersDetails(),
       h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), h("p", { text: say("people.details", { days: days.value }) }), days,
         h("ul", {}, ...(members.members || []).map((m) => h("li", { class: "studio-mono", text: `${m.adminUser} · ${m.contributorId} · ${m.participantId} · ${(m.roles || []).join(", ")}${m.bindingCurrent === false ? ` · ${say("people.bindingGone")}` : ""}` })))));
+  }
+
+  /** R14b (G120): the sign-ins of everyone writing with her, for an owner account, with Remove. */
+  function coWritersDetails() {
+    const host = h("div");
+    const details = h("details", { class: "studio-help" }, h("summary", { text: say("people.coWriters") }), host);
+    details.addEventListener("toggle", async () => {
+      if (!details.open) return;
+      let list = [];
+      try { list = (await api.get("collaboration/co-writers"))?.coWriters || []; } catch (error) { if (error.status === 401) throw error; }
+      host.replaceChildren(list.length ? h("ul", {}, ...list.map((one) => h("li", { class: "studio-row" },
+        h("span", { class: "studio-mono", text: one.waiting ? say("people.coWriterWaiting", { name: one.name }) : say("people.coWriterRow", { name: one.name, count: (one.reflections || []).map((r) => r.title || r.publicationId).join(", ") }) }),
+        h("action-button", { variant: "ghost", size: "sm", onClick: () => removeCoWriter(one.name, details) }, say("people.coWriterRemove", { name: one.name })))))
+        : h("p", { text: say("people.coWritersNone") }));
+    });
+    return details;
+  }
+
+  async function removeCoWriter(name, details) {
+    const choice = await ask({ heading: say("people.coWriterRemoveAsk", { name }), text: say("people.coWriterRemoveText"),
+      choices: [{ label: say("people.coWriterRemoveKeep"), value: "keep" }, { label: say("people.coWriterRemoveGo"), value: "go", variant: "secondary" }] });
+    if (choice !== "go") return;
+    try {
+      await api.post("collaboration/co-writers/remove", { name });
+      did.tell(say("people.coWriterRemoved", { name }));
+      details.open = false;
+      await load();
+      onChange?.();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      did.tell(togetherProblem(error).words, { variant: "problem" });
+    }
   }
 
   return { sheet, open };

@@ -8,6 +8,7 @@ import { use } from "../zubra.js";
 import { say } from "../parts/words.js";
 import { ask } from "../parts/dialogs.js";
 import { newId } from "../parts/people-rules.js";
+import { lookupSourceDetails } from "../parts/moment-rules.js";
 import {
   MAX_SHARED_SOURCES, REVEAL_POLICIES, SHARED_SOURCE_KINDS, emptySharedSource, sharedReflectionFieldId,
   sharedReflectionPayload, togetherProblem, validateSharedReflectionDraft,
@@ -53,9 +54,22 @@ export async function createTogetherNew(context) {
     const published = h("text-field", { label: say("together.when"), maxlength: 40, value: start.published, onValuechange: () => changed() });
     const isbn = h("text-field", { label: say("together.isbn"), description: say("together.isbnHelp"), value: start.isbn, onValuechange: () => changed() });
     const more = h("details", { class: "studio-together-more" }, h("summary", { text: say("together.moreAbout") }), creator, publisher, published, isbn);
+    // R14b: Fill in from the link asks the link's own site, says so first, and fills empty boxes only.
+    const filled = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
+    const fill = h("action-button", { variant: "secondary", size: "sm", "aria-describedby": "", onClick: async () => {
+      const current = { title: String(title.value || ""), url: String(url.value || ""), creator: String(creator.value || ""), publisher: String(publisher.value || "") };
+      fill.loading = true;
+      const result = await lookupSourceDetails(current, (body) => api.post("collaboration/publications/source-metadata", body), () => String(url.value || "").trim() === current.url.trim());
+      fill.loading = false;
+      for (const key of result.applied) ({ title, creator, publisher })[key].value = current[key];
+      if (result.applied.some((key) => key !== "title")) more.setAttribute("open", "");
+      filled.textContent = result.message;
+      if (result.applied.length) changed();
+    } }, say("moments.fillIn"));
+    const fillHelp = h("p", { class: "studio-help", text: say("moments.fillInHelp") });
     const number = h("h4", { class: "studio-together-h4" });
     const remove = h("action-button", { variant: "ghost", size: "sm", onClick: () => { sources.splice(sources.indexOf(row), 1); drawSources(); sources[0].focus(); changed(); } }, say("together.takeOutSource"));
-    const element = h("fieldset", { class: "studio-together-source" }, h("legend", {}, number), kind, title, url, more, remove);
+    const element = h("fieldset", { class: "studio-together-source" }, h("legend", {}, number), kind, title, url, h("div", {}, fillHelp, fill, filled), more, remove);
     function paintKind() {
       const chosen = SHARED_SOURCE_KINDS.find((k) => k.value === kind.value) || SHARED_SOURCE_KINDS[0];
       title.placeholder = chosen.example();
