@@ -120,7 +120,7 @@ class ObSearch extends HTMLElement {
       .map(
         (h) =>
           `<li><a href="${escapeHtml(h.url)}">${highlight(h.title, terms)}</a>` +
-          `<p class="ob-meta">${escapeHtml(h.date)}${h.series ? " · " + escapeHtml(h.series) : ""}</p>` +
+          (h.date || h.series ? `<p class="ob-meta">${[h.date, h.series].filter(Boolean).map(escapeHtml).join(" · ")}</p>` : "") +
           (h.snippet ? `<p>${highlight(h.snippet, terms)}</p>` : h.description ? `<p>${highlight(h.description, terms)}</p>` : "") +
           `</li>`,
       )
