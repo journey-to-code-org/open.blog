@@ -323,10 +323,20 @@ fn readable_scheme(given: &Palette, scheme: &str, changes: &mut Vec<Value>) -> M
     };
     let backgrounds = [page, surface];
     let lowest = |color: Rgb| contrast(color, page).min(contrast(color, surface));
-    // Body text at 7:1 where it can be; never under 4.5:1.
-    let text = match readable_on(given.text, &backgrounds, HIGH)
-        .or_else(|| readable_on(given.text, &backgrounds, TEXT))
-    {
+    // Body text at 7:1 where it can be; never under 4.5:1. Where 7:1 is out of reach, the ink that
+    // reads best (black or white) beats a colour that only just clears the floor.
+    let (best_ink, best_shift) = if lowest(BLACK) >= lowest(WHITE) {
+        (BLACK, Shift::Darker)
+    } else {
+        (WHITE, Shift::Lighter)
+    };
+    let text = match readable_on(given.text, &backgrounds, HIGH).or_else(|| {
+        if lowest(best_ink) >= TEXT && lowest(best_ink) > lowest(given.text) {
+            Some((best_ink, best_shift))
+        } else {
+            readable_on(given.text, &backgrounds, TEXT)
+        }
+    }) {
         Some((color, shift)) => {
             changes.extend(change(scheme, "text", given.text, color, shift));
             color
@@ -530,6 +540,31 @@ mod tests {
             "{notes}"
         );
         assert!(notes.contains("main colour"), "{notes}");
+    }
+
+    /// A page where 7:1 can't be reached (all mid-grey): the writing takes whichever of black and
+    /// white reads best, not a grey that only just clears 4.5:1.
+    #[test]
+    fn writing_on_a_grey_page_takes_the_more_readable_ink_when_seven_to_one_is_out_of_reach() {
+        let mut draft = christmas();
+        for key in COLOR_KEYS {
+            draft["light"][key] = json!("#808080");
+        }
+        let made = ThemeDraft::from_json(&draft).unwrap().to_theme("base");
+        let page = color(&made.theme, "light", "page");
+        let text = color(&made.theme, "light", "text");
+        assert!(
+            contrast(text, page) >= contrast(BLACK, page) - 0.01,
+            "{:?} is {:.2}:1",
+            text,
+            contrast(text, page)
+        );
+        let said = made
+            .changes
+            .iter()
+            .find(|c| c["scheme"] == "light" && c["role"] == "text")
+            .expect("the change is said");
+        assert_eq!(said["change"], "darker");
     }
 
     /// The promise made to an owner who picks colours by hand: whatever the six are, the theme
