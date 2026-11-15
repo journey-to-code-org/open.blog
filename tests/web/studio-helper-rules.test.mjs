@@ -9,12 +9,12 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 import {
-  MAX_PASSAGE, NEVER_SENT, applyAssistantSuggestion, applyFinding, assistantReviewPassage, boxSpans, captureTarget, cardRanges, clip, companyName, detailGroups, findingInBoxes, findingPlace,
+  MAX_PASSAGE, NEVER_SENT, applyAssistantSuggestion, applyFinding, assistantReviewPassage, boxSpans, captureTarget, cardRanges, clip, companyName, detailGroups, detailLines, findingInBoxes, findingPlace,
   helperLine, helperProblem, helperSource, helperState, lookForChoices, markdownHeadingStarts, moreThanWords, orderFindings, passageFor, plainSuggestion, reasonWords, reviewRequest, scopeOf,
   selectableSkillIds, shiftUsed, skillFitsScope, skillPresentation, skillsFor, sourceChanged, stateWords, undoFinding, usableFinding, whatGoes, wordsAbout,
 } from "../../web/studio/parts/helper-rules.js";
 import { defaultContextIds } from "../../web/studio/parts/helper-context-rules.js";
-import { plainCompletion } from "../../web/studio/parts/suggest-rules.js";
+import { completionRequest, plainCompletion } from "../../web/studio/parts/suggest-rules.js";
 import { configureWords } from "../../web/studio/parts/words.js";
 import { transcribeTrouble, writeUpTrouble } from "../../web/studio/parts/job-words.js";
 
@@ -233,10 +233,45 @@ test("where she was never goes to the helper, whatever is chosen", () => {
   } };
   const source = helperSource(form);
   for (const key of ["trackToken", "captureId", "route", "routeShape", "elevationProfile", "_draftOf", "credits", "creditEtag", "empty", "gone", "none"]) assert.equal(key in source, false, key);
-  assert.deepEqual(Object.keys(source).sort(), ["description", "distanceKm", "location", "profile", "tags"], "the title goes once, as the title");
+  // No choice made about the place is the same as hidden: nothing about the place goes (S2).
+  assert.deepEqual(Object.keys(source).sort(), ["description", "profile", "tags"], "the title goes once, as the title");
   for (const key of ["trackToken", "captureId", "route", "routeShape", "elevationProfile"]) assert.ok(NEVER_SENT.includes(key), key);
   const request = JSON.stringify(reviewRequest({ form, skillIds: ["copy-review"] }));
-  for (const secret of ["tok-123", "cap-9", "route.gpx", "0,0 1,1", "1,2,3"]) assert.equal(request.includes(secret), false, secret);
+  for (const secret of ["tok-123", "cap-9", "route.gpx", "0,0 1,1", "1,2,3", "The ridge"]) assert.equal(request.includes(secret), false, secret);
+});
+
+// S2: where someone was stays private by default, from the helper's company too.
+test("a trip's place and its numbers go only when she chose to show the place to readers", () => {
+  configureWords();
+  const trip = (privacy) => ({ title: "Trip", body: "We walked a long way.", fields: {
+    profile: "field-journal", activity: "Hike", conditions: "Wet and windy", location: "PLACE-Dolly-Sods", distanceKm: "12.4", elevationGainM: "640", duration: "PT4H10M", tags: ["hike"],
+    ...(privacy === undefined ? {} : { locationPrivacy: privacy }),
+  } });
+  for (const hidden of [undefined, "hidden", "Hidden", "", "nonsense", null, 3]) {
+    const source = helperSource(trip(hidden));
+    assert.deepEqual(Object.keys(source).sort(), ["activity", "conditions", "profile", "tags"], String(hidden));
+    for (const request of [reviewRequest({ form: trip(hidden), skillIds: ["copy-review"] }), completionRequest({ prefix: "We walked a long way." }, trip(hidden), [])]) {
+      const sent = JSON.stringify(request);
+      for (const place of ["PLACE-Dolly-Sods", "12.4", "640", "PT4H10M", "locationPrivacy", "hidden"]) assert.equal(sent.includes(place), false, `${hidden}: ${place}`);
+    }
+    // The list she reads says exactly that: no place, no trip numbers.
+    const goes = whatGoes(reviewRequest({ form: trip(hidden), skillIds: ["copy-review"] }), {}, STATUS, { skills: SKILLS });
+    assert.deepEqual(goes.lines, ["Your title and your words, about 5", "This post's details: tags, what you did and the conditions, what kind of post it is"], String(hidden));
+  }
+  for (const shown of ["trimmed", "approximate", "exact", "Exact"]) {
+    const source = helperSource(trip(shown));
+    assert.deepEqual(Object.keys(source).sort(), ["activity", "conditions", "distanceKm", "duration", "elevationGainM", "location", "locationPrivacy", "profile", "tags"], shown);
+    const goes = whatGoes(reviewRequest({ form: trip(shown), skillIds: ["copy-review"] }), {}, STATUS, { skills: SKILLS });
+    assert.deepEqual(goes.lines, ["Your title and your words, about 5", "This post's details: tags, what you did and the conditions, the place and the trip's numbers, what kind of post it is"], shown);
+  }
+  // The same fields left on a post that isn't a trip follow the same rule; a video's length is its own.
+  assert.deepEqual(helperSource({ fields: { profile: "video", duration: "PT4M", location: "PLACE", distanceKm: "3" } }), { profile: "video", duration: "PT4M" });
+  // What is listed is what is sent: every key of the details falls in a named group, for either choice.
+  for (const privacy of ["hidden", "exact"]) {
+    const metadata = helperSource(trip(privacy));
+    assert.equal(detailLines(metadata).length, Object.keys(metadata).length);
+    assert.equal(detailLines(metadata).some((line) => /PLACE-Dolly-Sods|12\.4/.test(line)), privacy === "exact", privacy);
+  }
 });
 
 test("the details that go are named by group, in her words", () => {
@@ -244,7 +279,8 @@ test("the details that go are named by group, in her words", () => {
   assert.deepEqual(detailGroups({ title: "x", date: "2026-11-01", tags: ["a"], description: "s", servings: "8", prepTime: "20" }), ["when it appears", "tags", "summary", "recipe facts"]);
   assert.deepEqual(detailGroups({ "job.trade": "roofing", "job.place.town": "Springfield" }), ["job details"]);
   assert.deepEqual(detailGroups({ profile: "video", duration: "PT4M", videoUrl: "https://v" }), ["video facts", "what kind of post it is"]);
-  assert.deepEqual(detailGroups({ profile: "field-journal", duration: "PT4H", distanceKm: "12" }), ["trip numbers", "what kind of post it is"]);
+  assert.deepEqual(detailGroups({ profile: "field-journal", duration: "PT4H", distanceKm: "12" }), ["the place and the trip's numbers", "what kind of post it is"]);
+  assert.deepEqual(detailGroups({ profile: "field-journal", activity: "Hike" }), ["what you did and the conditions", "what kind of post it is"]);
   assert.deepEqual(detailGroups({}), []);
 });
 

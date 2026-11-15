@@ -173,18 +173,35 @@ export function clip(text, max = 600) {
 
 // ---- what is sent of the post
 
-/** Never sent, whatever is chosen (R7: where someone was stays private). */
+/** Never sent, whatever is chosen (R7: where someone was stays private). See also `PLACE_KEYS`. */
 export const NEVER_SENT = Object.freeze(["trackToken", "captureId", "route", "routeShape", "elevationProfile", "credits", "creditEtag"]);
+
+/** What says where she was or how far she went: the area's name, the route's numbers, and the choice itself. */
+export const PLACE_KEYS = Object.freeze(["location", "distanceKm", "elevationGainM", "locationPrivacy"]);
+/** The choices of "How much of the place readers see" that show it publicly. Anything else is hidden. */
+const PLACE_SHOWN = ["trimmed", "approximate", "exact"];
+
+/** Whether she chose to show the place to her readers (R7): only then may anything about it leave. */
+export function placeIsPublic(fields = {}) {
+  return PLACE_SHOWN.includes(String(fields?.locationPrivacy ?? "").trim().toLowerCase());
+}
 
 /**
  * The post's details as the helper gets them: her fields without anything that says where she
- * was, anything the page keeps for itself (`_...`), and anything empty.
+ * was, anything the page keeps for itself (`_...`), and anything empty. While the place is hidden
+ * from readers (the start, and whenever no choice is made), nothing about the place goes either:
+ * not the area's name, not the route's numbers (a trip's distance, climb and time), not the choice.
  */
 export function helperSource(form = {}) {
+  const fields = form.fields || {};
+  const shown = placeIsPublic(fields);
+  const trip = String(fields.profile ?? "").toLowerCase() === "field-journal";
   const out = {};
-  for (const [key, value] of Object.entries(form.fields || {})) {
+  for (const [key, value] of Object.entries(fields)) {
     // The title goes as the title, once.
     if (NEVER_SENT.includes(key) || key.startsWith("_") || key === "title") continue;
+    // "duration" is a trip's time on the route, or a video's length, by what kind of post it is.
+    if (!shown && (PLACE_KEYS.includes(key) || (trip && key === "duration"))) continue;
     if (value === null || value === undefined || value === "") continue;
     if (Array.isArray(value) && !value.length) continue;
     if (typeof value === "object" && !Array.isArray(value)) continue;
@@ -199,7 +216,9 @@ const GROUPS = [
   ["summary", ["description", "subtitle"]],
   ["recipe", ["servings", "prepTime", "cookTime", "totalTime", "course", "cuisine", "yield", "calories", "adaptedFrom"]],
   ["video", ["videoUrl", "duration", "productionStatus", "videoTitle", "videoDescription", "aiDisclosure", "seasonNumber", "episodeNumber", "madeForKids", "syntheticMedia", "videoPeople", "videoRights", "productionCredits"]],
-  ["trip", ["activity", "location", "distanceKm", "elevationGainM", "conditions", "locationPrivacy"]],
+  ["trip", ["activity", "conditions"]],
+  // Present only when she shows the place to readers (`helperSource`).
+  ["place", ["location", "distanceKm", "elevationGainM", "duration", "locationPrivacy"]],
 ];
 /** The groups of details present in what is sent, in her words. */
 export function detailGroups(metadata = {}) {
@@ -219,7 +238,7 @@ export function detailGroups(metadata = {}) {
   if (keys.some((key) => !seen.has(key))) found.push("other");
   return found.map((group) => ({
     when: say("helper.groupWhen"), tags: say("helper.groupTags"), summary: say("helper.groupSummary"), recipe: say("helper.groupRecipe"),
-    job: say("helper.groupJob"), video: say("helper.groupVideo"), trip: say("helper.groupTrip"), other: say("helper.groupOther"),
+    job: say("helper.groupJob"), video: say("helper.groupVideo"), trip: say("helper.groupTrip"), place: say("helper.groupPlace"), other: say("helper.groupOther"),
   })[group]);
 }
 
