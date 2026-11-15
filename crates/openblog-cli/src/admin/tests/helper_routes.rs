@@ -1096,13 +1096,17 @@ fn every_provider_route_refuses_a_request_that_does_not_say_confirmed() {
             );
         }
     }
-    // A recording is the whole body, so its word rides in the address.
-    for query in ["", "&confirmed=false", "&confirmed=1"] {
+    // A recording is the whole body, so its word rides in the address. It is asked for first:
+    // nothing about the request (not even which prompt) is looked at without it.
+    for query in [
+        "promptId=a-meal-you-love",
+        "promptId=a-meal-you-love&confirmed=false",
+        "promptId=a-meal-you-love&confirmed=1",
+        "promptId=no-such-prompt",
+        "",
+    ] {
         let mut spoken = authed(
-            req(
-                "POST",
-                &format!("/admin/api/voice/spoken?promptId=a-meal-you-love{query}"),
-            ),
+            req("POST", &format!("/admin/api/voice/spoken?{query}")),
             &session,
             true,
         );
