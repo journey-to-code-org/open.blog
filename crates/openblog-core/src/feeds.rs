@@ -530,6 +530,24 @@ pub fn search_index(site: &Site) -> String {
             },
         })
         .collect();
+    // Documentation pages are found by search too (ADR 0405 says they are pages, and docs-sites.md
+    // that search covers them). A page has no date and no tags; the section's name stands where a
+    // post's series would, so a result says where it is from. A longer stretch of the body is kept
+    // than for a post: a reference page is searched for a word that may be far down it.
+    entries.extend(
+        site.pages
+            .iter()
+            .filter(|page| page.doc.is_some())
+            .map(|page| IndexEntry {
+                title: page.title.clone(),
+                url: page.url.clone(),
+                date: String::new(),
+                tags: Vec::new(),
+                series: Some(site.config.docs.title().to_string()),
+                description: page.description.clone(),
+                text: page.text.to_lowercase().chars().take(12000).collect(),
+            }),
+    );
     // Listed reading paths are found by search after the posts (ADR 0216):
     // from the public value only, so an unlisted path, a draft or a step
     // that is not published never appears. They are not feed items.
@@ -762,6 +780,51 @@ mod tests {
         assert!(full.contains("## A & B"));
         assert!(full.contains("- Published: 2026-10-21"));
         assert!(full.contains("Hello x"));
+    }
+
+    #[test]
+    fn documentation_pages_are_searchable() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"Journey","url":"https://j.io","postPath":"/{slug}/","author":{"name":"Alex"},"docs":{"enabled":true,"title":"Journey docs"}}"#,
+        )
+        .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile { path: "posts/a.md".into(), contents: "---\ntitle: A\ndate: 2026-10-21\n---\nHello".into() }],
+                docs: vec![SourceFile {
+                    path: "docs/server.md".into(),
+                    contents: "---\ntitle: The server\ndescription: Mounting it\n---\n# The server\n\nA zebrafish needs a mount.".into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let index: crate::search::Index = serde_json::from_str(&search_index(&site)).unwrap();
+        let entry = index.entries.iter().find(|e| e.title == "The server").expect("the docs page is in the index");
+        assert_eq!(entry.url, "/docs/server/");
+        assert_eq!(entry.date, "");
+        assert_eq!(entry.series.as_deref(), Some("Journey docs"));
+        assert!(entry.text.contains("zebrafish"));
+        let hits = crate::search::query(&index, "zebrafish", 5);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].url, "/docs/server/");
+    }
+
+    #[test]
+    fn documentation_is_left_out_of_search_while_it_is_off() {
+        let config = SiteConfig::from_json(r#"{"title":"Journey","url":"https://j.io","postPath":"/{slug}/","author":{"name":"Alex"}}"#).unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                docs: vec![SourceFile { path: "docs/server.md".into(), contents: "---\ntitle: The server\n---\nBody".into() }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        assert!(!search_index(&site).contains("The server"));
     }
 
     #[test]
