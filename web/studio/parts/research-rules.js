@@ -244,7 +244,7 @@ export function researchProblem(error, place = "sources") {
   const first = diagnostics[0] || {};
   const codes = diagnostics.map((item) => item.code).filter(Boolean);
   const code = String(data.code || first.code || "");
-  const details = [code || (status ? String(status) : ""), first.field || "", data.error || error?.message || ""].filter(Boolean).join(": ");
+  const details = [code || (status ? String(status) : ""), first.field || "", data.error || error?.message || "", first.message && first.message !== data.error ? first.message : ""].filter(Boolean).join(": ");
   const out = (id, extra = {}) => ({ field: "", row: -1, id, vars: {}, banner: false, alert: false, conflict: false, signal: false, signedOut: false, details, ...extra });
   if (status === 401) return out("", { signedOut: true });
   if (status === 0) return out("research.noSignal", { signal: true });
@@ -257,7 +257,9 @@ export function researchProblem(error, place = "sources") {
   }
   if (status === 413 || code === "too-large") return out(place === "import" ? "sources.importTooBig" : "research.tooLarge", { banner: true });
   if (status === 400 || status === 415 || code === "bad-request") return out("research.failed", { banner: true });
-  if (code === "unreadable" || codes.some((c) => c === "invalid-json" || c === "unsupported-version")) {
+  // An import whose only problem is the file itself (`{"items": []}`: not a list of items) isn't CSL JSON.
+  const fileOnly = place === "import" && diagnostics.length > 0 && diagnostics.every((d) => d.index == null && !d.sourceId && !d.field);
+  if (code === "unreadable" || fileOnly || codes.some((c) => c === "invalid-json" || c === "unsupported-version")) {
     if (place === "import") return out("sources.importNotJson", { banner: true });
     if (place === "bring") return out("notebook.bringNotCopy", { banner: true });
     return out("research.unreadable", { banner: true, alert: true, vars: { what: whatWords(place) } });

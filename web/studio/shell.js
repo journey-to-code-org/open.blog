@@ -36,7 +36,7 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** The account menu: the phone in her hand (Notifications, Add to Home Screen, its jobs) before the rest. */
 function accountMenu(meta, jobs) {
-  if (coWriterOf(meta)) return [{ value: "signout", label: "Sign out" }];
+  if (coWriterOf(meta)) return [{ value: "signout", label: say("together.signOut") }];
   const install = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
   return [
     { value: "site", label: "View my site" },

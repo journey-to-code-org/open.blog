@@ -2,7 +2,7 @@
 // and chapters for a video post, as `openblog video` writes them: from the server's preview (G50)
 // when there is a signal, else from video-rules.js, which mirrors the engine. Problems are listed
 // above and never stop Copy (YouTube decides). Nothing here changes the video or the post.
-import { h, toast } from "./dom.js";
+import { glyph, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { trapFocus } from "./focus-trap.js";
@@ -15,7 +15,7 @@ import { chapterCountWords, releaseWords } from "./video-rules.js";
 export async function createYoutubeSheet({ api, write }) {
   await use("side-sheet", "action-button", "text-field");
   const heading = h("span", { slot: "heading", tabindex: "-1", text: say("youtube.sheet") });
-  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, onClick: () => goBack() }, `‹ ${say("route.back")}`);
+  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, onClick: () => goBack() }, glyph("‹ "), say("route.back"));
   const body = h("div", { class: "studio-ready-body" });
   const done = h("action-button", { onClick: () => close() }, say("youtube.done"));
   const element = h("side-sheet", { label: say("youtube.sheet"), side: "right", class: "studio-ready-sheet" },

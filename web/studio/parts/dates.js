@@ -16,6 +16,13 @@ const MONTHS = [
 
 const formatters = new Map();
 
+/** A month's name, 1–12, as every other date here is said (Intl, the same language): "September", "Sep". */
+export function monthName(month, style = "long") {
+  const key = `month:${style}`;
+  if (!formatters.has(key)) formatters.set(key, new Intl.DateTimeFormat("en-US", { month: style, timeZone: "UTC" }));
+  return formatters.get(key).format(new Date(Date.UTC(2000, Number(month) - 1, 1)));
+}
+
 function partsFormatter(timeZone) {
   const key = timeZone || "";
   if (!formatters.has(key)) {

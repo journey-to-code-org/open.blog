@@ -148,7 +148,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `add.alreadyThereRefs` | her | This post already has its {thing}. | `{thing}` | 68 |
 | `add.asWritten` | details | Show the words as written | none | 50 |
 | `add.asWrittenHelp` | details | Everything exactly as it's saved. Turn this off to see cards again. | none | 134 |
-| `add.back` | her | ‹ Everything you can add | none | 48 |
+| `add.back` | her | Everything you can add | none | 44 |
 | `add.button` | her | Add something | none | 40 |
 | `add.buttonTo` | her | Add something to {box} | `{box}` | 44 |
 | `add.citation` | her | A citation | none | 40 |
@@ -910,8 +910,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.noSignal` | her | Drafting a look needs a signal. What you typed is kept here. | none | 120 |
 | `design.notSaved` | her | That wasn't saved. Try again in a moment. | none | 82 |
 | `design.noteDarker` | her | In {scheme}, the {role} is a little darker so it's easy to read. | `{scheme}` `{role}` | 128 |
+| `design.noteDarkerMany` | her | In {scheme}, the {role} are a little darker so they're easy to read. | `{scheme}` `{role}` | 136 |
 | `design.noteLighter` | her | In {scheme}, the {role} is a little lighter so it's easy to read. | `{scheme}` `{role}` | 130 |
+| `design.noteLighterMany` | her | In {scheme}, the {role} are a little lighter so they're easy to read. | `{scheme}` `{role}` | 138 |
 | `design.noteReplaced` | her | In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 176 |
+| `design.noteReplacedMany` | her | In {scheme}, the {role} couldn't be made easy to read, so they use {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 178 |
 | `design.previewBack` | her | Back to your new look | none | 42 |
 | `design.previewFailed` | her | Your front page couldn't be shown just now. Your new look is still here. | none | 144 |
 | `design.previewFrame` | her | Your front page in the new look | none | 62 |
@@ -938,6 +941,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.stopped` | her | Stopped waiting. Nothing changed. | none | 66 |
 | `design.title` | her | Describe a new look | none | 40 |
 | `design.undo` | her | Undo | none | 40 |
+| `design.undoExpired` | her | It's been more than 10 minutes, so “{name}” can't be undone. It stays. | `{name}` | 140 |
+| `design.undoNoSignal` | her | There's no signal, so “{name}” is still saved. Try Undo again when you have one. | `{name}` | 160 |
 | `design.undoTooLate` | her | “{name}” is in use or was changed, so it stays. | `{name}` | 94 |
 | `design.unsaved` | her | “{name}” is gone. | `{name}` | 40 |
 | `design.useSuggested` | her | Use the suggested {role} | `{role}` | 48 |
@@ -1571,6 +1576,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `job.noWordsHeard` | her | No words were heard in it. Type a few instead. | none | 92 |
 | `job.noteStillHere` | her | Your voice note is still here. | none | 60 |
 | `job.notesTooLong` | her | That's more words than it can take. Shorten them a little. | none | 116 |
+| `job.writeUpGo` | her | Write it up | none | 40 |
+| `job.writeUpLikeMe` | her | Make it sound like me | none | 42 |
+| `job.writeUpNotNow` | her | Not now | none | 40 |
+| `job.writeUpTitle` | her | Write it up for me | none | 40 |
+| `job.writeUpWorking` | her | Writing it up… | none | 40 |
 | `join.declined` | her | You said no thanks. They can invite you again. | none | 92 |
 | `join.invitedYou` | her | {name} invited you to write about: | `{name}` | 68 |
 | `join.joined` | her | You're in. Write your part when you're ready. | none | 90 |
@@ -3588,6 +3598,13 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `sources.importTitle` | her | Import sources | none | 40 |
 | `sources.importTooBig` | her | That file is bigger than 3 MB. Export fewer items at a time. | none | 120 |
 | `sources.importUpdated` | her | {count} updated | `{count}` | 40 |
+| `sources.importWhyKind` | her | it's a different kind of source from the one with that name in your library. | none | 152 |
+| `sources.importWhyMissing` | her | something it needs is missing. | none | 60 |
+| `sources.importWhyName` | her | its name can't be used for a source. | none | 72 |
+| `sources.importWhyTwice` | her | it's in the file twice, or has the same name as another source. | none | 126 |
+| `sources.importWhyUnknownKind` | her | it's a kind of source your library doesn't know. | none | 96 |
+| `sources.importWhyUnusable` | her | something in it can't be used. | none | 60 |
+| `sources.importWhyWho` | her | who made it doesn't match the source with that name in your library. | none | 136 |
 | `sources.imported` | her | Imported: {summary} | `{summary}` | 40 |
 | `sources.issued` | her | Date (optional) | none | 40 |
 | `sources.issuedHelp` | her | Kept as you write it, like 1992 or c. 375 BCE. | none | 92 |
@@ -4039,6 +4056,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.scheduleTime` | her | Time | none | 40 |
 | `together.scheduled` | her | It goes up on {when}. | `{when}` | 42 |
 | `together.serverDown` | her | {product} didn't do that, so nothing changed. Your words are still here. | `{product}` | 200 |
+| `together.signOut` | her | Sign out | none | 40 |
 | `together.sourceLine` | her | {kind}: {title} | `{kind}` `{title}` | 40 |
 | `together.sourceLink` | her | Link, if it has one | none | 40 |
 | `together.sourceLinkHelp` | her | Leave it empty for a book or a conversation. | none | 88 |

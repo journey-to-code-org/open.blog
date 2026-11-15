@@ -285,3 +285,13 @@ test("words.json and the docs table are up to date", () => {
   assert.equal(json.words["common.tell"].layer, "her");
   assert.deepEqual(json.words["cards.signOff"], { text: "{owner}", layer: "her", max: 80, vars: ["owner"], bare: "" });
 });
+
+test("a back button's arrow is only for the eye: never in its words, so never in its accessible name (N4)", () => {
+  configureWords();
+  assert.doesNotMatch(say("add.back"), /^[‹←]/);
+  for (const file of ["parts/add-menu.js", "parts/cite-form.js", "screens/start.js", "parts/route-sheet.js", "parts/youtube-sheet.js", "parts/voice-guide-steps.js", "parts/voice-write.js"]) {
+    const text = readFileSync(join(studio, file), "utf8");
+    assert.doesNotMatch(text, /`‹ \$\{say\(/, `${file}: the arrow goes in glyph()`);
+    assert.doesNotMatch(text, /text: `‹/, `${file}: the arrow goes in glyph()`);
+  }
+});

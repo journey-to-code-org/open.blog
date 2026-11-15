@@ -172,7 +172,7 @@ test("?add=1 opens the sheet and ?add=table its form; Find has Add a table; the 
   await page.keyboard.press("Escape");
   await openPost(page, "routes", `${front("Routes")}\nWords.\n`, "?add=table");
   await expect(page.getByRole("dialog", { name: "Table" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Table" }).getByRole("button", { name: "‹ Everything you can add" }).click();
+  await page.getByRole("dialog", { name: "Table" }).getByRole("button", { name: "Everything you can add", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add something" })).toBeVisible();
   await page.getByRole("dialog", { name: "Add something" }).getByRole("button", { name: "Never mind" }).click();
   await page.keyboard.press("Control+k");
@@ -400,7 +400,7 @@ test("every form passes axe at 320 px without sideways scroll", async ({ page })
     const form = page.getByRole("dialog", { name: title });
     await expect(form).toBeVisible();
     await axeClean(page, `the ${title} form`);
-    await form.getByRole("button", { name: "‹ Everything you can add" }).click();
+    await form.getByRole("button", { name: "Everything you can add", exact: true }).click();
     await page.getByRole("dialog", { name: "Add something" }).getByRole("button", { name: "Never mind" }).click();
     await expect(page.getByRole("dialog", { name: "Add something" })).toBeHidden();
   }

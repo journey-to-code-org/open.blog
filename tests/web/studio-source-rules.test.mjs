@@ -207,12 +207,16 @@ test("import previews are summarised in her words, with kept and unsupported fie
   const out = sourceImportRows(PLAN({ create: 1, update: 1, conflict: 2 }, [
     CREATE_ENTRY,
     { index: 1, cslId: "x", sourceId: "x", action: "update", changes: [{ field: "title" }], kept: ["of", "creators"], unsupported: [], diagnostics: [] },
-    { index: 2, cslId: null, sourceId: null, action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ field: "id", message: "every item needs a non-empty `id`" }] },
-    { index: 3, cslId: "Π", sourceId: "csl-0123", action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ message: "shares an identifier" }] },
+    { index: 2, cslId: null, sourceId: null, action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ code: "missing-field", field: "id", message: "every item needs a non-empty `id`" }] },
+    { index: 3, cslId: "Π", sourceId: "csl-0123", action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ code: "invalid-field", field: "URL", message: "must be an absolute HTTP(S) URL without credentials" }] },
   ]));
-  assert.deepEqual(out[0], { action: "create", name: "plato-republic (from Plato-Republic)", details: ["Not kept: note: private notes and abstracts are never imported"], problems: [] });
+  assert.deepEqual(out[0], { action: "create", name: "plato-republic (from Plato-Republic)", details: ["Not kept: note: private notes and abstracts are never imported"], problems: [], problemDetails: [] });
   assert.deepEqual(out[1].details, ["Changes title", "Keeps of, creators as you wrote them"]);
-  assert.deepEqual([out[2].name, out[2].problems], ["Item 3", ["Can't be imported: id: every item needs a non-empty `id`"]]);
+  // Her layer says what's wrong by its code; the server's sentence (backticks, "credentials") is for the helper.
+  assert.deepEqual([out[2].name, out[2].problems], ["Item 3", ["Can't be imported: something it needs is missing."]]);
+  assert.deepEqual(out[3].problems, ["Can't be imported: something in it can't be used."]);
+  assert.deepEqual(out[3].problemDetails, ["invalid-field: URL: must be an absolute HTTP(S) URL without credentials"]);
+  for (const line of out.flatMap((r) => r.problems)) assert.doesNotMatch(line, /`|credentials|URL|id:/);
   assert.equal(out[3].name, "csl-0123 (from Π)");
   assert.deepEqual(sourceExportLossNotes([{ sourceId: "a", field: "kind" }, { sourceId: "a", field: "of" }, { sourceId: "b", field: "location" }, { sourceId: "a", field: "kind" }]), ["a: kind, of", "b: location"]);
   assert.deepEqual(sourceExportLossNotes(undefined), []);

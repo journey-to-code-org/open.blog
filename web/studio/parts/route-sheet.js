@@ -6,7 +6,7 @@
 // staging; the token rides with the next save (the server keeps the file private until the post
 // is live, G47) and is discarded when not used. Use this route, a change and Take the route off
 // each have Undo.
-import { h, toast } from "./dom.js";
+import { glyph, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { ask } from "./dialogs.js";
@@ -43,7 +43,7 @@ function drawing(points, label) {
 export async function createRouteSheet({ api, write }) {
   await use("side-sheet", "action-button", "file-drop", "select-field", "toggle-switch", "text-field", "alert-banner");
   const heading = h("span", { slot: "heading", tabindex: "-1", text: say("route.sheet") });
-  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, onClick: () => goBack() }, `‹ ${say("route.back")}`);
+  const back = h("action-button", { variant: "link", class: "studio-step-back", hidden: true, onClick: () => goBack() }, glyph("‹ "), say("route.back"));
   const body = h("div", { class: "studio-ready-body" });
   const status = h("p", { class: "studio-ready-did", role: "status" });
   const cancel = h("action-button", { variant: "secondary", onClick: () => leaveSheet() }, say("route.neverMind"));

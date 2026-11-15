@@ -8,7 +8,7 @@
 // sign-out is always there, and every step has Back, Finish later and Skip the rest: nothing
 // depends on the browser's Back. In a practice run (the server is rehearsing) every step says so,
 // and nothing personal is kept.
-import { fill, h, toast } from "../parts/dom.js";
+import { fill, glyph, h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { say } from "../parts/words.js";
 import { innerAria } from "../parts/inner-button.js";
@@ -53,7 +53,7 @@ export async function createStart(context, route = {}) {
   const announce = h("p", { class: "studio-visually-hidden", role: "status", "aria-live": "polite" });
   const resumed = h("p", { class: "studio-help", role: "status" });
   const host = h("div", { class: "studio-start-host" }, h("skeleton-block", { lines: 5 }));
-  const backButton = h("action-button", { variant: "ghost", "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => goBack() }, `‹ ${say("start.back")}`);
+  const backButton = h("action-button", { variant: "ghost", "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => goBack() }, glyph("‹ "), say("start.back"));
   const later = h("action-button", { variant: "ghost", onClick: () => finishLater() }, back ? say("start.backToPost") : say("start.finishLater"));
   const more = h("dropdown-menu", { label: say("start.more"), class: "studio-row-menu", items: [{ value: "skip", label: say("start.skipRest") }], onItemselect: (event) => { if (event.detail === "skip") skipRest(); } });
   const extras = h("span", { class: "studio-start-extras studio-row" });

@@ -58,7 +58,9 @@ export async function createNotebookCopies({ api, state, onBrought, tell }) {
         const rows = notebookImportRows(reply.plan);
         const count = reply.plan?.counts?.create || 0;
         fill(result, h("p", { role: "status", text: notebookImportSummary(reply.plan) }),
-          rows.length ? h("ul", { class: "studio-research-import-rows" }, rows.map((row) => h("li", {}, stranger("bdi", row.name), row.message ? stranger("p", row.message, { className: "studio-help" }) : null))) : null);
+          rows.length ? h("ul", { class: "studio-research-import-rows" }, rows.map((row) => h("li", {}, stranger("bdi", row.name),
+            // The server's own sentence is for the helper; her layer has the summary and the banner.
+            row.message ? h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), stranger("p", row.message, { className: "studio-mono" })) : null))) : null);
         if (reply.plan?.counts?.conflict > 0) fill(banner, h("alert-banner", { variant: "warning" }, say("notebook.bringBlocked")));
         if (doIt && reply.applied) {
           onBrought(reply);

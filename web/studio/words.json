@@ -106,9 +106,9 @@
       "vars": []
     },
     "add.back": {
-      "text": "‹ Everything you can add",
+      "text": "Everything you can add",
       "layer": "her",
-      "max": 48,
+      "max": 44,
       "vars": []
     },
     "add.button": {
@@ -5165,6 +5165,15 @@
         "role"
       ]
     },
+    "design.noteDarkerMany": {
+      "text": "In {scheme}, the {role} are a little darker so they're easy to read.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "scheme",
+        "role"
+      ]
+    },
     "design.noteLighter": {
       "text": "In {scheme}, the {role} is a little lighter so it's easy to read.",
       "layer": "her",
@@ -5174,10 +5183,29 @@
         "role"
       ]
     },
+    "design.noteLighterMany": {
+      "text": "In {scheme}, the {role} are a little lighter so they're easy to read.",
+      "layer": "her",
+      "max": 138,
+      "vars": [
+        "scheme",
+        "role"
+      ]
+    },
     "design.noteReplaced": {
       "text": "In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead.",
       "layer": "her",
       "max": 176,
+      "vars": [
+        "scheme",
+        "role",
+        "replacement"
+      ]
+    },
+    "design.noteReplacedMany": {
+      "text": "In {scheme}, the {role} couldn't be made easy to read, so they use {replacement} instead.",
+      "layer": "her",
+      "max": 178,
       "vars": [
         "scheme",
         "role",
@@ -5345,6 +5373,22 @@
       "layer": "her",
       "max": 40,
       "vars": []
+    },
+    "design.undoExpired": {
+      "text": "It's been more than 10 minutes, so “{name}” can't be undone. It stays.",
+      "layer": "her",
+      "max": 140,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.undoNoSignal": {
+      "text": "There's no signal, so “{name}” is still saved. Try Undo again when you have one.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "name"
+      ]
     },
     "design.undoTooLate": {
       "text": "“{name}” is in use or was changed, so it stays.",
@@ -9471,6 +9515,36 @@
       "text": "That's more words than it can take. Shorten them a little.",
       "layer": "her",
       "max": 116,
+      "vars": []
+    },
+    "job.writeUpGo": {
+      "text": "Write it up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "job.writeUpLikeMe": {
+      "text": "Make it sound like me",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "job.writeUpNotNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "job.writeUpTitle": {
+      "text": "Write it up for me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "job.writeUpWorking": {
+      "text": "Writing it up…",
+      "layer": "her",
+      "max": 40,
       "vars": []
     },
     "join.declined": {
@@ -22509,6 +22583,48 @@
         "count"
       ]
     },
+    "sources.importWhyKind": {
+      "text": "it's a different kind of source from the one with that name in your library.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "sources.importWhyMissing": {
+      "text": "something it needs is missing.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "sources.importWhyName": {
+      "text": "its name can't be used for a source.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "sources.importWhyTwice": {
+      "text": "it's in the file twice, or has the same name as another source.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "sources.importWhyUnknownKind": {
+      "text": "it's a kind of source your library doesn't know.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "sources.importWhyUnusable": {
+      "text": "something in it can't be used.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "sources.importWhyWho": {
+      "text": "who made it doesn't match the source with that name in your library.",
+      "layer": "her",
+      "max": 136,
+      "vars": []
+    },
     "sources.imported": {
       "text": "Imported: {summary}",
       "layer": "her",
@@ -25499,6 +25615,12 @@
       "vars": [
         "product"
       ]
+    },
+    "together.signOut": {
+      "text": "Sign out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
     },
     "together.sourceLine": {
       "text": "{kind}: {title}",

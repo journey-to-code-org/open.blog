@@ -311,6 +311,7 @@ export const WORDS = {
   "join.signInFirst": { text: "Sign in as {name} to say yes.", layer: "her" },
   "join.wrongPerson": { text: "This invitation is for {name}. Sign out, then open the link again.", layer: "her" },
   "join.signOut": { text: "Sign out", layer: "her" },
+  "together.signOut": { text: "Sign out", layer: "her" },
   "join.signIn": { text: "Sign in", layer: "her" },
   "join.notWorking": { text: "This link doesn't work any more. Ask the person who sent it for a new one.", layer: "her", max: 200 },
   "join.reopen": { text: "Open the link you were sent again.", layer: "her" },

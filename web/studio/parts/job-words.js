@@ -8,6 +8,11 @@ import { say } from "./words.js";
 
 /** Word ids a site may change (docs/studio-words.md). */
 export const WORDS = {
+  "job.writeUpTitle": { text: "Write it up for me", layer: "her" },
+  "job.writeUpLikeMe": { text: "Make it sound like me", layer: "her" },
+  "job.writeUpWorking": { text: "Writing it up…", layer: "her" },
+  "job.writeUpGo": { text: "Write it up", layer: "her" },
+  "job.writeUpNotNow": { text: "Not now", layer: "her" },
   "job.newerVersion": { text: "This job was saved by a newer version of your blog's pages. Reload to send it. If it still says this, tell {helper}.", layer: "her" },
   // What only a voice note or a write-up can say (R8): every other failure is the writing helper's.
   "job.noWordsHeard": { text: "No words were heard in it. Type a few instead.", layer: "her" },

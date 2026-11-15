@@ -3,7 +3,7 @@
 // Write screen; every box of words (Words, Your story, the notes, a job's parts) asks it through
 // `host`. It says where a thing goes before she adds it, keeps a form she filled in, and puts what
 // she adds where she was.
-import { h } from "./dom.js";
+import { glyph, h } from "./dom.js";
 import { say } from "./words.js";
 import { use } from "../zubra.js";
 import { createSheet } from "./sheet.js";
@@ -223,7 +223,7 @@ export async function createAddMenu(ctx) {
     if (saved && !changing) opened.restore(saved);
     form = { kind, opened, block, link, heading, quote, changing, box };
     const title = link ? say("form.changeLink") : heading ? say("form.changeHeading") : quote ? say("form.changeQuote") : thingName(kind);
-    const back = h("action-button", { variant: "link", class: "studio-add-back", onClick: () => backToList() }, say("add.back"));
+    const back = h("action-button", { variant: "link", class: "studio-add-back", onClick: () => backToList() }, glyph("‹ "), say("add.back"));
     const preview = h("action-button", { variant: "secondary", onClick: (e) => seeIt(e.currentTarget) }, say("form.seeIt"));
     const addIt = h("action-button", { class: "studio-add-it", onClick: () => commit() }, changing ? say("form.done") : say("form.addIt"));
     const takeOff = link ? h("action-button", { variant: "secondary", onClick: () => unlink() }, say("form.takeLinkOff")) : null;

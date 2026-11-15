@@ -143,6 +143,7 @@ export function willAdjust(colors = {}, role) {
   return false;
 }
 
+const PLURAL_ROLES = new Set(["surface", "border", "accent"]);
 const schemeWords = (scheme) => (scheme === "dark" ? say("design.inDark") : say("design.inLight"));
 const replacementWords = (name) => (name === "black" ? say("design.withBlack") : name === "white" ? say("design.withWhite") : name === "page" ? say("design.withPage") : say("design.withText"));
 /** A role's name inside a sentence: lower case ("the writing"). */
@@ -156,9 +157,14 @@ export function noteWords(note) {
   if (typeof note === "string") return note;
   if (!isObject(note)) return "";
   const vars = { scheme: schemeWords(note.scheme), role: inSentence(note.role) };
-  if (note.change === "darker") return say("design.noteDarker", vars);
-  if (note.change === "lighter") return say("design.noteLighter", vars);
-  if (note.change === "replaced") return say("design.noteReplaced", { ...vars, replacement: replacementWords(note.with) });
+  // Boxes, edges, links and buttons are many things: "are", "they".
+  const many = PLURAL_ROLES.has(note.role);
+  if (note.change === "darker") return many ? say("design.noteDarkerMany", vars) : say("design.noteDarker", vars);
+  if (note.change === "lighter") return many ? say("design.noteLighterMany", vars) : say("design.noteLighter", vars);
+  if (note.change === "replaced") {
+    const with_ = { ...vars, replacement: replacementWords(note.with) };
+    return many ? say("design.noteReplacedMany", with_) : say("design.noteReplaced", with_);
+  }
   return typeof note.words === "string" ? note.words : "";
 }
 
@@ -213,6 +219,19 @@ export function backDraft(history = []) {
  * One failed design call beyond R8's `helperProblem`: `{ code, words, field }` for the codes of
  * the look routes (G65), or null when it is a helper problem.
  */
+/**
+ * What Undo of a saved look says when it can't: `{ words, again }`, where `again` offers Undo once
+ * more (no signal, or the server stumbled). Too late and in use say so; nothing was removed.
+ */
+export function undoWords(error = {}, name = "") {
+  const status = Number(error?.status) || 0;
+  const code = typeof error?.data?.code === "string" ? error.data.code : "";
+  if (status === 0) return { words: say("design.undoNoSignal", { name }), again: true };
+  if (code === "expired") return { words: say("design.undoExpired", { name }), again: false };
+  if (code === "in-use") return { words: say("design.undoTooLate", { name }), again: false };
+  return { words: say("design.notSaved"), again: true };
+}
+
 export function designProblem(error = {}) {
   const data = error?.data && typeof error.data === "object" ? error.data : {};
   const status = Number(error?.status) || 0;

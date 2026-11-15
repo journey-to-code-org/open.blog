@@ -10,7 +10,7 @@
 // anywhere but the site's own voice routes. The rough box is a native textarea on purpose: the
 // attributes that keep the browser and its extensions away must sit on the box itself (Zubra UI's
 // text-field doesn't pass them through yet).
-import { fill, h } from "./dom.js";
+import { fill, glyph, h } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { ask } from "./dialogs.js";
@@ -221,7 +221,7 @@ export async function createVoiceWrite({ api, user = "", pack = null, choose = t
     const packTitle = from ? (shown.find((p) => p.pack === from)?.packTitle || from) : "";
     const minutes = Math.round(VOICE_LIMITS.defaultSeconds / 60);
     render(
-      backHref ? h("a", { class: "studio-more-link studio-back", href: backHref, text: `‹ ${say("voice.back")}` }) : null,
+      backHref ? h("a", { class: "studio-more-link studio-back", href: backHref }, glyph("‹ "), say("voice.back")) : null,
       heading(say("voice.chooseHeading"), `${base}-h`),
       notice ? h("p", { class: "studio-help", role: "status", text: notice }) : null,
       from ? h("p", { class: "studio-help" }, h("span", { text: `${say("voice.fromPack", { pack: packTitle })} ` }),

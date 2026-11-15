@@ -1026,6 +1026,9 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-together-more > summary, .studio-together-ideas > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
 .studio-together-bar { flex-wrap: wrap; align-items: center; }
 .studio-together-bar .studio-help { flex: 1 1 12rem; }
+/* At 320 px (400% zoom) the bar wraps to two rows; sticky, it would sit over Save and the part's
+   controls while she scrolls (target size), so there it stays in its place under the words. */
+@media (max-width: 25rem) { .studio-together-bar { position: static; background: none; } }
 .studio-together-idea-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
 .studio-together-idea-list li { align-items: center; justify-content: space-between; }
 .studio-part-editor { display: grid; gap: var(--space-3); }

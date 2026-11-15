@@ -322,17 +322,33 @@ export function sourceImportSummary(plan) {
 }
 
 /** Preview rows by group: what happens to each item, what is kept, and what is not carried. */
+/** One import problem in her words, by its code (lower case: it follows "Can't be imported:"). */
+function importProblemWords(code) {
+  switch (code) {
+    case "missing-field": return say("sources.importWhyMissing");
+    case "duplicate-id": return say("sources.importWhyTwice");
+    case "kind-changed": return say("sources.importWhyKind");
+    case "conflicting-attribution": return say("sources.importWhyWho");
+    case "invalid-id": return say("sources.importWhyName");
+    case "unknown-kind": return say("sources.importWhyUnknownKind");
+    default: return say("sources.importWhyUnusable");
+  }
+}
+
 export function sourceImportRows(plan) {
   return (Array.isArray(plan?.entries) ? plan.entries : []).map((entry) => {
     const details = [];
     for (const change of Array.isArray(entry.changes) ? entry.changes : []) details.push(say("sources.importChanges", { field: String(change.field) }));
     if (Array.isArray(entry.kept) && entry.kept.length) details.push(say("sources.importKeeps", { fields: entry.kept.join(", ") }));
     for (const loss of Array.isArray(entry.unsupported) ? entry.unsupported : []) details.push(say("sources.importLoss", { field: String(loss.field), reason: String(loss.reason) }));
-    const problems = (Array.isArray(entry.diagnostics) ? entry.diagnostics : []).map((diagnostic) => say("sources.importProblem", { problem: `${diagnostic.field ? `${diagnostic.field}: ` : ""}${diagnostic.message}` }));
+    // Her layer says what's wrong by the code; the server's own sentence goes to the helper.
+    const diagnostics = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
+    const problems = diagnostics.map((diagnostic) => say("sources.importProblem", { problem: importProblemWords(diagnostic.code) }));
+    const problemDetails = diagnostics.map((d) => [d.code, d.field, d.message].filter(Boolean).join(": "));
     const id = entry.sourceId || "";
     // A key is shown as it is, so it never starts a sentence (where its first letter would be a capital).
     const name = id ? (entry.cslId && entry.cslId !== id ? `${id} (${say("sources.importFrom", { cslId: String(entry.cslId) })})` : id) : say("sources.importItem", { n: Number(entry.index) + 1 });
-    return { action: entry.action, name, details, problems };
+    return { action: entry.action, name, details, problems, problemDetails };
   });
 }
 

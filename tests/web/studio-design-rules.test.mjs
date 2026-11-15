@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  IDEAS, MAX_DESCRIPTION, MAX_HISTORY, MAX_LABEL, ROLES, backDraft, contrastRatio, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, normalHex, noteWords,
+  IDEAS, undoWords, MAX_DESCRIPTION, MAX_HISTORY, MAX_LABEL, ROLES, backDraft, contrastRatio, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, normalHex, noteWords,
   pickedWords, pushDraft, readablePairs, renamed, roleName, startFrom, swatches, willAdjust, withColor,
 } from "../../web/studio/parts/design-rules.js";
 import { configureWords } from "../../web/studio/parts/words.js";
@@ -107,10 +107,14 @@ test("every kind of note has her words, and an older server's sentence shows as 
   configureWords();
   assert.equal(noteWords({ scheme: "dark", role: "muted", change: "lighter" }), "In dark mode, the quiet writing (dates and notes) is a little lighter so it's easy to read.");
   assert.equal(noteWords({ scheme: "light", role: "text", change: "darker" }), "In light mode, the writing is a little darker so it's easy to read.");
-  assert.equal(noteWords({ scheme: "light", role: "accent", change: "replaced", with: "text" }), "In light mode, the links and buttons couldn't be made easy to read, so it uses the writing color instead.");
+  assert.equal(noteWords({ scheme: "light", role: "accent", change: "replaced", with: "text" }), "In light mode, the links and buttons couldn't be made easy to read, so they use the writing color instead.");
+  // A role that is many things reads as many: "the links and buttons are", "the edges are".
+  assert.equal(noteWords({ scheme: "light", role: "accent", change: "darker" }), "In light mode, the links and buttons are a little darker so they're easy to read.");
+  assert.equal(noteWords({ scheme: "dark", role: "border", change: "lighter" }), "In dark mode, the edges are a little lighter so they're easy to read.");
+  assert.equal(noteWords({ scheme: "dark", role: "surface", change: "lighter" }), "In dark mode, the boxes are a little lighter so they're easy to read.");
   assert.equal(noteWords({ scheme: "light", role: "text", change: "replaced", with: "black" }), "In light mode, the writing couldn't be made easy to read, so it uses black instead.");
   assert.match(noteWords({ scheme: "dark", role: "text", change: "replaced", with: "white" }), /uses white instead/);
-  assert.match(noteWords({ scheme: "dark", role: "surface", change: "replaced", with: "page" }), /the boxes couldn't be made easy to read, so it uses the page color instead/);
+  assert.match(noteWords({ scheme: "dark", role: "surface", change: "replaced", with: "page" }), /the boxes couldn't be made easy to read, so they use the page color instead/);
   assert.equal(noteWords("In light mode, the writing was made a little darker so it is easy to read."), "In light mode, the writing was made a little darker so it is easy to read.");
   assert.equal(noteWords({ scheme: "light", role: "text", change: "new-kind", words: "The server's own sentence." }), "The server's own sentence.");
   assert.equal(noteWords(null), "");
@@ -168,4 +172,14 @@ test("the look routes' refusals have her words, and a helper problem is left to 
   assert.equal(fail(502, { code: "provider-down" }), null);
   assert.equal(fail(404, { code: "not-configured" }), null);
   assert.equal(fail(409, { code: "in-use" }).words, "", "the screen's own words");
+});
+
+test("Undo of a saved look says what really happened: no signal, too late, or in use", () => {
+  configureWords();
+  const why = (status, data) => undoWords({ status, data }, "Fog");
+  assert.deepEqual(why(0), { words: "There's no signal, so “Fog” is still saved. Try Undo again when you have one.", again: true });
+  assert.deepEqual(why(409, { code: "expired" }), { words: "It's been more than 10 minutes, so “Fog” can't be undone. It stays.", again: false });
+  assert.deepEqual(why(409, { code: "in-use" }), { words: "“Fog” is in use or was changed, so it stays.", again: false });
+  assert.equal(why(500, {}).words, "That wasn't saved. Try again in a moment.");
+  assert.equal(why(500, {}).again, true);
 });

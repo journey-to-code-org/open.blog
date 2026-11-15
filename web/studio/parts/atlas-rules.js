@@ -3,6 +3,7 @@
 // field they don't edit; checks return {field, id, vars} in her words; text that is data (names,
 // keys, the server's link readings) is composed in code, never at the start of a sentence id.
 import { say } from "./words.js";
+import { monthName } from "./dates.js";
 import { sayId } from "./research-says.js";
 import { sourceLabel } from "./source-rules.js";
 import { formatLocatorLines, parseLocatorLines, MAX_PASSAGE_LOCATORS } from "./notebook-rules.js";
@@ -499,9 +500,10 @@ export function validateAtlasRelationshipDraft(draft, { entries = [], kinds = nu
 
 export const ATLAS_ASPECTS = Object.freeze(["span", "birth", "death", "active", "composition", "publication", "emergence"]);
 
-export const SHORT_MONTHS = Object.freeze(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
+// Months as every other date is said (Intl, parts/dates.js); the short ones match what the core writes.
+export const SHORT_MONTHS = Object.freeze(Array.from({ length: 12 }, (_, i) => monthName(i + 1, "short")));
 
-export const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+export const MONTH_NAMES = Object.freeze(Array.from({ length: 12 }, (_, i) => monthName(i + 1)));
 
 export const DATE_SLOTS = ["at", "from", "to", "notBefore", "notAfter"];
 

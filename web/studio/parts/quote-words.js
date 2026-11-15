@@ -3,6 +3,7 @@
 // set as text where they're shown. DOM-free, tested. Studio slice 10b;
 // docs/specs/studio/slice-10bc/ux.md.
 import { say } from "./words.js";
+import { monthName } from "./dates.js";
 
 /** Word ids a site may change (docs/studio-words.md). */
 export const WORDS = {
@@ -108,13 +109,13 @@ export function cleanupTrouble(error) {
 
 // ---- R1: the spreadsheet and auto-erase sheets (docs/specs/studio/r1/ux.md) ----------------
 
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /** "November 1" for "2026-11-01"; "" when it isn't a day. */
 export function dayWords(ymd) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ""));
-  return match && MONTH_NAMES[Number(match[2]) - 1] ? `${MONTH_NAMES[Number(match[2]) - 1]} ${Number(match[3])}` : "";
+  const month = match ? Number(match[2]) : 0;
+  return month >= 1 && month <= 12 ? `${monthName(month)} ${Number(match[3])}` : "";
 }
 
 /** The To field's problem, or "": To before From. */

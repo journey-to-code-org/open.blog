@@ -7,7 +7,7 @@
 // only. Statements, quotes and headings come from a helper: they are placed as text, quotes in
 // <bdi>, clipped with Show all. The helper never edits a piece, and its reply is never applied to
 // anything but the guide she then approves.
-import { fill, h } from "./dom.js";
+import { fill, glyph, h } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { ask } from "./dialogs.js";
@@ -220,7 +220,7 @@ export async function createGuideSteps({ api, status, pieces = [], catalog = {},
     const oneSample = (merge.sections || []).flatMap((s) => s.traits || []).map((t) => (t.status === "added" ? t.proposed : t.current)).filter((t) => t?.oneSample).map((t) => clip(String(t.statement), 80).text);
     const heading = h("h2", { class: "studio-question", tabindex: "-1", text: say("voice.guideResultHeading") });
     fill(stage,
-      h("action-button", { variant: "link", class: "studio-step-back", "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => backToChoose() }, `‹ ${say("voice.guideBack")}`),
+      h("action-button", { variant: "link", class: "studio-step-back", "aria-keyshortcuts": "Alt+ArrowLeft", onClick: () => backToChoose() }, glyph("‹ "), say("voice.guideBack")),
       heading,
       h("p", { class: "studio-help", role: "status", text: say("voice.guideResultNote") }),
       merge.freeText ? h("p", { class: "studio-help", text: say("voice.guideFreeKept") }) : null,

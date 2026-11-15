@@ -254,7 +254,7 @@ test.describe("the steps", () => {
     await fresh(page);
     await home(page);
     await expect(heading(page, "Turn on your writing helper")).toBeFocused();
-    await expect(bar(page).getByRole("button", { name: "‹ Back" })).toBeHidden();
+    await expect(bar(page).getByRole("button", { name: "Back", exact: true })).toBeHidden();
     const field = keyField(page);
     await expect(field).toHaveAttribute("type", "password");
     await expect(field).toHaveAttribute("autocomplete", "new-password");
@@ -314,7 +314,7 @@ test.describe("the steps", () => {
     await expect(screen(page).locator(".studio-start-hello")).toHaveCount(0);
     expect((await record(page)).record.steps.helper).toBe("done");
     // Back is a button here (an installed app has no browser Back).
-    await bar(page).getByRole("button", { name: "‹ Back" }).click();
+    await bar(page).getByRole("button", { name: "Back", exact: true }).click();
     await expect(heading(page, "Turn on your writing helper")).toBeFocused();
   });
 
@@ -583,7 +583,7 @@ test.describe("the steps", () => {
     const rec = (await record(page)).record;
     expect([rec.status, rec.steps.stories, rec.steps.voice]).toEqual(["done", "skipped", "not-ready"]);
     // Finished is finished: no Back from here, by button or by key.
-    await expect(bar(page).getByRole("button", { name: "‹ Back" })).toBeHidden();
+    await expect(bar(page).getByRole("button", { name: "Back", exact: true })).toBeHidden();
     await page.keyboard.press("Alt+ArrowLeft");
     await expect(heading(page, "You're ready")).toBeFocused();
     await expect(page).toHaveURL(/#\/start\/done$/);

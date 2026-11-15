@@ -200,3 +200,11 @@ test("Readings side by side is a Research tab only on a site that has readings",
   assert.equal(researchHash("readings"), "#/research/readings");
   assert.equal(researchHash("readings", "x"), "#/research/readings");
 });
+
+test("an import whose only problem is the file itself says it isn't CSL JSON, never a blank 'fix the items'", () => {
+  const problem = researchProblem({ status: 422, data: { error: "import blocked", diagnostics: [{ code: "invalid-field", index: null, sourceId: null, field: null, message: "CSL JSON must be an array of items" }] } }, "import");
+  assert.equal(problem.id, "sources.importNotJson");
+  assert.match(problem.details, /must be an array/);
+  const items = researchProblem({ status: 422, data: { diagnostics: [{ code: "missing-field", index: 2, field: "id", message: "x" }] } }, "import");
+  assert.equal(items.id, "sources.importBlocked");
+});

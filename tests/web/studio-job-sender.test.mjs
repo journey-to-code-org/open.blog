@@ -605,3 +605,9 @@ test("each send keeps a step log, and Copy details puts the record, the last ans
   }
   assert.match(detailsText({ id: "x", state: "unreadable" }, {}), /^id x\nstate unreadable/);
 });
+
+test("Write it up for me says every word through say(), so a site's words reach it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const text = readFileSync(new URL("../../web/studio/parts/job-writeup.js", import.meta.url), "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+  for (const literal of ["Make it sound like me", "Writing it up…", "\"Write it up\"", "\"Not now\"", "Write it up for me\""]) assert.ok(!text.includes(literal), literal);
+});

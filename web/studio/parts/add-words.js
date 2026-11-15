@@ -15,7 +15,7 @@ export const WORDS = {
   "add.mostUsed": { text: "Most used", layer: "her" },
   "add.moreThings": { text: "More things", layer: "her" },
   "add.never": { text: "Never mind", layer: "her" },
-  "add.back": { text: "‹ Everything you can add", layer: "her" },
+  "add.back": { text: "Everything you can add", layer: "her" },
   "add.nothing": { text: "Nothing called “{words}”.", layer: "her" },
   "add.nothingHelp": { text: "Try another word, or close this and keep writing.", layer: "her" },
   "add.count": { text: "{count} things", layer: "her" },

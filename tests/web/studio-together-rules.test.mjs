@@ -307,3 +307,12 @@ test("Writing together's words are generic, plain and her own", () => {
   assert.equal(say("together.lede").endsWith("Nothing goes on your website until everyone agrees."), true);
   configureWords();
 });
+
+test("a co-writer's only menu item is said with say(), so a site's words reach it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const shell = readFileSync(new URL("../../web/studio/shell.js", import.meta.url), "utf8");
+  const line = shell.split("\n").find((l) => l.includes("if (coWriterOf(meta)) return ["));
+  assert.ok(line, "the co-writer's menu");
+  assert.doesNotMatch(line, /label: "/, "no literal label");
+  assert.match(line, /say\("together\.signOut"\)/);
+});

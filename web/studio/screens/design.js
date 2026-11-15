@@ -18,7 +18,7 @@ import { showPreview } from "../parts/preview.js";
 import { createDidLine } from "../parts/did-line.js";
 import { clip, companyName, helperProblem } from "../parts/helper-rules.js";
 import {
-  IDEAS, MAX_DESCRIPTION, MAX_LABEL, WRITING_ROLES, backDraft, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, noteWords, pickedWords, pushDraft,
+  IDEAS, MAX_DESCRIPTION, MAX_LABEL, WRITING_ROLES, backDraft, undoWords, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, noteWords, pickedWords, pushDraft,
   readablePairs, renamed, roleName, startFrom, swatches, willAdjust, withColor,
 } from "../parts/design-rules.js";
 
@@ -317,8 +317,9 @@ export async function createDesign(context) {
       requestAnimationFrame(() => saveButton.querySelector("button")?.focus());
     } catch (error) {
       if (error?.status === 401) throw error;
-      // In use, changed, or too late: nothing was removed, and it says so.
-      line.tell(designProblem(error)?.code ? say("design.undoTooLate", { name: label }) : say("design.notSaved"), { variant: "problem" });
+      // No signal, too late, in use or changed: nothing was removed, and it says which.
+      const why = undoWords(error, label);
+      line.tell(why.words, { variant: "problem", ...(why.again ? { undoLabel: say("design.undo"), undo: () => undoSave(line, label) } : {}) });
     }
   }
 

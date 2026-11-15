@@ -256,6 +256,21 @@ test("both write, share, and read each other's words as text; two tabs never los
   await page.getByRole("button", { name: "Take out the start of part 2" }).click();
   await expect(page.locator(".studio-part-break")).toHaveCount(0);
   await axeClean(page, "Your part");
+  // At 320 px, with long words, Save scrolled to the bottom of the screen is never under the bar.
+  await page.setViewportSize({ width: 320, height: 640 });
+  await writePart(page, "long text. ".repeat(300));
+  const covered = await page.evaluate(() => {
+    const save = [...document.querySelectorAll(".studio-together-part action-button")].find((b) => b.textContent.trim() === "Save");
+    // Scrolled by hand (not by focus, which keeps clear of the bar): Save's bottom at the screen's.
+    const box = save.closest(".shell-content") || document.scrollingElement;
+    box.scrollTop += save.getBoundingClientRect().bottom - Math.min(box.getBoundingClientRect().bottom, window.innerHeight);
+    const a = save.getBoundingClientRect();
+    const bar = document.querySelector(".studio-together-bar").getBoundingClientRect();
+    return a.bottom > bar.top && a.top < bar.bottom && a.right > bar.left && a.left < bar.right;
+  });
+  expect(covered, "the bar covers Save").toBe(false);
+  await page.setViewportSize({ width: 400, height: 800 });
+  await writePart(page, "I kept thinking about the pause before an answer.\n\nAnd **this** stays as typed.");
   await page.getByRole("button", { name: "Let the others read it" }).click();
   const ask = page.getByRole("dialog", { name: "Let the others read your part as it is now?" });
   await ask.getByRole("button", { name: "Let them read it" }).click();

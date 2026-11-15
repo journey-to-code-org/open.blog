@@ -53,7 +53,8 @@ export async function createSourceSheets({ api, state, onImported }) {
           h("ul", { class: "studio-research-import-rows" }, list.slice(0, shown).map((row) => h("li", {},
             stranger("bdi", row.name, { className: "studio-research-import-name" }),
             ...row.details.map((line) => stranger("p", line, { className: "studio-help" })),
-            ...row.problems.map((line) => stranger("p", line, { className: "studio-field-error" }))))));
+            ...row.problems.map((line) => h("p", { class: "studio-field-error", text: line })),
+            row.problemDetails.length ? h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), ...row.problemDetails.map((line) => stranger("p", line, { className: "studio-mono" }))) : null))));
       };
       const total = rows.length;
       fill(result,

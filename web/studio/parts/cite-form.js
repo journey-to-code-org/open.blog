@@ -4,7 +4,7 @@
 // text a build reads; nothing changes her words until it answers. Changing a citation opens the
 // same form filled in; Done with nothing changed writes nothing. With no signal what she chose is
 // kept here until she presses Cite it again.
-import { fill, h } from "./dom.js";
+import { fill, glyph, h } from "./dom.js";
 import { say } from "./words.js";
 import {
   citationDraftPayload, citationInsertionProblem, citationLabel, citationLocatorsFromPassage, citationSourceChoices, formatCitationText, validateCitationDraft,
@@ -166,7 +166,7 @@ export async function showCiteForm({ api, sheet, path, box, caret, span = null, 
   }
 
   const content = [
-    changing ? null : h("action-button", { variant: "link", class: "studio-add-back", onClick: () => back() }, say("add.back")),
+    changing ? null : h("action-button", { variant: "link", class: "studio-add-back", onClick: () => back() }, glyph("‹ "), say("add.back")),
     lede, banner,
     find, count,
     h("div", { class: "studio-field-group" }, h("p", { class: "studio-label", text: say("cite.source") }), h("p", { class: "studio-help", id: "studio-cite-source-help", text: say("cite.sourceHelp") }), sourceList, sourceError),

@@ -843,3 +843,16 @@ test("a BCE dating with circa and decade precision saves at its stated precision
   assert.deepEqual([again.points.at.precision, again.points.at.magnitude, again.points.at.era, again.points.at.circa], ["decade", "420", "bce", true]);
   assert.deepEqual(atlasDatingPayload(again).date, record.date, "opened and saved again, the same");
 });
+
+test("month names come from Intl, as every other date does, never a list typed in English", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const file of ["atlas-rules.js", "quote-words.js"]) {
+    const text = readFileSync(new URL(`../../web/studio/parts/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(text, /"January"|"Jan", "Feb"/, file);
+  }
+  const { monthName } = await import("../../web/studio/parts/dates.js");
+  assert.deepEqual(MONTH_NAMES, Array.from({ length: 12 }, (_, i) => monthName(i + 1)));
+  assert.deepEqual(SHORT_MONTHS, Array.from({ length: 12 }, (_, i) => monthName(i + 1, "short")));
+  assert.equal(MONTH_NAMES[8], "September");
+  assert.equal(SHORT_MONTHS[8], "Sep");
+});

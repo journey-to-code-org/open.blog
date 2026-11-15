@@ -3,6 +3,7 @@
 // photos or the voice note), with "Make it sound like me" when she has a voice guide. What comes back
 // is untrusted: normalizeDraft bounds it, and it is shown as text in her boxes, never saved by itself.
 import { h } from "./dom.js";
+import { say } from "./words.js";
 import { draftIsWords, normalizeDraft } from "./capture-assistant-rules.js";
 import { companyName, writeUpDisclosure, writeUpTrouble } from "./job-words.js";
 
@@ -43,12 +44,12 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
       resolve(value);
     };
     const company = companyName({ company: setup.status?.company, provider: setup.status?.providerType, destination: setup.status?.destination });
-    const like = setup.guide ? h("toggle-switch", { label: "Make it sound like me", checked: true }) : null;
+    const like = setup.guide ? h("toggle-switch", { label: say("job.writeUpLikeMe"), checked: true }) : null;
     const status = h("p", { class: "studio-help", role: "status", "aria-live": "polite" });
     const go = h("action-button", {
       onClick: async () => {
         go.loading = true;
-        status.textContent = "Writing it up…";
+        status.textContent = say("job.writeUpWorking");
         try {
           const reply = await api.call("POST", "assistant/job-draft", { json: { ...request, contextIds: like?.checked && setup.guide ? [setup.guide.id] : [], confirmed: true } });
           const draft = normalizeDraft(reply?.draft);
@@ -59,10 +60,10 @@ export function askToWriteUp({ api, sheet, setup, request, opener }) {
         }
         sheet.close();
       },
-    }, "Write it up");
-    const later = h("action-button", { variant: "secondary", onClick: () => { finish(null); sheet.close(); } }, "Not now");
+    }, say("job.writeUpGo"));
+    const later = h("action-button", { variant: "secondary", onClick: () => { finish(null); sheet.close(); } }, say("job.writeUpNotNow"));
     sheet.show({
-      heading: "Write it up for me",
+      heading: say("job.writeUpTitle"),
       opener,
       children: [
         h("p", { text: writeUpDisclosure({ words: wordCount(request.notes), destination: company }) }),
