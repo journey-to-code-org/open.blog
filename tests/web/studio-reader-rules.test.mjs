@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   VIEWS, viewOf, shownViews, buttonsFor, cardLabel, decisionRequest, didWords, undoWords, readersRoute, readersHash, parseItemRef,
   waitingLine, readerProblem, problemWords, reasonWords, needsAcknowledge, publicationState, fixRoute, readerWords,
+  needsNoteExtras,
 } from "../../web/studio/parts/reader-rules.js";
 import {
   setupState, setupStateWords, robotLine, settingsRequest, setupProblem, keyStatus, retentionRequest, retentionCount, retentionLines,
@@ -27,6 +28,18 @@ test("views map to the server's states; unknown addresses are Waiting; the extra
   assert.equal(viewOf("nonsense").id, "");
   assert.deepEqual(shownViews(false).map((v) => v.id), ["", "shown", "not-shown", "taken-down"]);
   assert.equal(shownViews(true).length, 6);
+});
+
+test("the notes' extras load when the site takes more than comments or the list holds a note that isn't one", () => {
+  const commentsOnly = { comments: true, kinds: [{ id: "comment", setting: "open" }, { id: "third-perspective", setting: "off" }] };
+  const reflection = { id: "r1", kind: "third-perspective" };
+  assert.equal(needsNoteExtras(commentsOnly, [comment()]), false);
+  assert.equal(needsNoteExtras(null, []), false);
+  // Switched off since: the reflection still on the list keeps its Feature and Link.
+  assert.equal(needsNoteExtras(commentsOnly, [comment(), reflection]), true);
+  assert.equal(needsNoteExtras(null, [reflection]), true);
+  assert.equal(needsNoteExtras({ comments: true, kinds: [{ id: "third-perspective", setting: "open" }] }, []), true);
+  assert.equal(needsNoteExtras(commentsOnly, [], "third-perspective"), true);
 });
 
 test("a waiting comment offers Show it first; every button is one the server offered; erase goes to More", () => {

@@ -22,7 +22,7 @@ import { createReaderBulk, readerKeys } from "../parts/reader-bulk.js";
 import { guardedLeave } from "../parts/sheet.js";
 import {
   shownViews, viewOf, viewLabel, viewLede, emptyWords, otherViewWords, kindsOffered, kindFilterWords, kindKnown, hasBeyondComments,
-  readersHash, parseItemRef, readerProblem, problemWords, waitingLine, cardLabel, VIEWS,
+  readersHash, parseItemRef, readerProblem, problemWords, waitingLine, cardLabel, needsNoteExtras, VIEWS,
 } from "../parts/reader-rules.js";
 
 export async function createReaders(context, route) {
@@ -110,8 +110,9 @@ export async function createReaders(context, route) {
 
   // The notes on the posts, the two checks of what's on them, and the links to later posts: in
   // parallel, never blocking the list. A 403 (not the site's owner) says nothing; anything else is said.
+  // Decided from the settings and the notes on the list both, so it never depends on which answered first.
   async function loadExtras() {
-    if (!hasBeyondComments(kindsOffered(settings, state.page, kind))) return;
+    if (!needsNoteExtras(settings, state.items, kind)) return;
     const get = (path) => api.get(path).then((value) => ({ value }), (error) => { if (error.status === 401) throw error; return { error }; });
     const [published, perspectives, features, continuations] = await Promise.all([
       get("engagement/feedback/published"), get("engagement/third-perspectives/published"), get("engagement/community/features"), get("engagement/continuations"),
@@ -161,12 +162,15 @@ export async function createReaders(context, route) {
       return;
     }
     list.setAttribute("aria-busy", "true");
-    loadSettings();
+    // Asked alongside the list; awaited before the extras, which read it.
+    const settingsReady = loadSettings();
+    settingsReady.catch(() => {});
     try {
       state.page = await fetchPage(null);
       state.items = state.page.items || [];
       state.next = state.page.next || null;
       banner.querySelector(".studio-load-trouble")?.remove();
+      await settingsReady;
       drawChrome();
       await loadExtras().catch((error) => { if (error.status === 401) throw error; });
       draw();

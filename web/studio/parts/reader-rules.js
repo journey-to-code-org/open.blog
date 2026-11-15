@@ -122,6 +122,14 @@ export function kindsOffered(settings, page, current = "") {
 /** True when the site takes anything but comments (its extra views and its filter show). */
 export const hasBeyondComments = (kinds) => kinds.some((id) => id !== "comment");
 
+/**
+ * True when the screen needs the notes on the posts, features and links: the site takes more than
+ * comments, or the list already holds a note that isn't one (a kind switched off since keeps its
+ * cards, and their Feature and Link need what these say).
+ */
+export const needsNoteExtras = (settings, items, current = "") =>
+  hasBeyondComments(kindsOffered(settings, null, current)) || (items || []).some((item) => kindKnown(item.kind) && item.kind !== "comment");
+
 // ---- addresses ----------------------------------------------------------------------------------
 
 /** `#/readers[/<view>][?kind=&item=]`; empty values are left out. */
