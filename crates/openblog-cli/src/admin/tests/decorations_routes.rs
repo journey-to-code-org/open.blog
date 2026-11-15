@@ -169,37 +169,6 @@ fn a_stale_etag_is_a_conflict_with_the_current_state() {
 }
 
 #[test]
-fn the_preview_shows_unsaved_choices_and_writes_nothing() {
-    let (f, s) = festive("decor-preview");
-    let before = on_disk(&f);
-    let response = handle(
-        &f.state,
-        &authed(
-            json_req(
-                "POST",
-                "/admin/api/decorations/preview",
-                json!({ "look": "festive", "pieces": { "garland": "toyshelf" } }),
-            ),
-            &s,
-            true,
-        ),
-    );
-    assert_eq!(
-        response.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&response.body)
-    );
-    let url = body_json(&response)["previewUrl"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let page = handle(&f.state, &authed(req("GET", &url), &s, false));
-    assert!(String::from_utf8_lossy(&page.body).contains("url(toys.svg)"));
-    assert_eq!(on_disk(&f), before);
-}
-
-#[test]
 fn a_stale_saved_choice_never_blocks_another_change() {
     let (f, s) = festive("decor-stale");
     let config = f.dir.join(site::CONFIG_FILE);

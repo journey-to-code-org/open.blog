@@ -214,17 +214,6 @@ fn prompt_json(catalog: &Catalog, prompt: &Prompt) -> Json {
     })
 }
 
-fn limits() -> Json {
-    json!({
-        "defaultSeconds": voice_session::DEFAULT_SECONDS,
-        "minSeconds": voice_session::MIN_SECONDS,
-        "maxSeconds": voice_session::MAX_SECONDS,
-        "lockGraceSeconds": voice_session::LOCK_GRACE_SECONDS,
-        "maxDraftBytes": voice_session::MAX_DRAFT_BYTES,
-        "maxFileBytes": voice::MAX_FILE_BYTES,
-    })
-}
-
 /// The project-relative place of a sample, never an absolute path.
 fn relative_path(visibility: Visibility, file: &str) -> String {
     format!("{}/{file}", visibility.directory())
@@ -316,29 +305,8 @@ fn session_id(session: &voice_session::Session) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog and draw
+// Draw
 // ---------------------------------------------------------------------------
-
-/// `GET voice/catalog`: the packs and prompts this site can draw from, the standing rule and the
-/// limits the page counts with.
-pub(super) fn catalog(state: &AppState) -> Response {
-    let catalog = catalog_of(state);
-    Response::json(
-        200,
-        &json!({
-            "version": catalog.version,
-            "rule": catalog.rule,
-            "packs": catalog.packs.iter().map(|pack| json!({
-                "id": pack.id,
-                "title": pack.title,
-                "summary": pack.summary,
-                "prompts": pack.prompts.iter().map(|p| prompt_json(&catalog, p)).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-            "warnings": catalog.warnings,
-            "limits": limits(),
-        }),
-    )
-}
 
 fn seed() -> Result<u64, String> {
     let token = auth::random_token()?;
