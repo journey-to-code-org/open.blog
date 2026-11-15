@@ -174,6 +174,7 @@ impl AssistantTranscriber for ProviderTranscriber {
         let (content_type, body) = self.request(clip)?;
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(self.timeout))
+            .http_status_as_error(false)
             .user_agent(concat!(
                 "open.blog-admin/",
                 env!("CARGO_PKG_VERSION"),
@@ -189,13 +190,10 @@ impl AssistantTranscriber for ProviderTranscriber {
         };
         let label = self.kind.label();
         let mut response = match builder.send(&body[..]) {
-            Ok(response) => response,
-            Err(ureq::Error::StatusCode(status)) => {
-                return Err(failure(
-                    AssistantErrorKind::ProviderStatus,
-                    format!("{label} returned HTTP {status}"),
-                ))
-            }
+            Ok(response) => match super::provider_status_error(label, &response) {
+                Some(error) => return Err(error),
+                None => response,
+            },
             Err(ureq::Error::Timeout(_)) => {
                 return Err(failure(
                     AssistantErrorKind::Timeout,

@@ -504,10 +504,7 @@ fn a_job_photo_and_voice_note_on_the_phone_can_be_shown_before_they_send_and_not
     // Thumbnails and the voice note's player read what the page itself made (blob:), nothing more.
     assert_eq!(directive("img-src"), "img-src 'self' data: https: blob:");
     assert_eq!(directive("media-src"), "media-src 'self' blob:");
-    assert_eq!(
-        directive("script-src"),
-        "script-src 'self' 'wasm-unsafe-eval'"
-    );
+    assert_eq!(directive("script-src"), "script-src 'self'");
     assert_eq!(directive("style-src"), "style-src 'self'");
     assert!(!csp.contains("unsafe-inline"), "{csp}");
 }

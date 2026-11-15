@@ -211,6 +211,8 @@ pub struct AppState {
     pub studio_words_path: Option<PathBuf>,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
+    /// When each session last asked the provider to check its key (at most once per 10 s).
+    assistant_checks: Mutex<BTreeMap<String, std::time::Instant>>,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
     /// Small, bounded cache of generated documents served into sandboxed previews.
@@ -293,6 +295,7 @@ impl AppState {
             host_resets_files: crate::workspace::host_resets_files(),
             studio_words_path: studio_words::host_path_from_env(),
             assistant_operations: AssistantConcurrency::new(2),
+            assistant_checks: Mutex::new(BTreeMap::new()),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
             portability_acknowledgements: Mutex::new(()),
@@ -817,12 +820,18 @@ pub(crate) fn studio_bytes(rel: &str) -> Option<&'static [u8]> {
         .map(|(_, bytes)| *bytes)
 }
 
+/// The policy every Admin and Studio page and answer carries.
+const ADMIN_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https: blob:; \
+     media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
 fn secured(response: Response) -> Response {
     let response = header_default(
         response,
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https: blob:; \
-         media-src 'self' blob:; frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        // Studio R8: nothing in Studio or the old Admin loads WebAssembly or frames another site.
+        // Runnable code and embeds are only ever shown inside the preview frame, which carries
+        // its own policy (`preview_csp`).
+        ADMIN_CSP,
     );
     let response = header_default(response, "X-Frame-Options", "DENY");
     let response = header_default(response, "Referrer-Policy", "same-origin");
@@ -1061,7 +1070,8 @@ fn authenticated_api(
         ("DELETE", "reading-paths") => reading_paths::remove(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
-        ("PUT", "assistant/settings") => save_assistant_settings(state, req),
+        ("PUT", "assistant/settings") => save_assistant_settings(state, req, session),
+        ("POST", "assistant/check") => check_assistant_provider(state, session),
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
@@ -1124,6 +1134,7 @@ fn authenticated_api(
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
         ("GET", "assistant/context") => assistant_context_catalog(state, req),
+        ("GET", "assistant/context/item") => assistant_context_item(state, req),
         ("PUT", "assistant/context") => save_assistant_context(state, req),
         ("DELETE", "assistant/context") => delete_assistant_context(state, req),
         ("POST", "assistant/reference") => create_assistant_reference(state, req),
@@ -4553,6 +4564,10 @@ fn assistant_status(state: &AppState) -> Response {
         Err(response) => return response,
     };
     let credential_configured = credential.is_some();
+    let summary = match assistant_credential_summary(&state.root, &config) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
     let status = match config.knowledge_checks.provider {
         AssistantProviderKind::CustomHttps => AssistantProviderStatus::legacy_quiz(
             &config.knowledge_checks.generation_endpoint,
@@ -4570,7 +4585,133 @@ fn assistant_status(state: &AppState) -> Response {
             credential_configured,
         ),
     };
-    Response::json(200, &json!(status))
+    // Studio R8 (G56): the state as facts, so the page says it in its own words. `message` stays
+    // for the old Admin until it is retired.
+    let mut status = json!(status);
+    status["reason"] = json!(assistant_status_reason(&config, &summary));
+    status["credential"] = json!({ "state": assistant_credential_state(&summary) });
+    status["company"] = json!(assistant_company(&config));
+    Response::json(200, &status)
+}
+
+/// Why the helper is or isn't ready: `ready`, `no-endpoint`, `bad-endpoint`, `no-model`, `no-key`
+/// or `key-other-provider` (a key is saved, but for another company or address).
+fn assistant_status_reason(config: &SiteConfig, credential: &Json) -> &'static str {
+    let checks = &config.knowledge_checks;
+    if checks.provider == AssistantProviderKind::CustomHttps {
+        let endpoint = checks.generation_endpoint.trim();
+        if endpoint.is_empty() {
+            return "no-endpoint";
+        }
+        if !endpoint.starts_with("https://") {
+            return "bad-endpoint";
+        }
+    } else if checks.model.trim().is_empty() {
+        return "no-model";
+    }
+    if credential["configured"] == true {
+        "ready"
+    } else if credential["targetMismatch"] == true {
+        "key-other-provider"
+    } else {
+        "no-key"
+    }
+}
+
+/// Whether a key is set and where from, never the key: `server` (the environment), `set` (saved
+/// here), `other-provider` (saved for another company or address) or `not-set`.
+fn assistant_credential_state(credential: &Json) -> &'static str {
+    if credential["environmentOverride"] == true {
+        "server"
+    } else if credential["configured"] == true {
+        "set"
+    } else if credential["targetMismatch"] == true {
+        "other-provider"
+    } else {
+        "not-set"
+    }
+}
+
+/// The company a request goes to, by name; for a custom address, its host (never its path, its
+/// query or anything before an `@`).
+fn assistant_company(config: &SiteConfig) -> String {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::Anthropic => "Anthropic".into(),
+        AssistantProviderKind::OpenAi => "OpenAI".into(),
+        AssistantProviderKind::Gemini => "Google".into(),
+        AssistantProviderKind::Xai => "xAI".into(),
+        AssistantProviderKind::DeepSeek => "DeepSeek".into(),
+        AssistantProviderKind::Mistral => "Mistral".into(),
+        AssistantProviderKind::OpenRouter => "OpenRouter".into(),
+        AssistantProviderKind::CustomHttps => {
+            url::Url::parse(config.knowledge_checks.generation_endpoint.trim())
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_string))
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// How long suggestions as you type may wait for the provider (G59): an abandoned pause must not
+/// hold one of the two places for minutes.
+fn assistant_completion_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
+    assistant_provider_timeout(provider, test_mode).min(Duration::from_secs(20))
+}
+
+thread_local! {
+    /// What the Admin logged about the helper's key on this thread, for the tests that prove the
+    /// key itself is never in it.
+    #[cfg(test)]
+    static KEY_LOG: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Log that the helper's key changed (G61): who did it and for which company. Never the key, its
+/// length or any part of it.
+fn log_key_change(action: &str, user: &str, provider: &str) {
+    let line = format!("admin: assistant key {action} by '{user}' ({provider})");
+    #[cfg(test)]
+    KEY_LOG.with(|log| log.borrow_mut().push(line.clone()));
+    eprintln!("{line}");
+}
+
+/// Whether this request reached the server privately enough to carry a key (G62): over TLS as a
+/// trusted proxy reports it, or from this same computer with nothing in between. The server
+/// itself never speaks TLS, so a direct connection from anywhere else is plain http.
+fn request_is_private(config: &SiteConfig, req: &Request) -> bool {
+    let trusted = config
+        .admin
+        .trusted_proxies
+        .iter()
+        .any(|proxy| proxy.trim() == "*" || proxy.trim() == req.peer);
+    if trusted {
+        return req
+            .header("x-forwarded-proto")
+            .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
+    }
+    // Loopback counts only when nothing forwarded the request: a proxy on this computer that
+    // isn't listed in `admin.trustedProxies` can't vouch for how the request reached it.
+    let loopback = |address: &str| {
+        address
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+    };
+    let forwarded = [
+        "x-forwarded-for",
+        "x-forwarded-proto",
+        "x-forwarded-host",
+        "forwarded",
+        "x-real-ip",
+    ]
+    .iter()
+    .any(|name| req.header(name).is_some());
+    let host = req.header("host").unwrap_or("");
+    let host_name = host
+        .rsplit_once(':')
+        .filter(|(_, port)| port.bytes().all(|byte| byte.is_ascii_digit()))
+        .map_or(host, |(name, _)| name)
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    loopback(&req.peer) && !forwarded && (host_name == "localhost" || loopback(host_name))
 }
 
 fn assistant_provider_kind(config: &SiteConfig) -> &str {
@@ -5006,7 +5147,7 @@ fn assistant_settings(state: &AppState) -> Response {
     )
 }
 
-fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
+fn save_assistant_settings(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     if let Err(response) = require_json(req) {
         return response;
     }
@@ -5054,6 +5195,20 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
     }
     if action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024) {
         return Response::error(422, "Enter a credential no larger than 16 KiB");
+    }
+    // G62: a key is never accepted over plain http, except from this same computer. Checked
+    // before anything is read or written, and the answer says nothing about the key.
+    if action == "replace" {
+        let config = site::load_config(&state.root).unwrap_or_default();
+        if !request_is_private(&config, req) {
+            return Response::json(
+                422,
+                &json!({
+                    "error": "A key can't be sent over plain http. Open the Admin over https (with the proxy listed in admin.trustedProxies and sending X-Forwarded-Proto: https), or set the key in the server's environment.",
+                    "code": "insecure",
+                }),
+            );
+        }
     }
 
     let _filesystem_transaction = match content_transaction(state) {
@@ -5128,6 +5283,13 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         let rollback =
             restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
         return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    match action {
+        "replace" => log_key_change("replaced", &session.user, provider),
+        "clear" if previous_credential.is_some() => {
+            log_key_change("removed", &session.user, provider)
+        }
+        _ => {}
     }
     let credential = match assistant_credential_summary(&state.root, &candidate_config) {
         Ok(summary) => summary,
@@ -11203,7 +11365,54 @@ fn assistant_post_snapshots(root: &Path) -> Result<Vec<Json>, Response> {
     Ok(snapshots)
 }
 
+/// A catalog entry without its text (G58): what it is and how long, so opening the sheet doesn't
+/// carry every post and every private note to the phone.
+fn without_content(mut document: Json) -> Json {
+    if let Some(object) = document.as_object_mut() {
+        object.remove("content");
+    }
+    document
+}
+
+/// `GET assistant/context/item?id=`: one catalog entry with its text, for Word for word. The id is
+/// resolved the way a request resolves it, so it can only name what a request could send.
+fn assistant_context_item(state: &AppState, req: &Request) -> Response {
+    let Some(id) = req
+        .query
+        .get("id")
+        .filter(|id| !id.is_empty() && id.len() <= 400)
+    else {
+        return Response::error(400, "Missing id");
+    };
+    let _assistant_lock = lock(&state.build);
+    match resolve_review_context(&state.root, id) {
+        Ok(context) => Response::json(
+            200,
+            &json!({
+                "id": context.identity(),
+                "name": context.name(),
+                "visibility": context.visibility().as_str(),
+                "characters": context.content().chars().count(),
+                "content": context.content(),
+            }),
+        ),
+        Err(response) => response,
+    }
+}
+
 fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
+    let light = match req.query.get("content").map(String::as_str) {
+        None => false,
+        Some("none") => true,
+        Some(_) => return Response::error(400, "content must be none"),
+    };
+    let strip = |documents: Vec<Json>| -> Vec<Json> {
+        if light {
+            documents.into_iter().map(without_content).collect()
+        } else {
+            documents
+        }
+    };
     let mut documents = Vec::new();
     for (visibility, context_type) in [
         ("portable", "author"),
@@ -11290,16 +11499,16 @@ fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
     Response::json(
         200,
         &json!({
-            "documents": documents,
+            "documents": strip(documents),
             "references": match assistant_references(&state.root) {
-                Ok(references) => references,
+                Ok(references) => strip(references),
                 Err(response) => return response,
             },
             "postSnapshots": match assistant_post_snapshots(&state.root) {
-                Ok(posts) => posts,
+                Ok(posts) => strip(posts),
                 Err(response) => return response,
             },
-            "voiceGuides": voice_guides,
+            "voiceGuides": strip(voice_guides),
             "voiceSamples": crate::voice_assistant::catalog_entries(&state.root),
             "voiceBudget": crate::voice_assistant::budget(),
             "voiceGaps": crate::voice_assistant::gaps_json(&crate::voice_assistant::gaps_for(
@@ -11563,7 +11772,14 @@ fn resolve_review_skill(
         (Some(_), Some(project)) => project.clone(),
         (Some(builtin), None) => builtin.clone(),
         (None, Some(project)) => project.clone(),
-        (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
+        (None, None) => {
+            return Err(helper_refusal(
+                400,
+                "Selected skill is unavailable",
+                "skill-scope",
+                json!({ "skillId": id }),
+            ))
+        }
     };
     if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&scope) {
         let what = match scope {
@@ -11571,9 +11787,11 @@ fn resolve_review_skill(
             SkillScope::Selection => "review of selected text",
             SkillScope::Section => "review of one section",
         };
-        return Err(Response::error(
+        return Err(helper_refusal(
             400,
             &format!("Selected skill does not support {what}"),
+            "skill-scope",
+            json!({ "skillId": id }),
         ));
     }
     Ok(ReviewSkill {
@@ -11591,12 +11809,38 @@ fn resolve_review_contexts(root: &Path, ids: &[String]) -> Result<Vec<ReviewCont
         .iter()
         .map(|id| resolve_review_context(root, id))
         .collect::<Result<Vec<_>, _>>()?;
-    crate::voice_assistant::check_budget(&context)
-        .map_err(|message| Response::error(400, &message))?;
+    crate::voice_assistant::check_budget(&context).map_err(|message| {
+        let samples = context.iter().filter(|c| c.voice().is_some());
+        helper_refusal(
+            400,
+            &message,
+            "over-budget",
+            json!({
+                "samples": samples.clone().count(),
+                "characters": samples.map(|c| c.content().chars().count()).sum::<usize>(),
+                "budget": crate::voice_assistant::budget(),
+            }),
+        )
+    })?;
     Ok(context)
 }
 
 fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
+    resolve_review_context_plain(root, id).map_err(|response| {
+        // A choice that can't be used any more (removed, renamed, made invalid) says which one.
+        if response.status != 400 {
+            return response;
+        }
+        let message = serde_json::from_slice::<Json>(&response.body)
+            .ok()
+            .and_then(|body| body["error"].as_str().map(str::to_string))
+            .unwrap_or_else(|| "Selected context is unavailable or invalid".into());
+        let shown: String = id.chars().take(200).collect();
+        helper_refusal(400, &message, "context-unavailable", json!({ "id": shown }))
+    })
+}
+
+fn resolve_review_context_plain(root: &Path, id: &str) -> Result<ReviewContext, Response> {
     let parts = id.split(':').collect::<Vec<_>>();
     if let ["voice", visibility, file] = parts.as_slice() {
         let visibility = crate::voice_store::Visibility::parse(visibility)
@@ -11652,7 +11896,12 @@ fn selected_ids(body: &Json, field: &str, maximum: usize) -> Result<Vec<String>,
         return Err(Response::error(400, "Select at least one review skill"));
     }
     if values.len() > maximum {
-        return Err(Response::error(400, &format!("Too many selected {field}")));
+        return Err(helper_refusal(
+            400,
+            &format!("Too many selected {field}"),
+            "too-many",
+            json!({ "field": field, "max": maximum }),
+        ));
     }
     let mut ids = Vec::with_capacity(values.len());
     for value in values {
@@ -11682,23 +11931,109 @@ fn review_source_hash(title: &str, metadata: &Json, markdown: &str) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// A failed helper call as an answer with a code the page can act on (Studio R8, G54). The words
+/// are the provider adapter's own, which name the company and the status and never carry the key.
 fn review_error(error: crate::assistant::AssistantError) -> Response {
-    let (status, code) = match error.kind {
-        AssistantErrorKind::NotConfigured => (404, "not-configured"),
-        AssistantErrorKind::InvalidConfiguration => (400, "invalid-configuration"),
-        AssistantErrorKind::MissingCredential => (503, "missing-credential"),
-        AssistantErrorKind::Timeout => (504, "timeout"),
-        AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult => {
+    use crate::assistant::ProviderFailure;
+    let mut retry_after = None;
+    let (status, code) = match (error.failure, error.kind) {
+        (Some(ProviderFailure::KeyRejected), _) => (502, "key-rejected"),
+        (
+            Some(ProviderFailure::Busy {
+                retry_after: seconds,
+            }),
+            _,
+        ) => {
+            retry_after = seconds;
+            (502, "provider-busy")
+        }
+        (Some(ProviderFailure::Down), _) => (502, "provider-down"),
+        (Some(ProviderFailure::Refused), _) => (502, "refused"),
+        (Some(ProviderFailure::CutShort), _) => (502, "cut-short"),
+        (None, AssistantErrorKind::NotConfigured) => (404, "not-configured"),
+        (None, AssistantErrorKind::InvalidConfiguration) => (400, "invalid-configuration"),
+        (None, AssistantErrorKind::MissingCredential) => (503, "missing-credential"),
+        (None, AssistantErrorKind::Timeout) => (504, "timeout"),
+        (None, AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult) => {
             (502, "invalid-result")
         }
-        AssistantErrorKind::Transport
-        | AssistantErrorKind::ProviderStatus
-        | AssistantErrorKind::ResponseRead => (502, "provider-error"),
+        (None, AssistantErrorKind::Transport | AssistantErrorKind::ResponseRead) => {
+            (502, "provider-down")
+        }
+        (None, AssistantErrorKind::ProviderStatus) => (502, "provider-error"),
     };
+    let mut body = json!({ "error": error.public_message(), "code": code });
+    if let Some(seconds) = retry_after {
+        body["retryAfter"] = json!(seconds);
+    }
+    Response::json(status, &body)
+}
+
+/// A request the helper can't take, with a code and the facts beside the sentence (G55).
+fn helper_refusal(status: u16, message: &str, code: &str, facts: Json) -> Response {
+    let mut body = json!({ "error": message, "code": code });
+    if let (Some(body), Json::Object(facts)) = (body.as_object_mut(), facts) {
+        body.extend(facts);
+    }
+    Response::json(status, &body)
+}
+
+fn assistant_busy() -> Response {
     Response::json(
-        status,
-        &json!({ "error": error.public_message(), "code": code }),
+        429,
+        &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
     )
+}
+
+/// The provider's display type for a reply (G60): what the site is configured with.
+fn assistant_provider_type(config: &SiteConfig) -> &'static str {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => "generic-https",
+        provider => provider.as_str(),
+    }
+}
+
+const ASSISTANT_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+
+/// `POST assistant/check` (G57): one small call to the provider that carries nothing of the site,
+/// to learn whether it accepts the key. Under the shared limit, and at most once per 10 s per
+/// session. The answer is `{ ok, checkedAt }` or a coded failure; never the key.
+fn check_assistant_provider(state: &AppState, session: &auth::Session) -> Response {
+    {
+        let mut checks = lock(&state.assistant_checks);
+        let now = std::time::Instant::now();
+        checks.retain(|_, at| now.duration_since(*at) < ASSISTANT_CHECK_INTERVAL);
+        if checks.contains_key(&session.csrf) {
+            return Response::json(
+                429,
+                &json!({ "error": "The key was checked a moment ago; wait ten seconds", "code": "too-soon" }),
+            );
+        }
+        checks.insert(session.csrf.clone(), now);
+    }
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_completion_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => return assistant_busy(),
+    };
+    match provider.check(&config.knowledge_checks.model) {
+        Ok(()) => Response::json(
+            200,
+            &json!({ "ok": true, "checkedAt": clock::now().rfc3339() }),
+        ),
+        Err(error) => review_error(error),
+    }
 }
 
 fn generate_document_review(state: &AppState, req: &Request) -> Response {
@@ -11725,6 +12060,14 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Some(markdown) if markdown.len() <= MAX_DOCUMENT_BYTES && !markdown.contains('\0') => {
             markdown
         }
+        Some(markdown) if markdown.len() > MAX_DOCUMENT_BYTES => {
+            return helper_refusal(
+                413,
+                "Review Markdown is too large or invalid",
+                "too-long",
+                json!({ "field": "markdown", "max": MAX_DOCUMENT_BYTES, "unit": "bytes" }),
+            )
+        }
         _ => return Response::error(400, "Review Markdown is too large or invalid"),
     };
     // An optional bounded passage: a selection or a section, in code-point offsets (ADR 0290).
@@ -11745,6 +12088,26 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
                 (Some(kind), Some(start), Some(end)) if object.len() == 3 => {
                     match ReviewPassage::new(kind, start, end, markdown) {
                         Ok(passage) => Some(passage),
+                        Err(error)
+                            if end > start
+                                && end <= markdown.chars().count()
+                                && end - start > crate::assistant::MAX_REVIEW_PASSAGE =>
+                        {
+                            return helper_refusal(
+                                400,
+                                &error,
+                                "too-long",
+                                json!({ "field": "passage", "max": crate::assistant::MAX_REVIEW_PASSAGE, "unit": "characters" }),
+                            )
+                        }
+                        Err(error) if error == "The passage has no text" => {
+                            return helper_refusal(
+                                400,
+                                &error,
+                                "no-text",
+                                json!({ "field": "passage" }),
+                            )
+                        }
                         Err(error) => return Response::error(400, &error),
                     }
                 }
@@ -11824,12 +12187,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     };
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     let findings = match provider.generate(&request) {
         Ok(AssistantResult::Review(findings)) => findings,
@@ -11857,7 +12215,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "scope": scope_json,
             "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
             "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
-            "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
+            "provider": { "type": assistant_provider_type(&config), "model": config.knowledge_checks.model },
             "research": { "enabled": false },
             "createdAt": clock::now().rfc3339(),
             "findings": findings.findings,
@@ -11885,22 +12243,32 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     if let Err(error) = fields_from_json(&metadata) {
         return Response::error(400, &format!("Invalid completion source metadata: {error}"));
     }
-    let bounded_text = |field: &str, maximum: usize| {
-        source[field]
-            .as_str()
-            .filter(|value| value.chars().count() <= maximum && !value.contains('\0'))
+    let bounded_text = |field: &str, maximum: usize, message: &str| match source[field].as_str() {
+        Some(value) if value.contains('\0') => Err(Response::error(400, message)),
+        Some(value) if value.chars().count() > maximum => Err(helper_refusal(
+            400,
+            message,
+            "too-long",
+            json!({ "field": field, "max": maximum, "unit": "characters" }),
+        )),
+        Some(value) => Ok(value),
+        None => Err(Response::error(400, message)),
     };
-    let markdown = match bounded_text("markdown", 100_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion Markdown is too large or invalid"),
+    let markdown = match bounded_text(
+        "markdown",
+        100_000,
+        "Completion Markdown is too large or invalid",
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
     };
-    let prefix = match bounded_text("prefix", 8_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion prefix is too large or invalid"),
+    let prefix = match bounded_text("prefix", 8_000, "Completion prefix is too large or invalid") {
+        Ok(value) => value,
+        Err(response) => return response,
     };
-    let suffix = match bounded_text("suffix", 8_000) {
-        Some(value) => value,
-        None => return Response::error(400, "Completion suffix is too large or invalid"),
+    let suffix = match bounded_text("suffix", 8_000, "Completion suffix is too large or invalid") {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let editor_mode = match source["editorMode"].as_str() {
         Some(mode @ ("visual" | "markdown")) => mode,
@@ -11924,7 +12292,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     let provider = match configured_assistant_provider(
         &config,
         credential,
-        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+        assistant_completion_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
         Err(error) => return review_error(error),
@@ -11943,12 +12311,7 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     match provider.generate(&request) {
         Ok(AssistantResult::Completion(completion)) => Response::json(200, &json!(completion)),
@@ -12162,14 +12525,16 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     };
     let context = body["context"].as_str().unwrap_or("").trim();
     let count = body["count"].as_u64().unwrap_or(0);
-    if context.is_empty() || context.chars().count() > 50_000 {
-        return Response::error(
-            400,
-            "Select between 1 and 50,000 characters of article text",
-        );
+    if let Err(response) = interaction_context_bounds(context) {
+        return response;
     }
     if !(1..=3).contains(&count) {
-        return Response::error(400, "Question count must be between one and three");
+        return helper_refusal(
+            400,
+            "Question count must be between one and three",
+            "bad-count",
+            json!({ "field": "count", "max": 3 }),
+        );
     }
 
     let (config, credential) = match assistant_provider_snapshot(state) {
@@ -12182,15 +12547,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
-        Err(error) => {
-            let status = match error.kind {
-                AssistantErrorKind::NotConfigured => 404,
-                AssistantErrorKind::InvalidConfiguration => 400,
-                AssistantErrorKind::MissingCredential => 503,
-                _ => 500,
-            };
-            return Response::error(status, error.public_message());
-        }
+        Err(error) => return review_error(error),
     };
     let request = AssistantRequest::knowledge_checks(
         config.knowledge_checks.model,
@@ -12199,12 +12556,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::error(
-                429,
-                "Two Assistant operations are already running; try again shortly",
-            )
-        }
+        None => return assistant_busy(),
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
@@ -12218,8 +12570,30 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
-        Err(error) => Response::error(502, error.public_message()),
+        Err(error) => review_error(error),
     }
+}
+
+/// The words a quiz or a code example is written from: some, and no more than 50,000 characters.
+fn interaction_context_bounds(context: &str) -> Result<(), Response> {
+    const MESSAGE: &str = "Select between 1 and 50,000 characters of article text";
+    if context.is_empty() {
+        return Err(helper_refusal(
+            400,
+            MESSAGE,
+            "no-text",
+            json!({ "field": "context" }),
+        ));
+    }
+    if context.chars().count() > 50_000 {
+        return Err(helper_refusal(
+            400,
+            MESSAGE,
+            "too-long",
+            json!({ "field": "context", "max": 50_000, "unit": "characters" }),
+        ));
+    }
+    Ok(())
 }
 
 fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
@@ -12231,11 +12605,8 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
     let context = body["context"].as_str().unwrap_or("").trim();
-    if context.is_empty() || context.chars().count() > 50_000 {
-        return Response::error(
-            400,
-            "Select between 1 and 50,000 characters of article text",
-        );
+    if let Err(response) = interaction_context_bounds(context) {
+        return response;
     }
     let kind = match body["kind"].as_str().and_then(CodeInteractionKind::parse) {
         Some(kind) => kind,
@@ -12244,7 +12615,14 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
     let language = match CodeInteractionLanguage::parse(body["language"].as_str().unwrap_or("rust"))
     {
         Some(language) => language,
-        None => return Response::error(400, "Code interaction language is invalid"),
+        None => {
+            return helper_refusal(
+                400,
+                "Code interaction language is invalid",
+                "bad-language",
+                json!({ "field": "language" }),
+            )
+        }
     };
     let (config, credential) = match assistant_provider_snapshot(state) {
         Ok(snapshot) => snapshot,
@@ -12258,9 +12636,11 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
                 .iter()
                 .any(|allowed| allowed == language.as_str()));
     if !language_allowed {
-        return Response::error(
+        return helper_refusal(
             400,
             "Code interaction language is not enabled for this site",
+            "bad-language",
+            json!({ "field": "language", "language": language.as_str() }),
         );
     }
     let provider = match configured_assistant_provider(
@@ -12279,12 +12659,7 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
-        None => {
-            return Response::json(
-                429,
-                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
-            )
-        }
+        None => return assistant_busy(),
     };
     code_interaction_response(provider.generate(&request))
 }
@@ -19916,6 +20291,7 @@ mod tests {
     mod distribution_routes;
     mod document_keep_routes;
     mod greeting_routes;
+    mod helper_routes;
     mod job_draft_routes;
     mod job_share_routes;
     mod landing_history_routes;
@@ -20159,6 +20535,14 @@ mod tests {
         r.headers
             .insert("content-type".into(), "application/json".into());
         r.body = body.to_string().into_bytes();
+        r
+    }
+
+    /// A request from this same computer, with nothing in between: the only plain-http request
+    /// that may carry the helper's key (Studio R8, G62).
+    fn local_json_req(method: &str, path: &str, body: Json) -> Request {
+        let mut r = json_req(method, path, body);
+        r.peer = "127.0.0.1".into();
         r
     }
 
@@ -31965,7 +32349,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32011,7 +32395,7 @@ What I read:
         let replaced = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32030,7 +32414,7 @@ What I read:
         let stale = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32069,7 +32453,7 @@ What I read:
         let cleared = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32105,7 +32489,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32142,7 +32526,7 @@ What I read:
         let switched = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32244,7 +32628,7 @@ What I read:
         let saved = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -32305,7 +32689,7 @@ What I read:
         let switched = handle(
             &f.state,
             &authed(
-                json_req(
+                local_json_req(
                     "PUT",
                     "/admin/api/assistant/settings",
                     json!({
@@ -34565,7 +34949,16 @@ What I read:
             set_quiz_endpoint(&f, &endpoint);
             let response = handle(&f.state, &request());
             TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_secs(10)));
-            assert_eq!(response.status, 502, "{label}");
+            // Studio R8 (G54): a provider that took too long is 504 `timeout`, like every
+            // other helper route; the rest are 502 with their own code.
+            let (expected_status, expected_code) = match label {
+                "timeout" => (504, "timeout"),
+                "provider status" => (502, "provider-down"),
+                "oversized response" => (502, "provider-down"),
+                _ => (502, "invalid-result"),
+            };
+            assert_eq!(response.status, expected_status, "{label}");
+            assert_eq!(body_json(&response)["code"], expected_code, "{label}");
             let response_body = String::from_utf8_lossy(&response.body);
             assert!(response_body.contains(expected), "{label}: {response_body}");
             assert!(!response_body.contains("test-secret"), "{label}");

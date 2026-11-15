@@ -362,6 +362,13 @@ fn too_many_samples_or_too_many_characters_are_refused_with_a_sentence() {
     );
     assert_eq!(refused.status, 400);
     assert!(String::from_utf8_lossy(&refused.body).contains("at most 8"));
+    // Studio R8 (G55): the same refusal by code, with the numbers beside the sentence.
+    let coded = body_json(&refused);
+    assert_eq!(coded["code"], "over-budget");
+    assert_eq!(coded["samples"], 9);
+    assert_eq!(coded["characters"], 9 * "short words".chars().count());
+    assert_eq!(coded["budget"]["samples"], 8);
+    assert_eq!(coded["budget"]["characters"], 120_000);
 
     let long: Vec<String> = (1..=3)
         .map(|n| {

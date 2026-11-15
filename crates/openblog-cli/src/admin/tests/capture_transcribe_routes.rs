@@ -298,7 +298,7 @@ fn provider_failures_and_empty_results_are_safe_and_keep_nothing() {
             500,
             r#"{"error":"sk-test-secret leaked"}"#,
             502,
-            "provider-error",
+            "provider-down",
         ),
         (200, "not json", 502, "invalid-result"),
         (200, r#"{"no":"text"}"#, 502, "invalid-result"),
