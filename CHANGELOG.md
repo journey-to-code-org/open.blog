@@ -5,6 +5,89 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflection authors can privately add, edit, reorder and withdraw multiple contributions,
+  offer all current revisions together or share one revision with named recipients. Complete
+  review, publication and private receipts cover every contribution, with whole-piece approval
+  and participant-selected credits. Arrangement choices expose only contributions the requester
+  can read; source moments require the entire sealed contribution snapshot to be visible.
+- New shared reflections default to mutual reveal: each active author must offer a revision
+  before the group can read it. Existing reflections and saved sharing policies are unchanged.
+- New shared reflections require every participant's approval by default, or a fixed participant
+  quorum chosen at creation. Existing reflections retain their original initial rules. Older
+  releases cannot read records containing the new initial requirement.
+- New shared reflections require approval of the whole piece under every policy, so an edit to
+  any section invalidates every author's approval. A section-only rule previously saved for a
+  new reflection must be replaced by unanimous agreement before approval or publication.
+  Legacy reflections retain their existing scope.
+- Authors can approve a complete combined preview in Admin, explicitly confirming public credits.
+  The private credit-choice API supports frozen profile, display-name-only and uncredited
+  choices, with individual Admin controls. New reflections require each person whose work
+  appears to choose a credit before complete review or publication. Older records preserve their
+  prior behavior until someone selects a credit; older releases cannot read the new requirement.
+- Site owners and coordinators can explicitly publish an approved shared piece in Admin. The
+  server rechecks current credit and approvals before creating the public post.
+- Approval requests now recheck that the complete current piece remains visible to the author;
+  changing sharing after a preview can no longer allow approval while sections are hidden.
+- Preview viewers without conversation access are never issued a complete-review token, even if
+  all draft sections are visible; this does not reveal whether a private conversation exists.
+- Shared-piece approvals now cover participant attribution in the reflection record. Existing
+  approvals must be reviewed again, including for older reflections.
+- The sharing panel names the revision an author offered, and warns when it is older than their
+  latest saved draft.
+- Coordinators can choose named-recipient sharing. Authors confirm exactly which active participants
+  receive their current revision; later edits stay private. Non-drafters can read explicitly shared
+  draft revisions and associated sealed source moments.
+  A release to a writer does not grant reader access after a role change; the author must share
+  again. Older releases cannot read stored releases that grant non-draft access.
+- Approval rule changes now require each active, bound participant, including readers and
+  coordinators, to agree to the exact proposed rule. Existing approvals remain in force until
+  the group agrees, then are cleared.
+- Groups can propose a fixed numeric author quorum; every writer and attributed author must
+  still approve the whole piece, and the threshold does not fall when participants leave.
+- Groups can also require every participant or a fixed participant quorum. A reader may approve
+  only after every current draft, sealed moment and the conversation are explicitly shared with
+  them. These new rules require unanimous agreement and cannot be read by older releases.
+- Whole-piece approvals bind membership and authorization revisions under every rule, so access
+  restoration cannot revive approval after a failed cleanup. Existing non-quorum whole-piece
+  approvals must be reviewed again; legacy section-only approval bindings remain unchanged.
+- Shared publication outcomes retain a private receipt for the approved section revisions and
+  the exact published Post and credit sidecar, without storing draft prose in the receipt.
+- Diagrams (epic #566; ADRs 0416-0419): a ` ```mermaid ` fence with a `title` and `description` is drawn at build
+  time as an accessible image with no JavaScript: flowcharts, sequence, class, state, entity-relationship, git and
+  C4 diagrams. Colours follow the look in light, dark, print and forced-colours modes; colours you write yourself must
+  set a readable text colour. Flowchart nodes can link to pages on the site with `click Node "/path/"`, and the links
+  are listed under the diagram. A published post whose diagram is missing its title or description, does not draw,
+  is too large or links to a missing page is not built; drafts warn. Feeds, portable copies and cross-posts carry a
+  PNG of each diagram with its text alternative and source, and every provider manifest now declares diagrams
+  unsupported (policy version 2026-11-13, so earlier approvals are reviewed again). `coverDiagram: N` makes a
+  diagram the post's link preview image. Admin's **Add diagram** has examples and a live preview, and
+  `openblog diagram git` drafts a git graph. Diagrams are on by default; the minimum Rust is now 1.95. See
+  [Diagrams](docs/diagrams.md).
+- Social announcements can opt into an approved Bluesky card, LinkedIn cover or Facebook Page photo after installing the optional
+  media schema. Admin previews the exact image and verifies it again at delivery. Oversized Bluesky covers are
+  resized within its thumbnail limit; authors choose whether LinkedIn or Facebook can fall back to a text-only post.
+- Share this job can send a location-checked after photo to a connected Facebook Page after its exact bytes and
+  description are previewed and approved. A changed or unavailable photo stops delivery instead of posting without it.
+- YouTube release preview digests now cover the full contents of caption files. Existing approvals
+  for releases with captions need to be reviewed again if the video has not already been uploaded.
+- A YouTube channel can opt in to caption-management permission. Approved caption files are then
+  sent after the video and tracked individually; an uncertain result is not retried automatically.
+- LinkedIn, Facebook and Bluesky image capabilities now reflect their adapters in the provider manifests.
+  YouTube's policy version changes for optional caption upload, so previously approved releases need review
+  before upload; the machine-readable preview note `captions-by-hand` is now `captions-conditional`.
+- Cloud practice lab: a `demo cloud-lab lesson="..."` fence embeds a guided practice lab with a pretend laptop and EC2 instance. Readers type real commands (`curl`, `ssh`, `systemctl`, `nslookup`) against a simulated world, work through goals that accept any command that does the job (hint after two misses, an example after four), and see each request pass or fail rung by rung (name, door, process, padlock, app). Four lessons ship: `localhost`, `ec2-first-run`, `systemd` and `ladder`. Nothing is executed, stored or sent; the authored fallback is what feeds and readers without JavaScript see.
+- Example site: three new posts teach the newest features from the inside: **Publishing an audio episode** (a real, six-second episode with chapters, a transcript and `/podcast.xml`), **Where your readers came from** (the "Where it went" report and visit attribution) and **Documentation beside your blog** (the documentation section, with a small example handbook in `content/docs/` and a Docs link in the header). Getting started now points to the example site's posts.
+- Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
+  chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
+  Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.
+- Visits from every counter (epic #615; ADR 0420): the Cloudflare Worker and hosted engagement function attribute each counted view to a fixed destination, per day and page, using the same generated vocabulary and host table as the built-in counter. The hosted function is opt-in with `supabase/arrivals.sql`; `openblog analytics pull` imports either export idempotently, and Where it went uses pulled arrivals even when the built-in counter is off. `analytics.fediverseHosts` and the configured social Mastodon instance attribute visits to Mastodon. See [Where your posts went](docs/distribution-reporting.md) and the [hosted-function setup](netlify/functions/README.md#visit-attribution-optional).
+- Documentation search, by section (ADR 0425): documentation pages are indexed one `##` section at a time, as "Page › Section" results that open at that heading, so a long reference such as Configuration is searchable to the end instead of only its first 4,000 characters. Results are labelled with the folder they are in, the documentation sidebar opens with a search box, and the search page says it covers the documentation. Posts are indexed as before.
+- Comparison fences: a ` ```text-compare ` fence sets labelled written perspectives side by side, checked at
+  build time, with semantic markup that reflows on a phone and keeps every label and word in portable HTML,
+  Markdown and plain text.
+- Decision records: a `decision` content profile (`openblog new --profile decision`) for context, options, the decision
+  and its consequences, with a status (`decisionStatus`).
+
 ## [0.58.0] - 2026-11-15
 
 - The old Admin is retired (Studio R15, ADR 0415).

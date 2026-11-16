@@ -271,8 +271,12 @@ fn every_bundled_theme_inherits_the_section_styles_and_keeps_them_legible_in_lig
         names.push(name);
     }
     assert!(names.len() >= 3, "{names:?}");
-    // No bundled theme restyles the landing classes: they inherit base.css.
+    // Themes that participate in the owner's look controls inherit the landing structure from
+    // base.css. A locked theme (`customizable: []`) owns its complete presentation instead.
     for name in &names {
+        if set.resolve(name).unwrap().customizable.is_empty() {
+            continue;
+        }
         for file in std::fs::read_dir(repo("themes").join(name)).unwrap() {
             let path = file.unwrap().path();
             if path.extension().is_some_and(|e| e == "css") {

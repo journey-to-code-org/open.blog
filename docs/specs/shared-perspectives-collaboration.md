@@ -1,9 +1,8 @@
 # Shared perspectives collaboration contract
 
-Status: contract, authorization policy, and private shared publication record established;
-creating a shared reflection and inviting collaborators work in Admin Studio; drafting, reveal
-delivery, approval quorum and layout rendering are planned in epic
-[#592](https://github.com/journey-to-code-org/open.blog/issues/592) (PERSP1)
+Status: contract, authorization policy, private drafting, reveal, approval and publication
+workflow established. Epic [#592](https://github.com/journey-to-code-org/open.blog/issues/592)
+(PERSP1) tracks remaining group-workflow requirements.
 Date: 2026-10-24
 
 ## Outcome
@@ -449,11 +448,124 @@ browser tests in `tests/web/admin-shared-reflection.test.mjs` cover the client s
 a `422` or `500` maps to a field or to the status message without discarding the draft, and an
 error without a known field focuses the status alert.
 
-## Out of scope
+## Outside the original contract scope
 
-- Group workflow UI, layout rendering, reveal delivery, approval quorum, authentication, provider
-  identity verification, and persistence beyond creating a shared publication record.
-- Adding collaboration data to existing documents, generated pages, feeds, or public APIs.
+The original contract did not define the group workflow UI, layout rendering, reveal delivery,
+approval quorum, authentication, provider identity verification, or persistence beyond creating
+a shared publication record. Later decisions and implementations cover parts of that work;
+the remaining requirements are tracked in epic #592.
+
+## Reviewing and approving in Admin
+
+An author can open the combined preview and, when every current section is visible, affirm
+approval of that exact preview, including its public credits. An author may withdraw approval,
+and an out-of-date preview must be reloaded before it can be approved.
+
+The private credit-choice API lets participants save only their own choice; profile details
+are taken from the server's registry. New reflections require choices for everyone whose work
+appears before complete review, approval, scheduling and publication; legacy reflections
+switch to that behavior when any choice is saved. Display-name
+choices receive a separately generated public identifier, never the participant ID. Missing
+choices and older display-name choices without such an identifier block complete review and
+publication; the participant must select the name again. Choice revisions bind the complete
+preview, approval and publication, so changing and reverting a choice does not revive consent.
+The preview shows the exact frozen credits only after the requester can read the entire piece.
+
+Older reflections without any saved choices still use the legacy contributor-profile publication
+path. Older releases cannot read newly created records carrying the explicit-choice requirement.
+Remaining collaboration work is tracked in epic #592.
+
+The draft set can list and reorder a participant's own live contributions with an expected
+order and ordering revision. A monotonic order revision is bound into approval, including after
+an order is restored or a separate contribution is created and withdrawn. Once this mode has
+been used, new or withdrawn contributions also advance that revision.
+The opt-in multi-contribution approval subject covers every live contribution's owner, ID and
+revision; a credit-aware variant also binds participant credit choices and projects credit for
+authors whose contribution IDs differ from their participant IDs. Admin uses these subjects for
+complete multi-contribution review, approval and publication.
+The draft set also supports atomic offers of all of an author's current contributions: mutual
+reveal waits for each active author, and each committed revision remains distinct. Voluntary
+offers can be taken back, while named releases remain specific to a contribution and recipients.
+Older releases cannot read multi-contribution offers or exchanges.
+An opt-in arrangement reader resolves distinct contribution IDs against authorized ownership
+metadata, checks stored ownership, and applies draft or named-reader visibility to each turn.
+Ownership metadata can be derived transiently from the private draft set, without copying private
+prose or persisting a second ownership source. Its caller must authorize disclosure of every ID.
+A separate opt-in coverage check rejects arrangements that omit a live part or reference a
+different owner, duplicate ownership metadata, or nonexistent parts. An opt-in assembly path
+checks those constraints after credit-bound approvals and publishes every arranged part in order.
+An initial arrangement can be derived in each owner's chosen contribution order; it splits
+large arrangements into rounds and refuses pieces beyond the part limit rather than truncating.
+The coverage check reads private drafts and its result must not be exposed before whole-piece
+approval.
+An opt-in complete review path refuses a token unless every current contribution is visible,
+the arrangement covers every part, and the public credit choices are complete. It uses the same
+credit-bound subject as multi-contribution assembly. A matching opt-in receipt captures every
+included contribution revision. Proposed moments must be sealed to the owner's exact live
+contribution revisions before review or assembly. A seal for a given snapshot is write-once;
+editing a moment stays private until a different contribution revision is offered. These moment
+seals are written by Admin sharing, and older releases cannot read them. A recipient sees those
+moments only when they can read every current contribution in the sealed snapshot.
+Admin lets authors create, edit, order, withdraw and share their own contributions. Ordering
+uses an owner-scoped revision that does not change when another author edits their private work.
+Arrangement choices include only contribution IDs visible to the coordinator. A stored
+arrangement naming a hidden contribution is unavailable to that requester; no hidden ID or prose
+is returned. Authors must share new contributions before a coordinator can place them, and
+coverage is checked before review and publication. A stale-checked, confirmed replacement can
+recover an arrangement referencing withdrawn contributions, but only when the coordinator can
+read every current contribution revision. The replacement clears obsolete approvals.
+The legacy preview cannot issue complete-review tokens and the legacy assembly cannot publish
+while an active author has a separate live contribution.
+Older releases cannot read draft sets after this ordering operation changes their order.
+
+When an approver submits an approval, the server checks again that the current combined preview is
+complete for them. If sharing changed after the preview was opened, the earlier review token
+cannot be used while any current material is hidden; they must reload after it is shared.
+This check does not withdraw approvals already recorded before a sharing change.
+
+At creation, the initial whole-piece rule defaults to all participants; the creator may instead
+select a fixed participant quorum from 1 to 100. The threshold may exceed the current group and
+never decreases automatically. Records without an initial requirement retain their legacy
+author-only default, and an existing approval set always takes precedence over that initial rule.
+Older releases cannot read records containing the new initial requirement.
+
+The approval rule may be proposed by a site owner or coordinator, but changes only after every
+active, bound participant explicitly agrees to the same proposal, including coordinators and
+readers. Reader-only participants can review and vote on the rule and read explicitly named draft
+releases and their sealed current source moments, but cannot see mutual releases or the piece's
+approval status. Consent
+can be withdrawn before the rule changes. Membership or access
+changes stale the proposal. Rule consent does not approve the piece; applying the rule clears
+piece approvals. New reflections require whole-piece approval under every rule, so an edit
+invalidates all approvals. If an earlier version saved a section-only rule for a new reflection,
+participants must unanimously replace it with a whole-piece rule before approving, scheduling or
+publishing. Legacy reflections retain their existing scope unless they select a numeric quorum,
+which always requires whole-piece approval. A fixed quorum counts standing approvals from current
+authors who hold the contributor role; every writer and attributed author must separately approve.
+It is not reduced when authors leave. A proposal exceeding the current eligible author count is
+refused, and only a site owner may propose weakening an existing quorum. The normal unanimous
+proposal process still applies. Every whole-piece approval binds membership and authorization
+revisions, so changing access invalidates it even if a removed role is later restored. Existing
+non-quorum whole-piece approvals from before this binding require review again; legacy section-only
+bindings are unchanged. A group can instead unanimously select all participants or a fixed
+participant quorum; every writer and attributed author must still approve. Readers and other
+non-drafters can approve only after all current drafts, their sealed moments, and the conversation
+have been explicitly shared with them. A conversation is shared with a recipient only after every
+current conversation author consents to that delivery. Existing author-only rules keep their
+meaning. Older releases cannot read an approval set containing a numeric quorum or either
+participant rule.
+
+Publishing stores a private receipt identifying the approved section revisions and hashing the
+exact resulting Post and credit sidecar. The receipt contains no draft prose and is not public
+output. Older timestamp-only publication outcomes remain readable.
+
+## Named-recipient sharing
+
+Alongside the mutual-reveal default, a coordinator may select named-recipient sharing. Each
+author chooses the current revision and recipients and confirms the release. Only the named
+active recipients can read that revision; later edits and other recipients remain private.
+Proposed source moments sealed to a current revision may accompany it. See
+[ADR 0018](../adr/0018-reveal-policy-readiness-and-comparison.md) for access and compatibility.
 
 ## Public source attribution
 

@@ -3,11 +3,19 @@ name = "openblog-wasm"
 description = "WebAssembly bindings for openblog-core: live Markdown rendering, search, and theme CSS in the browser."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+diagram-rendering = ["openblog-core/diagram-rendering"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[[example]]
+name = "diagram-parity"
+required-features = ["diagram-rendering"]
 
 [dependencies]
 openblog-core = { path = "../openblog-core" }

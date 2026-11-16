@@ -55,7 +55,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
   };
 
   const view = (post, account) => ({
-    post: { id: post.id, idempotencyKey: post.idempotency_key, caption: post.body, canonicalUrl: post.canonical_url, work: post.work, scheduledFor: post.scheduled_for },
+    post: { id: post.id, idempotencyKey: post.idempotency_key, caption: post.body, canonicalUrl: post.canonical_url, work: post.work, scheduledFor: post.scheduled_for, ...(post.media != null ? { media: post.media } : {}) },
     account: { provider: account.provider, kind: account.kind, externalId: account.external_id, displayName: account.display_name },
   });
 
@@ -133,6 +133,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     }
     const adapter = adapterFor(account.provider);
     if (!adapter) return failed(summary, post, "unsupported-provider", "This destination is not supported by this deployment.");
+    if (post.media != null && !["bluesky", "linkedin", "facebook"].includes(account.provider)) return failed(summary, post, "unsupported-media", "This destination cannot deliver the approved image.");
     // Not enough time left to finish safely: give the attempt back instead of starting a send that
     // the platform may cut off.
     if (deadline - now() < policy.providerTimeoutMs + SPARE_MS) {
@@ -185,7 +186,7 @@ export function createWorker({ settings, providers = {}, adapters = {}, fetchImp
     };
     const adapter = account && account.status === "connected" ? adapterFor(account.provider) : null;
     // No way to look it up: nothing will change by waiting, so it goes to a person now.
-    if (!adapter || typeof adapter.reconcile !== "function") {
+    if (!adapter || typeof adapter.reconcile !== "function" || (post.media != null && account.provider !== "bluesky")) {
       summary.reconciled.stillUnknown += 1;
       return settle(summary, post, { result: "unknown", errorCode: "needs-review", errorDetail: "This destination cannot check whether the post was published. Check the account and resolve it by hand.", nextAtMs: null });
     }

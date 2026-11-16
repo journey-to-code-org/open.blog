@@ -36,7 +36,9 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: 0
         run: cargo test --workspace -j 2
       - name: Test front-end components
-        run: node --test tests/web/*.test.mjs tests/portability-contracts.test.mjs
+        run: |
+          npm ci --prefix netlify --no-audit --no-fund
+          node --test tests/web/*.test.mjs tests/portability-contracts.test.mjs
       - name: Test container startup
         run: sh tests/docker-entrypoint.sh
       - name: Check documentation links
@@ -74,6 +76,33 @@ jobs:
         working-directory: tests/browser
         run: npm test
 
+  diagram-wasm:
+    # The diagram renderer also compiles to WebAssembly (#580). Build it from this commit and check
+    # it draws every fixture exactly as the native build does. Studio's preview asks the server,
+    # which draws with the native build, so no module is committed or served.
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build the diagram module
+        run: |
+          cargo build -p openblog-wasm --lib --release --target wasm32-unknown-unknown --features diagram-rendering
+          wasm-bindgen --target nodejs --out-dir target/diagram-wasm-node target/wasm32-unknown-unknown/release/openblog_wasm.wasm
+      - name: Check the module draws what the build draws
+        run: |
+          cargo build -p openblog-wasm --example diagram-parity --features diagram-rendering
+          node scripts/diagram-spike/core-parity.cjs target/diagram-wasm-node target/debug/examples/diagram-parity
+
   social-queue-sql:
     # Runs the real plpgsql of the social delivery queue (claim, SKIP LOCKED, leases, settle and the
     # rollbacks), and of the Webmention request store, against a throwaway Postgres, so the SQL is
@@ -100,4 +129,6 @@ jobs:
         env:
           OPENBLOG_TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/postgres
         # One file at a time: each creates and removes the same tables in the one database.
-        run: node --test --test-concurrency=1 tests/web/social-queue-sql.test.mjs tests/web/social-history-sql.test.mjs tests/web/social-ops-sql.test.mjs tests/web/social-release-gates.test.mjs tests/web/webmention-sql.test.mjs
+        run: |
+          npm ci --prefix netlify --no-audit --no-fund
+          node --test --test-concurrency=1 tests/web/social-queue-sql.test.mjs tests/web/social-history-sql.test.mjs tests/web/social-ops-sql.test.mjs tests/web/social-release-gates.test.mjs tests/web/webmention-sql.test.mjs

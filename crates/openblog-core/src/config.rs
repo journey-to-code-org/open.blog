@@ -74,6 +74,9 @@ pub struct SiteConfig {
     /// Optional CDN for static assets.
     pub cdn: CdnConfig,
     pub feeds: FeedsConfig,
+    /// Optional podcast feed. Absent means no podcast output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub podcast: Option<crate::podcast::PodcastConfig>,
     /// Discoverability and crawler controls.
     pub seo: SeoConfig,
     pub markdown: MarkdownConfig,
@@ -642,6 +645,7 @@ impl Default for SiteConfig {
             related_posts: 3,
             cdn: CdnConfig::default(),
             feeds: FeedsConfig::default(),
+            podcast: None,
             seo: SeoConfig::default(),
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
@@ -888,6 +892,11 @@ pub struct AnalyticsConfig {
     /// written while off, so existing settings keep their exact shape.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub campaigns: bool,
+    /// Fediverse instance hosts the author posts from, such as `hachyderm.io`. A visit referred by
+    /// one is attributed to `mastodon` in every counter (ADR 0420). At most 20; absent by default
+    /// and not written while empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fediverse_hosts: Vec<String>,
 }
 
 impl Default for AnalyticsConfig {
@@ -900,6 +909,7 @@ impl Default for AnalyticsConfig {
             branch: "analytics".to_string(),
             bake_counts: true,
             campaigns: false,
+            fediverse_hosts: Vec::new(),
         }
     }
 }
@@ -1241,6 +1251,9 @@ impl SiteConfig {
     }
 
     fn normalize(&mut self) -> Result<(), String> {
+        if let Some(podcast) = &self.podcast {
+            podcast.validate()?;
+        }
         while self.url.ends_with('/') {
             self.url.pop();
         }
@@ -1256,6 +1269,24 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        let mut fediverse: Vec<String> = Vec::new();
+        for host in &self.analytics.fediverse_hosts {
+            let clean = crate::outcome::clean_host(host).ok_or_else(|| {
+                format!(
+                    "analytics.fediverseHosts: \"{host}\" is not a host name such as hachyderm.io"
+                )
+            })?;
+            if !fediverse.contains(&clean) {
+                fediverse.push(clean);
+            }
+        }
+        if fediverse.len() > crate::outcome::MAX_FEDIVERSE_HOSTS {
+            return Err(format!(
+                "analytics.fediverseHosts may list at most {} hosts",
+                crate::outcome::MAX_FEDIVERSE_HOSTS
+            ));
+        }
+        self.analytics.fediverse_hosts = fediverse;
         self.engagement.captcha.provider = self.engagement.captcha.provider.trim().to_lowercase();
         self.engagement.captcha.scope = self.engagement.captcha.scope.trim().to_lowercase();
         self.engagement.captcha.site_key = self.engagement.captcha.site_key.trim().to_string();

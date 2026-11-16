@@ -181,9 +181,8 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                         Ok(author)
                     })
                     .collect::<Result<Vec<_>, String>>()?;
-                if !authors.is_empty() {
-                    item["authors"] = serde_json::Value::Array(authors);
-                }
+                // An explicit empty list must not inherit the feed's site author.
+                item["authors"] = serde_json::Value::Array(authors);
             }
             // A part of a collaborative series carries its series as a JSON Feed extension
             // object, which readers that do not know it ignore (ADR 0041). `about` points to its
@@ -229,6 +228,7 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
         }
         feed["authors"] = serde_json::Value::Array(vec![author]);
     }
+    feed.sort_all_objects();
     serde_json::to_string_pretty(&feed).map_err(|error| error.to_string())
 }
 
@@ -250,8 +250,9 @@ pub fn portfolio_snapshot(site: &Site, limit: usize) -> Result<String, String> {
             }))
         })
         .collect::<Result<_, String>>()?;
-    serde_json::to_string_pretty(&serde_json::json!({ "schemaVersion": 1, "posts": posts }))
-        .map_err(|error| error.to_string())
+    let mut snapshot = serde_json::json!({ "schemaVersion": 1, "posts": posts });
+    snapshot.sort_all_objects();
+    serde_json::to_string_pretty(&snapshot).map_err(|error| error.to_string())
 }
 
 /// Every public URL, for `/sitemap.xml`.
@@ -554,6 +555,27 @@ pub fn search_index(site: &Site) -> String {
     if let Some(paths) = &site.reading_paths {
         entries.extend(paths.listed_only().paths.iter().map(path_index_entry));
     }
+    // Documentation pages are found by search too (ADRs 0424, 0425): one entry for the page's
+    // opening and one for each of its sections, so a long reference page is searchable to the
+    // end and a result leads to the section that matched. Other pages are not, as before.
+    for page in site.pages.iter().filter(|page| page.doc.is_some()) {
+        let label = crate::docs_section::search_label(&site.pages, page);
+        for part in crate::docs_section::search_parts(page) {
+            entries.push(IndexEntry {
+                title: part.title,
+                url: part.url,
+                date: String::new(),
+                tags: Vec::new(),
+                series: label.clone(),
+                description: if part.is_page {
+                    page.description.clone()
+                } else {
+                    String::new()
+                },
+                text: part.text,
+            });
+        }
+    }
     // Published interpretation comparisons are found by search the same way
     // (ADR 0232), from the public projection only: approved text, never a
     // draft or an unapproved AI draft. They are not feed items.
@@ -757,6 +779,36 @@ mod tests {
         assert_eq!(feed["items"][0]["authors"][0]["url"], "https://ada.example");
         assert_eq!(feed["items"][0]["authors"][1]["name"], "Grace");
         assert_eq!(feed["items"][0]["authors"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn explicitly_uncredited_items_do_not_inherit_the_feed_author() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"Journey","url":"https://j.io","author":{"name":"Site Owner"}}"#,
+        )
+        .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/anonymous.md".into(),
+                    contents: "---\ntitle: Anonymous\ndate: 2026-10-23\n---\nBody".into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/anonymous.credits.json".into(),
+                    contents: r#"{"version":2,"credits":[]}"#.into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let feed: serde_json::Value = serde_json::from_str(&json_feed(&site).unwrap()).unwrap();
+        assert_eq!(feed["authors"][0]["name"], "Site Owner");
+        assert_eq!(feed["items"][0]["authors"], serde_json::json!([]));
+        assert!(!rss(&site)
+            .unwrap()
+            .contains("<dc:creator>Site Owner</dc:creator>"));
     }
 
     #[test]

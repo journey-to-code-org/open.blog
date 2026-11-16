@@ -76,6 +76,9 @@ Then read these in order; each one stands alone otherwise.
     functions and a free Brevo account.
 29. [Notifications](notifications.md): Studio installed on your phone, buzzing when a comment, reader feedback,
     a quote request or news from your other apps arrives. Off by default; it needs the Netlify functions.
+30. [Audio episodes](audio.md): author-owned audio, transcripts, chapters, and an opt-in podcast feed.
+31. [Diagrams](diagrams.md): Mermaid diagrams drawn at build time, described for screen readers, coloured by
+    your look, linked to your pages and sent everywhere else as an image.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

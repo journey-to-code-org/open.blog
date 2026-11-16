@@ -3,7 +3,7 @@
 
 use openblog_core::approval::{ApprovalSet, Readiness};
 use openblog_core::assembly::{
-    assemble, post_path, with_subject, AssemblyError, Outcome, MAX_OUTCOME_BYTES,
+    assemble, post_path, with_subject, AssemblyError, Outcome, PublishedRevision, MAX_OUTCOME_BYTES,
 };
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -39,6 +39,8 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name) in [("bo", "Bo"), ("cy", "Cy")] {
@@ -86,6 +88,214 @@ fn approve(record: &SharedPublication, set: &DraftSet, approvals: &mut ApprovalS
         |subject| approvals.approve(who, who, subject, &seen, true, T),
     )
     .unwrap();
+}
+
+#[test]
+fn choice_aware_assembly_uses_only_approved_public_identities() {
+    use openblog_core::approval::ApprovalScope;
+    use openblog_core::assembly::{
+        assemble_for_participants_with_credits, with_credit_subject_for_participants,
+    };
+    use openblog_core::reflection::ReflectionStructure;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let mut record = record();
+    for (participant, name) in record.collaboration.participants.iter_mut().zip([
+        "Private Ann",
+        "Private Bo",
+        "Private Cy",
+    ]) {
+        participant.display_name = name.into();
+    }
+    let mut set = drafts(&[
+        ("ann", "First words"),
+        ("bo", "Second words"),
+        ("cy", "Third words"),
+    ]);
+    set.set_policy(openblog_core::draft::RevealPolicy::AllReady);
+    for who in ALL {
+        set.mark_ready(who, 1, &ALL).unwrap();
+    }
+    let structure = ReflectionStructure::from_json(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
+    )
+    .unwrap();
+    let mut choices = CreditChoices::default();
+    choices
+        .select(
+            "ann",
+            "ann",
+            "ann",
+            0,
+            CreditChoice::Profile {
+                contributor_id: "ann".into(),
+                profile: Contributor {
+                    name: "Approved Ann".into(),
+                    ..Contributor::default()
+                },
+            },
+        )
+        .unwrap();
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            1,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    choices
+        .select("cy", "cy", "cy", 2, CreditChoice::Uncredited)
+        .unwrap();
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let shown = openblog_core::preview::build_with_credit_choices(
+        &record,
+        Some(&structure),
+        &set,
+        &synthesis,
+        &moments,
+        &approvals,
+        "ann",
+        &ALL,
+        &ALL,
+        false,
+        true,
+        SiteConfig::default().render_options(),
+        &choices,
+    )
+    .unwrap();
+    assert!(shown.complete);
+    assert!(shown.document.contains("Public credits"));
+    assert!(shown.document.contains("Approved Ann"));
+    assert!(shown.document.contains("Pen Name"));
+    assert!(shown.document.contains("Uncredited participant"));
+    assert!(!shown.document.contains("Private Ann"));
+    assert!(!shown.document.contains("Private Bo"));
+    assert!(!shown.document.contains("Private Cy"));
+    assert!(matches!(
+        openblog_core::preview::build_with_credit_choices(
+            &record,
+            Some(&structure),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &ALL,
+            &ALL,
+            false,
+            true,
+            SiteConfig::default().render_options(),
+            &CreditChoices::default(),
+        ),
+        Err(openblog_core::preview::PreviewError::CreditChoices)
+    ));
+    let private = drafts(&[
+        ("ann", "First words"),
+        ("bo", "Hidden"),
+        ("cy", "Also hidden"),
+    ]);
+    let partial = openblog_core::preview::build_with_credit_choices(
+        &record,
+        Some(&structure),
+        &private,
+        &synthesis,
+        &moments,
+        &approvals,
+        "ann",
+        &ALL,
+        &ALL,
+        false,
+        true,
+        SiteConfig::default().render_options(),
+        &CreditChoices::default(),
+    )
+    .unwrap();
+    assert!(!partial.complete);
+    assert!(partial.seen.is_none());
+    assert!(!partial.document.contains("Hidden"));
+    with_credit_subject_for_participants(
+        &record,
+        Some(&structure),
+        &set,
+        &synthesis,
+        &moments,
+        &ALL,
+        &ALL,
+        &choices,
+        |subject| {
+            for who in ALL {
+                let seen = approvals.binding_for(subject, who).unwrap();
+                if who == "ann" {
+                    assert_eq!(shown.seen.as_deref(), Some(seen.as_str()));
+                }
+                approvals
+                    .approve(who, who, subject, &seen, true, T)
+                    .unwrap();
+            }
+        },
+    )
+    .unwrap();
+    let build = |choices: &CreditChoices| {
+        assemble_for_participants_with_credits(
+            &record,
+            Some(&structure),
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &ALL,
+            &ALL,
+            DATE,
+            choices,
+        )
+    };
+    let post = build(&choices).unwrap();
+    assert!(shown
+        .document
+        .contains(&openblog_core::escape::text(&post.credits)));
+    assert!(post.source.contains("Approved Ann"));
+    assert!(post.source.contains("Pen Name"));
+    assert!(post.source.contains("Uncredited participant"));
+    assert!(post.source.contains("ob-turn-by-ann"));
+    assert!(!post.source.contains("ob-turn-by-bo"));
+    assert!(!post.source.contains("ob-turn-by-cy"));
+    for private in [
+        "Private Ann",
+        "Private Bo",
+        "Private Cy",
+        "ann-admin",
+        "bo-admin",
+        "cy-admin",
+    ] {
+        assert!(!post.source.contains(private));
+        assert!(!post.credits.contains(private));
+    }
+    assert!(post.credits.contains("Approved Ann"));
+    assert!(post.credits.contains("Pen Name"));
+    assert!(!post.credits.contains("\"cy\""));
+    choices
+        .select(
+            "cy",
+            "cy",
+            "cy",
+            3,
+            CreditChoice::DisplayName {
+                name: "New name".into(),
+                public_id: Some("fedcba9876543210fedcba9876543210".into()),
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        build(&choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
 }
 
 #[test]
@@ -385,6 +595,53 @@ fn outcomes_round_trip_and_reject_anything_else() {
         assert_eq!(Outcome::from_json(bad), None, "{bad}");
     }
     assert_eq!(Outcome::from_json(&" ".repeat(MAX_OUTCOME_BYTES + 1)), None);
+}
+
+#[test]
+fn published_revision_receipt_is_private_validated_and_bound_to_both_files() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &set, &mut approvals, who);
+    }
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let made = assemble(
+        &record, None, &set, &synthesis, &moments, &approvals, &ALL, DATE,
+    )
+    .unwrap();
+    let revision = PublishedRevision::capture(
+        &record, None, &set, &synthesis, &moments, &approvals, &ALL, &made,
+    );
+    assert_eq!(revision.sections.len(), 2);
+    assert!(revision.matches_files(&made.source, &made.credits));
+    assert!(!revision.matches_files(&(made.source.clone() + "x"), &made.credits));
+    assert!(!revision.matches_files(&made.source, &(made.credits.clone() + "x")));
+    let outcome = Outcome::published_with_revision(T, revision);
+    let encoded = outcome.to_json();
+    assert!(!encoded.contains("Ann words") && !encoded.contains("Bo words"));
+    assert_eq!(Outcome::from_json(&encoded), Some(outcome));
+    let original: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+    for (field, value) in [
+        ("sourceDigest", serde_json::json!("bad")),
+        ("creditsDigest", serde_json::json!("")),
+        ("sections", serde_json::json!([])),
+    ] {
+        let mut malformed = original.clone();
+        malformed["revision"][field] = value;
+        assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    }
+    let mut malformed = original.clone();
+    malformed["revision"]["sections"][0]["revision"] = serde_json::json!(0);
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    let mut malformed = original.clone();
+    malformed["revision"]["sections"][1]["contributionId"] =
+        malformed["revision"]["sections"][0]["contributionId"].clone();
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
+    let mut malformed = original;
+    malformed["revision"]["sections"][0]["digest"] = serde_json::json!("z".repeat(64));
+    assert!(Outcome::from_json(&malformed.to_string()).is_none());
 }
 
 #[test]

@@ -53,6 +53,12 @@ set, the participants the maintainer added.
   reflection succeeds and writes nothing. If an earlier attempt wrote the files and then stopped,
   a retry recognises its own file (even with the original date) and finishes; a different file in
   that place is never overwritten.
+- A new published outcome records a private revision receipt: the policy revision, each section's
+  contribution and participant IDs, revision number and digest, and BLAKE2s-256 digests of the
+  exact Post and credit sidecar bytes. It contains no prose, and hashes cover arrangement,
+  conversation, moments and public credit as written. Legacy timestamp-only outcomes remain
+  readable; older releases cannot read an outcome containing a receipt. The receipt is an
+  integrity record, not a signature or proof against someone who can alter private storage.
 - Refusals never repeat prose. Site-build problems quote the authors' text, which the publisher
   may not be entitled to read, so they are replaced by one fixed sentence.
 - Scheduling does not write content. It checks the same gate now (an unapproved or unbuildable

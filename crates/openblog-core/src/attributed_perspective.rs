@@ -332,14 +332,19 @@ impl AttributedSections {
         registry: &std::collections::BTreeMap<String, crate::contributor::Contributor>,
     ) -> Self {
         let pairs = credits
-            .and_then(crate::contributor::credited_ids)
-            .and_then(|ids| {
-                ids.into_iter()
-                    .map(|id| {
-                        let name = registry.get(&id)?.name.clone();
-                        Some((id, name))
-                    })
-                    .collect::<Option<Vec<_>>>()
+            .and_then(|sidecar| {
+                crate::contributor::resolve(
+                    &crate::config::Author::default(),
+                    registry,
+                    Some(sidecar),
+                )
+                .ok()
+            })
+            .map(|(credits, _)| {
+                credits
+                    .into_iter()
+                    .map(|credit| (credit.contributor_id, credit.contributor.name))
+                    .collect()
             });
         Self::from_published_credits(body, pairs)
     }

@@ -4,14 +4,18 @@
 // Scripted service only; no real network.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { socialAdapters } from "../../netlify/lib/social-adapters.mjs";
-import { announcementKey, cardTitle, facetsFor, graphemes, tid, TID, withinPostLimits } from "../../netlify/lib/social-atproto.mjs";
+import { announcementKey, blobCid, cardTitle, facetsFor, graphemes, tid, TID, withinPostLimits } from "../../netlify/lib/social-atproto.mjs";
+import { captureMedia, mediaApprovalDigest, previewMedia } from "../../netlify/lib/social-media.mjs";
 import { allProviders, call, isDelivery, scripted, settle } from "./social-publish-fakes.mjs";
 
 const NOW = Date.parse("2026-11-01T12:00:00Z");
 const DID = "did:plc:abcdefghijklmnopqrstuvwx";
 const RKEY = "3mzar4gvw36e6";
 const URI = `at://${DID}/app.bsky.feed.post/${RKEY}`;
+const sharp = createRequire(new URL("../../netlify/package.json", import.meta.url))("sharp");
 const TOKEN = "eyJhbGciOiJFUzI1NksifQ.eyJleHAiOjF9.c2ln";
 const created = { status: 200, body: { uri: URI, cid: "bafyreib2rxk3rh6kzwq" } };
 
@@ -23,6 +27,127 @@ const publish = async (reply, input = {}) => {
   return { ...result, calls: fake.calls, write, sent: write ? JSON.parse(write.body) : null };
 };
 const bytes = (text, start, end) => Buffer.from(text, "utf8").subarray(start, end).toString("utf8");
+
+test("blob CIDs encode the SHA-256 digest using CIDv1 and the raw codec", () => {
+  assert.equal(blobCid("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "bafkreif2pall7dybz7vecqka3zo24irdwabwdi4wc55jznaq75q7eaavvu");
+  assert.equal(blobCid("bad"), null);
+});
+
+test("an explicitly approved thumbnail is checked, uploaded as a blob and attached", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const url = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/c.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, url);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, url) };
+  const blob = { $type: "blob", ref: { $link: blobCid(snapshot.sha256) }, mimeType: "image/png", size: png.length };
+  const fake = scripted((n, target) => {
+    if (target === url) return { status: 200, headers: { "content-type": "text/html" }, body: PAGE };
+    if (target === snapshot.url) return { status: 200, headers: { "content-type": "image/png" }, body: png };
+    if (target.endsWith(".uploadBlob")) return { status: 200, body: { blob } };
+    if (target.endsWith(".createRecord")) return created;
+    return { status: 599 };
+  });
+  const input = call("bluesky", { accessToken: TOKEN, post: { media } });
+  assert.deepEqual(await adapter(fake.fetchImpl).publish(input), { providerPostId: URI });
+  const imageRead = fake.calls.find((item) => item.url === snapshot.url);
+  const upload = fake.calls.find((item) => item.url.endsWith(".uploadBlob"));
+  const write = fake.calls.find((item) => item.url.endsWith(".createRecord"));
+  assert.equal(imageRead.headers.authorization, undefined);
+  assert.equal(imageRead.redirect, "manual");
+  assert.deepEqual(upload.body, png);
+  assert.equal(upload.headers["content-type"], "image/png");
+  assert.deepEqual(JSON.parse(write.body).record.embed.external.thumb, blob);
+
+  const record = (thumb) => ({ status: 200, body: { uri: URI, value: {
+    $type: "app.bsky.feed.post", text: input.post.caption,
+    embed: { external: { uri: url, ...(thumb ? { thumb } : {}) } },
+  } } });
+  for (const [value, expected] of [[blob, "published"], [null, "published"], [{ ...blob, ref: { $link: blobCid("0".repeat(64)) } }, "unknown"]]) {
+    const lookup = scripted(record(value));
+    assert.equal((await adapter(lookup.fetchImpl).reconcile(input)).state, expected);
+  }
+});
+
+test("the approved resized thumbnail, not its oversized source, is uploaded and attached", async () => {
+  const raw = randomBytes(1100 * 1100 * 3);
+  const source = new Uint8Array(await sharp(raw, { raw: { width: 1100, height: 1100, channels: 3 } }).png().toBuffer());
+  const url = "https://blog.example.com/posts/hello/";
+  const imageUrl = "https://blog.example.com/c.png";
+  const preview = await previewMedia(async (target) => target === url
+    ? new Response('<meta property="og:image" content="/c.png"><meta property="og:image:alt" content="A lantern">', { headers: { "content-type": "text/html" } })
+    : new Response(source, { headers: { "content-type": "image/png" } }), url, "/posts/hello/", undefined, "text", true);
+  const approved = new Uint8Array(Buffer.from(preview.imageDataUrl.split(",")[1], "base64"));
+  const snapshot = preview.media.snapshot;
+  assert.equal(snapshot.version, 2);
+  assert.ok(snapshot.size <= 1_000_000 && source.length > 1_000_000);
+  const blob = { $type: "blob", ref: { $link: blobCid(snapshot.sha256) }, mimeType: "image/jpeg", size: approved.length };
+  const fake = scripted((n, target) => {
+    if (target === url) return { status: 200, headers: { "content-type": "text/html" }, body: PAGE };
+    if (target === imageUrl) return { status: 200, headers: { "content-type": "image/png" }, body: source };
+    if (target.endsWith(".uploadBlob")) return { status: 200, body: { blob } };
+    if (target.endsWith(".createRecord")) return created;
+    return { status: 599 };
+  });
+  assert.deepEqual(await adapter(fake.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, post: { media: preview.media } })), { providerPostId: URI });
+  assert.deepEqual(fake.calls.find((item) => item.url.endsWith(".uploadBlob")).body, approved);
+  assert.deepEqual(JSON.parse(fake.calls.find((item) => item.url.endsWith(".createRecord")).body).record.embed.external.thumb, blob);
+  const changed = source.slice();
+  changed[changed.length - 1] ^= 1;
+  const changedFetch = scripted((n, target) => {
+    if (target === url) return { status: 200, headers: { "content-type": "text/html" }, body: PAGE };
+    if (target === imageUrl) return { status: 200, headers: { "content-type": "image/png" }, body: changed };
+    if (target.endsWith(".createRecord")) return created;
+    return { status: 599 };
+  });
+  assert.deepEqual(await adapter(changedFetch.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, post: { media: preview.media } })), { providerPostId: URI });
+  assert.equal(changedFetch.calls.some((item) => item.url.endsWith(".uploadBlob")), false);
+  assert.equal(JSON.parse(changedFetch.calls.find((item) => item.url.endsWith(".createRecord")).body).record.embed.external.thumb, undefined);
+});
+
+test("thumbnail failure uses the approved fallback; a changed approval never posts", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const url = "https://blog.example.com/posts/hello/";
+  for (const fallback of ["text", "stop"]) {
+    const snapshot = await captureMedia({ url: "https://blog.example.com/c.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback }, url);
+    const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, url) };
+    const fake = scripted((n, target) => target.endsWith(".createRecord") ? created : { status: 404 });
+    const input = call("bluesky", { accessToken: TOKEN, post: { media } });
+    const result = await settle(adapter(fake.fetchImpl).publish(input));
+    const write = fake.calls.find((item) => item.url.endsWith(".createRecord"));
+    if (fallback === "text") {
+      assert.deepEqual(result.value, { providerPostId: URI });
+      assert.equal(JSON.parse(write.body).record.embed.external.thumb, undefined);
+    } else {
+      assert.ok(isDelivery(result.error, "rejected"));
+      assert.equal(write, undefined);
+    }
+    const invalid = scripted(created);
+    input.post.media = { ...media, snapshot: { ...snapshot, description: "Changed" } };
+    assert.ok(isDelivery((await settle(adapter(invalid.fetchImpl).publish(input))).error, "rejected"));
+    assert.equal(invalid.calls.length, 0);
+  }
+});
+
+test("changed bytes or a forged blob response never enter a Bluesky post", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const changed = png.slice();
+  changed[8] ^= 1;
+  const url = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/c.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, url);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, url) };
+  for (const tampered of ["bytes", "blob"]) {
+    const fake = scripted((n, target) => {
+      if (target === snapshot.url) return { status: 200, headers: { "content-type": "image/png" }, body: tampered === "bytes" ? changed : png };
+      if (target.endsWith(".uploadBlob")) return { status: 200, body: { blob: { $type: "blob", ref: { $link: blobCid("0".repeat(64)) }, mimeType: "image/png", size: png.length } } };
+      if (target.endsWith(".createRecord")) return created;
+      return { status: 404 };
+    });
+    const result = await adapter(fake.fetchImpl).publish(call("bluesky", { accessToken: TOKEN, post: { media } }));
+    assert.deepEqual(result, { providerPostId: URI });
+    const write = fake.calls.find((item) => item.url.endsWith(".createRecord"));
+    assert.equal(JSON.parse(write.body).record.embed.external.thumb, undefined);
+    if (tampered === "bytes") assert.equal(fake.calls.some((item) => item.url.endsWith(".uploadBlob")), false);
+  }
+});
 
 test("the post: caption as text, the canonical post as a link card, the record key of the announcement, one createRecord", async () => {
   const { value, calls, sent } = await publish(created);

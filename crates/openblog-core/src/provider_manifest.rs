@@ -30,7 +30,9 @@ use crate::social_schedule::{self, MAX_HORIZON_SECONDS, MIN_LEAD_SECONDS};
 pub const MANIFEST_VERSION: u32 = 1;
 
 /// The day the built-in manifests were checked against the providers' own documentation.
-pub const BUILTIN_POLICY_VERSION: &str = "2026-10-29";
+pub const BUILTIN_POLICY_VERSION: &str = "2026-11-13";
+pub const PODCAST_POLICY_VERSION: &str = "2026-11-13";
+pub const SOCIAL_MEDIA_POLICY_VERSION: &str = "2026-11-13";
 
 /// The largest manifest text read, in bytes.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -62,10 +64,13 @@ pub enum ProviderId {
     /// Nextdoor: a guided kit the owner posts by hand, because its Publish API is for approved
     /// partners only (ADR 0394).
     Nextdoor,
+    ApplePodcasts,
+    Spotify,
+    PodcastIndex,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 16] = [
+    pub const ALL: [ProviderId; 19] = [
         Self::Dev,
         Self::Hashnode,
         Self::Ghost,
@@ -82,6 +87,9 @@ impl ProviderId {
         Self::Youtube,
         Self::GoogleBusinessProfile,
         Self::Nextdoor,
+        Self::ApplePodcasts,
+        Self::Spotify,
+        Self::PodcastIndex,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -109,6 +117,9 @@ impl ProviderId {
             Self::Youtube => "youtube",
             Self::GoogleBusinessProfile => "google-business-profile",
             Self::Nextdoor => "nextdoor",
+            Self::ApplePodcasts => "apple-podcasts",
+            Self::Spotify => "spotify",
+            Self::PodcastIndex => "podcast-index",
         }
     }
 
@@ -124,6 +135,7 @@ impl ProviderId {
                 Family::Community
             }
             Self::Youtube => Family::Video,
+            Self::ApplePodcasts | Self::Spotify | Self::PodcastIndex => Family::Podcast,
             _ => Family::Syndication,
         }
     }
@@ -164,6 +176,7 @@ pub enum Family {
     Social,
     Community,
     Video,
+    Podcast,
 }
 
 /// What a distribution can ask of a destination. The list is closed: a name that is not here is
@@ -185,10 +198,13 @@ pub enum Capability {
     Draft,
     /// Delivery at a chosen later time.
     Schedule,
+    /// A Mermaid diagram drawn by the destination itself from the fence (ADR 0419). Where it is
+    /// not `adapter`, a diagram reaches the destination as its PNG copy with alt text.
+    Diagram,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 8] = [
         Self::Link,
         Self::Text,
         Self::Article,
@@ -196,6 +212,7 @@ impl Capability {
         Self::Video,
         Self::Draft,
         Self::Schedule,
+        Self::Diagram,
     ];
 
     pub fn parse(value: &str) -> Result<Self, ManifestError> {
@@ -214,6 +231,7 @@ impl Capability {
             Self::Video => "video",
             Self::Draft => "draft",
             Self::Schedule => "schedule",
+            Self::Diagram => "diagram",
         }
     }
 
@@ -611,6 +629,7 @@ impl ProviderManifest {
             "social" => Family::Social,
             "community" => Family::Community,
             "video" => Family::Video,
+            "podcast" => Family::Podcast,
             _ => return Err(ManifestError::FamilyMismatch),
         };
         if family != provider.family() {
@@ -686,7 +705,12 @@ impl ProviderManifest {
                 && self.publishing == Publishing::Manual
                 && self.canonical == CanonicalLink::Linked
                 && self.support(Capability::Link) == Support::Manual);
+        let podcast_by_hand = self.family != Family::Podcast
+            || (!any_adapter
+                && self.login.method == LoginMethod::None
+                && self.publishing == Publishing::Manual);
         let incoherent = !community_by_hand
+            || !podcast_by_hand
             || (any_adapter
                 && (self.login.method == LoginMethod::None
                     || self.publishing == Publishing::Manual))
@@ -864,7 +888,11 @@ impl Ineligibility {
 pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
     use Capability::*;
     use Support::*;
-    let support = |pairs: [(Capability, Support); 7]| pairs.into_iter().collect();
+    // No destination is yet verified to draw a Mermaid fence as published, so every one gets
+    // the diagram as a picture (ADR 0419); `diagram` is added to each list here.
+    let support = |pairs: [(Capability, Support); 7]| {
+        pairs.into_iter().chain([(Diagram, Unsupported)]).collect()
+    };
     let sources = |list: &[&str]| list.iter().map(|s| (*s).to_string()).collect();
     match provider.family() {
         Family::Syndication => {
@@ -1035,7 +1063,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 schedule_max_horizon_seconds: Some(MAX_HORIZON_SECONDS as u32),
                 ..Constraints::default()
             };
-            let social = support([
+            let mut social = support([
                 (Link, Adapter),
                 (Text, Adapter),
                 (Article, Unsupported),
@@ -1044,6 +1072,12 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 (Draft, Unsupported),
                 (Schedule, Adapter),
             ]);
+            if matches!(
+                provider,
+                ProviderId::Linkedin | ProviderId::Facebook | ProviderId::Bluesky
+            ) {
+                social.insert(Image, Adapter);
+            }
             let (label, method, scopes, constraints, docs): (_, _, &[&str], _, &[&str]) =
                 match provider {
                     ProviderId::Linkedin => (
@@ -1057,6 +1091,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         &[
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
                             "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
+                            "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api",
                         ],
                     ),
                     // app.bsky.feed.post: at most 300 graphemes of text; the link travels as an
@@ -1074,6 +1109,8 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                             "https://docs.bsky.app/docs/advanced-guides/rate-limits",
                             "https://atproto.com/specs/xrpc",
                             "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+                            "https://github.com/bluesky-social/atproto/blob/main/lexicons-overrides/app/bsky/embed/external.json",
+                            "https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/uploadBlob.json",
                         ],
                     ),
                     // A status of at most 500 characters on a default instance, the link written
@@ -1102,6 +1139,7 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                         &[
                             "https://developers.facebook.com/docs/pages-api/posts",
                             "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+                            "https://developers.facebook.com/docs/graph-api/reference/page/photos/",
                         ],
                     ),
                 };
@@ -1110,7 +1148,15 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 provider,
                 family: Family::Social,
                 label: label.to_string(),
-                policy_version: BUILTIN_POLICY_VERSION.to_string(),
+                policy_version: if matches!(
+                    provider,
+                    ProviderId::Linkedin | ProviderId::Facebook | ProviderId::Bluesky
+                ) {
+                    SOCIAL_MEDIA_POLICY_VERSION
+                } else {
+                    BUILTIN_POLICY_VERSION
+                }
+                .to_string(),
                 capabilities: social,
                 login: Login {
                     method,
@@ -1119,6 +1165,38 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
                 constraints,
                 canonical: CanonicalLink::Linked,
                 publishing: Publishing::ExplicitApproval,
+                sources: sources(docs),
+            }
+        }
+        Family::Podcast => {
+            let (label, docs): (_, &[&str]) = match provider {
+                ProviderId::ApplePodcasts => ("Apple Podcasts", &["https://podcasters.apple.com/support/897-submit-a-show", "https://podcasters.apple.com/support/823-podcast-requirements"]),
+                ProviderId::Spotify => ("Spotify", &["https://support.spotify.com/us/creators/article/adding-a-new-show-to-your-spotify-for-creators-account/", "https://support.spotify.com/us/creators/article/claiming-your-podcast-on-spotify-for-creators/"]),
+                ProviderId::PodcastIndex => ("Podcast Index", &["https://podcastindex.org/add"]),
+                _ => unreachable!("only podcast destinations have this family"),
+            };
+            ProviderManifest {
+                manifest_version: MANIFEST_VERSION,
+                provider,
+                family: Family::Podcast,
+                label: label.to_string(),
+                policy_version: PODCAST_POLICY_VERSION.to_string(),
+                capabilities: support([
+                    (Link, Manual),
+                    (Text, Unsupported),
+                    (Article, Unsupported),
+                    (Image, Manual),
+                    (Video, Unsupported),
+                    (Draft, Unsupported),
+                    (Schedule, Unsupported),
+                ]),
+                login: Login {
+                    method: LoginMethod::None,
+                    scopes: Vec::new(),
+                },
+                constraints: Constraints::default(),
+                canonical: CanonicalLink::Manual,
+                publishing: Publishing::Manual,
                 sources: sources(docs),
             }
         }
@@ -1210,15 +1288,13 @@ pub fn builtin_manifest(provider: ProviderId) -> ProviderManifest {
     }
 }
 
-/// YouTube's policy version: raised above [`BUILTIN_POLICY_VERSION`] when story #400 moved it from
-/// a guided workflow to an uploading adapter (ADR 0378), so nothing approved under the guided
-/// workflow is carried over silently (ADR 0327).
-pub const YOUTUBE_POLICY_VERSION: &str = "2026-10-29.2";
+/// The YouTube API policy checked for video, thumbnail and optional caption uploads.
+pub const YOUTUBE_POLICY_VERSION: &str = "2026-11-13.1";
 
 /// YouTube as an uploading adapter (epic #386, stories #399 and #400): open.blog uploads the video
 /// private through a resumable session, sets the thumbnail and can schedule `publishAt`, after the
-/// author connects a Google account and approves the previewed release. Captions stay in YouTube
-/// Studio (ADR 0378). Every limit lives in [`crate::video_release`], because none of them is one
+/// author connects a Google account and approves the previewed release. Caption uploads also
+/// require the optional caption-management grant. Every limit lives in [`crate::video_release`], because none of them is one
 /// of the manifest's generic constraints (a title, a description in bytes, tags in total
 /// characters).
 fn youtube_manifest() -> ProviderManifest {
@@ -1238,6 +1314,7 @@ fn youtube_manifest() -> ProviderManifest {
             (Video, Adapter),
             (Draft, Adapter),
             (Schedule, Adapter),
+            (Diagram, Unsupported),
         ]
         .into_iter()
         .collect(),
@@ -1269,7 +1346,7 @@ fn youtube_manifest() -> ProviderManifest {
 
 /// The day Google Business Profile and Nextdoor were checked against their own documentation
 /// (ADRs 0393 and 0394).
-pub const JOB_DESTINATIONS_POLICY_VERSION: &str = "2026-11-08";
+pub const JOB_DESTINATIONS_POLICY_VERSION: &str = "2026-11-13";
 
 /// Google Business Profile as an adapter for finished jobs (story #488, ADR 0393): one `STANDARD`
 /// local post through `accounts.locations.localPosts.create` (API v4), its words in `summary`, the
@@ -1294,6 +1371,7 @@ fn google_business_profile_manifest() -> ProviderManifest {
             (Video, Unsupported),
             (Draft, Unsupported),
             (Schedule, Unsupported),
+            (Diagram, Unsupported),
         ]
         .into_iter()
         .collect(),

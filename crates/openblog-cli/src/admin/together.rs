@@ -336,7 +336,13 @@ fn summary(
             let structure = crate::shared_publications::load_structure(&state.root, id).ok()?;
             let synthesis = crate::shared_publications::load_synthesis(&state.root, id).ok()?;
             let moments = crate::shared_publications::load_moments(&state.root, id).ok()?;
-            let approvals = crate::shared_publications::load_approvals(&state.root, id).ok()?;
+            let approvals = crate::shared_publications::load_approvals_for_update(
+                &state.root,
+                id,
+                record.initial_approval_policy(),
+            )
+            .ok()?
+            .set;
             openblog_core::preview::build(
                 record,
                 structure.structure.as_ref(),

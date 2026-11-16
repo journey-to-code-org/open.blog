@@ -17,6 +17,7 @@ mod comparison_store;
 mod component_render;
 mod config_text;
 mod contributor_migration;
+mod diagram_git;
 mod fsutil;
 mod git;
 mod hashnode;
@@ -116,6 +117,8 @@ COMMANDS
                                approve, reject, remove, block, unblock, prune (see mentions OPTIONS)
     card <slug>                Build and check a published post's visual cards for Pinterest
                                and link previews from its own images; sends nothing
+    diagram git [--repo <path>] --from <ref> --to <ref>
+                               Print a reviewable Mermaid draft of local Git history; publishes nothing
     outcomes [--json] [--days N]
                                Where each post went: every destination's status from your own
                                records, and visits the built-in counter attributed to it (N days,
@@ -128,13 +131,14 @@ COMMANDS
     video <slug>               Check a video post's YouTube release: title, description with the
                                article link, thumbnail, chapters, captions, transcript and consent;
                                uploads nothing unless approved and asked to (see video OPTIONS)
-    youtube connect|disconnect|status
+    youtube connect|connect-captions|disconnect|status
                                Connect a YouTube channel for approved uploads (off until
                                OPENBLOG_YOUTUBE_CLIENT_ID is set), revoke it, or show it
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
     analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
+    analytics attribution      Print the visit attribution settings for a hosted counter
     voice [prompt-id]          A timed writing session: draw three prompts (or name one),
                                write in your editor or the terminal, and keep the rough draft
                                exactly as written (see voice OPTIONS)
@@ -211,6 +215,20 @@ mentions OPTIONS
     prune [--write]            Delete closed and stale mentions older than
                                webmention.receive.retentionDays (approved ones are kept)
     --json                     Print list or pull as JSON
+
+diagram git OPTIONS
+    --repo <path>          Read local Git history from this repository (default: current directory)
+    --from <ref> --to <ref>
+                           Exclude commits reachable from --from and include those reachable
+                           from --to; print a draft only, without writing or publishing
+    The draft omits author metadata and commit hashes, and makes a best-effort attempt
+    to redact email addresses and full hashes. Subjects and ref names can still contain
+    sensitive information: review the entire draft before sharing it.
+    Add a meaningful accTitle and accDescr before publishing. The draft shows at most 30
+    commits and reports omitted history, out-of-range parents and additional merge
+    parents. Branch names and all tags are listed as review notes.
+    Diagram rendering is experimental and requires the diagram-rendering feature;
+    default builds show source as code. The draft is not publication-ready.
 
 card OPTIONS
     --format a,b               pinterest-pin, facebook-link, linkedin-link (default: all)
@@ -321,6 +339,7 @@ new OPTIONS
     --recipe                   Start from a recipe template (servings, times, ingredients, steps)
     --profile job              Start a job: the job front matter and the headings Problem, What we
                                found, What we did, Result. Always a draft until it is filled in
+    --profile decision         Start a draft decision record with before and after diagram slots
     --trade <id>               With --profile job: the trade (bundled, or from extraTrades)
     --service <id>             With --profile job: the service, such as hardwood-install
     --town <name>              With --profile job: the town (never an address)
@@ -549,6 +568,18 @@ fn run(raw: &[String]) -> Result<(), String> {
                     scaffold::new_job(&root, title, series, &tags, &start)?
                 }
                 Some("job") => return Err("--recipe and --profile job cannot be combined".into()),
+                Some("decision") if !recipe => {
+                    if ["trade", "service", "town", "region", "id", "price-band"]
+                        .iter()
+                        .any(|name| args.options.contains_key(*name))
+                    {
+                        return Err("trade and service options cannot be used with a decision".into());
+                    }
+                    scaffold::new_decision(&root, title, series, &tags)?
+                }
+                Some("decision") => {
+                    return Err("--recipe and --profile decision cannot be combined".into())
+                }
                 None | Some("article") | Some("recipe") => {
                     if ["trade", "service", "town", "region"]
                         .iter()
@@ -569,13 +600,16 @@ fn run(raw: &[String]) -> Result<(), String> {
                 }
                 Some(other) => {
                     return Err(format!(
-                        "`--profile {other}` is not supported by `new`; use article, recipe, job or service"
+                        "`--profile {other}` is not supported by `new`; use article, recipe, job, decision or service"
                     ))
                 }
             };
             println!("created {created}");
             if profile.as_deref() == Some("job") {
                 println!("It is a draft until you fill in the job's details; `openblog check` lists what is missing.");
+            }
+            if profile.as_deref() == Some("decision") {
+                println!("It is a draft until you fill in the decision record and remove `draft`.");
             }
             if profile.as_deref() == Some("service") {
                 println!("It is a draft until you write its summary and remove `draft`; `openblog check` lists what is missing.");
@@ -631,6 +665,23 @@ fn run(raw: &[String]) -> Result<(), String> {
                     preview: args.options.get("preview").cloned(),
                 },
             )
+        }
+        "diagram" => {
+            if args.positional.as_slice() != ["git"] || !args.switches.is_empty() {
+                return Err(diagram_git::USAGE.into());
+            }
+            if args
+                .options
+                .keys()
+                .any(|key| !["repo", "from", "to"].contains(&key.as_str()))
+            {
+                return Err(diagram_git::USAGE.into());
+            }
+            let repo = args.options.get("repo").map(PathBuf::from).unwrap_or(root);
+            let from = args.options.get("from").ok_or(diagram_git::USAGE)?;
+            let to = args.options.get("to").ok_or(diagram_git::USAGE)?;
+            print!("{}", diagram_git::draft(&repo, from, to)?);
+            Ok(())
         }
         "job-share" => {
             let slug = args.positional.first().ok_or(job_share::USAGE)?;
@@ -773,7 +824,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             let action = args
                 .positional
                 .first()
-                .ok_or("usage: openblog youtube connect|disconnect|status")?;
+                .ok_or("usage: openblog youtube connect|connect-captions|disconnect|status")?;
             youtube::command(&root, action)
         }
         "paths" => {
@@ -1034,7 +1085,7 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
                 .get("secret")
                 .cloned()
                 .or_else(|| std::env::var("OPENBLOG_COUNTER_SECRET").ok())
-                .ok_or("pass --secret <secret> (the worker's EXPORT_SECRET) or set OPENBLOG_COUNTER_SECRET")?;
+                .ok_or("pass --secret <secret> (the worker's EXPORT_SECRET, or the hosted function's OPENBLOG_ADMIN_API_KEY) or set OPENBLOG_COUNTER_SECRET")?;
             let name = args
                 .options
                 .get("name")
@@ -1081,12 +1132,7 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
                 ));
             }
             fsutil::write_file(&worker, site::COUNTER_WORKER.as_bytes())?;
-            fsutil::write_file(
-                &toml,
-                site::COUNTER_WRANGLER
-                    .replace("SITE_URL", &config.url)
-                    .as_bytes(),
-            )?;
+            fsutil::write_file(&toml, analytics::worker_settings(&config).as_bytes())?;
             println!("wrote {} and {}", worker.display(), toml.display());
             println!("Next: follow the steps at the top of worker.js (wrangler kv namespace create, secret put, deploy),");
             println!("then set \"analytics\": {{ \"endpoint\": \"https://<name>.<you>.workers.dev\" }} in openblog.json.");
@@ -1124,8 +1170,22 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
             println!("then set \"analytics\": {{ \"endpoint\": \"https://<service>.onrender.com\" }} in openblog.json.");
             Ok(())
         }
+        "attribution" => {
+            let (campaigns, own_hosts) = analytics::counter_attribution(&config);
+            println!("Visit attribution settings for a counter you host (ADR 0420).");
+            println!();
+            println!("Cloudflare Worker (wrangler.toml, under [vars]):");
+            println!("  CAMPAIGNS = \"{campaigns}\"");
+            println!("  OWN_HOSTS = \"{own_hosts}\"");
+            println!();
+            println!("Hosted engagement function (environment variables):");
+            println!("  OPENBLOG_ARRIVALS_ENABLED=true   (after running supabase/arrivals.sql)");
+            println!("  OPENBLOG_ANALYTICS_CAMPAIGNS={campaigns}");
+            println!("  OPENBLOG_ANALYTICS_OWN_HOSTS={own_hosts}");
+            Ok(())
+        }
         _ => Err(
-            "usage: openblog analytics backup | pull <url> --secret <s> | worker [dir] | service [dir]"
+            "usage: openblog analytics backup | pull <url> --secret <s> | worker [dir] | service [dir] | attribution"
                 .into(),
         ),
     }

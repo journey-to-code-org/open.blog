@@ -73,6 +73,8 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name) in [("bo", "Bo"), ("cy", "Cy")] {
@@ -999,6 +1001,67 @@ fn state(
 }
 
 #[test]
+fn multi_contribution_moment_seals_are_exact_write_once_and_private() {
+    let record = record();
+    let mut drafts = DraftSet::new(&ALL).unwrap();
+    drafts.save("ann", "first", 0, "one", T).unwrap();
+    drafts.save("ann", "second", 0, "two", T).unwrap();
+    let mut moments = MomentSet::new();
+    let id = add(
+        &mut moments,
+        "ann",
+        publish(observe(VIDEO, vec![at("1")], "shared moment")),
+    )
+    .unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert_eq!(
+        moments.seal_contributions("bo", &["ann"], &drafts),
+        Err(MomentError::Denied)
+    );
+    assert!(moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    let stored = moments.to_json();
+    assert!(!stored.contains("one") && !stored.contains("two"));
+    let loaded = MomentSet::from_json(&stored).unwrap();
+    assert!(loaded.are_contributions_sealed("ann", &drafts));
+    let mut invalid: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    let seals = invalid["contributionSeals"].as_array_mut().unwrap();
+    seals.push(seals[0].clone());
+    assert!(MomentSet::from_json(&invalid.to_string()).is_err());
+    drafts
+        .reorder_owned(
+            "ann",
+            drafts.order_revision(),
+            &["first", "second"],
+            &["second", "first"],
+        )
+        .unwrap();
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    let revision = moments.revision();
+    moments
+        .edit(
+            "ann",
+            &ALL,
+            revision,
+            &record.sources,
+            &id,
+            publish(observe(VIDEO, vec![at("1")], "edited private moment")),
+        )
+        .unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert!(!moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    drafts
+        .save("ann", "second", 1, "two changed", T + 1)
+        .unwrap();
+    assert!(moments.seal_contributions("ann", &ALL, &drafts).unwrap());
+    assert!(moments.are_contributions_sealed("ann", &drafts));
+    drafts.save("ann", "second", 2, "two", T + 2).unwrap();
+    assert!(!moments.are_contributions_sealed("ann", &drafts));
+    assert!(moments.reconcile(&["bo", "cy"]));
+    assert!(!moments.to_json().contains("contributionSeals"));
+}
+
+#[test]
 fn publication_moments_join_the_approval_binding_and_private_ones_never_do() {
     let mut record = record();
     let drafts = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
@@ -1108,7 +1171,9 @@ fn whoever_proposes_a_moment_must_approve_the_piece_under_every_policy() {
         Readiness::Blocked { missing, .. } => {
             assert_eq!(missing, vec!["ann", "bo", "cy"]);
         }
-        Readiness::Ready => panic!("a proposed moment must block until its owner approves"),
+        Readiness::Ready | Readiness::QuorumBlocked { .. } => {
+            panic!("a proposed moment must block until its owner approves")
+        }
     }
     for who in ALL {
         approve(&record, &drafts, &moments, &mut approvals, who);

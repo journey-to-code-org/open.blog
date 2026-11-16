@@ -29,9 +29,12 @@ fn sources(docs: Vec<SourceFile>) -> Sources {
     Sources {
         posts: vec![file(
             "posts/one.md",
-            "---\ntitle: One\ndate: 2026-10-01\n---\nBody.\n",
+            "---\ntitle: One\ndate: 2026-10-01\n---\nBody. See [the deploy guide](../docs/guides/deploy.md#netlify) and [two](two.md).\n",
         )],
-        pages: vec![file("pages/about.md", "---\ntitle: About\n---\nAbout.\n")],
+        pages: vec![file(
+            "pages/about.md",
+            "---\ntitle: About\n---\nAbout. [Install](../docs/install.md), [nowhere](../docs/nope.md).\n",
+        )],
         docs,
         ..Default::default()
     }
@@ -126,6 +129,8 @@ fn the_sidebar_lists_the_tree_and_opens_only_the_folder_the_reader_is_in() {
     let (_, files) = build(config(true), handbook());
     let deploy = &files["docs/guides/deploy/index.html"];
     assert!(deploy.contains("<nav aria-label=\"Handbook\">"), "{deploy}");
+    // A search box heads the sidebar and searches the whole site, documentation included.
+    assert!(deploy.contains("<form class=\"ob-docs-search\" role=\"search\" action=\"/search/\""));
     assert!(deploy.contains("<a href=\"/docs/guides/deploy/\" aria-current=\"page\">Deploying</a>"));
     // Order: Installing (1) before Guides (2); in Guides, Backups (1) before Deploying (2).
     let installing = deploy.find(">Installing<").unwrap();
@@ -207,6 +212,27 @@ fn a_page_or_post_cannot_take_the_docs_address() {
 }
 
 #[test]
+fn posts_and_pages_link_into_the_documentation_by_file() {
+    let (site, files) = build(config(true), handbook());
+    let post = &files["posts/one/index.html"];
+    assert!(
+        post.contains("href=\"/docs/guides/deploy/#netlify\""),
+        "{post}"
+    );
+    assert!(
+        post.contains("href=\"two.md\""),
+        "a link to another post is left alone"
+    );
+    let about = &files["about/index.html"];
+    assert!(about.contains("href=\"/docs/install/\""));
+    assert!(site
+        .warnings
+        .iter()
+        .any(|w| w.contains("pages/about.md") && w.contains("nope.md")));
+    assert!(!site.warnings.iter().any(|w| w.contains("two.md")));
+}
+
+#[test]
 fn a_page_titled_by_its_first_heading_has_one_h1() {
     let (_, files) = build(config(true), handbook());
     let reference = &files["docs/reference/index.html"];
@@ -225,4 +251,64 @@ fn two_files_for_one_address_is_an_error() {
         errors.iter().any(|e| e.contains("/docs/install/")),
         "{errors:?}"
     );
+}
+
+#[test]
+fn with_docs_home_the_documentation_is_the_home_page_and_search_finds_it() {
+    let home = SiteConfig::from_json(
+        &json!({"title": "Docs", "url": "https://example.com", "docs": {"enabled": true, "home": true}})
+            .to_string(),
+    )
+    .unwrap();
+    let (site, files) = build(home, handbook());
+    let index = &files["index.html"];
+    assert!(
+        index.contains("Start with"),
+        "the docs index is the home page"
+    );
+    assert!(
+        index.contains("<a href=\"/\" aria-current=\"page\">Welcome</a>"),
+        "{index}"
+    );
+    assert!(!files.contains_key("page/2/index.html"));
+    // /docs/ sends readers to the home page, and links to the index follow it.
+    assert!(files["docs/index.html"].contains("url=/"));
+    assert!(files["docs/guides/index.html"].contains("href=\"/\">the start"));
+    // Posts keep their addresses.
+    assert!(files.contains_key("posts/one/index.html"));
+    assert!(
+        site.warnings.iter().all(|w| !w.contains("home")),
+        "{:?}",
+        site.warnings
+    );
+
+    let search = &files["search.json"];
+    assert!(
+        search.contains("\"url\":\"/docs/guides/deploy/\""),
+        "{search}"
+    );
+    // Each section is its own result, labelled with the folder the page is in.
+    assert!(
+        search.contains("\"title\":\"Deploying your site › Netlify\""),
+        "{search}"
+    );
+    assert!(search.contains("\"url\":\"/docs/guides/deploy/#netlify\""));
+    assert!(search.contains("\"series\":\"Guides\""));
+    assert!(files["search/index.html"].contains("Search the documentation and every post."));
+    assert!(
+        !search.contains("/about/"),
+        "other pages are not indexed, as before"
+    );
+
+    let mut missing = handbook();
+    missing.retain(|file| file.path != "docs/index.md");
+    let home = SiteConfig::from_json(
+        &json!({"title": "Docs", "url": "https://example.com", "docs": {"enabled": true, "home": true}})
+            .to_string(),
+    )
+    .unwrap();
+    let Err(errors) = Site::load(home, sources(missing), LoadOptions::default()) else {
+        panic!("docs.home without an index");
+    };
+    assert!(errors.iter().any(|e| e.contains("docs.home")), "{errors:?}");
 }

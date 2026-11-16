@@ -26,6 +26,39 @@ pub fn render_markdown(source: &str) -> String {
     .to_string()
 }
 
+/// Return the editable examples from the optional diagram module.
+#[cfg(feature = "diagram-rendering")]
+#[wasm_bindgen(js_name = diagramTemplates)]
+pub fn diagram_templates() -> String {
+    serde_json::json!(openblog_core::diagram::TEMPLATES).to_string()
+}
+
+/// Render in a dedicated Worker; the host must terminate it if it times out.
+#[cfg(feature = "diagram-rendering")]
+#[wasm_bindgen(js_name = renderDiagram)]
+pub fn render_diagram(info: &str, source: &str, ordinal: usize) -> String {
+    let result = openblog_core::diagram::validate_source(info, source).and_then(|diagram| {
+        #[cfg(target_arch = "wasm32")]
+        let rendered = openblog_core::diagram_svg::render_diagnostic_in_worker(&diagram, ordinal);
+        #[cfg(not(target_arch = "wasm32"))]
+        let rendered = openblog_core::diagram_svg::render_diagnostic(&diagram, ordinal);
+        rendered.map_err(|failure| openblog_core::diagram::Finding {
+            line: failure.position.map_or(1, |(line, _)| line),
+            column: failure.position.map_or(1, |(_, column)| column),
+            message: failure.message,
+        })
+    });
+    match result {
+        Ok(svg) => serde_json::json!({ "svg": svg }).to_string(),
+        Err(finding) => serde_json::json!({
+            "error": finding.message,
+            "line": finding.line,
+            "column": finding.column
+        })
+        .to_string(),
+    }
+}
+
 /// Search a `search.json` payload. Returns a JSON array of hits, best first.
 /// Returns `[]` for an empty query and an `{ "error": ... }` object if the index is invalid.
 #[wasm_bindgen]
@@ -82,6 +115,48 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&render_markdown("# Hi\n\ntext")).unwrap();
         assert!(v["html"].as_str().unwrap().contains("<h1 id=\"hi\">"));
         assert_eq!(v["readingMinutes"], 1);
+    }
+
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn technical_templates_are_available_as_json() {
+        let templates: serde_json::Value = serde_json::from_str(&diagram_templates()).unwrap();
+        assert_eq!(templates.as_array().unwrap().len(), 5);
+        assert!(templates[0]["source"]
+            .as_str()
+            .unwrap()
+            .contains("accDescr"));
+    }
+
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn diagram_binding_reports_svg_and_accessibility_errors() {
+        let ok: serde_json::Value = serde_json::from_str(&render_diagram(
+            "mermaid",
+            openblog_core::diagram::TEMPLATES[0].source,
+            1,
+        ))
+        .unwrap();
+        assert!(ok["svg"].as_str().unwrap().contains("role=\"img\""));
+        let bad: serde_json::Value =
+            serde_json::from_str(&render_diagram("mermaid", "flowchart LR\nA --> B", 1)).unwrap();
+        assert!(bad["error"].as_str().unwrap().contains("accTitle"));
+        assert_eq!(bad["line"], 1);
+        let bad_info: serde_json::Value = serde_json::from_str(&render_diagram(
+            "mermaidinvalid",
+            "flowchart LR\nA --> B",
+            1,
+        ))
+        .unwrap();
+        assert!(bad_info["error"].as_str().unwrap().contains("fence"));
+        let syntax: serde_json::Value = serde_json::from_str(&render_diagram(
+            "mermaid title=Broken description=Broken",
+            "flowchart LR\nA[Unclosed label --> B\n",
+            1,
+        ))
+        .unwrap();
+        assert!(syntax["line"].as_u64().unwrap() >= 2, "{syntax}");
+        assert!(syntax["column"].as_u64().unwrap() >= 1, "{syntax}");
     }
 
     #[test]

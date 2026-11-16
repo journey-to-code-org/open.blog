@@ -14,7 +14,11 @@
       "status": "defined",
       "owner_story": 22,
       "portability_owner_issue": 52,
-      "implementation_issues": [53, 54, 55],
+      "implementation_issues": [
+        53,
+        54,
+        55
+      ],
       "authored_data": [
         "Stable work and edition identities, including translation and witness relationships",
         "Source-specific text or bounded passage references",
@@ -38,7 +42,11 @@
       "status": "defined",
       "owner_story": 23,
       "portability_owner_issue": 56,
-      "implementation_issues": [57, 58, 59],
+      "implementation_issues": [
+        57,
+        58,
+        59
+      ],
       "authored_data": [
         "Events and temporal relations with source attribution",
         "Precision, ranges, uncertainty, and competing dates"
@@ -61,7 +69,11 @@
       "status": "defined",
       "owner_story": 24,
       "portability_owner_issue": 63,
-      "implementation_issues": [60, 61, 62],
+      "implementation_issues": [
+        60,
+        61,
+        62
+      ],
       "authored_data": [
         "Stable source and reference identities",
         "Author-selected passages, citations, and publication context",
@@ -85,7 +97,11 @@
       "status": "defined",
       "owner_story": 25,
       "portability_owner_issue": 64,
-      "implementation_issues": [65, 66, 67],
+      "implementation_issues": [
+        65,
+        66,
+        67
+      ],
       "authored_data": [
         "A stable citation/reference identity and source URL",
         "Version identity and precise page, section, or passage location where available",
@@ -111,7 +127,11 @@
       "implemented_fallback": "labeled-static-group",
       "owner_story": 26,
       "portability_owner_issue": 68,
-      "implementation_issues": [69, 70, 71],
+      "implementation_issues": [
+        69,
+        70,
+        71
+      ],
       "authored_data": [
         "Canonical prose and citations",
         "Author-approved supplemental blocks with kind, label, order, and intended reading depth"
@@ -134,7 +154,11 @@
       "status": "defined",
       "owner_story": 27,
       "portability_owner_issue": 72,
-      "implementation_issues": [73, 74, 75],
+      "implementation_issues": [
+        73,
+        74,
+        75
+      ],
       "authored_data": [
         "Stable concept/entity identity and typed, directed relationships",
         "Evidence/source attribution for each relationship",
@@ -158,7 +182,11 @@
       "status": "defined",
       "owner_story": 28,
       "portability_owner_issue": 76,
-      "implementation_issues": [77, 78, 79],
+      "implementation_issues": [
+        77,
+        78,
+        79
+      ],
       "authored_data": [
         "Ordered published works and author-authored transitions",
         "A reason or learning purpose for each transition"
@@ -181,7 +209,11 @@
       "status": "defined",
       "owner_story": 29,
       "portability_owner_issue": 80,
-      "implementation_issues": [81, 82, 83],
+      "implementation_issues": [
+        81,
+        82,
+        83
+      ],
       "authored_data": [
         "Stable passage target and stale-target state",
         "Bounded quoted context, feedback type, source evidence, and submitter provenance",
@@ -205,7 +237,11 @@
       "status": "defined",
       "owner_story": 30,
       "portability_owner_issue": 84,
-      "implementation_issues": [85, 86, 87],
+      "implementation_issues": [
+        85,
+        86,
+        87
+      ],
       "authored_data": [
         "Reader-owned highlight/note content and a stable text selector",
         "Selector exact/prefix/suffix context and current/stale resolution state",
@@ -229,7 +265,11 @@
       "status": "defined",
       "owner_story": 31,
       "portability_owner_issue": 88,
-      "implementation_issues": [89, 90, 91],
+      "implementation_issues": [
+        89,
+        90,
+        91
+      ],
       "authored_data": [
         "Attributed interpretations, evidence links, audience level, and provenance",
         "Explicit human approval state for generated or assisted explanations"
@@ -252,7 +292,11 @@
       "status": "defined",
       "owner_story": 144,
       "portability_owner_issue": 158,
-      "implementation_issues": [153, 156, 157],
+      "implementation_issues": [
+        153,
+        156,
+        157
+      ],
       "authored_data": [
         "Original source title, URL, type, and stable identity",
         "Exact approved reflection revisions, contributor credits, takeaways, and open questions"
@@ -275,7 +319,11 @@
       "status": "defined",
       "owner_story": 146,
       "portability_owner_issue": 162,
-      "implementation_issues": [163, 164, 165],
+      "implementation_issues": [
+        163,
+        164,
+        165
+      ],
       "authored_data": [
         "Privately owned contribution revisions, author binding, and revision timestamp",
         "Separate reveal and publication-approval state"
@@ -297,7 +345,10 @@
       "status": "defined",
       "owner_story": 201,
       "portability_owner_issue": 222,
-      "implementation_issues": [210, 221],
+      "implementation_issues": [
+        210,
+        221
+      ],
       "authored_data": [
         "A reader's approved reflection on a published work or one of its sections, with its optional prompt category",
         "The passage revision and target the reader wrote about, and the target's standing in the work now",
@@ -318,23 +369,31 @@
     },
     {
       "id": "diagrams",
-      "status": "blocked-unscoped",
-      "owner_story": null,
-      "portability_owner_issue": 110,
-      "implementation_issues": [],
-      "authored_data": [
-        "No diagram data model or authored syntax is defined; a future owner story must name nodes, relationships, labels, evidence, and rights before implementation."
+      "status": "defined",
+      "implementation_status": "implemented",
+      "implemented_fallback": "image-with-text-alternative",
+      "owner_story": 583,
+      "portability_owner_issue": 584,
+      "implementation_issues": [
+        585,
+        586
       ],
-      "static_fallback": "Do not add a diagram-specific syntax or public renderer without an owner story. Existing Markdown images/raw HTML remain unchanged; any future graphical interaction must provide an equivalent labeled list or table.",
-      "participation_path": "Not applicable until a diagram owner story defines whether the diagram links to published entities or sources.",
+      "authored_data": [
+        "Mermaid source in a fenced block, with its required title and description (fence options or accTitle/accDescr), an optional caption and source link",
+        "Optional node links to pages on the same site, and an optional coverDiagram choice"
+      ],
+      "static_fallback": "The canonical page draws the diagram as sanitized inline SVG with its title, description and source disclosure, without JavaScript. Every copy carries a deterministic PNG drawn from the same source with alt text of the title and description, followed by the source as text; node links are listed on the canonical page only.",
+      "participation_path": "Node links lead only to pages the same build writes and are listed beneath the diagram; there is no reader participation in a diagram.",
       "privacy_exclusions": [
-        "Do not publish diagrams derived from private/draft graph data or unapproved remote/AI content."
+        "Remote resources, scripts, callbacks and outside links in diagram source or output",
+        "Draft diagrams and the git history draft until the author reviews and publishes them"
       ],
       "required_tests": [
-        "Before unblocking, create an owning story and portability task with substantive data, fallback, participation, privacy, and test requirements",
-        "Verify no diagram-specific public syntax or portability claim is introduced while this contract remains blocked"
+        "Published diagrams without a text alternative, that fail to draw, exceed a budget or link to an unknown page stop the build; drafts warn",
+        "Feeds, portable copies and bundles carry the PNG with its alternative text and the source",
+        "The Admin WebAssembly preview produces the same SVG as the build on the fixture corpus"
       ],
-      "scope_boundary": "This record is a scope guard only. Issue #110 is the sole owner of the unscoped gate; it does not authorize diagram implementation."
+      "scope_boundary": "Story #583 owns how diagrams travel; rendering, accessibility, theming, Admin and decision records are the other DIA1 stories of epic #566."
     }
   ]
 }
