@@ -112,10 +112,11 @@ mod tests {
     use super::*;
 
     fn request(body: serde_json::Value) -> Request {
-        let mut req = Request::default();
-        req.method = "POST".into();
-        req.body = body.to_string().into_bytes();
-        req
+        Request {
+            method: "POST".into(),
+            body: body.to_string().into_bytes(),
+            ..Default::default()
+        }
     }
 
     fn body(response: &Response) -> serde_json::Value {
