@@ -169,7 +169,7 @@ Declining is simply **Next**: nothing is written.
 ```
 +------------------------------------------+
 | Want {product} to learn how you write?   |  h2 welcome.voiceHeading
-| Three short prompts, three minutes each. |  welcome.voiceLede
+| Three short questions, three minutes     |  welcome.voiceLede
 | Nothing is corrected or put up, and it   |
 | stays private.                           |
 | One of them is always a true story from  |  welcome.voiceStory

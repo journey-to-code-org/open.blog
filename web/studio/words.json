@@ -429,6 +429,325 @@
       "max": 40,
       "vars": []
     },
+    "area.always": {
+      "text": "Always here: writing, posts, pictures, the look of {product}, and this page.",
+      "layer": "her",
+      "max": 152,
+      "vars": [
+        "product"
+      ]
+    },
+    "area.askAgain": {
+      "text": "Ask me the questions again",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "area.changedElsewhere": {
+      "text": "This changed on another screen, so here it is as it is now.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "area.code": {
+      "text": "Code and diagrams",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.codeAbout": {
+      "text": "Code examples, diagrams, and code readers can run.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "area.collections": {
+      "text": "Collections",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.collectionsAbout": {
+      "text": "Posts gathered into a series.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "area.everything": {
+      "text": "Show everything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.everythingAbout": {
+      "text": "Every tool, whatever you choose below.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "area.everythingOn": {
+      "text": "Everything shows while this is on. Your choices below are kept.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "area.findAskAgain": {
+      "text": "Ask me the questions again",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "area.findTurnOn": {
+      "text": "Turn on {area}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "area"
+      ]
+    },
+    "area.findUse": {
+      "text": "What you use",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.forHelperFile": {
+      "text": "Kept for this sign-in only, in .openblog/private/admin-preferences/. Never built or published.",
+      "layer": "details",
+      "max": 188,
+      "vars": []
+    },
+    "area.forHelperIds": {
+      "text": "Hidden: {hidden}. Show everything: {everything}. Answered: {state}. Kind: {kind}.",
+      "layer": "details",
+      "max": 162,
+      "vars": [
+        "hidden",
+        "everything",
+        "state",
+        "kind"
+      ]
+    },
+    "area.homeEmpty": {
+      "text": "Your first post starts here.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "area.homeEmptyRecipes": {
+      "text": "Your first recipe or story starts here.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "area.inUse": {
+      "text": "In use on {product}, so it stays.",
+      "layer": "her",
+      "max": 66,
+      "vars": [
+        "product"
+      ]
+    },
+    "area.listHeading": {
+      "text": "Parts of {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "area.menu": {
+      "text": "What you use",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.noSignal": {
+      "text": "Changing this needs a signal.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "area.notNow": {
+      "text": "Not now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.notSaved": {
+      "text": "That wasn't saved. Try again.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "area.offHeading": {
+      "text": "{area} is turned off for you",
+      "layer": "her",
+      "max": 56,
+      "vars": [
+        "area"
+      ]
+    },
+    "area.pages": {
+      "text": "Pages",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.pagesAbout": {
+      "text": "Pages that aren't posts, like About or Contact.",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "area.readers": {
+      "text": "Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.readersAbout": {
+      "text": "Comments, reactions and how many people visit.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "area.recipes": {
+      "text": "Recipes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.recipesAbout": {
+      "text": "Recipe boxes for ingredients, steps and times.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "area.research": {
+      "text": "Research",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.researchAbout": {
+      "text": "Sources, citations and notes for posts backed by research.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "area.saved": {
+      "text": "Saved.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.seasonal": {
+      "text": "Seasons and holidays",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.seasonalAbout": {
+      "text": "Decorations, greeting cards and gifts for the holidays.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "area.sharing": {
+      "text": "Sharing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.sharingAbout": {
+      "text": "Announcing posts on other sites, and where each post went.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
+    "area.shownForPost": {
+      "text": "Shown because this post uses it.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "area.teaching": {
+      "text": "Teaching",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.teachingAbout": {
+      "text": "Reading paths and questions for readers.",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "area.together": {
+      "text": "Writing together",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.togetherAbout": {
+      "text": "Writing one post with other people.",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "area.trade": {
+      "text": "Your business",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.tradeAbout": {
+      "text": "Services, reviews, jobs, requests for a price and business facts.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "area.turnOn": {
+      "text": "Turn it on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.turnOnFailed": {
+      "text": "It wasn't turned on. Try again.",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "area.turnedOn": {
+      "text": "{area} is on.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "area"
+      ]
+    },
+    "area.useHeading": {
+      "text": "What you use",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "area.useLede": {
+      "text": "Choose what {product} shows you. Nothing is deleted when you turn something off.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "product"
+      ]
+    },
+    "area.useTitle": {
+      "text": "What you use",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "atlas.about": {
       "text": "About (c.)",
       "layer": "her",
@@ -25383,6 +25702,211 @@
         "product"
       ]
     },
+    "stories.add": {
+      "text": "Add to my stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.addName": {
+      "text": "Add to my stories: {title}",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "title"
+      ]
+    },
+    "stories.added": {
+      "text": "Added to your stories.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "stories.another": {
+      "text": "Write another story",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.backToList": {
+      "text": "Back to your stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.besideNote": {
+      "text": "It isn't put in your post. Copy what you need.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "stories.empty": {
+      "text": "No stories yet. Telling one takes a few minutes.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "stories.findWrite": {
+      "text": "Stories you could tell",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "stories.heading": {
+      "text": "My stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.lede": {
+      "text": "True stories you've told. Reach for one when a post needs it. They're private and never put up.",
+      "layer": "her",
+      "max": 190,
+      "vars": []
+    },
+    "stories.loadFailed": {
+      "text": "Your stories didn't load.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "stories.made": {
+      "text": "A draft post was made from it. The story itself is unchanged.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "stories.makeFailed": {
+      "text": "A post couldn't be made from it just now. The story is unchanged.",
+      "layer": "her",
+      "max": 130,
+      "vars": []
+    },
+    "stories.making": {
+      "text": "Making a draft post from it…",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "stories.markFailed": {
+      "text": "That wasn't saved. Try again.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "stories.menu": {
+      "text": "My stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.openPost": {
+      "text": "Open the post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.others": {
+      "text": "Other things you've written",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "stories.othersHelp": {
+      "text": "Add any of them to your stories.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "stories.read": {
+      "text": "Read it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.readName": {
+      "text": "Read it: {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "stories.readRegion": {
+      "text": "{title}, as you told it",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "title"
+      ]
+    },
+    "stories.remove": {
+      "text": "Take out of my stories",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "stories.removeName": {
+      "text": "Take out of my stories: {title}",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "title"
+      ]
+    },
+    "stories.removed": {
+      "text": "Taken out of your stories. It's still under Your writing voice.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "stories.row": {
+      "text": "{words} · {date}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "words",
+        "date"
+      ]
+    },
+    "stories.sheetHeading": {
+      "text": "Stories you could tell",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "stories.sheetLede": {
+      "text": "Choose one to read beside your post.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "stories.startPost": {
+      "text": "Start a post from this",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "stories.startPostName": {
+      "text": "Start a post from this: {title}",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "title"
+      ]
+    },
+    "stories.title": {
+      "text": "My stories",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "stories.writeFirst": {
+      "text": "Write a story",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "suggest.added": {
       "text": "Added.",
       "layer": "her",
@@ -29506,6 +30030,764 @@
       "allows": [
         "piece"
       ]
+    },
+    "welcome.always": {
+      "text": "Always here: writing, posts, pictures and the look of {product}.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.applied": {
+      "text": "Done. Readers will see it after the next update.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "welcome.applying": {
+      "text": "Changing {product}…",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.back": {
+      "text": "Back",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.amount.essentials": {
+      "text": "Just what I need",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.amount.everything": {
+      "text": "Show me everything",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.kind.docs": {
+      "text": "Documentation for a project",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "welcome.c.kind.personal": {
+      "text": "A personal journal, or something else",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "welcome.c.kind.podcast": {
+      "text": "A podcast or audio show",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "welcome.c.kind.recipes": {
+      "text": "Recipes and family stories",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "welcome.c.kind.research": {
+      "text": "Research with sources",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "welcome.c.kind.teaching": {
+      "text": "Teaching and lessons",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.kind.technical": {
+      "text": "Technical writing and code",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "welcome.c.kind.trade": {
+      "text": "A trade or local business",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "welcome.c.readers.no": {
+      "text": "No",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.readers.yes": {
+      "text": "Yes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.seasons.no": {
+      "text": "No",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.seasons.yes": {
+      "text": "Yes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.sharing.later": {
+      "text": "Maybe later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.sharing.no": {
+      "text": "No",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.sharing.yes": {
+      "text": "Yes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.together.few": {
+      "text": "A few people",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.c.together.solo": {
+      "text": "Just me",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.changeName": {
+      "text": "Change: {area}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "area"
+      ]
+    },
+    "welcome.changedElsewhere": {
+      "text": "Your answers were changed on another screen. Here they are; save again if these are right.",
+      "layer": "her",
+      "max": 180,
+      "vars": []
+    },
+    "welcome.doThis": {
+      "text": "Do this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.doThisName": {
+      "text": "Do this: {what}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "what"
+      ]
+    },
+    "welcome.everythingNote": {
+      "text": "You asked to see everything, so nothing is tucked away. Your answers are kept for later.",
+      "layer": "her",
+      "max": 176,
+      "vars": []
+    },
+    "welcome.exactChange": {
+      "text": "The exact change to openblog.json ({member}):",
+      "layer": "details",
+      "max": 90,
+      "vars": [
+        "member"
+      ]
+    },
+    "welcome.forHelper": {
+      "text": "This answer turns on: {areas}.",
+      "layer": "details",
+      "max": 60,
+      "vars": [
+        "areas"
+      ]
+    },
+    "welcome.forHelperNone": {
+      "text": "This answer turns nothing on by itself.",
+      "layer": "details",
+      "max": 78,
+      "vars": []
+    },
+    "welcome.fromInit": {
+      "text": "Chosen when {product} was made. Change it if you like.",
+      "layer": "her",
+      "max": 108,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.h.amount.essentials": {
+      "text": "Anything else stays one step away.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.h.amount.everything": {
+      "text": "Every tool, whatever you answered.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.h.seasons.yes": {
+      "text": "Decorations, greeting cards and gifts.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "welcome.h.sharing.yes": {
+      "text": "Announce new posts on other sites you use.",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "welcome.h.together.few": {
+      "text": "You can invite them later.",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "welcome.hello": {
+      "text": "Welcome, {owner}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "owner"
+      ],
+      "bare": "Welcome"
+    },
+    "welcome.lede": {
+      "text": "A few questions so {product} shows you what you need. Skip any of them.",
+      "layer": "her",
+      "max": 142,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.markShown": {
+      "text": "Shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.markTucked": {
+      "text": "Tucked away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.more": {
+      "text": "More",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.moreName": {
+      "text": "More: About {product}",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.next": {
+      "text": "Next",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.noSignal": {
+      "text": "Saving needs a signal. Your answers are still here.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "welcome.notSaved": {
+      "text": "Your answers weren't saved. Try again.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "welcome.of": {
+      "text": "Question {n} of {total}",
+      "layer": "her",
+      "max": 46,
+      "vars": [
+        "n",
+        "total"
+      ]
+    },
+    "welcome.practice": {
+      "text": "Practice run: your answers apply to this window only and aren't kept.",
+      "layer": "details",
+      "max": 138,
+      "vars": []
+    },
+    "welcome.q.amount": {
+      "text": "How much would you like to see?",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "welcome.q.kind": {
+      "text": "What will you mostly write?",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "welcome.q.readers": {
+      "text": "Do you want readers to comment or react?",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "welcome.q.seasons": {
+      "text": "Should {product} dress up for holidays and seasons?",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.q.sharing": {
+      "text": "Do you want to share posts beyond {product}?",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.q.together": {
+      "text": "Will anyone else write with you?",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "welcome.s.business": {
+      "text": "Add your business details",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "welcome.s.businessAbout": {
+      "text": "Your name, phone and where you work, so readers can reach you.",
+      "layer": "her",
+      "max": 124,
+      "vars": []
+    },
+    "welcome.s.businessGo": {
+      "text": "Open Business facts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.s.docsSection": {
+      "text": "Add a documentation section",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "welcome.s.docsSectionAbout": {
+      "text": "Pages for your project's guides, with their own menu.",
+      "layer": "her",
+      "max": 106,
+      "vars": []
+    },
+    "welcome.s.readers": {
+      "text": "Let readers comment",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.s.readersAbout": {
+      "text": "Set up how readers reach you.",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "welcome.s.readersGo": {
+      "text": "Open Readers",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.s.recipeList": {
+      "text": "List your recipes on one page",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "welcome.s.recipeListAbout": {
+      "text": "Readers can look through every recipe by course and cuisine.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "welcome.s.seasons": {
+      "text": "Choose decorations for the seasons",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.s.seasonsAbout": {
+      "text": "Pick what {product} wears for each holiday.",
+      "layer": "her",
+      "max": 86,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.s.seasonsGo": {
+      "text": "Open Decorations",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.s.sharing": {
+      "text": "Connect the sites you share on",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "welcome.s.sharingAbout": {
+      "text": "So new posts can be announced there.",
+      "layer": "her",
+      "max": 72,
+      "vars": []
+    },
+    "welcome.s.sharingGo": {
+      "text": "Open Sharing",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.save": {
+      "text": "Save these",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.saved": {
+      "text": "Saved. {product} now shows what you need.",
+      "layer": "her",
+      "max": 82,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.saving": {
+      "text": "Saving your answers…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.shownHeading": {
+      "text": "Shown",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.skipAll": {
+      "text": "Skip the questions",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.skipOne": {
+      "text": "Skip this one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.skippedToast": {
+      "text": "Okay. You can answer them any time under What you use.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
+    },
+    "welcome.suggestFailed": {
+      "text": "That wasn't changed. Nothing else was touched.",
+      "layer": "her",
+      "max": 92,
+      "vars": []
+    },
+    "welcome.suggestHeading": {
+      "text": "Want {product} set up to match?",
+      "layer": "her",
+      "max": 62,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.suggestLede": {
+      "text": "Nothing changes unless you say so.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.suggestLoadFailed": {
+      "text": "Suggestions didn't load. You can go on without them.",
+      "layer": "her",
+      "max": 104,
+      "vars": []
+    },
+    "welcome.suggestStale": {
+      "text": "The settings of {product} changed a moment ago. Here's the change again; press Do this if it's still right.",
+      "layer": "her",
+      "max": 214,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.summaryHeading": {
+      "text": "Here is what {product} will show you",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.title": {
+      "text": "About {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.tuckedHeading": {
+      "text": "Tucked away",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.tuckedNote": {
+      "text": "Tucked away means one step away: Find, or What you use in the menu.",
+      "layer": "her",
+      "max": 134,
+      "vars": []
+    },
+    "welcome.voiceHas": {
+      "text": "You've written {n} already. Add more?",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "n"
+      ]
+    },
+    "welcome.voiceHasOne": {
+      "text": "You've written one already. Add more?",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
+    "welcome.voiceHeading": {
+      "text": "Want {product} to learn how you write?",
+      "layer": "her",
+      "max": 76,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.voiceLater": {
+      "text": "Later",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.voiceLaterToast": {
+      "text": "It'll be on Home when you want it.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.voiceLede": {
+      "text": "Three short questions, three minutes each. Nothing is corrected or put up, and it stays private.",
+      "layer": "her",
+      "max": 192,
+      "vars": []
+    },
+    "welcome.voiceNo": {
+      "text": "No thanks",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.voiceNoToast": {
+      "text": "Okay. It's under Getting started in the menu if you change your mind.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "welcome.voiceStart": {
+      "text": "Start",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.voiceStory": {
+      "text": "One of them is always a true story from your life.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "welcome.w.docs": {
+      "text": "documentation",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.w.personal": {
+      "text": "a journal, or something of your own",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "welcome.w.podcast": {
+      "text": "for a podcast or audio show",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "welcome.w.recipes": {
+      "text": "recipes and family stories",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "welcome.w.research": {
+      "text": "about research, with sources",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "welcome.w.teaching": {
+      "text": "lessons",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "welcome.w.technical": {
+      "text": "technical writing and code",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "welcome.w.trade": {
+      "text": "about your trade or business",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "welcome.why.hidden.kind": {
+      "text": "You write {what}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "what"
+      ]
+    },
+    "welcome.why.hidden.readers": {
+      "text": "No comments or reactions.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "welcome.why.hidden.seasons": {
+      "text": "No seasons and holidays.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "welcome.why.hidden.sharing": {
+      "text": "You said {answer}.",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "answer"
+      ]
+    },
+    "welcome.why.hidden.together": {
+      "text": "You write on your own.",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "welcome.why.inUse": {
+      "text": "Already on {product}.",
+      "layer": "her",
+      "max": 42,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.why.kind": {
+      "text": "Because you write {what}.",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "what"
+      ]
+    },
+    "welcome.why.readers": {
+      "text": "Because readers comment and react.",
+      "layer": "her",
+      "max": 68,
+      "vars": []
+    },
+    "welcome.why.seasons": {
+      "text": "Because {product} dresses up for the seasons.",
+      "layer": "her",
+      "max": 90,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.why.sharing": {
+      "text": "Because you share posts beyond {product}.",
+      "layer": "her",
+      "max": 82,
+      "vars": [
+        "product"
+      ]
+    },
+    "welcome.why.together": {
+      "text": "Because others write with you.",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "welcome.why.unasked": {
+      "text": "You didn't say, so it stays.",
+      "layer": "her",
+      "max": 56,
+      "vars": []
     },
     "write.collectionHelp": {
       "text": "Put it with others, like all your posts on one topic.",

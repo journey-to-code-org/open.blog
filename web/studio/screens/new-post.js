@@ -3,6 +3,7 @@
 import { h } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { tradeSite } from "../parts/record-kinds.js";
+import { areaVisible } from "../parts/area-rules.js";
 
 export async function createNewPost({ meta } = {}) {
   await use("content-card", "auto-grid");
@@ -11,11 +12,11 @@ export async function createNewPost({ meta } = {}) {
     h("auto-grid", { min: "15rem" },
       hasRecipes(meta) ? h("content-card", { heading: "A recipe", href: "#/write/new/recipe" }, h("p", { class: "studio-meta", text: "Ingredients, steps, and how long it takes." })) : null,
       h("content-card", { heading: "A story", href: "#/write/new/story" }, h("p", { class: "studio-meta", text: "Words and photos, like a letter or a memory." })),
-      tradeSite(meta) ? h("content-card", { heading: "A job", href: "#/write/new/job" }, h("p", { class: "studio-meta", text: "Photos and what you did, for customers to see." })) : null));
+      tradeSite(meta) && areaVisible(meta, "trade") ? h("content-card", { heading: "A job", href: "#/write/new/job" }, h("p", { class: "studio-meta", text: "Photos and what you did, for customers to see." })) : null));
   return { title: "New post", element, focus: () => element.querySelector("h2").focus() };
 }
 
-/** Whether this site has a recipe kind of post (meta.profiles lists it). */
+/** Whether this site has a recipe kind of post (meta.profiles lists it) and this login sees recipes (ONB1). */
 export function hasRecipes(meta) {
-  return Array.isArray(meta?.profiles) && meta.profiles.some((profile) => profile?.id === "recipe");
+  return Array.isArray(meta?.profiles) && meta.profiles.some((profile) => profile?.id === "recipe") && areaVisible(meta, "recipes");
 }

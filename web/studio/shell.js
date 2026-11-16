@@ -24,10 +24,15 @@ import { clearVoiceCopies, voiceCopiesAtRisk } from "./parts/voice-copies.js";
 import { startDecision, stepRoute } from "./parts/onboarding-rules.js";
 import { clearRecordings, hasRecording } from "./parts/story-store.js";
 import { researchFind } from "./parts/research-find.js";
+import { areaName, areaOfRoute, areaVisible, hiddenAreas, paletteItemVisible } from "./parts/area-rules.js";
+import { asksFirst } from "./parts/welcome-rules.js";
+import { createAreas } from "./parts/areas-store.js";
+import { createTurnedOff } from "./parts/turned-off.js";
 
 // R14a: a co-writer sign-in (meta.account) has Writing together and nothing else; it is their Home.
 const coWriterOf = (meta) => meta?.account === "co-writer";
-const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta)) && (!coWriterOf(meta) || s.coWriter))
+// ONB1: an area this login tucked away leaves the navigation (its address shows the turned-off page).
+const navFor = (meta) => SCREENS.filter((s) => s.nav && (!s.when || s.when(meta)) && (!s.navWhen || s.navWhen(meta)) && (!coWriterOf(meta) || s.coWriter) && (coWriterOf(meta) || areaVisible(meta, areaOfRoute({ name: s.name }))))
   .map((s) => ({ id: s.name, label: typeof s.nav === "function" ? s.nav(meta) : s.nav, href: s.name === "home" ? "#/" : `#/${s.name}` }));
 const AREA = Object.fromEntries(SCREENS.map((s) => [s.name, s.area]));
 // R9b: screens that hide the navigation and Find (Getting started); the account menu stays.
@@ -40,21 +45,23 @@ function accountMenu(meta, jobs) {
   const install = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
   return [
     { value: "site", label: "View my site" },
-    ...(tradeSite(meta) ? [{ value: "new-job", label: "New job" }] : []),
+    ...(tradeSite(meta) && areaVisible(meta, "trade") ? [{ value: "new-job", label: "New job" }] : []),
     ...(jobs?.entries().length ? [{ value: "send-jobs", label: "Send waiting jobs now" }] : []),
     ...(meta.push ? [{ value: "notifications", label: "Notifications" }] : []),
     ...(install ? [{ value: "home-screen", label: install }] : []),
     { value: "helper", label: say("helper.name") },
     { value: "start", label: say("start.menu") },
+    // ONB1: what this login sees, and changing it.
+    { value: "what-you-use", label: say("area.menu") },
     // Business facts are in the navigation on a trade site; here otherwise, so a trade site can be started.
-    ...(tradeSite(meta) ? [] : [{ value: "business", label: "Business facts" }]),
+    ...(tradeSite(meta) || !areaVisible(meta, "trade") ? [] : [{ value: "business", label: "Business facts" }]),
     { value: "signout", label: "Sign out" },
   ];
 }
 
 export async function startShell(root, api, meta, { fresh = false } = {}) {
   await use("dashboard-shell", "command-palette", "action-button", "modal-dialog", "toast-region");
-  const NAV = navFor(meta);
+  let NAV = navFor(meta);
   const siteName = meta.siteTitle || "Your site";
   rememberSiteName(siteName);
   // The name under the icon when she adds it to her Home Screen (the manifest says the same).
@@ -67,11 +74,29 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
   const jobs = coWriter ? { entries: () => [], available: () => true, start: async () => {}, watch() {}, subscribe() {}, sendNow() {} }
     : createJobSender({ api, meta, title: (record) => captureTitle(record.fields, new Date(record.createdAt), meta.job?.services || []) });
   const context = { api, meta, siteName, posts, jobs, go: (hash) => router.go(hash) };
+  // ONB1: this login's areas. Any change repaints the navigation, the account menu and Find.
+  context.areas = createAreas({ api, meta, onChange: () => repaintAreas() });
+  if (meta.onboarding?.practice === true) context.areas.rehearse();
+  let shellReady = false;
+  function repaintAreas() {
+    NAV = navFor(meta);
+    if (!shellReady) return;
+    shell.nav = NAV;
+    shell.menu = accountMenu(meta, jobs);
+    palette.items = withBase(router.current()?.palette || paletteScreen);
+  }
+  async function turnOn(id) {
+    const saved = await context.areas.turn(id, true);
+    if (saved.ok || saved.code === "stale") toast(say("area.turnedOn", { area: areaName(id) }));
+    else toast(saved.code === "no-signal" ? say("area.noSignal") : say("area.turnOnFailed"), { variant: "warning" });
+  }
+  // A change made in another window shows when she comes back to this one.
+  if (!coWriter) document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") context.areas.check().catch(() => {}); });
   // A change that alters what the site uses (naming a trade, say) shows its screens without a reload.
   context.refreshMeta = async () => {
     try {
       Object.assign(meta, await api.get("meta"));
-      shell.nav = navFor(meta);
+      repaintAreas();
     } catch {
       // The next start reads it again.
     }
@@ -123,6 +148,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     if (choice === "notifications") router.go("#/notifications");
     if (choice === "helper") router.go("#/helper");
     if (choice === "start") router.go("#/start");
+    if (choice === "what-you-use") router.go("#/what-you-use");
     if (choice === "home-screen") router.go("#/notifications?sheet=home-screen");
     if (choice === "new-job") router.go("#/new-job");
     if (choice === "send-jobs") jobs.sendNow();
@@ -155,7 +181,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     const label = menuLabel(herePhone({ navigator, window: globalThis }), installPrompt.has());
     return label ? [{ id: "home-screen", label, group: "Do", href: "#/notifications?sheet=home-screen" }] : [];
   }
-  const BASE = coWriter ? [
+  const base = () => (coWriter ? [
     ...NAV.map((item) => ({ id: `go-${item.id}`, label: item.label, group: "Go to", href: item.href })),
     { id: "signout", label: "Sign out", group: "Do" },
   ] : [
@@ -188,10 +214,15 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
       { id: "notifications-test", label: "Send a test notification", group: "Do", href: "#/notifications" },
     ] : []),
     { id: "rebuild-all", label: "Rebuild the site now", group: "Do" },
+    // ONB1: what this login sees; each part tucked away can be turned on from here in one step.
+    { id: "go-what-you-use", label: say("area.findUse"), group: "Go to", href: "#/what-you-use" },
+    { id: "go-welcome", label: say("area.findAskAgain"), group: "Do", href: "#/welcome" },
+    { id: "go-stories", label: say("stories.menu"), group: "Go to", href: "#/stories" },
+    ...hiddenAreas(meta).map((id) => ({ id: `turn-on:${id}`, label: say("area.findTurnOn", { area: areaName(id) }), group: "Do" })),
     { id: "signout", label: "Sign out", group: "Do" },
-  ];
+  ].filter((item) => paletteItemVisible(meta, item)));
   // The screen's own items first; a shell item with the same words isn't listed twice.
-  const withBase = (screenItems) => [...screenItems, ...BASE.filter((b) => !screenItems.some((s) => s.label === b.label)), ...installItem()];
+  const withBase = (screenItems) => { const BASE = base(); return [...screenItems, ...BASE.filter((b) => !screenItems.some((s) => s.label === b.label)), ...installItem()]; };
   async function refreshPalette() {
     let items = [];
     try {
@@ -231,6 +262,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     else if (id === "signout") signOut();
     else if (id === "send-jobs" && !router.current()?.palette?.some((item) => item.id === "send-jobs")) jobs.sendNow();
     else if (id === "undo") context.undo?.restore();
+    else if (id.startsWith("turn-on:")) turnOn(id.slice("turn-on:".length));
     else if (id === "rebuild-all") {
       api.post("rebuild", {}).then(
         () => toast("Your site is up to date."),
@@ -244,7 +276,9 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     // Whether a screen applies is asked as it opens, so a refreshed meta counts at once.
     screens: Object.fromEntries(SCREENS.map((s) => [s.name, (route) => (coWriter && !s.coWriter
       ? SCREENS.find((t) => t.coWriter).create(context, { name: "together", arg: "", query: {} })
-      : !s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
+      // ONB1: a part this login tucked away says so, and offers to turn it on.
+      : !areaVisible(meta, areaOfRoute(route)) ? createTurnedOff(context, areaOfRoute(route))
+        : !s.when || s.when(meta) ? s.create(context, route) : SCREENS[0].create(context, { name: "home", arg: "", query: {} }))])),
     async onShow(screen, route) {
       shell.current = coWriter ? "together" : AREA[route.name] || "home";
       shell.classList.toggle("studio-focus", FOCUS.has(route.name));
@@ -265,6 +299,9 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     },
   });
   context.replaceRoute = (hash) => router.replace(hash);
+  shellReady = true;
+  // A turned-off page that was just turned on opens what was asked for.
+  context.reopen = (hash) => router.go(hash);
   // The browser offering to install changes what the account menu says.
   addEventListener("beforeinstallprompt", () => setTimeout(() => { shell.menu = accountMenu(meta, jobs); }, 0));
   addEventListener("appinstalled", () => { shell.menu = accountMenu(meta, jobs); toast("Added."); });
@@ -309,7 +346,9 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
       }
     }
     if (startDecision(meta.onboarding, first, Date.now(), { fresh, record }) !== "open") return;
-    history.replaceState(null, "", stepRoute(record?.step || meta.onboarding.step));
+    // ONB1: a run begins with About your blog while this login hasn't answered (always when practising).
+    const told = record?.status === "in-progress" && (record.stories || []).length > 0;
+    history.replaceState(null, "", asksFirst(meta.areas, meta.onboarding.practice === true) && !told ? "#/welcome" : stepRoute(record?.step || meta.onboarding.step));
   }
 }
 

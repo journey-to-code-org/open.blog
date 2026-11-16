@@ -4,6 +4,7 @@
 // It has no Save of its own: every value is part of the post (drafts save themselves; a published
 // post keeps changes on this device until Update). Write reads `extra()` and `credits()` when it
 // saves. Everything she or the server wrote is placed as text. Studio R5.
+import { areaVisible } from "./area-rules.js";
 import { fill, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { ask } from "./dialogs.js";
@@ -102,6 +103,7 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     box.querySelector("legend").id = "studio-about-kind-h";
     fill(groups.kind, box,
       kindHelp ? h("p", { class: "studio-help", role: "status", text: kindHelp }) : null,
+      shownForPost(meta, current) ? h("p", { class: "studio-help", text: say("area.shownForPost") }) : null,
       kindParts ? h("action-button", { variant: "secondary", onClick: () => { addParts?.(); kindParts = false; drawKind(); } }, "Add the recipe parts") : null,
       kindUndo ? h("action-button", { variant: "link", class: "studio-about-kind-undo", onClick: () => undoKind() }, "Undo") : null);
   }
@@ -389,4 +391,10 @@ export async function createAboutPost({ api, meta, post, onChange, onKind, addPa
     names: () => credits.names(),
     kindWords: (id) => KIND_WORDS[id]?.label || "",
   };
+}
+
+/** ONB1: the open post's kind belongs to an area this login tucked away, so the choice says why it shows. */
+const KIND_AREA = { recipe: "recipes", job: "trade", research: "research" };
+function shownForPost(meta, kind) {
+  return Boolean(KIND_AREA[kind]) && !areaVisible(meta, KIND_AREA[kind]);
 }

@@ -6,6 +6,7 @@
 //
 // Three is the ask; one is enough. Each can be read back and thrown away. In a practice run the
 // stories go to the practice library and are never among her pieces.
+import { kindPacks } from "./area-rules.js";
 import { fill, h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
@@ -25,7 +26,9 @@ let uid = 0;
  * `{ element, load(), primary(), isDirty(), leave(), stop() }`. `frame` is the start screen's:
  * `{ bar(primary, extras), done(state), record(), save(patch), practice }`.
  */
-export async function createStartStories({ api, frame }) {
+export async function createStartStories({ api, frame, kind = null }) {
+  // ONB1.7.1: with a kind of blog, prompts from the sets that suit it, always with one true story.
+  const kindSets = kindPacks(kind);
   await use("action-button", "choice-cards", "side-sheet", "alert-banner", "skeleton-block", "modal-dialog");
   const id = `studio-stories-${++uid}`;
   const practice = frame.practice === true;
@@ -76,7 +79,7 @@ export async function createStartStories({ api, frame }) {
     const avoid = [...new Set([...toldPrompts(), ...exclude])].slice(0, 12);
     let drawn;
     try {
-      drawn = await api.post("voice/draw", { pack: SET, exclude: avoid, ...extra });
+      drawn = await api.post("voice/draw", { ...(kindSets ? { packs: kindSets, story: true } : { pack: SET }), exclude: avoid, ...extra });
     } catch (error) {
       // A site whose own prompts dropped the set draws from every set (R9's fallback).
       if (error?.status !== 404) throw error;

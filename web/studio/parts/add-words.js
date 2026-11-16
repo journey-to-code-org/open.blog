@@ -1,5 +1,6 @@
 // Add something (Studio R6): what she can put in her words, in two groups, and where it goes. Pure,
 // DOM-free; the sheet is add-menu.js. Every sentence is a word id a site may change.
+import { areaVisible } from "./area-rules.js";
 import { say } from "./words.js";
 import { splitChunks } from "./word-blocks.js";
 
@@ -133,7 +134,11 @@ export function addItems(meta, post = {}) {
   // R11: a citation and a quotation, first on a research post and with "More things" otherwise; a
   // site that doesn't use research never sees them.
   if (meta?.siteUses?.research === true) (post.kind === "research" ? most : more).push("cite", "quotation");
-  const list = (ids) => ids.map(byId).filter(has).map((item) => ({ id: item.id, name: item.name(), about: item.about() }));
+  // ONB1: code items follow Code and diagrams, a question for readers follows Teaching, hours and
+  // contact follow Your business (a piece already in the post shows whatever is tucked away).
+  const ITEM_AREAS = { code: "code", runnable: "code", codepen: "code", quiz: "teaching", hours: "trade", contact: "trade" };
+  const seen = (item) => !ITEM_AREAS[item.id] || areaVisible(meta, ITEM_AREAS[item.id]);
+  const list = (ids) => ids.map(byId).filter(has).filter(seen).map((item) => ({ id: item.id, name: item.name(), about: item.about() }));
   return { most: list(most), more: list(more), details: list(details) };
 }
 

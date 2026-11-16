@@ -47,7 +47,11 @@ import { createCompare } from "./compare.js";
 import { createResearchPublic } from "./research-public.js";
 import { researchUsed } from "../parts/research-rules.js";
 import { createTogetherScreen } from "./together.js";
+import { createWelcome } from "./welcome.js";
+import { createWhatYouUse } from "./what-you-use.js";
+import { createStories } from "./stories.js";
 import { say } from "../parts/words.js";
+import { areaVisible } from "../parts/area-rules.js";
 
 export const SCREENS = [
   { name: "home", nav: "Home", area: "home", create: (context) => createHome(context) },
@@ -129,6 +133,12 @@ export const SCREENS = [
   // R9b: Getting started. #/start is the step she is on; #/start/helper|stories|voice|done each
   // step. `chrome: "focus"` hides the navigation and Find (the account menu stays).
   { name: "start", area: "start", chrome: "focus", create: (context, route) => createStart(context, route) },
+  // ONB1: About your blog, the opening of a Getting started run (and Ask me the questions again);
+  // #/welcome/<question>|summary|suggestions|voice. What you use is where she changes her mind.
+  { name: "welcome", area: "start", chrome: "focus", create: (context, route) => createWelcome(context, route) },
+  { name: "what-you-use", area: "what-you-use", create: (context) => createWhatYouUse(context) },
+  // ONB1.7: My stories, from Your writing voice, Write and Find.
+  { name: "stories", area: "voice", create: (context) => createStories(context) },
   // R14a: Writing together. In the navigation once she takes part in one (G111), and for a co-writer
   // sign-in the only screen there is (`coWriter`), and its Home. #/together/new, /join, /<id>,
   // /<id>/write and /<id>/read are its screens.
@@ -145,7 +155,7 @@ export const SCREENS = [
   // one; #/write/<path> opens a post.
   // #/write asks what she's writing (recipes on, or a trade site with jobs: R4); #/write/new/job
   // starts a job at a desk.
-  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && (hasRecipes(context.meta) || tradeSite(context.meta)) ? createNewPost(context) : createWrite(context, route.arg, route)) },
+  { name: "write", area: "posts", create: (context, route) => (route.arg === "" && (hasRecipes(context.meta) || (tradeSite(context.meta) && areaVisible(context.meta, "trade"))) ? createNewPost(context) : createWrite(context, route.arg, route)) },
 ];
 
 /** "Writing together", with how many are waiting on her. */

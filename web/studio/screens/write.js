@@ -36,6 +36,7 @@ import { createStoryNudge } from "../parts/story-nudge.js";
 import { researchUsed } from "../parts/research-rules.js";
 import { createWriteResearch, researchHooks } from "../parts/write-research.js";
 import { createSourcesInPost } from "../parts/sources-in-post.js";
+import { createStoriesSheet } from "../parts/stories-sheet.js";
 
 const AUTOSAVE_MS = 3000;
 const narrow = () => globalThis.matchMedia?.("(max-width: 40rem)").matches;
@@ -76,6 +77,7 @@ export async function createWrite(context, arg, route = {}) {
   // R11: research in Write, only on a site that uses research (G92).
   const hooks = researchUsed(meta) ? researchHooks() : null;
   let research = null;
+  let stories = null; // ONB1.7.4: her stories beside the post
 
   // ---- the page
   // R6: Add something, and the cards in every box of her words.
@@ -147,6 +149,8 @@ export async function createWrite(context, arg, route = {}) {
     canWriteUp: () => writeUpReady, go: (hash) => context.go(hash), repaint: () => { more.items = menuItems(); },
   });
   sheets.card.after(helper.card);
+  // ONB1.7.4: Stories you could tell, once she has one (More and Find).
+  stories = await createStoriesSheet({ api, meta, context });
   if (hooks) {
     research = await createWriteResearch({ api, meta, doc, body, about, addMenu, sourcesInPost, grid: element.querySelector(".studio-write-grid"),
       request: () => ({ kind: "posts", path: doc.path, fields: fieldsFor(read(), "publish"), body: bodyText() }), kind: () => kind(), title: () => String(title.value || "").trim(),
@@ -231,7 +235,8 @@ export async function createWrite(context, arg, route = {}) {
   const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })),
     ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
     ...(helper ? helper.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
-    ...(research ? research.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
+    ...(research ? research.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
+    ...(stories ? stories.commands().map((c) => ({ value: c.id, label: c.label })) : [])];
 
   /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
   async function switchKind(from, to, options) {
@@ -498,6 +503,7 @@ export async function createWrite(context, arg, route = {}) {
     if (sheets.run(value, more.querySelector("button") || aboutButton)) return;
     if (helper.run(value, helper.card.hidden ? opener : helper.card)) return;
     if (research?.run(value, opener)) return;
+    if (stories?.run(value, opener)) return;
     if (addMenu.command(value)) return;
     if (value === "save") saveCommand();
     if (value === "publish") saveNow("publish");
@@ -550,6 +556,7 @@ export async function createWrite(context, arg, route = {}) {
     if (!(await sheets.leave())) return false;
     await helper.leave();
     if (research && !(await research.leave())) return false;
+    if (stories && !(await stories.leave())) return false;
     clearTimeout(timer);
     timer = 0;
     return leaveNow();
@@ -642,6 +649,7 @@ export async function createWrite(context, arg, route = {}) {
     research?.start(query).catch(() => {});
     element.removeAttribute("aria-busy");
     nudge.load().catch(() => {});
+    stories?.refresh().then(() => { more.items = menuItems(); }).catch(() => {});
     await asking;
   }
 
@@ -685,6 +693,7 @@ export async function createWrite(context, arg, route = {}) {
         ...helper.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
         ...(research ? research.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })) : []),
         { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },
+        ...(stories ? stories.commands().map((c) => ({ id: c.id, label: c.label, group: "This post" })) : []),
       ];
     },
     command: run,

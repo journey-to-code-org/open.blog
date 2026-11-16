@@ -27,7 +27,10 @@ export async function createVoiceHub(context) {
   const element = h("section", { class: "studio-page studio-voice-hub", "aria-labelledby": "studio-voice-h" },
     h("div", { class: "studio-voice-top" }, h("breadcrumb-trail", { items: [{ label: say("voice.home"), href: "#/" }, { label: say("voice.title"), href: "" }] }), more),
     heading, h("p", { class: "studio-lede", text: say("voice.lede") }),
-    banner, primary, summary, said.element, guide, sets, details);
+    banner, primary, summary, said.element,
+    // ONB1.7.4: the true stories among her pieces, to reach for while writing.
+    h("p", {}, h("a", { class: "studio-more-link", href: "#/stories", text: say("stories.menu") })),
+    guide, sets, details);
 
   const writeButton = (label = say("voice.writeOne"), href = voiceHash()) => h("action-button", { href, size: "lg", class: "studio-primary" }, label);
   const forHelper = (...lines) => h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }), ...lines.filter(Boolean).map((line) => h("p", { class: "studio-mono", text: String(line) })));
