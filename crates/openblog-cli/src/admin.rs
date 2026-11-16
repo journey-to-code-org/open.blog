@@ -4382,6 +4382,23 @@ fn fields_to_json(fields: &BTreeMap<String, Value>) -> Json {
     Json::Object(map)
 }
 
+/// Whether `key` is an audio list's own entry (`audio.sources`, `audio.chapters`, which stand for
+/// the list) and this save took its last item off: then the list goes too, so taking a recording
+/// off a post leaves no empty `audio:` behind (#645). A list written empty by hand and not touched
+/// by the save stays as it was.
+fn emptied_audio_list(
+    key: &str,
+    sent: &serde_json::Map<String, Json>,
+    fields: &BTreeMap<String, Value>,
+) -> bool {
+    if !matches!(key, "audio.sources" | "audio.chapters") {
+        return false;
+    }
+    let prefix = format!("{key}.");
+    sent.keys().any(|sent| sent.starts_with(&prefix))
+        && !fields.keys().any(|kept| kept.starts_with(&prefix))
+}
+
 /// A front matter key, including flattened mappings used by structured fields.
 fn is_field_name(key: &str) -> bool {
     let plain = |part: &str| {
@@ -20482,6 +20499,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                         && !sent.contains_key(top)
                         && !fields.contains_key(key)
                         && !dropped.contains(&key.as_str())
+                        && !emptied_audio_list(key, sent, &fields)
                     {
                         fields.insert(key.clone(), value.clone());
                     }
@@ -30559,6 +30577,84 @@ What I read:
             .as_str()
             .unwrap()
             .contains("## What we found"));
+    }
+
+    #[test]
+    fn taking_every_audio_field_off_a_post_removes_its_audio_block() {
+        let f = fixture("audio-remove");
+        let session = login_ok(&f);
+        fs::create_dir_all(f.dir.join("static/audio")).unwrap();
+        fs::write(f.dir.join("static/audio/episode.mp3"), b"ID3abcdefghi").unwrap();
+        let audio = json!({
+            "audio.version": "1", "audio.durationSeconds": "30",
+            "audio.sources.1.url": "/audio/episode.mp3", "audio.sources.1.type": "audio/mpeg",
+            "audio.sources.1.sizeBytes": "12",
+            "audio.chapters.1.timeSeconds": "0", "audio.chapters.1.title": "Hello",
+            "audio.chapters.2.timeSeconds": "5", "audio.chapters.2.title": "Bread",
+            "audio.chapters.2.link": "/about/"
+        });
+        let mut fields = json!({ "title": "Audio draft", "draft": "true" });
+        for (key, value) in audio.as_object().unwrap() {
+            fields[key] = value.clone();
+        }
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({"kind":"posts","fields": fields, "body":"Words."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = body_json(&saved)["path"].as_str().unwrap().to_string();
+        let file = f.dir.join("content").join(&path);
+        assert!(fs::read_to_string(&file).unwrap().contains("audio:"));
+        let etag = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={path}")),
+                &session,
+                false,
+            ),
+        ))["etag"]
+            .clone();
+        // Studio's "Take the recording off this post": every audio key, as null, layout kept.
+        let gone: serde_json::Map<String, Json> = audio
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|key| (key.clone(), Json::Null))
+            .collect();
+        let removed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={path}"),
+                    json!({"fields": gone, "etag": etag, "body": "Words.", "frontMatter": "keep"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            removed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&removed.body)
+        );
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("audio"), "{text}");
+        assert!(text.contains("title: Audio draft"), "{text}");
     }
 
     #[test]
