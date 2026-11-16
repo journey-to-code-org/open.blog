@@ -11039,6 +11039,168 @@
       "max": 40,
       "vars": []
     },
+    "name.changeAsk": {
+      "text": "Change how your name goes on it?",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "name.changeGo": {
+      "text": "Change it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.changeKeep": {
+      "text": "Keep it as it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.changeText": {
+      "text": "Everyone who agreed will need to read it again and agree again.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "name.choose": {
+      "text": "How your name goes on it",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "name.lede": {
+      "text": "Readers see this with your part. Changing it later means everyone reads it again and agrees again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "name.needChoice": {
+      "text": "Choose how your name goes on it.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "name.needName": {
+      "text": "Write the name readers see.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "name.notYet": {
+      "text": "You haven't said yet.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "name.now": {
+      "text": "Readers will see: {said}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "said"
+      ]
+    },
+    "name.off": {
+      "text": "Leave my name off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.offHelp": {
+      "text": "Your part is still in it, with no name.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "name.people": {
+      "text": "My name as People has it",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "name.peopleHelp": {
+      "text": "With its link, as it is now. A later change in People doesn't change this.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "name.saidOff": {
+      "text": "no name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.saidPeople": {
+      "text": "your name as People has it",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "name.saidTyped": {
+      "text": "{name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "name.save": {
+      "text": "Use this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.saved": {
+      "text": "Saved. Readers will see your name this way.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "name.savedAgain": {
+      "text": "Saved. Everyone reads it again and agrees again.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "name.sheetTitle": {
+      "text": "Your name on {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "name.title": {
+      "text": "Your name on it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.tooLong": {
+      "text": "Use a shorter name.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.typed": {
+      "text": "A name I write here",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.typedLabel": {
+      "text": "The name readers see",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.whereNaming": {
+      "text": "hasn't said how their name goes on it",
+      "layer": "her",
+      "max": 74,
+      "vars": []
+    },
     "notebook.aboutMissing": {
       "text": "About a passage that's gone",
       "layer": "her",
@@ -15209,6 +15371,18 @@
       "vars": [
         "names"
       ]
+    },
+    "read.nameFirst": {
+      "text": "Say how your name goes on it first. Then you can read the whole thing as readers will.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "read.namesFirst": {
+      "text": "Everyone needs to say how their name goes on it first.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
     },
     "read.notAllShared": {
       "text": "You can agree once everyone's part can be read.",
@@ -22525,6 +22699,18 @@
       "max": 40,
       "vars": []
     },
+    "rules.agreeRule": {
+      "text": "Agree to this rule",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.agreedRule": {
+      "text": "You agreed to the new rule.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
     "rules.allAuthors": {
       "text": "Everyone writing",
       "layer": "her",
@@ -22533,6 +22719,18 @@
     },
     "rules.allAuthorsHelp": {
       "text": "Everyone who writes a part agrees, whether or not they've written yet.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.allParticipants": {
+      "text": "Everyone taking part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.allParticipantsHelp": {
+      "text": "Everyone in it agrees, including people who only read. Someone who only reads agrees once they can read all of it.",
       "layer": "her",
       "max": 200,
       "vars": []
@@ -22631,6 +22829,12 @@
       "max": 124,
       "vars": []
     },
+    "rules.howMany": {
+      "text": "How many agree, at least",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
     "rules.left": {
       "text": "{name} (isn't in it any more)",
       "layer": "her",
@@ -22649,6 +22853,12 @@
       "text": "The people you choose below agree too, even if they later leave.",
       "layer": "her",
       "max": 200,
+      "vars": []
+    },
+    "rules.needCount": {
+      "text": "Write how many need to agree, like 3.",
+      "layer": "her",
+      "max": 74,
       "vars": []
     },
     "rules.needPeople": {
@@ -22693,6 +22903,52 @@
       "max": 200,
       "vars": []
     },
+    "rules.participantQuorum": {
+      "text": "Everyone who wrote, and enough of everyone",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "rules.participantQuorumHelp": {
+      "text": "Everyone who wrote agrees, and at least the number you choose of everyone taking part. It doesn't go down if someone leaves.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.proposalIs": {
+      "text": "Suggested: {rule}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "rule"
+      ]
+    },
+    "rules.proposalOld": {
+      "text": "It no longer fits, because people or jobs changed since. Whoever runs it can suggest it again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.proposalTitle": {
+      "text": "A new rule was suggested",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "rules.proposalWaiting": {
+      "text": "Waiting for {names} to agree to it.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "names"
+      ]
+    },
+    "rules.proposalYouAgreed": {
+      "text": "You agreed to it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "rules.published": {
       "text": "It's on {product}, so its rules stay as they were.",
       "layer": "her",
@@ -22700,6 +22956,18 @@
       "vars": [
         "product"
       ]
+    },
+    "rules.quorum": {
+      "text": "Everyone who wrote, and enough of the writers",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "rules.quorumHelp": {
+      "text": "Everyone who wrote agrees, and at least the number you choose of the people writing. It doesn't go down if someone leaves.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
     },
     "rules.readOnly": {
       "text": "Whoever runs it chooses the rules.",
@@ -22725,6 +22993,12 @@
       "max": 40,
       "vars": []
     },
+    "rules.ruleChanged": {
+      "text": "Everyone agreed, so the new rule is in place. Agreements given before need giving again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "rules.save": {
       "text": "Save the rules",
       "layer": "her",
@@ -22743,6 +23017,12 @@
       "max": 52,
       "vars": []
     },
+    "rules.seeRule": {
+      "text": "See the rule",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "rules.sharingTitle": {
       "text": "When you read each other's parts",
       "layer": "her",
@@ -22757,10 +23037,28 @@
         "title"
       ]
     },
+    "rules.suggested": {
+      "text": "Suggested. It changes once everyone taking part agrees to it.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "rules.takeBack": {
+      "text": "Take back my agreement to it",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
     "rules.title": {
       "text": "Rules",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "rules.tookBack": {
+      "text": "You took back your agreement to the new rule.",
+      "layer": "her",
+      "max": 90,
       "vars": []
     },
     "rules.whole": {
@@ -22773,6 +23071,12 @@
       "text": "Each person agrees to everyone's parts, so any change asks everyone again.",
       "layer": "her",
       "max": 148,
+      "vars": []
+    },
+    "rules.wholeOnly": {
+      "text": "Each person agrees to the whole thing, so any change asks everyone again.",
+      "layer": "her",
+      "max": 200,
       "vars": []
     },
     "rules.whoseAgreement": {
@@ -26129,6 +26433,12 @@
       "max": 40,
       "vars": []
     },
+    "together.doName": {
+      "text": "Your name on it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "together.doOpen": {
       "text": "Open it",
       "layer": "her",
@@ -26859,6 +27169,12 @@
       "max": 66,
       "vars": []
     },
+    "together.stepName": {
+      "text": "Say how your name goes on it. Then you can all read the whole thing and agree.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "together.stepPrivate": {
       "text": "Each part stays private, so it can't be published together. Whoever runs it can change that.",
       "layer": "her",
@@ -26924,6 +27240,20 @@
       "vars": [
         "names"
       ]
+    },
+    "together.stepWaitingName": {
+      "text": "Waiting for {names} to say how their name goes on it.",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "names"
+      ]
+    },
+    "together.stepWaitingOthersName": {
+      "text": "Waiting for the others to say how their name goes on it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
     },
     "together.stepWaitingOthersReady": {
       "text": "Waiting for the others to be ready.",

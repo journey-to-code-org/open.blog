@@ -281,13 +281,41 @@ const WHERE = {
   notReady: () => say("together.whereNotReady"), ready: () => say("together.whereReady"),
   agreed: () => say("together.whereAgreed"), agreedEarlier: () => say("together.whereAgreedEarlier"),
   left: () => say("together.whereLeft"), reads: () => say("together.whereReads"),
+  naming: () => say("name.whereNaming"),
 };
+
+// ---- your name on it (#650)
+
+/** The most a typed name may be, in bytes (the server's display-name limit). */
+export const NAME_MAX_BYTES = 200;
+
+/**
+ * The request for "Your name on it": `kind` is "profile", "displayName" or "uncredited"; `name` is
+ * what she typed for a name. `{ choice }` to send, or `{ error, field }` in her words.
+ */
+export function nameChoice(kind, name = "") {
+  if (kind === "profile") return { choice: { kind: "profile" } };
+  if (kind === "uncredited") return { choice: { kind: "uncredited" } };
+  if (kind !== "displayName") return { error: say("name.needChoice"), field: "kind" };
+  const typed = String(name || "").replace(/\s+/g, " ").trim();
+  if (!typed) return { error: say("name.needName"), field: "name" };
+  if (new TextEncoder().encode(typed).length > NAME_MAX_BYTES) return { error: say("name.tooLong"), field: "name" };
+  return { choice: { kind: "displayName", name: typed } };
+}
+
+/** "Readers will see: Sam" for a stored choice (`GET collaboration/credit-choice`'s `choice`). */
+export function nameSaid(choice) {
+  if (!choice) return say("name.notYet");
+  if (choice.kind === "profile") return say("name.now", { said: say("name.saidPeople") });
+  if (choice.kind === "displayName") return say("name.now", { said: say("name.saidTyped", { name: String(choice.name || "") }) });
+  return say("name.now", { said: say("name.saidOff") });
+}
 
 /** One row per person, as text ("You · writing"), then each invitation waiting for an answer. */
 export function togetherPeopleRows(summary, { now = new Date(), timeZone } = {}, speak = say) {
   const rows = (summary?.people || []).map((person) => {
     const name = person.you ? say("together.you") : String(person.displayName || "");
-    const where = (WHERE[person.where] || WHERE.notReady)();
+    const where = (person.credit === "notChosen" && person.where === "ready" ? WHERE.naming : WHERE[person.where] || WHERE.notReady)();
     return { name, where, you: Boolean(person.you), text: speak("together.personRow", { name, where }, person.you ? [] : ["name"]) };
   });
   for (const invited of summary?.invited || []) {
@@ -332,6 +360,11 @@ export function togetherStep(summary, { now = new Date(), timeZone, coWriter = f
       const names = joinNames(summary.unmetNamed || []);
       return out("stuck", say("together.stateStuck"), names ? say("together.stuck", { names }) : say("together.stuckRole"), null, null, "warning");
     }
+    case "naming": {
+      if (you.drafter && you.credit === "notChosen") return out("onYou", say("together.stateOnYou"), say("together.stepName"), "name", null, "warning");
+      const names = joinNames((summary.people || []).filter((p) => !p.you && p.credit === "notChosen").map((p) => p.displayName));
+      return out("onOthers", say("together.stateOnOthers"), names ? say("together.stepWaitingName", { names }) : say("together.stepWaitingOthersName"), null);
+    }
     case "ready":
       if (you.canPublish) return out("ready", say("together.stateReady"), say("together.stepEveryoneAgreed"), "publish", "schedule", "success");
       return out("ready", say("together.stateReady"), summary.publisherName ? say("together.waitingPublish", { name: summary.publisherName }) : say("together.waitingPublishAnyone"), null, null, "success");
@@ -367,6 +400,7 @@ export function stepButtonWords(action) {
     invite: () => say("together.doInvite"), write: () => say("together.doWrite"), share: () => say("together.doShare"),
     read: () => say("together.doRead"), publish: () => say("together.doPublish"), open: () => say("together.doOpen"),
     unschedule: () => say("together.doUnschedule"), bringBack: () => say("together.doBringBack"), change: () => say("together.doChange"),
+    name: () => say("together.doName"),
     schedule: () => say("together.publishOnDay"),
   };
   return words[action] ? words[action]() : "";

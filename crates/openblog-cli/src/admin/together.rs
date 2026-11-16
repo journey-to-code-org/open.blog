@@ -58,6 +58,22 @@ pub(crate) const CO_WRITER_ROUTES: &[(&str, &str)] = &[
     ("POST", "collaboration/moments"),
     ("POST", "collaboration/approve"),
     ("POST", "collaboration/approve/withdraw"),
+    // Shared Perspectives (#650): several parts per writer, sharing one version with named
+    // people, each person's public credit, agreeing to a rule change, and replacing an arrangement
+    // left with a withdrawn part. Each still authorizes by the reflection's own record.
+    ("GET", "collaboration/contributions"),
+    ("GET", "collaboration/contributions/shared"),
+    ("POST", "collaboration/contributions"),
+    ("PUT", "collaboration/contributions"),
+    ("PUT", "collaboration/contributions/order"),
+    ("POST", "collaboration/contributions/withdraw"),
+    ("PUT", "collaboration/contributions/ready"),
+    ("GET", "collaboration/credit-choice"),
+    ("PUT", "collaboration/credit-choice"),
+    ("POST", "collaboration/approval-policy/consent"),
+    ("POST", "collaboration/approval-policy/withdraw"),
+    ("POST", "collaboration/reflection/reset"),
+    ("POST", "collaboration/reveal/named"),
     // The combined preview's document, only the one made for this sign-in (`preview_document`).
     ("GET", "preview/*"),
 ];
@@ -317,7 +333,6 @@ fn summary(
     let id = &record.publication_id;
     let own = draft_owner(transaction, record, session);
     let active = active_drafters(transaction, record);
-    let active_refs = active.iter().map(String::as_str).collect::<Vec<_>>();
     let set = crate::shared_publications::load_drafts(&state.root, id)
         .ok()
         .and_then(|stored| draft_set_for(stored.set.as_ref(), record).ok());
@@ -329,35 +344,27 @@ fn summary(
     let can_publish = !session.co_writer && may(AuthorizationAction::Publish).is_some();
     let in_charge = roles.contains(&AuthorizationRole::SiteOwner);
     // The preview says, for a drafter, where each author's agreement stands and whether the rule
-    // can be met; it is built as the gate would build it, and its document is dropped here.
-    let preview = match (&own, &set) {
-        (Some(own), Some(set)) => {
+    // can be met; it is built as the gate builds it (`gate_preview`), and its document is dropped.
+    let inputs = gate_inputs(state, transaction, record).ok();
+    let preview = match (&own, &inputs) {
+        (Some(own), Some(inputs)) => {
             let config = site::load_config(&state.root).unwrap_or_default();
-            let structure = crate::shared_publications::load_structure(&state.root, id).ok()?;
-            let synthesis = crate::shared_publications::load_synthesis(&state.root, id).ok()?;
-            let moments = crate::shared_publications::load_moments(&state.root, id).ok()?;
-            let approvals = crate::shared_publications::load_approvals_for_update(
-                &state.root,
-                id,
-                record.initial_approval_policy(),
-            )
-            .ok()?
-            .set;
-            openblog_core::preview::build(
-                record,
-                structure.structure.as_ref(),
-                set,
-                &synthesis.set,
-                &moments.set,
-                &approvals,
-                own,
-                &active_refs,
-                false,
-                config.render_options(),
-            )
-            .ok()
+            let show_synthesis =
+                synthesis_visible(transaction, record, session, &inputs.synthesis, own);
+            gate_preview(record, inputs, own, show_synthesis, config.render_options()).ok()
         }
         _ => None,
+    };
+    // A new reflection (#650) asks everyone whose part is in it how their name goes on it before
+    // anyone reads the whole piece to agree to it.
+    let credits = inputs.as_ref().and_then(|inputs| inputs.choices.as_ref());
+    let credit_of = |participant: &str| {
+        credits.map(|choices| match choices.choice(participant) {
+            None => "notChosen",
+            Some(openblog_core::shared_credit::CreditChoice::Profile { .. }) => "profile",
+            Some(openblog_core::shared_credit::CreditChoice::DisplayName { .. }) => "name",
+            Some(openblog_core::shared_credit::CreditChoice::Uncredited) => "uncredited",
+        })
     };
     let policy = set
         .as_ref()
@@ -405,7 +412,12 @@ fn summary(
                     _ => "notReady",
                 }
             };
-            json!({ "displayName": participant.display_name, "where": where_, "you": you })
+            json!({
+                "displayName": participant.display_name,
+                "where": where_,
+                "you": you,
+                "credit": if drafter && wrote { credit_of(&participant.id) } else { None },
+            })
         })
         .collect::<Vec<_>>();
     let now = clock::now().unix();
@@ -481,6 +493,30 @@ fn summary(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    // A rule change someone suggested (#650) takes effect only once everyone taking part agrees
+    // to it, so each of them sees it here, with who still has to say yes.
+    let rule_proposal = inputs
+        .as_ref()
+        .and_then(|inputs| inputs.approvals.set.proposal())
+        .map(|proposal| {
+            let names = |ids: &mut dyn Iterator<Item = &String>| {
+                openblog_core::assembly::display_names(record, ids.map(String::as_str))
+            };
+            json!({
+                "id": proposal.id,
+                "policy": proposal.policy,
+                "consentedByYou": own.as_ref().is_some_and(|id| proposal.consenting.contains(id)),
+                "consenting": names(&mut proposal.consenting.iter()),
+                "awaiting": names(&mut proposal
+                    .participants
+                    .iter()
+                    .filter(|id| !proposal.consenting.contains(id))),
+                "asksYou": own.as_ref().is_some_and(|id| proposal.participants.contains(id)),
+            })
+        });
+    // Everyone who wrote a part, while their credit is still to choose.
+    let naming = people.iter().any(|person| person["credit"] == "notChosen");
+    let own_credit = own.as_deref().and_then(credit_of);
     let (state_word, publish_at) = match &outcome {
         Some(Outcome::Published { .. }) => ("published", None),
         Some(Outcome::Scheduled { publish_at, .. }) => (
@@ -489,6 +525,7 @@ fn summary(
         ),
         None if active.len() > 1 && policy == RevealPolicy::Independent => ("privateParts", None),
         None if !unmet.0.is_empty() || !unmet.1.is_empty() => ("stuck", None),
+        None if everyone_shared && naming => ("naming", None),
         None if ready => ("ready", None),
         None if complete => ("agreeing", None),
         None if people.iter().any(|person| person["where"] == "ready") => ("sharing", None),
@@ -499,6 +536,7 @@ fn summary(
     let waiting_on_you = match state_word {
         "published" | "scheduled" | "stuck" | "privateParts" => false,
         "ready" => can_publish,
+        "naming" => drafter && wrote && own_credit == Some("notChosen"),
         _ => {
             drafter
                 && (!wrote
@@ -548,6 +586,9 @@ fn summary(
             "runsIt": can_run,
             "inCharge": in_charge,
             "waitingOnYou": waiting_on_you,
+            // `null` when this reflection doesn't ask (one made before #650 with nobody choosing).
+            "credit": own_credit,
+            "creditRevision": credits.map(|choices| choices.revision()),
         },
         "complete": complete,
         "missing": missing,
@@ -557,6 +598,7 @@ fn summary(
         "path": (state_word == "published").then(|| openblog_core::assembly::post_path(record)),
         "archived": is_put_away(&state.root, &record.publication_id),
         "publisherName": publisher,
+        "ruleProposal": rule_proposal,
     }))
 }
 
@@ -638,7 +680,7 @@ pub(crate) fn put_away(state: &AppState, req: &Request, session: &auth::Session)
 
 /// `POST collaboration/publications` with an optional `revealPolicy` (G113). The record is made by
 /// the existing route; the sharing choice is then stored in its new, empty draft set. Absent, the
-/// policy stays `independent`, as for every other caller.
+/// policy is the record's initial one: mutual reveal (`allReady`) for every new reflection (#650).
 pub(crate) fn create(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     if session.co_writer {
         return refused();
@@ -666,7 +708,7 @@ pub(crate) fn create(state: &AppState, req: &Request, session: &auth::Session) -
     let mut inner = req.clone();
     inner.body = body.to_string().into_bytes();
     let mut response = create_shared_publication(state, &inner, session);
-    let Some(policy) = policy.filter(|policy| *policy != RevealPolicy::Independent) else {
+    let Some(policy) = policy else {
         return response;
     };
     if response.status != 201 {

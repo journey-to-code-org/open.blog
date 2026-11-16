@@ -10,13 +10,14 @@ import { partsNodes } from "../parts/stranger.js";
 import { ask } from "../parts/dialogs.js";
 import { createDidLine } from "../parts/did-line.js";
 import { guardedLeave } from "../parts/sheet.js";
-import { REVEAL_POLICIES, roleWords, sharedSourceHref, sourceWords, stepButtonWords, togetherPeopleRows, togetherProblem, togetherStep } from "../parts/together-rules.js";
+import { REVEAL_POLICIES, joinNames, roleWords, sharedSourceHref, sourceWords, stepButtonWords, togetherPeopleRows, togetherProblem, togetherStep } from "../parts/together-rules.js";
 import { reflectionPalette, stepHref } from "./together.js";
 import { createPublishing } from "../parts/together-publish.js";
 import { createPeopleSheet } from "../parts/together-people.js";
 import { createLayoutSheet } from "../parts/together-layout.js";
 import { createRulesSheet } from "../parts/together-rules-sheet.js";
 import { createCollectionSheet } from "../parts/together-collection.js";
+import { createNameSheet } from "../parts/together-name.js";
 
 export async function createTogetherOne(context, id, route = {}) {
   const { api } = context;
@@ -30,13 +31,14 @@ export async function createTogetherOne(context, id, route = {}) {
   const badge = h("p", { class: "studio-row" });
   const step = h("p", { class: "studio-together-step", role: "status", "aria-live": "polite" });
   const actions = h("div", { class: "studio-row studio-together-actions" });
+  const suggested = h("div");
   const did = createDidLine();
   const everyone = h("ul", { class: "studio-together-people" });
   const peopleButton = h("div");
   const sharing = h("div", { class: "studio-together-sharing" });
   const more = h("div");
   const details = h("details", { class: "studio-help" });
-  const main = h("div", { class: "studio-together-main" }, question, source, badge, step, actions, did.element);
+  const main = h("div", { class: "studio-together-main" }, question, source, badge, step, actions, suggested, did.element);
   const side = h("div", { class: "studio-together-side" }, h("h3", { class: "studio-together-h3", text: say("together.everyone") }), everyone, peopleButton, sharing);
   const body = h("div", { class: "studio-together-layout", "aria-busy": "true" }, h("skeleton-block", { lines: 6 }));
   const element = h("section", { class: "studio-page studio-together-one", "aria-labelledby": "studio-together-one-h" },
@@ -48,10 +50,12 @@ export async function createTogetherOne(context, id, route = {}) {
   const layout = await createLayoutSheet({ api, id, onChange: () => load() });
   const rules = await createRulesSheet({ api, id, onChange: () => load() });
   const collection = await createCollectionSheet({ api, id, onChange: () => load() });
-  const sheets = { people, layout, rules, collection };
+  // #650: how each writer's name goes on it.
+  const naming = await createNameSheet({ api, id, onChange: () => load() });
+  const sheets = { people, layout, rules, collection, name: naming };
   const screen = { title: say("together.nav"), element, load, palette: [], focus: () => heading.focus(),
-    leave: () => guardedLeave(people.sheet, layout.sheet, rules.sheet, collection.sheet),
-    isDirty: () => [people, layout, rules, collection].some((s) => s.sheet.isDirty()) };
+    leave: () => guardedLeave(people.sheet, layout.sheet, rules.sheet, collection.sheet, naming.sheet),
+    isDirty: () => [people, layout, rules, collection, naming].some((s) => s.sheet.isDirty()) };
 
   async function load() {
     body.setAttribute("aria-busy", "true");
@@ -78,7 +82,7 @@ export async function createTogetherOne(context, id, route = {}) {
     summary = found;
     draw();
     const asked = route.query?.sheet;
-    const allowed = { people: summary.you?.canInvite, layout: summary.you?.drafter || summary.you?.runsIt, rules: summary.you?.runsIt, collection: true };
+    const allowed = { people: summary.you?.canInvite, layout: summary.you?.drafter || summary.you?.runsIt, rules: summary.you?.runsIt || summary.ruleProposal?.asksYou, collection: true, name: summary.you?.drafter && summary.you?.credit != null };
     if (asked && allowed[asked] && sheets[asked] && !sheets[asked].sheet.isOpen) {
       route.query.sheet = "";
       sheets[asked].open(summary, more);
@@ -102,6 +106,7 @@ export async function createTogetherOne(context, id, route = {}) {
     badge.replaceChildren(h("status-badge", { variant: at.variant }, at.badge));
     step.textContent = at.step;
     fill(actions, ...[at.primary, at.secondary].filter(Boolean).map((action, index) => stepButton(action, index === 0, title)));
+    drawSuggested();
     fill(everyone, ...togetherPeopleRows(summary, {}, isolating).map((row) => h("li", { class: "studio-together-person" }, ...partsNodes(row.text))));
     fill(peopleButton, summary.you?.canInvite ? h("action-button", { variant: "secondary", onClick: (e) => people.open(summary, e.currentTarget) }, say("together.peopleButton")) : null);
     drawSharing();
@@ -127,7 +132,17 @@ export async function createTogetherOne(context, id, route = {}) {
     if (action === "bringBack") return h("action-button", { variant, label, onClick: (e) => publishing.putAway(summary, false, e.currentTarget) }, words);
     if (action === "change") return h("action-button", { variant, label, onClick: () => requestAnimationFrame(() => sharing.querySelector("button")?.focus()) }, words);
     if (action === "invite") return h("action-button", { variant, label, onClick: (e) => people.open(summary, e.currentTarget) }, words);
+    if (action === "name") return h("action-button", { variant, label, onClick: (e) => naming.open(summary, e.currentTarget) }, words);
     return h("action-button", { variant, label, href: stepHref(summary, action) }, words);
+  }
+
+  /** A rule change someone suggested, until she has said yes to it (#650). */
+  function drawSuggested() {
+    const proposal = summary.ruleProposal;
+    if (!proposal?.asksYou || proposal.consentedByYou || summary.state === "published") { suggested.replaceChildren(); return; }
+    fill(suggested, h("alert-banner", { variant: "info", heading: say("rules.proposalTitle") },
+      (proposal.awaiting || []).length ? h("p", { text: say("rules.proposalWaiting", { names: joinNames(proposal.awaiting) }) }) : null,
+      h("action-button", { variant: "secondary", onClick: (e) => rules.open(summary, e.currentTarget) }, say("rules.seeRule"))));
   }
 
   function drawSharing() {
@@ -164,7 +179,8 @@ export async function createTogetherOne(context, id, route = {}) {
       summary.you?.drafter ? { value: "preview", label: say("read.seeAsReaders") } : null,
       summary.you?.canInvite ? { value: "people", label: say("together.peopleButton") } : null,
       { value: "layout", label: say("layout.title") },
-      summary.you?.runsIt ? { value: "rules", label: say("rules.title") } : null,
+      summary.you?.runsIt || summary.ruleProposal?.asksYou ? { value: "rules", label: say("rules.title") } : null,
+      summary.you?.drafter && summary.you?.credit != null ? { value: "name", label: say("name.title") } : null,
       { value: "collection", label: say("collection.title") },
       summary.you?.drafter ? { value: "talk", label: say("talk.title") } : null,
       summary.you?.inCharge && !coWriter && summary.state !== "published" && !summary.archived ? { value: "away", label: say("together.putAwayItem") } : null,
@@ -182,6 +198,7 @@ export async function createTogetherOne(context, id, route = {}) {
     if (value === "layout") layout.open(summary, opener);
     if (value === "rules") rules.open(summary, opener);
     if (value === "collection") collection.open(summary, opener);
+    if (value === "name") naming.open(summary, opener);
     if (value === "talk") context.go(`#/together/${enc}/together`);
     if (value === "away") publishing.putAway(summary, true, opener);
   }

@@ -15452,6 +15452,87 @@ fn gate_inputs(
     })
 }
 
+/// The combined preview the gate builds for `own` from `inputs`: every contribution when the
+/// reflection has several, with public credit choices whenever they are required, else the
+/// drafter's or the recipient's. Approving checks the token of this preview, and Studio's list of
+/// reflections (`together::summary`) reads where each person stands from it, so the two agree.
+fn gate_preview(
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    own: &str,
+    show_synthesis: bool,
+    options: openblog_core::markdown::RenderOptions<'_>,
+) -> Result<openblog_core::preview::CombinedPreview, openblog_core::preview::PreviewError> {
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let participants = inputs
+        .participants
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let recipient_only = !active.contains(&own);
+    match (&inputs.contributions, &inputs.choices) {
+        (Some(_), None) => Err(openblog_core::preview::PreviewError::CreditChoices),
+        (Some(contributions), Some(choices)) => {
+            openblog_core::preview::build_all_contributions_with_credit_choices(
+                &contributions.record,
+                &contributions.structure,
+                &inputs.drafts,
+                &inputs.synthesis,
+                &inputs.moments,
+                &inputs.approvals.set,
+                own,
+                &active,
+                &participants,
+                recipient_only,
+                show_synthesis,
+                options,
+                choices,
+            )
+        }
+        (None, Some(choices)) => openblog_core::preview::build_with_credit_choices(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            own,
+            &active,
+            &participants,
+            recipient_only,
+            show_synthesis,
+            options,
+            choices,
+        ),
+        (None, None) if !recipient_only => openblog_core::preview::build_with_participants(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            own,
+            &active,
+            &participants,
+            show_synthesis,
+            options,
+        ),
+        (None, None) => openblog_core::preview::build_for_recipient(
+            record,
+            inputs.structure.structure.as_ref(),
+            &inputs.drafts,
+            &inputs.synthesis,
+            &inputs.moments,
+            &inputs.approvals.set,
+            own,
+            &active,
+            &participants,
+            show_synthesis,
+            options,
+        ),
+    }
+}
+
 fn with_gate_subject<R>(
     record: &SharedPublication,
     inputs: &GateInputs,
@@ -16028,7 +16109,6 @@ fn change_approval(
     if approving.is_some() && !record.allows_approval_scope(inputs.approvals.set.policy().scope) {
         return Response::error(409, "This reflection needs a whole-piece approval rule before it can be approved. Ask a coordinator to propose that rule and agree to it; nothing was changed.");
     }
-    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
     let participants = inputs
         .participants
         .iter()
@@ -16047,73 +16127,19 @@ fn change_approval(
         };
         let show_synthesis =
             synthesis_visible(&transaction, &record, session, &inputs.synthesis, &own);
-        let preview = if let Some(contributions) = &inputs.contributions {
-            let Some(choices) = &inputs.choices else {
-                return Response::error(
-                    409,
-                    "Public credit choices are required. Nothing was recorded.",
-                );
-            };
-            openblog_core::preview::build_all_contributions_with_credit_choices(
-                &contributions.record,
-                &contributions.structure,
-                &inputs.drafts,
-                &inputs.synthesis,
-                &inputs.moments,
-                &inputs.approvals.set,
-                &own,
-                &active,
-                &participants,
-                !active.contains(&own.as_str()),
-                show_synthesis,
-                config.render_options(),
-                choices,
-            )
-        } else if let Some(choices) = &inputs.choices {
-            openblog_core::preview::build_with_credit_choices(
-                &record,
-                inputs.structure.structure.as_ref(),
-                &inputs.drafts,
-                &inputs.synthesis,
-                &inputs.moments,
-                &inputs.approvals.set,
-                &own,
-                &active,
-                &participants,
-                !active.contains(&own.as_str()),
-                show_synthesis,
-                config.render_options(),
-                choices,
-            )
-        } else if active.contains(&own.as_str()) {
-            openblog_core::preview::build_with_participants(
-                &record,
-                inputs.structure.structure.as_ref(),
-                &inputs.drafts,
-                &inputs.synthesis,
-                &inputs.moments,
-                &inputs.approvals.set,
-                &own,
-                &active,
-                &participants,
-                show_synthesis,
-                config.render_options(),
-            )
-        } else {
-            openblog_core::preview::build_for_recipient(
-                &record,
-                inputs.structure.structure.as_ref(),
-                &inputs.drafts,
-                &inputs.synthesis,
-                &inputs.moments,
-                &inputs.approvals.set,
-                &own,
-                &active,
-                &participants,
-                show_synthesis,
-                config.render_options(),
-            )
-        };
+        let preview = gate_preview(
+            &record,
+            &inputs,
+            &own,
+            show_synthesis,
+            config.render_options(),
+        );
+        if inputs.contributions.is_some() && inputs.choices.is_none() {
+            return Response::error(
+                409,
+                "Public credit choices are required. Nothing was recorded.",
+            );
+        }
         if !matches!(preview, Ok(preview) if preview.seen.as_deref() == Some(seen)) {
             return Response::error(
                 409,

@@ -240,6 +240,7 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/together-collection.js", include_bytes!("../../../web/studio/parts/together-collection.js")),
     ("parts/together-layout.js", include_bytes!("../../../web/studio/parts/together-layout.js")),
     ("parts/together-moments.js", include_bytes!("../../../web/studio/parts/together-moments.js")),
+    ("parts/together-name.js", include_bytes!("../../../web/studio/parts/together-name.js")),
     ("parts/together-people.js", include_bytes!("../../../web/studio/parts/together-people.js")),
     ("parts/together-publish.js", include_bytes!("../../../web/studio/parts/together-publish.js")),
     ("parts/together-rules-sheet.js", include_bytes!("../../../web/studio/parts/together-rules-sheet.js")),

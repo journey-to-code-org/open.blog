@@ -39,7 +39,8 @@ export function reflectionPalette(summary) {
   // R14b: shaping it, by name.
   items.push({ id: `together-layout-${summary.publicationId}`, label: `${say("layout.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=layout` });
   items.push({ id: `together-collection-${summary.publicationId}`, label: `${say("collection.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=collection` });
-  if (summary.you?.runsIt) items.push({ id: `together-rules-${summary.publicationId}`, label: `${say("rules.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=rules` });
+  if (summary.you?.runsIt || summary.ruleProposal?.asksYou) items.push({ id: `together-rules-${summary.publicationId}`, label: `${say("rules.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=rules` });
+  if (summary.you?.drafter && summary.you?.credit != null) items.push({ id: `together-name-${summary.publicationId}`, label: `${say("name.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}?sheet=name` });
   if (summary.you?.drafter) {
     items.push({ id: `together-talk-${summary.publicationId}`, label: say("talk.find", { title }), group: say("together.nav"), href: `#/together/${id}/together` });
     items.push({ id: `together-moments-${summary.publicationId}`, label: `${say("moments.title")}: ${title}`, group: say("together.nav"), href: `#/together/${id}/write?sheet=moments` });

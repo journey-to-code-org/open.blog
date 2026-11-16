@@ -672,22 +672,13 @@ fn get_collab(f: &Fixture, session: &(String, String), path: &str, id: &str) -> 
     )
 }
 
-/// Mikey's reflection with "when everyone's ready" sharing, and Sam joined by link as a
-/// co-writer who writes a part. Returns Sam's session.
+/// Mikey's reflection with "when everyone's ready" sharing (a new reflection's default since
+/// #650), and Sam joined by link as a co-writer who writes a part. Returns Sam's session.
 fn with_sam(f: &Fixture, mikey: &(String, String), id: &str) -> (String, String) {
-    let set = handle(
-        &f.state,
-        &authed(
-            json_req(
-                "PUT",
-                "/admin/api/collaboration/reveal/policy",
-                json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "independent", "confirmed": true }),
-            ),
-            mikey,
-            true,
-        ),
+    assert_eq!(
+        body_json(&get_collab(f, mikey, "reveal", id))["policy"],
+        "allReady"
     );
-    assert_eq!(set.status, 200, "{}", String::from_utf8_lossy(&set.body));
     let token = token_of(&invite_new(f, mikey, id, "sam", "sam"));
     let joined = join_post(
         f,
@@ -783,7 +774,7 @@ fn a_reflection_starts_with_the_sharing_choice_it_was_given() {
         .to_string();
     let reveal = body_json(&get_collab(&f, &mikey, "reveal", &id));
     assert_eq!(reveal["policy"], "allReady");
-    // Absent, it stays as every other caller has it.
+    // Absent, a new reflection starts with mutual reveal, as every other new one does (#650).
     let created = create_shared(&f, &mikey, reflection_request());
     let other = body_json(&created)["publication"]["publicationId"]
         .as_str()
@@ -791,6 +782,17 @@ fn a_reflection_starts_with_the_sharing_choice_it_was_given() {
         .to_string();
     assert_eq!(
         body_json(&get_collab(&f, &mikey, "reveal", &other))["policy"],
+        "allReady"
+    );
+    let mut independent = reflection_request();
+    independent["revealPolicy"] = json!("independent");
+    let created = create_shared(&f, &mikey, independent);
+    let chosen = body_json(&created)["publication"]["publicationId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        body_json(&get_collab(&f, &mikey, "reveal", &chosen))["policy"],
         "independent"
     );
     let mut wrong = reflection_request();
@@ -829,6 +831,28 @@ fn ready(f: &Fixture, session: &(String, String), id: &str, revision: u64) -> Re
     )
 }
 
+/// How a writer's name goes on the reflection: `PUT collaboration/credit-choice`.
+fn choose_credit(
+    f: &Fixture,
+    session: &(String, String),
+    id: &str,
+    revision: u64,
+    choice: Json,
+) -> Response {
+    handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/collaboration/credit-choice",
+                json!({ "publicationId": id, "expectedRevision": revision, "choice": choice }),
+            ),
+            session,
+            true,
+        ),
+    )
+}
+
 #[test]
 fn the_whole_loop_ends_on_the_blog_and_only_an_owner_account_publishes() {
     let (f, mikey, _lee, id) = together_fixture("together-loop");
@@ -842,6 +866,34 @@ fn the_whole_loop_ends_on_the_blog_and_only_an_owner_account_publishes() {
     assert_eq!(state_of(&mikey)["you"]["shared"], true);
     save_part(&f, &sam, &id, 0, "Sam's part.");
     assert_eq!(ready(&f, &sam, &id, 1).status, 200);
+    // A new reflection asks each writer how their name goes on it before anyone agrees (#650).
+    assert_eq!(state_of(&sam)["state"], "naming");
+    assert_eq!(state_of(&sam)["you"]["credit"], "notChosen");
+    assert_eq!(state_of(&sam)["you"]["waitingOnYou"], true);
+    let chose = choose_credit(
+        &f,
+        &sam,
+        &id,
+        0,
+        json!({ "kind": "displayName", "name": "Sam" }),
+    );
+    assert_eq!(
+        chose.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&chose.body)
+    );
+    assert_eq!(state_of(&sam)["you"]["credit"], "name");
+    assert_eq!(state_of(&sam)["you"]["waitingOnYou"], false);
+    assert_eq!(state_of(&mikey)["state"], "naming");
+    assert_eq!(state_of(&mikey)["you"]["waitingOnYou"], true);
+    let chose = choose_credit(&f, &mikey, &id, 1, json!({ "kind": "profile" }));
+    assert_eq!(
+        chose.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&chose.body)
+    );
     assert_eq!(state_of(&sam)["state"], "agreeing");
     assert_eq!(state_of(&sam)["you"]["waitingOnYou"], true);
     assert_eq!(approve(&f, &sam, &id).status, 200);
@@ -884,6 +936,72 @@ fn the_whole_loop_ends_on_the_blog_and_only_an_owner_account_publishes() {
     );
     let late = post_api(&f, &sam, "approve/withdraw", json!({ "publicationId": id }));
     assert_eq!(body_json(&late)["code"], "published");
+}
+
+/// `PUT collaboration/approval-policy` as Studio's Rules sheet sends it.
+fn suggest_rule(f: &Fixture, session: &(String, String), id: &str, policy: Json) -> Response {
+    let current = body_json(&get_collab(f, session, "approval-policy", id));
+    handle(
+        &f.state,
+        &authed(
+            json_req(
+                "PUT",
+                "/admin/api/collaboration/approval-policy",
+                json!({
+                    "publicationId": id,
+                    "expectedRevision": current["revision"],
+                    "expectedProposalId": current["proposal"]["id"],
+                    "policy": policy,
+                    "confirmed": true,
+                }),
+            ),
+            session,
+            true,
+        ),
+    )
+}
+
+#[test]
+fn a_suggested_rule_is_on_everyones_list_until_everyone_agrees_to_it() {
+    let (f, mikey, _lee, id) = together_fixture("together-rule");
+    let sam = with_sam(&f, &mikey, &id);
+    let state_of = |session: &(String, String)| list_shared(&f, session)["publications"][0].clone();
+    assert_eq!(state_of(&sam)["ruleProposal"], Json::Null);
+    let policy = json!({ "requirement": "contributingAuthors", "scope": "wholePiece" });
+    let suggested = suggest_rule(&f, &mikey, &id, policy.clone());
+    assert_eq!(
+        suggested.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&suggested.body)
+    );
+    assert_eq!(body_json(&suggested)["proposed"], true);
+    // Nothing changed yet; both see what was suggested and that it asks them.
+    for session in [&mikey, &sam] {
+        let proposal = state_of(session)["ruleProposal"].clone();
+        assert_eq!(proposal["policy"], policy, "{proposal}");
+        assert_eq!(proposal["asksYou"], true);
+        assert_eq!(proposal["consentedByYou"], false);
+    }
+    let proposal_id = state_of(&sam)["ruleProposal"]["id"].clone();
+    for (session, done) in [(&sam, false), (&mikey, true)] {
+        let agreed = post_api(
+            &f,
+            session,
+            "approval-policy/consent",
+            json!({ "publicationId": id, "proposalId": proposal_id, "affirmed": true }),
+        );
+        assert_eq!(
+            agreed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&agreed.body)
+        );
+        assert_eq!(body_json(&agreed)["changed"], done);
+    }
+    assert_eq!(state_of(&sam)["ruleProposal"], Json::Null);
+    let rule = body_json(&get_collab(&f, &sam, "approval-policy", &id));
+    assert_eq!(rule["policy"], policy);
 }
 
 #[test]

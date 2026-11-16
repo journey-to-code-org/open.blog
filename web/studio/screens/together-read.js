@@ -80,6 +80,14 @@ export async function createTogetherRead(context, id, route = {}) {
   }
 
   async function preview() {
+    // #650: the whole piece is read only once everyone whose part is in it said how their name goes on it.
+    if (summary?.state === "naming") {
+      const yours = summary.you?.credit === "notChosen";
+      fill(state, h("span", { text: yours ? say("read.nameFirst") : say("read.namesFirst") }), " ",
+        yours ? h("a", { href: `#/together/${encodeURIComponent(id)}?sheet=name`, text: say("together.doName") }) : null);
+      paintAgree();
+      return;
+    }
     seeButton.loading = true;
     try {
       const reply = await api.get(`collaboration/preview?publicationId=${encodeURIComponent(id)}`);
@@ -106,7 +114,8 @@ export async function createTogetherRead(context, id, route = {}) {
     if (!you.drafter || summary?.state === "published") { bar.hidden = true; return; }
     bar.hidden = false;
     let why = "";
-    if (!summary.complete) why = say("read.notAllShared");
+    if (summary.state === "naming") why = summary.you?.credit === "notChosen" ? say("read.nameFirst") : say("read.namesFirst");
+    else if (!summary.complete) why = say("read.notAllShared");
     else if (you.agreed) why = say("read.alreadyAgreed");
     else if (!seen) why = you.agreedStale ? say("read.agreeStale") : say("read.readFirst");
     reason.textContent = why;

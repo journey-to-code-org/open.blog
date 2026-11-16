@@ -1797,6 +1797,32 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `moments.unlisted` | her | Something no longer listed | none | 52 |
 | `moments.whereKind` | her | Where in it | none | 40 |
 | `moments.yours` | her | Your moments | none | 40 |
+| `name.changeAsk` | her | Change how your name goes on it? | none | 64 |
+| `name.changeGo` | her | Change it | none | 40 |
+| `name.changeKeep` | her | Keep it as it is | none | 40 |
+| `name.changeText` | her | Everyone who agreed will need to read it again and agree again. | none | 126 |
+| `name.choose` | her | How your name goes on it | none | 48 |
+| `name.lede` | her | Readers see this with your part. Changing it later means everyone reads it again and agrees again. | none | 200 |
+| `name.needChoice` | her | Choose how your name goes on it. | none | 64 |
+| `name.needName` | her | Write the name readers see. | none | 54 |
+| `name.notYet` | her | You haven't said yet. | none | 42 |
+| `name.now` | her | Readers will see: {said} | `{said}` | 48 |
+| `name.off` | her | Leave my name off | none | 40 |
+| `name.offHelp` | her | Your part is still in it, with no name. | none | 78 |
+| `name.people` | her | My name as People has it | none | 48 |
+| `name.peopleHelp` | her | With its link, as it is now. A later change in People doesn't change this. | none | 200 |
+| `name.saidOff` | her | no name | none | 40 |
+| `name.saidPeople` | her | your name as People has it | none | 52 |
+| `name.saidTyped` | her | {name} | `{name}` | 40 |
+| `name.save` | her | Use this | none | 40 |
+| `name.saved` | her | Saved. Readers will see your name this way. | none | 86 |
+| `name.savedAgain` | her | Saved. Everyone reads it again and agrees again. | none | 96 |
+| `name.sheetTitle` | her | Your name on {title} | `{title}` | 40 |
+| `name.title` | her | Your name on it | none | 40 |
+| `name.tooLong` | her | Use a shorter name. | none | 40 |
+| `name.typed` | her | A name I write here | none | 40 |
+| `name.typedLabel` | her | The name readers see | none | 40 |
+| `name.whereNaming` | her | hasn't said how their name goes on it | none | 74 |
 | `notebook.aboutMissing` | her | About a passage that's gone | none | 54 |
 | `notebook.aboutPassages` | her | About these passages | none | 40 |
 | `notebook.aboutSources` | her | About these sources | none | 40 |
@@ -2437,6 +2463,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `read.linePrivate` | her | {name}'s part isn't shared with you yet | `{name}` | 78 |
 | `read.lineWaiting` | her | {name} hasn't agreed yet | `{name}` | 48 |
 | `read.missing` | her | Not ready: {names} still need to agree. | `{names}` | 78 |
+| `read.nameFirst` | her | Say how your name goes on it first. Then you can read the whole thing as readers will. | none | 200 |
+| `read.namesFirst` | her | Everyone needs to say how their name goes on it first. | none | 108 |
 | `read.notAllShared` | her | You can agree once everyone's part can be read. | none | 94 |
 | `read.notShared` | her | Kept private until {name} is ready. | `{name}` | 70 |
 | `read.notSharedYou` | her | Only you can read this until everyone's ready. | none | 92 |
@@ -3566,8 +3594,12 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.waitsPrivate` | her | Your route file waits, private, until your post is on your site. | none | 128 |
 | `route.waitsSignal` | her | Waiting for a signal to send your route file. The numbers and drawing are in. It sends while this page is open. | none | 222 |
 | `route.whatReadersSee` | her | What readers see | none | 40 |
+| `rules.agreeRule` | her | Agree to this rule | none | 40 |
+| `rules.agreedRule` | her | You agreed to the new rule. | none | 54 |
 | `rules.allAuthors` | her | Everyone writing | none | 40 |
 | `rules.allAuthorsHelp` | her | Everyone who writes a part agrees, whether or not they've written yet. | none | 200 |
+| `rules.allParticipants` | her | Everyone taking part | none | 40 |
+| `rules.allParticipantsHelp` | her | Everyone in it agrees, including people who only read. Someone who only reads agrees once they can read all of it. | none | 200 |
 | `rules.askChange` | her | Change whose agreement counts? | none | 60 |
 | `rules.askChangeText` | her | Everyone who agreed will need to agree again. Nothing is shared or published by the change. | none | 200 |
 | `rules.askGo` | her | Change it | none | 40 |
@@ -3583,9 +3615,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.details` | details | The rule as stored: {rule} | `{rule}` | 240 |
 | `rules.fixNamed` | her | Whoever is in charge can take them off the rule, or bring them back. | none | 136 |
 | `rules.fixRole` | her | Whoever runs it can change the rule, or give someone that job. | none | 124 |
+| `rules.howMany` | her | How many agree, at least | none | 48 |
 | `rules.left` | her | {name} (isn't in it any more) | `{name}` | 58 |
 | `rules.namedAuthors` | her | Everyone who wrote, and people you choose | none | 82 |
 | `rules.namedAuthorsHelp` | her | The people you choose below agree too, even if they later leave. | none | 200 |
+| `rules.needCount` | her | Write how many need to agree, like 3. | none | 74 |
 | `rules.needPeople` | her | Choose at least one person who agrees. | none | 76 |
 | `rules.needRoles` | her | Choose at least one job whose people agree. | none | 86 |
 | `rules.never` | details | Never: each part stays private | none | 60 |
@@ -3593,19 +3627,34 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.ownParts` | her | Their own part | none | 40 |
 | `rules.ownPartsHelp` | her | Each person agrees to their own part and how it's all put together. | none | 134 |
 | `rules.ownerOnlyDrop` | her | Only whoever is in charge can stop someone from having to agree. Nothing changed. | none | 200 |
+| `rules.participantQuorum` | her | Everyone who wrote, and enough of everyone | none | 120 |
+| `rules.participantQuorumHelp` | her | Everyone who wrote agrees, and at least the number you choose of everyone taking part. It doesn't go down if someone leaves. | none | 200 |
+| `rules.proposalIs` | her | Suggested: {rule} | `{rule}` | 240 |
+| `rules.proposalOld` | her | It no longer fits, because people or jobs changed since. Whoever runs it can suggest it again. | none | 200 |
+| `rules.proposalTitle` | her | A new rule was suggested | none | 48 |
+| `rules.proposalWaiting` | her | Waiting for {names} to agree to it. | `{names}` | 70 |
+| `rules.proposalYouAgreed` | her | You agreed to it. | none | 40 |
 | `rules.published` | her | It's on {product}, so its rules stay as they were. | `{product}` | 100 |
+| `rules.quorum` | her | Everyone who wrote, and enough of the writers | none | 120 |
+| `rules.quorumHelp` | her | Everyone who wrote agrees, and at least the number you choose of the people writing. It doesn't go down if someone leaves. | none | 200 |
 | `rules.readOnly` | her | Whoever runs it chooses the rules. | none | 68 |
 | `rules.roleInCharge` | her | In charge | none | 40 |
 | `rules.roleRuns` | her | Helps run it | none | 40 |
 | `rules.roleWrites` | her | Writes a part | none | 40 |
+| `rules.ruleChanged` | her | Everyone agreed, so the new rule is in place. Agreements given before need giving again. | none | 200 |
 | `rules.save` | her | Save the rules | none | 40 |
 | `rules.saved` | her | Rules saved. Agreements given before need giving again. | none | 110 |
 | `rules.scope` | her | What each agreement covers | none | 52 |
+| `rules.seeRule` | her | See the rule | none | 40 |
 | `rules.sharingTitle` | her | When you read each other's parts | none | 64 |
 | `rules.sheetTitle` | her | Rules for {title} | `{title}` | 40 |
+| `rules.suggested` | her | Suggested. It changes once everyone taking part agrees to it. | none | 122 |
+| `rules.takeBack` | her | Take back my agreement to it | none | 56 |
 | `rules.title` | her | Rules | none | 40 |
+| `rules.tookBack` | her | You took back your agreement to the new rule. | none | 90 |
 | `rules.whole` | her | The whole thing | none | 40 |
 | `rules.wholeHelp` | her | Each person agrees to everyone's parts, so any change asks everyone again. | none | 148 |
+| `rules.wholeOnly` | her | Each person agrees to the whole thing, so any change asks everyone again. | none | 200 |
 | `rules.whoseAgreement` | her | Whose agreement counts | none | 44 |
 | `share.couldntRead` | her | {product} couldn't read that | `{product}` | 56 |
 | `share.couldntTell` | her | {product} couldn't tell whether it posted. Look at the account it was going to. Is it there? | `{product}` | 184 |
@@ -4098,6 +4147,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.doBringBack` | her | Bring it back | none | 40 |
 | `together.doChange` | her | Change | none | 40 |
 | `together.doInvite` | her | Invite someone | none | 40 |
+| `together.doName` | her | Your name on it | none | 40 |
 | `together.doOpen` | her | Open it | none | 40 |
 | `together.doPublish` | her | Publish | none | 40 |
 | `together.doRead` | her | Read everyone's parts | none | 42 |
@@ -4211,6 +4261,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.stateWaitingHear` | her | Waiting to hear back | none | 40 |
 | `together.stepEveryoneAgreed` | her | Everyone agreed. | none | 40 |
 | `together.stepInvite` | her | Invite someone to write with you. | none | 66 |
+| `together.stepName` | her | Say how your name goes on it. Then you can all read the whole thing and agree. | none | 200 |
 | `together.stepPrivate` | her | Each part stays private, so it can't be published together. Whoever runs it can change that. | none | 200 |
 | `together.stepPublished` | her | It's on {product}. | `{product}` | 40 |
 | `together.stepRead` | her | Read everyone's parts and say if you agree. | none | 86 |
@@ -4221,6 +4272,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.stepShare` | her | Let the others read it when you're ready. | none | 82 |
 | `together.stepShareChanges` | her | You changed your part since you shared it. Let them read your changes when you're ready. | none | 200 |
 | `together.stepWaitingAgree` | her | Waiting for {names} to agree. | `{names}` | 58 |
+| `together.stepWaitingName` | her | Waiting for {names} to say how their name goes on it. | `{names}` | 106 |
+| `together.stepWaitingOthersName` | her | Waiting for the others to say how their name goes on it. | none | 112 |
 | `together.stepWaitingOthersReady` | her | Waiting for the others to be ready. | none | 70 |
 | `together.stepWaitingReady` | her | Waiting for {names} to be ready. | `{names}` | 64 |
 | `together.stepWaitingYes` | her | Waiting for {names} to say yes. Start your part meanwhile. | `{names}` | 116 |
