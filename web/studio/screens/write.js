@@ -12,6 +12,7 @@ import { createKept } from "../parts/kept.js";
 import { isFutureOnServer, joinInstant, sayDay, splitInstant } from "../parts/dates.js";
 import { formFromDocument, postState, primaryAction, statusLine } from "../parts/post-fields.js";
 import { afterSave, fieldsForSave, layoutOf, nothingToSave, sendPost } from "../parts/post-session.js";
+import { createWriteRecording } from "../parts/write-recording.js";
 import { howItGoesOut, servedHere, siteLink } from "../parts/publish.js";
 import { keptBanner, postDetails } from "../parts/post-details.js";
 import { createBodyHost } from "../parts/body-host.js";
@@ -72,6 +73,7 @@ export async function createWrite(context, arg, route = {}) {
   let picker = null;
   let sheetOnOpen = null; // ?sheet=about|copy|ready|youtube|route: opened once the screen has focus
   let sheets = null; // R7: Before you publish, Words for YouTube and Your route
+  let recording = null; // #645: a recording to listen to with the post
   let helper = null; // R8: the writing helper's sheet, side card and suggestions as she types
   // R11: research in Write, only on a site that uses research (G92).
   const hooks = researchUsed(meta) ? researchHooks() : null;
@@ -141,6 +143,9 @@ export async function createWrite(context, arg, route = {}) {
     publish: () => saveNow("publish", { checked: true }), recipeGoTo: (target) => goTo(target), signedOut: () => api.onSignedOut?.(),
   });
   aboutButton.after(sheets.card);
+  // #645: a recording to listen to with the post, which saves with it.
+  recording = await createWriteRecording({ api, fields: () => doc.fields, body: () => bodyText(), setBody: async (text) => { await body.set(text, kindPart.bodyOptions()); changed(); }, changed: () => changed() });
+  sheets.card.after(recording.card);
   // R8: the writing helper, under Before you publish, only when it is set up.
   helper = await createWriteHelper({
     api, meta, doc, body, read: () => read(), fieldsFor: (values, intent) => fieldsFor(values, intent), kind: () => kind(), job: () => job(),
@@ -181,7 +186,7 @@ export async function createWrite(context, arg, route = {}) {
     body: bodyText(),
     date: safeJoin(day.value || "", time.value || ""),
     tags: [...(tags.value || [])],
-    extra: { ...kindPart.values((summary) => about.setValue("description", summary)), ...(collection.hidden ? {} : { series: String(collection.value || "") }), ...about.extra() },
+    extra: { ...kindPart.values((summary) => about.setValue("description", summary)), ...(collection.hidden ? {} : { series: String(collection.value || "") }), ...about.extra(), ...(recording?.values() || {}) },
     aboutKept: about.keep(),
   });
   const snapshot = () => JSON.stringify({ ...read(), draft: undefined });
@@ -230,6 +235,7 @@ export async function createWrite(context, arg, route = {}) {
   const shareJobHref = () => `#/sharing/job/${encodeURIComponent(doc.path)}?from=write`;
   const menuItems = () => [{ value: "add", label: say("add.more") }, ...commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })),
     ...(sheets ? sheets.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
+    { value: "recording", label: say("recording.menu") },
     ...(helper ? helper.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : []),
     ...(research ? research.commands().filter((c) => c.more !== false).map((c) => ({ value: c.id, label: c.label })) : [])];
 
@@ -503,6 +509,7 @@ export async function createWrite(context, arg, route = {}) {
     if (value === "publish") saveNow("publish");
     if (value === "preview") preview(look.querySelector("button"));
     if (value === "about-post") about.open({ from: aboutButton });
+    if (value === "recording") recording?.open(opener);
     if (SHEET_GROUPS[value]) about.open({ group: SHEET_GROUPS[value], from: aboutButton });
     if (value === "copy" && doc.path) copySheet.open({ from: opener });
     if (value === "people") context.go("#/people");
@@ -593,6 +600,7 @@ export async function createWrite(context, arg, route = {}) {
       doc.url = reply.url || "";
     }
     about.load(doc.fields, reply);
+    recording?.load(doc.fields);
     if (!path && isJob() && !form.body) form.body = meta.job?.scaffold || "";
     if (!path && kind() === "decision" && !form.body) form.body = meta.profiles?.find((p) => p.id === "decision")?.starter || "";
     await kindPart.ensure(kind());
@@ -683,6 +691,7 @@ export async function createWrite(context, arg, route = {}) {
         ...commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post", hint: c.hint })),
         ...addMenu.palette().map((c) => ({ ...c, group: "This post" })),
         ...sheets.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
+        { id: "recording", label: say("recording.menu"), group: "This post" },
         ...helper.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })),
         ...(research ? research.commands().filter((c) => c.palette !== false).map((c) => ({ id: c.id, label: c.label, group: "This post" })) : []),
         { id: "suggestions", label: say("add.findSuggestions"), group: "This post" },

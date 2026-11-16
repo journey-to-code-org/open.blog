@@ -559,6 +559,8 @@ side-sheet.studio-wide-sheet dialog, side-sheet.studio-wide-sheet .sheet { width
 .studio-voice legend { padding-inline: var(--space-1); font-weight: 600; }
 .studio-voice-body { display: grid; gap: var(--space-2); }
 .studio-audio { width: 100%; max-width: 100%; }
+.studio-record-sheet, .studio-recording-now, .studio-recording-choose, .studio-recording-words, .studio-recording-send { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-recording-card { gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .studio-recording { margin: 0; display: flex; align-items: center; gap: var(--space-2); font-variant-numeric: tabular-nums; font-weight: 600; }
 .studio-recording-dot { inline-size: 0.8rem; block-size: 0.8rem; border-radius: 50%; background: var(--studio-beet); flex: none; }
 @media (prefers-reduced-motion: no-preference) { .studio-recording-dot { animation: studio-recording 1.2s ease-in-out infinite; } }

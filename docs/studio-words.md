@@ -3387,6 +3387,57 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `recipe.askAddName` | her | This recipe doesn't say who wrote it. Ask {helper} to add your name. | `{helper}` | 136 |
 | `recipe.notesHeading` | her | Notes | none | 60 |
 | `recipe.numberedStep` | her | Step {n} starts with its own number. Take it out; {product} numbers the steps. | `{n}` `{product}` | 156 |
+| `recording.another` | her | Choose a different recording | none | 56 |
+| `recording.cardLength` | her | {length} long | `{length}` | 40 |
+| `recording.cardNoLength` | her | Say how long it is | none | 40 |
+| `recording.change` | her | Change | none | 40 |
+| `recording.changeLabel` | her | Change the recording | none | 40 |
+| `recording.choose` | her | Choose a recording | none | 40 |
+| `recording.chooseHint` | her | From this phone or computer, up to {max} MB. | `{max}` | 88 |
+| `recording.chosenFile` | her | Chosen: {name} ({size} MB). | `{name}` `{size}` | 240 |
+| `recording.chosenNote` | her | Chosen: your voice note. | none | 48 |
+| `recording.file` | details | The file | none | 40 |
+| `recording.goesPublic` | her | Once it's on {product}, anyone with its address can listen, even before you publish the post. | `{product}` | 200 |
+| `recording.heard` | her | Here are the words. Read them over, then put them in your post. | none | 126 |
+| `recording.heardPart` | her | Here are the words for the first part only. Read them over and add the rest. | none | 152 |
+| `recording.lede` | her | Readers can listen to it on the post. It needs the words said, written out, for people who can't hear it. | none | 200 |
+| `recording.length` | her | How long it is | none | 40 |
+| `recording.lengthBad` | her | Write it as minutes and seconds, like 12:30. | none | 88 |
+| `recording.lengthHelp` | her | Minutes and seconds, like 12:30. | none | 64 |
+| `recording.listen` | her | Listen to the recording | none | 46 |
+| `recording.menu` | her | Put a recording with it | none | 46 |
+| `recording.needsSignal` | her | Putting it on {product} needs a signal. Try again when you have one. | `{product}` | 136 |
+| `recording.notSent` | her | It didn't go on {product}. Try again, or tell {helper}. | `{product}` `{helper}` | 110 |
+| `recording.notSound` | her | That isn't a recording {product} can play. Choose another. | `{product}` | 116 |
+| `recording.noteGone` | her | That voice note isn't on {product} any more. Choose another. | `{product}` | 120 |
+| `recording.noteLabel` | her | Voice note {n} ({size} MB) | `{n}` `{size}` | 52 |
+| `recording.noteNone` | her | Choose one | none | 40 |
+| `recording.notesLoading` | her | Looking for your voice notes… | none | 58 |
+| `recording.notesNone` | her | No voice notes yet | none | 40 |
+| `recording.now` | her | The recording now | none | 40 |
+| `recording.partBad` | details | Line {line}: write the time, then the name, like 1:05 Making the dough. | `{line}` | 142 |
+| `recording.partLink` | details | Line {line}: a link is an address on your site, starting with /, or https://. | `{line}` | 154 |
+| `recording.partOrder` | details | Line {line}: each part starts after the one before. | `{line}` | 102 |
+| `recording.partPastEnd` | details | Line {line}: it starts after the recording ends. | `{line}` | 96 |
+| `recording.parts` | details | Parts of the recording | none | 44 |
+| `recording.partsHelp` | details | One a line: when it starts and its name, like 1:05 Making the dough. Add \| and an address to link it. | none | 200 |
+| `recording.putOn` | her | Put it on {product} | `{product}` | 40 |
+| `recording.putOnDone` | her | It's on {product}. It goes with the post when the post is saved. | `{product}` | 128 |
+| `recording.takeOff` | her | Take the recording off this post | none | 64 |
+| `recording.title` | her | A recording to listen to | none | 48 |
+| `recording.tooBig` | her | That recording is too big. Choose one up to 64 MB. | none | 100 |
+| `recording.tooManyParts` | details | At most 10 parts here; write more in the file. | none | 92 |
+| `recording.tookOff` | her | The recording comes off this post when it's saved. It stays on {product}. | `{product}` | 146 |
+| `recording.turnIntoWords` | her | Turn it into words | none | 40 |
+| `recording.voiceNote` | her | Or a voice note already on {product} | `{product}` | 72 |
+| `recording.words` | her | The words said | none | 40 |
+| `recording.wordsHelp` | her | Type or paste them. They go at the end of your post, where you can change them. | none | 200 |
+| `recording.wordsIn` | her | The words said are in your post, under Transcript. Change them there. | none | 138 |
+| `recording.wordsNeeded` | her | Write the words said first. | none | 54 |
+| `recording.wordsPut` | her | The words said are at the end of your post, under Transcript. | none | 122 |
+| `recording.wordsPutIn` | her | Put them in my post | none | 40 |
+| `recording.wordsTitle` | her | Turn the recording into words | none | 58 |
+| `recording.wordsWhy` | her | Before it can be published, write out what's said, so people who can't hear it can read it. | none | 200 |
 | `reminders.lede` | her | At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself. | `{product}` | 240 |
 | `reminders.nothing` | her | Nothing to write about for the next month. {product} will tell you when something comes up. | `{product}` | 182 |
 | `reminders.stopsSuggesting` | her | {product} stops suggesting it. A draft you started from it stays. | `{product}` | 130 |

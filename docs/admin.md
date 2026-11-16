@@ -166,6 +166,18 @@ you on a site that isn't a trade site, and **Show the words as written**. Each f
 **What it writes**. There is no option to write your own HTML. See
 [Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
 
+### A recording to listen to
+
+**Put a recording with it** (Write's **More**, or Find) puts a recording with a post, for readers to
+listen to: a file from this phone or computer, or a voice note already on the blog. It says that anyone
+with its address can listen once it's on the blog, even before the post is published, and sends it only
+when you press **Put it on your blog**. The length is read from the recording. A published recording
+needs **the words said**: type or paste them, or **Turn it into words** where the blog can (it says what
+goes to which company first), then **Put them in my post**, which adds them at the end under Transcript.
+The parts of the recording (chapters) are in the details. Once a post has a recording, a line under About
+this post shows its length with **Change**. **Take the recording off this post** removes it when the post
+is saved; the file stays on the blog. It all saves with the post. See [Audio episodes](audio.md).
+
 ### About this post, and who wrote it
 
 In Studio every setting of a post is in Write's **About this post** (the button at the end of

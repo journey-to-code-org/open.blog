@@ -21307,6 +21307,349 @@
         "product"
       ]
     },
+    "recording.another": {
+      "text": "Choose a different recording",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "recording.cardLength": {
+      "text": "{length} long",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "length"
+      ]
+    },
+    "recording.cardNoLength": {
+      "text": "Say how long it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.changeLabel": {
+      "text": "Change the recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.choose": {
+      "text": "Choose a recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.chooseHint": {
+      "text": "From this phone or computer, up to {max} MB.",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "max"
+      ]
+    },
+    "recording.chosenFile": {
+      "text": "Chosen: {name} ({size} MB).",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "name",
+        "size"
+      ]
+    },
+    "recording.chosenNote": {
+      "text": "Chosen: your voice note.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "recording.file": {
+      "text": "The file",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "recording.goesPublic": {
+      "text": "Once it's on {product}, anyone with its address can listen, even before you publish the post.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.heard": {
+      "text": "Here are the words. Read them over, then put them in your post.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "recording.heardPart": {
+      "text": "Here are the words for the first part only. Read them over and add the rest.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "recording.lede": {
+      "text": "Readers can listen to it on the post. It needs the words said, written out, for people who can't hear it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "recording.length": {
+      "text": "How long it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.lengthBad": {
+      "text": "Write it as minutes and seconds, like 12:30.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "recording.lengthHelp": {
+      "text": "Minutes and seconds, like 12:30.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "recording.listen": {
+      "text": "Listen to the recording",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "recording.menu": {
+      "text": "Put a recording with it",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "recording.needsSignal": {
+      "text": "Putting it on {product} needs a signal. Try again when you have one.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.notSent": {
+      "text": "It didn't go on {product}. Try again, or tell {helper}.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "recording.notSound": {
+      "text": "That isn't a recording {product} can play. Choose another.",
+      "layer": "her",
+      "max": 116,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.noteGone": {
+      "text": "That voice note isn't on {product} any more. Choose another.",
+      "layer": "her",
+      "max": 120,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.noteLabel": {
+      "text": "Voice note {n} ({size} MB)",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "n",
+        "size"
+      ]
+    },
+    "recording.noteNone": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.notesLoading": {
+      "text": "Looking for your voice notes…",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "recording.notesNone": {
+      "text": "No voice notes yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.now": {
+      "text": "The recording now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.partBad": {
+      "text": "Line {line}: write the time, then the name, like 1:05 Making the dough.",
+      "layer": "details",
+      "max": 142,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partLink": {
+      "text": "Line {line}: a link is an address on your site, starting with /, or https://.",
+      "layer": "details",
+      "max": 154,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partOrder": {
+      "text": "Line {line}: each part starts after the one before.",
+      "layer": "details",
+      "max": 102,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partPastEnd": {
+      "text": "Line {line}: it starts after the recording ends.",
+      "layer": "details",
+      "max": 96,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.parts": {
+      "text": "Parts of the recording",
+      "layer": "details",
+      "max": 44,
+      "vars": []
+    },
+    "recording.partsHelp": {
+      "text": "One a line: when it starts and its name, like 1:05 Making the dough. Add | and an address to link it.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "recording.putOn": {
+      "text": "Put it on {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.putOnDone": {
+      "text": "It's on {product}. It goes with the post when the post is saved.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.takeOff": {
+      "text": "Take the recording off this post",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "recording.title": {
+      "text": "A recording to listen to",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "recording.tooBig": {
+      "text": "That recording is too big. Choose one up to 64 MB.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "recording.tooManyParts": {
+      "text": "At most 10 parts here; write more in the file.",
+      "layer": "details",
+      "max": 92,
+      "vars": []
+    },
+    "recording.tookOff": {
+      "text": "The recording comes off this post when it's saved. It stays on {product}.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.turnIntoWords": {
+      "text": "Turn it into words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.voiceNote": {
+      "text": "Or a voice note already on {product}",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.words": {
+      "text": "The words said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.wordsHelp": {
+      "text": "Type or paste them. They go at the end of your post, where you can change them.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "recording.wordsIn": {
+      "text": "The words said are in your post, under Transcript. Change them there.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "recording.wordsNeeded": {
+      "text": "Write the words said first.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "recording.wordsPut": {
+      "text": "The words said are at the end of your post, under Transcript.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "recording.wordsPutIn": {
+      "text": "Put them in my post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.wordsTitle": {
+      "text": "Turn the recording into words",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "recording.wordsWhy": {
+      "text": "Before it can be published, write out what's said, so people who can't hear it can read it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "reminders.lede": {
       "text": "At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself.",
       "layer": "her",

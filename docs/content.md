@@ -129,14 +129,14 @@ seeks after the listener starts playback.
 `episodeNumber` and `seasonNumber` are optional positive integers used in the
 optional podcast feed.
 
-In Admin's post editor, open **Audio episode**, choose an audio file (up to
-64 MiB) or find a saved voice note, and explicitly copy it to the site. Copied
-audio lives in public static files even while the post is a draft. Enter the
-duration and chapter lines, apply the details, and save. You can type the
-transcript or request transcription; Admin shows what is sent and waits for
-confirmation. Review the transcript and add it to the draft before publishing.
-Transcription accepts recordings up to 8 MiB. To edit an existing transcript,
-use the writing editor.
+In Studio's Write, **Put a recording with it** (in **More**) chooses an audio
+file (up to 64 MiB) or a voice note already on the blog, and copies it to the
+site only when you press for it. Copied audio lives in public static files even
+while the post is a draft. The length is read from the recording; chapters go
+in the sheet's details. You can type the transcript or request transcription;
+Studio shows what is sent and waits for confirmation, and the transcript goes
+into the post under `## Transcript`. Transcription accepts recordings up to
+8 MiB. See [Audio episodes](audio.md).
 
 ### Content profiles
 
