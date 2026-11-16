@@ -158,7 +158,9 @@ filled in; a link also offers **Take the link off**. On a research post, **Abstr
 add their headings (the Abstract at the start, References at the end) unless the post already has them.
 
 The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
-line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
+line numbers), **A diagram** (a Mermaid diagram from one of five examples, with a title and a description
+for people who can't see it; **Draw it** shows it as the build draws it, and it goes in as a card; see
+[Diagrams](diagrams.md)), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
 CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
 you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
 **What it writes**. There is no option to write your own HTML. See
@@ -644,15 +646,25 @@ from Posts (**Write something with others**) or Find.
 5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
    **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
    in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
-6. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
+6. **Your name on it.** Before anyone reads the whole thing to agree, each person whose part is in it says
+   how readers see their name: **My name as People has it** (with its link, as it is when chosen), **A name
+   I write here**, or **Leave my name off**. It's in the reflection's **More** and in Find; changing it later
+   asks once, because everyone then agrees again. Reflections started before this keep their names as they
+   were until someone chooses.
+7. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
    agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
    unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
 
 **Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
 after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
 (whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
-whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
-agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
+whose agreement counts (everyone writing, everyone who wrote, people or jobs you choose, everyone taking
+part including people who only read, or everyone who wrote and at least a number you choose, which never
+goes down when someone leaves) and what an agreement covers (their own part, or the whole thing; a
+reflection started now is always agreed as a whole). A change is a suggestion: it takes effect once
+everyone taking part presses **Agree to this rule**, and the reflection shows it to each of them until
+they do. Several parts per writer and sharing one version with named people are in the API but not yet in
+Studio ([#705](https://github.com/journey-to-code-org/open.blog/issues/705)). **Collection** puts it in a collection at a place
 you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
 together** holds what you say after everyone's parts (an agreement, a difference, a question, something
 to try, or what you're not sure about), each speaking for the people named on it and agreed by each of
