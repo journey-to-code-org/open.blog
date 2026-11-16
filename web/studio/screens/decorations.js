@@ -14,7 +14,7 @@ import { askPutUpNow } from "../parts/put-up-now.js";
 import { createDecorPieces } from "../parts/decor-pieces.js";
 import { seasonDetails } from "../parts/season-details.js";
 import { dayAfter, sayLongDate, todaySentence } from "../parts/season-words.js";
-import { MAX_WINDOWS, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
+import { MAX_WINDOWS, newSeason, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 const todayUtc = () => new Date().toISOString().slice(0, 10);
@@ -170,13 +170,12 @@ export async function createDecorations({ api, meta }) {
 
   function addSeason(look = "") {
     const list = windows();
-    const last = list[list.length - 1];
-    const start = last ? dayAfter(`2028-${last.end}`).slice(5) : "12-01";
-    list.push({ theme: look || draft.theme, start, end: start, fresh: true });
+    // First in the list, from today: the first season that holds a day wins it.
+    list.unshift({ ...newSeason(draft.seasons, look || draft.theme, todayUtc()), fresh: true });
     draft.seasons.windows = list;
     changed();
-    say(`Season ${list.length} of ${list.length} added. Not saved yet.`);
-    change(list.length - 1);
+    say(word("decorations.addedFirst"));
+    change(0);
   }
 
   function move(index, by, fromKeys = false) {

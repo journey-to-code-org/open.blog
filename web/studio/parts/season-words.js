@@ -10,6 +10,7 @@ export const WORDS = {
   "decorations.everyday": { text: "{product} is wearing its everyday look: {theme}.", layer: "her" },
   "decorations.betweenOff": { text: "The look {product} wears while the calendar is off.", layer: "her" },
   "decorations.noSeasons": { text: "Add one, like Christmas from December 1 to January 6, and {product} changes by itself.", layer: "her" },
+  "decorations.addedFirst": { text: "Added first on your calendar, from today, so it shows over the season under it. Not saved yet.", layer: "her" },
   "decorations.byItself": { text: "{product} changes by itself on the days below.", layer: "her" },
   "decorations.whenYouSave": { text: "When you save, {product} wears {theme} every day. Your seasons are kept for when you turn this back on.", layer: "her" },
   "decorations.everyDay": { text: "{product} wears {theme} every day.", layer: "her" },

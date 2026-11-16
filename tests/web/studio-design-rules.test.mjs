@@ -183,3 +183,13 @@ test("Undo of a saved look says what really happened: no signal, too late, or in
   assert.equal(why(500, {}).words, "That wasn't saved. Try again in a moment.");
   assert.equal(why(500, {}).again, true);
 });
+
+test("Start from begins on the look that is up, then the stored one, then the first", async () => {
+  const { startDefault } = await import("../../web/studio/parts/design-rules.js");
+  const themes = [{ value: "christmas", label: "Christmas" }, { value: "grammis", label: "No decorations" }, { value: "thanksgiving", label: "Thanksgiving" }];
+  assert.equal(startDefault(themes, "grammis", "thanksgiving"), "thanksgiving");
+  assert.equal(startDefault(themes, "grammis", ""), "grammis");
+  assert.equal(startDefault(themes, "grammis", "gone"), "grammis", "a look that is up but not offered is passed over");
+  assert.equal(startDefault(themes, "base", ""), "christmas");
+  assert.equal(startDefault([], "grammis", "thanksgiving"), "");
+});

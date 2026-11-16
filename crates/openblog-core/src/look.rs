@@ -368,7 +368,7 @@ pub fn control_label(control: &str) -> &'static str {
 }
 
 /// A kind sentence about the controls a theme does not honor, or `None` when it honors them all.
-pub fn unhonored_note(theme_label: &str, honored: &[String]) -> Option<String> {
+pub fn unhonored_note(honored: &[String]) -> Option<String> {
     let missing: Vec<&str> = CONTROLS
         .iter()
         .filter(|c| !honored.iter().any(|h| h == *c))
@@ -377,9 +377,9 @@ pub fn unhonored_note(theme_label: &str, honored: &[String]) -> Option<String> {
     if missing.is_empty() {
         return None;
     }
-    let theme_label: String = theme_label.chars().filter(|c| !c.is_control()).collect();
+    // No look is named: with seasons on, the look that is up is not the stored one.
     Some(format!(
-        "The {theme_label} theme has its own design for: {}. Those choices are hidden because they would not change anything here.",
+        "This look has its own design for: {}. Those choices are hidden because they would not change anything here.",
         missing.join(", ")
     ))
 }
@@ -535,8 +535,9 @@ mod tests {
     #[test]
     fn unhonored_controls_are_explained_kindly() {
         let all: Vec<String> = CONTROLS.iter().map(|c| c.to_string()).collect();
-        assert_eq!(unhonored_note("Base", &all), None);
-        let note = unhonored_note("Demo", &["accent".to_string()]).unwrap();
+        assert_eq!(unhonored_note(&all), None);
+        let note = unhonored_note(&["accent".to_string()]).unwrap();
+        assert!(note.starts_with("This look has its own design for: "));
         assert!(note.contains("Font style") && note.contains("Page width"));
         assert!(!note.contains("Accent color"));
         for control in CONTROLS {

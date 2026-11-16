@@ -4790,6 +4790,12 @@
       "max": 48,
       "vars": []
     },
+    "decorations.addedFirst": {
+      "text": "Added first on your calendar, from today, so it shows over the season under it. Not saved yet.",
+      "layer": "her",
+      "max": 188,
+      "vars": []
+    },
     "decorations.betweenOff": {
       "text": "The look {product} wears while the calendar is off.",
       "layer": "her",

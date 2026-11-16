@@ -5,6 +5,7 @@ import {
   MAX_WINDOWS,
   daysIn,
   monthDay,
+  newSeason,
   nextChange,
   problems,
   sayMonthDay,
@@ -296,4 +297,23 @@ test("Eastern evening of November 30 is already December 1 for the site (UTC day
     const day = utcDay(instant);
     assert.equal(wearingOn(seasons, "grammis", day.slice(5), { date: day }).theme, theme, instant);
   }
+});
+
+test("a new season goes first, from today to the end of the season it covers", () => {
+  // Mid-November: Thanksgiving holds the day, so the new season covers the rest of it.
+  const added = newSeason(GRAMMI, "christmas-kitchen", "2026-11-16");
+  assert.deepEqual(added, { theme: "christmas-kitchen", start: "11-16", end: "11-30" });
+  // First in the list it wins its days; last, the season above would cover it.
+  const first = { ...GRAMMI, windows: [added, ...GRAMMI.windows] };
+  const last = { ...GRAMMI, windows: [...GRAMMI.windows, added] };
+  assert.equal(wearingOn(first, "grammis", "11-20").theme, "christmas-kitchen");
+  assert.equal(wearingOn(last, "grammis", "11-20").theme, "thanksgiving");
+  // After its last day the calendar is as it was.
+  assert.equal(wearingOn(first, "grammis", "12-01").theme, "christmas");
+  assert.equal(wearingOn(first, "grammis", "11-15").theme, "thanksgiving");
+  // A season that runs over New Year keeps its own end.
+  assert.deepEqual(newSeason(GRAMMI, "x", "2026-12-20"), { theme: "x", start: "12-20", end: "01-06" });
+  // No season holds the day (or there are none): one day, today.
+  assert.deepEqual(newSeason({ version: 1, enabled: true, windows: [] }, "x", "2026-07-04"), { theme: "x", start: "07-04", end: "07-04" });
+  assert.deepEqual(newSeason(null, "x", "not a date"), { theme: "x", start: "01-01", end: "01-01" });
 });
