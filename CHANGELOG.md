@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Studio brings in what `development` added to the retired Admin: decision records as a kind of post,
+  diagrams, recordings, pictures with shares and a Facebook job's after photo, and in Writing together each
+  writer's name, the new agreement rules, and rule changes that take effect once everyone agrees. Several
+  parts per writer and sharing with named people are API-only for now (#705).
+- Taking every source and chapter off a post's recording now removes its `audio:` block instead of leaving
+  an empty one.
+- A documentation page is in the search index once, section by section, instead of twice.
 - Shared reflection authors can privately add, edit, reorder and withdraw multiple contributions,
   offer all current revisions together or share one revision with named recipients. Complete
   review, publication and private receipts cover every contribution, with whole-piece approval
@@ -19,12 +26,12 @@ All notable changes to open.blog are recorded here. Releases follow
   any section invalidates every author's approval. A section-only rule previously saved for a
   new reflection must be replaced by unanimous agreement before approval or publication.
   Legacy reflections retain their existing scope.
-- Authors can approve a complete combined preview in Admin, explicitly confirming public credits.
+- Authors can approve a complete combined preview, explicitly confirming public credits.
   The private credit-choice API supports frozen profile, display-name-only and uncredited
-  choices, with individual Admin controls. New reflections require each person whose work
+  choices; Studio's Writing together offers them as **Your name on it**. New reflections require each person whose work
   appears to choose a credit before complete review or publication. Older records preserve their
   prior behavior until someone selects a credit; older releases cannot read the new requirement.
-- Site owners and coordinators can explicitly publish an approved shared piece in Admin. The
+- Site owners and coordinators can explicitly publish an approved shared piece. The
   server rechecks current credit and approvals before creating the public post.
 - Approval requests now recheck that the complete current piece remains visible to the author;
   changing sharing after a preview can no longer allow approval while sections are hidden.
@@ -60,11 +67,12 @@ All notable changes to open.blog are recorded here. Releases follow
   is too large or links to a missing page is not built; drafts warn. Feeds, portable copies and cross-posts carry a
   PNG of each diagram with its text alternative and source, and every provider manifest now declares diagrams
   unsupported (policy version 2026-11-13, so earlier approvals are reviewed again). `coverDiagram: N` makes a
-  diagram the post's link preview image. Admin's **Add diagram** has examples and a live preview, and
+  diagram the post's link preview image. Studio's **Add something › A diagram** has examples and a preview the
+  server draws with the build's renderer (`POST /admin/api/diagram/preview`), and
   `openblog diagram git` drafts a git graph. Diagrams are on by default; the minimum Rust is now 1.95. See
   [Diagrams](docs/diagrams.md).
 - Social announcements can opt into an approved Bluesky card, LinkedIn cover or Facebook Page photo after installing the optional
-  media schema. Admin previews the exact image and verifies it again at delivery. Oversized Bluesky covers are
+  media schema. Studio's Share a post previews the exact image, and delivery verifies it again. Oversized Bluesky covers are
   resized within its thumbnail limit; authors choose whether LinkedIn or Facebook can fall back to a text-only post.
 - Share this job can send a location-checked after photo to a connected Facebook Page after its exact bytes and
   description are previewed and approved. A changed or unavailable photo stops delivery instead of posting without it.
@@ -78,7 +86,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Cloud practice lab: a `demo cloud-lab lesson="..."` fence embeds a guided practice lab with a pretend laptop and EC2 instance. Readers type real commands (`curl`, `ssh`, `systemctl`, `nslookup`) against a simulated world, work through goals that accept any command that does the job (hint after two misses, an example after four), and see each request pass or fail rung by rung (name, door, process, padlock, app). Four lessons ship: `localhost`, `ec2-first-run`, `systemd` and `ladder`. Nothing is executed, stored or sent; the authored fallback is what feeds and readers without JavaScript see.
 - Example site: three new posts teach the newest features from the inside: **Publishing an audio episode** (a real, six-second episode with chapters, a transcript and `/podcast.xml`), **Where your readers came from** (the "Where it went" report and visit attribution) and **Documentation beside your blog** (the documentation section, with a small example handbook in `content/docs/` and a Docs link in the header). Getting started now points to the example site's posts.
 - Audio episodes (#604): versioned audio metadata, a transcript publication gate, native playback and keyboard
-  chapters, an opt-in podcast feed, and Admin upload or saved-voice-note authoring with consented transcription.
+  chapters, an opt-in podcast feed, and Studio's **Put a recording with it** (a file or a saved voice note, with
+  consented transcription into the post's Transcript).
   Directory submission is manual. See [Audio episodes](docs/audio.md) for limits and hosting requirements.
 - Visits from every counter (epic #615; ADR 0420): the Cloudflare Worker and hosted engagement function attribute each counted view to a fixed destination, per day and page, using the same generated vocabulary and host table as the built-in counter. The hosted function is opt-in with `supabase/arrivals.sql`; `openblog analytics pull` imports either export idempotently, and Where it went uses pulled arrivals even when the built-in counter is off. `analytics.fediverseHosts` and the configured social Mastodon instance attribute visits to Mastodon. See [Where your posts went](docs/distribution-reporting.md) and the [hosted-function setup](netlify/functions/README.md#visit-attribution-optional).
 - Documentation search, by section (ADR 0425): documentation pages are indexed one `##` section at a time, as "Page › Section" results that open at that heading, so a long reference such as Configuration is searchable to the end instead of only its first 4,000 characters. Results are labelled with the folder they are in, the documentation sidebar opens with a search box, and the search page says it covers the documentation. Posts are indexed as before.
