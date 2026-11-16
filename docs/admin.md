@@ -546,13 +546,21 @@ reminder only opens an unpublished draft; it never publishes anything ([Seasonal
 shared to your accounts, and what happened to each share. **Share a post** picks the post, the accounts
 and a time, with how it looks on each; every row then has its own sheet: **Change** a waiting share's
 words or time, **Check it** for a share with no clear answer, and its **History**. One banner says when
-shares run late or wait on an account that needs reconnecting.
+shares run late or wait on an account that needs reconnecting. For Bluesky, LinkedIn and Facebook accounts,
+**The picture that goes with it** shows exactly what each would get (the post's cover, made smaller for
+Bluesky) and its description; the picture goes only with **Send this picture** after she has seen it, and for
+LinkedIn and Facebook she chooses what happens if it can't go (share the link without it, or don't share).
+This needs the optional media tables ([Social publishing](social-publishing.md)); until they are there, it
+says pictures can't go yet.
 
 **Where each post went** (`#/sharing?view=posts`) is Sharing's second view: every post that went
 anywhere, its status at each place, what that rests on, a link to it there, and visits from there in
 the last 30 days, 90 days or a year ([Where your posts went](distribution-reporting.md)). **Share this
 job** (`#/sharing/job/<path>`) posts a finished job to a connected Facebook Page once, or gives you the
 words to copy for Google and Nextdoor and remembers **I posted it**, with Undo ([Job sharing](job-sharing.md)).
+A job with an after photo goes to the Page with it once she describes the photo, presses **Show what goes**
+and says yes with **Send this photo and description**; a changed photo or description stops it instead of
+posting without it.
 
 **Your accounts** (`#/sharing/accounts`) connects, reconnects and disconnects LinkedIn, Facebook,
 Bluesky and Mastodon, one sheet per service. Signing in happens at the service, which sends you back to

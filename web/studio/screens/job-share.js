@@ -8,9 +8,10 @@ import { h, toast } from "../parts/dom.js";
 import { use } from "../zubra.js";
 import { facebookAnnouncement, jobShareTrouble, keyFor, newKey, offersPosting, pageOpen, problemWords, soon, standing, standingText, troubleAction, wayFor } from "../parts/job-share-rules.js";
 import { say as word } from "../parts/words.js";
+import { createJobPhoto } from "../parts/job-photo.js";
 
 export async function createJobShare({ api, go }, path, route = { query: {} }) {
-  await use("action-button", "alert-banner", "skeleton-block", "status-badge");
+  await use("action-button", "alert-banner", "skeleton-block", "status-badge", "text-field", "toggle-switch");
   let data = null;
   let pages = [];
   let queue = [];
@@ -87,9 +88,12 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
     const buttons = [];
     let primaryUsed = !first;
     const variant = () => (primaryUsed ? "secondary" : ((primaryUsed = true), "primary"));
+    let photo = null;
     if (!blocking.length && d.ready) {
       if (way === "facebook-page" && pageOpen(announcement) && d.record?.status !== "posted-by-hand") {
-        buttons.push(h("action-button", { variant: variant(), onClick: (e) => postToPage(d, e.currentTarget) }, `Post to ${pages[0].displayName}`));
+        // #656: a job with an after photo goes to the Page with it, once she has seen and said yes to it.
+        photo = d.photo ? createJobPhoto({ api, job: data, place: d, pageName: pages[0].displayName }) : null;
+        buttons.push(h("action-button", { variant: variant(), onClick: (e) => postToPage(d, e.currentTarget, photo) }, `Post to ${pages[0].displayName}`));
       }
       if (offersPosting(now)) {
         buttons.push(h("action-button", { variant: variant(), label: `Copy the words for ${d.label}`, onClick: () => copy(d, words) }, "Copy the words"));
@@ -115,6 +119,7 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
       d.photo ? h("div", { class: "studio-quote-photos" },
         h("img", { src: d.photo.sitePath, alt: "The finished job", width: 96, height: 96, class: "studio-job-photo" }),
         h("a", { href: d.photo.sitePath, download: d.photo.fileName || "", text: "Save the photo" })) : null,
+      photo?.element,
       h("p", { class: "studio-comment-trouble", role: "alert", hidden: true, "data-problem": d.destination }),
       buttons.length ? h("div", { class: "studio-comment-actions" }, ...buttons) : null);
   }
@@ -136,14 +141,22 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
     else say(words);
   }
 
-  async function postToPage(d, button) {
+  async function postToPage(d, button, photo = null) {
     if (button.loading) return;
     const page = pages[0];
-    const signature = keyFor(data.work, d.digest);
-    if (!keys.has(signature)) keys.set(signature, newKey());
+    const approved = photo?.approval() || null;
+    if (photo && !approved) { cardProblem(d, word("jobphoto.first")); return; }
+    // One key (and one time) per job, words and approved photo, so pressing twice posts once.
+    const signature = `${keyFor(data.work, d.digest)}\n${approved?.approvalDigest || ""}`;
+    if (!keys.has(signature)) keys.set(signature, { key: newKey(), at: soon() });
+    const request = keys.get(signature);
     button.loading = true;
     try {
-      await api.post("social/announcements", { accountId: page.id, work: data.work, caption: d.text, scheduledFor: soon(), idempotencyKey: keys.get(signature) });
+      if (approved) {
+        await api.post("social/job-photo-schedule", { accountId: page.id, scheduledFor: request.at, idempotencyKey: request.key, path: data.path, digest: d.digest, ...approved });
+      } else {
+        await api.post("social/announcements", { accountId: page.id, work: data.work, caption: d.text, scheduledFor: request.at, idempotencyKey: request.key });
+      }
       await loadQueue();
       draw();
       const words = `On its way to ${page.displayName} in about 5 minutes.`;
@@ -153,6 +166,7 @@ export async function createJobShare({ api, go }, path, route = { query: {} }) {
     } catch (error) {
       if (error.status === 401) throw error;
       button.loading = false;
+      if (approved && error.status === 409) { photo.clear(); keys.delete(signature); cardProblem(d, word("jobphoto.changed")); drawDetails(error); return; }
       cardProblem(d, error.data?.code === "idempotency-conflict" || !error.status || error.status >= 502
         ? word("share.noReply")
         : jobShareTrouble(error, d.label));

@@ -381,8 +381,8 @@ Posts as the connected member or organization through the versioned REST Posts A
 post link as an article whose title is the caption's first line. The caption is sent as typed: LinkedIn formatting characters (`( ) [ ] { } < > @ | ~ _ * #`
 and the backslash) are escaped, so a caption cannot mention people or format text.
 
-After installing `supabase/social-media.sql`, an author can preview and select the public JPEG or PNG cover, with its
-description as alt text. The image post includes the canonical link in the commentary. If the approved image changes
+After installing `supabase/social-media.sql`, an author can preview and select the public JPEG or PNG cover in
+Studio's Share a post (**The picture that goes with it**), with its description as alt text. The image post includes the canonical link in the commentary. If the approved image changes
 or cannot be uploaded, the author chooses whether to post the link without the image or stop. Preview currently
 accepts covers up to 1,000,000 bytes. Upload uses LinkedIn's [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api)
 and [Posts API media schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema)
@@ -422,10 +422,10 @@ card with the post's own title and description, read from its public page just b
 If that page cannot be read in a few seconds, the card is titled with the caption's first line instead. After installing
 `supabase/social-media.sql`, you may preview and explicitly select the public cover for the card. The cover must be a
 same-origin JPEG, PNG or WebP of at most 8 MiB with a description. Images over 1,000,000 bytes are resized to a
-JPEG thumbnail of at most 1,000,000 bytes (transparent areas become white). Admin shows the exact thumbnail for
-approval; delivery verifies the original bytes, recreates the thumbnail and verifies its bytes again. If either
+JPEG thumbnail of at most 1,000,000 bytes (transparent areas become white). Studio's Share a post shows the exact
+thumbnail for approval; delivery verifies the original bytes, recreates the thumbnail and verifies its bytes again. If either
 differs or the upload fails, the card goes without a picture. Bluesky's external-card schema does not offer a separate image
-description; the description is shown in Admin but is not included in the card.
+description; the description is shown in Studio but is not included in the card.
 `@mentions` stay plain text, so nobody is notified by
 mistake. A Bluesky caption is at most 300 characters; Admin counts against that as soon as you choose a Bluesky
 destination, and the preview says how the card and the links will look.

@@ -415,6 +415,8 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 
 /* Cards (slice 9) */
 .studio-card-form { display: grid; gap: var(--space-3); width: 100%; }
+.studio-share-pictures, .studio-share-picture-row { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-share-picture { display: block; max-width: 100%; height: auto; max-height: 16rem; object-fit: contain; border: 1px solid var(--border); border-radius: var(--radius); background: var(--studio-flour-lift); }
 .studio-card-sections { display: grid; gap: var(--space-4); width: 100%; }
 .studio-card-preview { display: grid; gap: var(--space-2); }
 .studio-card-frame { width: 100%; min-height: 28rem; border: 1px solid var(--studio-linen); border-radius: var(--radius); background: #fff; }

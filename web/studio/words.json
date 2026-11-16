@@ -10193,6 +10193,74 @@
       "max": 40,
       "vars": []
     },
+    "jobphoto.agree": {
+      "text": "Send this photo and description",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "jobphoto.changed": {
+      "text": "The photo or its description changed. Show what goes again.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "jobphoto.checking": {
+      "text": "Checking the photo…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.describe": {
+      "text": "Describe the photo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.describeHelp": {
+      "text": "What's in it, for people who can't see it. It goes with the photo.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "jobphoto.first": {
+      "text": "Describe the photo, look at what goes, and choose Send this photo first.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "jobphoto.ifNot": {
+      "text": "If the photo can't go, nothing is posted.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "jobphoto.needWords": {
+      "text": "Describe the photo first.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "jobphoto.show": {
+      "text": "Show what goes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.title": {
+      "text": "The photo that goes to {page}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "page"
+      ]
+    },
+    "jobphoto.trouble": {
+      "text": "The photo can't go as it is. Pick another after photo in Write.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
     "join.declined": {
       "text": "You said no thanks. They can invite you again.",
       "layer": "her",
@@ -14665,6 +14733,124 @@
       "text": "For people who can't see it, like “A red front door with a wreath”.",
       "layer": "her",
       "max": 134,
+      "vars": []
+    },
+    "picture.blueskyNoWords": {
+      "text": "Bluesky shows it with no description. If the picture changes before it goes, the link goes without it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "picture.blueskySmaller": {
+      "text": "Made smaller to fit Bluesky. This is exactly what goes.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "picture.described": {
+      "text": "Described as: {description}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "description"
+      ]
+    },
+    "picture.facebookCheck": {
+      "text": "If Facebook doesn't say whether it went, look at your Page before trying again.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "picture.for": {
+      "text": "To {account}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.ifNot": {
+      "text": "If the picture can't go",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "picture.ifNotStop": {
+      "text": "Don't share it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "picture.ifNotText": {
+      "text": "Share the link without it",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "picture.lede": {
+      "text": "The post's cover can go with the link. See exactly what goes, then choose.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "picture.none": {
+      "text": "Your post has no cover with a description to send.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "picture.notYet": {
+      "text": "Pictures can't go yet. {helper} can turn them on.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "helper"
+      ]
+    },
+    "picture.send": {
+      "text": "Send this picture to {account}",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.show": {
+      "text": "Show the picture",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "picture.showLabel": {
+      "text": "Show the picture that goes to {account}",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.title": {
+      "text": "The picture that goes with it",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "picture.tooBig": {
+      "text": "The cover is too big to send. Choose a smaller one for the post.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "picture.trouble": {
+      "text": "The picture didn't load. Try again, or share without it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "picture.wordsGo": {
+      "text": "The description goes with it, for people who can't see it.",
+      "layer": "her",
+      "max": 116,
       "vars": []
     },
     "place.atRow": {

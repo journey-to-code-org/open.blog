@@ -1665,6 +1665,17 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `job.writeUpOff` | her | Writing it up isn't set up for {product}. | `{product}` | 82 |
 | `job.writeUpTitle` | her | Write it up for me | none | 40 |
 | `job.writeUpWorking` | her | Writing it up… | none | 40 |
+| `jobphoto.agree` | her | Send this photo and description | none | 62 |
+| `jobphoto.changed` | her | The photo or its description changed. Show what goes again. | none | 118 |
+| `jobphoto.checking` | her | Checking the photo… | none | 40 |
+| `jobphoto.describe` | her | Describe the photo | none | 40 |
+| `jobphoto.describeHelp` | her | What's in it, for people who can't see it. It goes with the photo. | none | 132 |
+| `jobphoto.first` | her | Describe the photo, look at what goes, and choose Send this photo first. | none | 144 |
+| `jobphoto.ifNot` | her | If the photo can't go, nothing is posted. | none | 82 |
+| `jobphoto.needWords` | her | Describe the photo first. | none | 50 |
+| `jobphoto.show` | her | Show what goes | none | 40 |
+| `jobphoto.title` | her | The photo that goes to {page} | `{page}` | 58 |
+| `jobphoto.trouble` | her | The photo can't go as it is. Pick another after photo in Write. | none | 126 |
 | `join.declined` | her | You said no thanks. They can invite you again. | none | 92 |
 | `join.invitedYou` | her | {name} invited you to write about: | `{name}` | 68 |
 | `join.joined` | her | You're in. Write your part when you're ready. | none | 90 |
@@ -2356,6 +2367,24 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `people.withdrawText` | her | The link stops working. | none | 46 |
 | `people.withdrawn` | her | Withdrawn. The link doesn't work any more. | none | 84 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
+| `picture.blueskyNoWords` | her | Bluesky shows it with no description. If the picture changes before it goes, the link goes without it. | none | 200 |
+| `picture.blueskySmaller` | her | Made smaller to fit Bluesky. This is exactly what goes. | none | 110 |
+| `picture.described` | her | Described as: {description} | `{description}` | 240 |
+| `picture.facebookCheck` | her | If Facebook doesn't say whether it went, look at your Page before trying again. | none | 158 |
+| `picture.for` | her | To {account} | `{account}` | 40 |
+| `picture.ifNot` | her | If the picture can't go | none | 46 |
+| `picture.ifNotStop` | her | Don't share it | none | 40 |
+| `picture.ifNotText` | her | Share the link without it | none | 50 |
+| `picture.lede` | her | The post's cover can go with the link. See exactly what goes, then choose. | none | 148 |
+| `picture.none` | her | Your post has no cover with a description to send. | none | 100 |
+| `picture.notYet` | her | Pictures can't go yet. {helper} can turn them on. | `{helper}` | 98 |
+| `picture.send` | her | Send this picture to {account} | `{account}` | 60 |
+| `picture.show` | her | Show the picture | none | 40 |
+| `picture.showLabel` | her | Show the picture that goes to {account} | `{account}` | 78 |
+| `picture.title` | her | The picture that goes with it | none | 58 |
+| `picture.tooBig` | her | The cover is too big to send. Choose a smaller one for the post. | none | 128 |
+| `picture.trouble` | her | The picture didn't load. Try again, or share without it. | none | 112 |
+| `picture.wordsGo` | her | The description goes with it, for people who can't see it. | none | 116 |
 | `place.atRow` | her | Place {n} | `{n}` | 40 |
 | `place.canonical` | her | canonical place | none | 40 |
 | `place.chapter` | her | chapter | none | 40 |
