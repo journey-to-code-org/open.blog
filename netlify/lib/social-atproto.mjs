@@ -21,6 +21,27 @@ export const POST_COLLECTION = "app.bsky.feed.post";
 export const MAX_POST_GRAPHEMES = 300;
 export const MAX_POST_BYTES = 3000;
 
+// AT Protocol blobs use CIDv1, the raw codec and a SHA-256 multihash.
+export function blobCid(sha256) {
+  if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  const bytes = [1, 0x55, 0x12, 0x20, ...sha256.match(/../g).map((part) => parseInt(part, 16))];
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  let bits = 0;
+  let value = 0;
+  let encoded = "b";
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      encoded += alphabet[(value >>> bits) & 31];
+    }
+    value &= (1 << bits) - 1;
+  }
+  if (bits) encoded += alphabet[(value << (5 - bits)) & 31];
+  return encoded;
+}
+
 // The identifier as Bluesky reads it: a handle (an @ in front is dropped, case is folded) or a DID.
 export function blueskyIdentifier(value) {
   const raw = String(value ?? "").trim();

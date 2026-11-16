@@ -32,6 +32,7 @@ import { WORDS as ready } from "./ready-words.js";
 import { WORDS as review } from "./review-words.js";
 import { WORDS as route } from "./route-words.js";
 import { WORDS as video } from "./video-words.js";
+import { WORDS as recording } from "./recording-words.js";
 import { WORDS as writingHelper } from "./writing-helper-words.js";
 import { WORDS as writingVoice } from "./writing-voice-words.js";
 import { WORDS as design } from "./design-words.js";
@@ -79,7 +80,7 @@ let merged = null;
 export function catalog() {
   if (merged) return merged;
   const out = {};
-  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, writingHelper, writingVoice, design, start, readers, readerNotes, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms), together, part, arrange, talk, moments, blog, restore]) {
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, recording, writingHelper, writingVoice, design, start, readers, readerNotes, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms), together, part, arrange, talk, moments, blog, restore]) {
     for (const [id, entry] of Object.entries(words || {})) {
       if (id in out) throw new Error(`word id ${id} is defined twice`);
       out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });

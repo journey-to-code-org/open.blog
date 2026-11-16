@@ -48,6 +48,7 @@ function fenceKind(info) {
   if (word === "quiz") return "quiz";
   if (word === "demo") return "demo";
   if (word === "quote") return "quote-form";
+  if (word === "mermaid") return "diagram";
   if (/(^|\s)runnable(\s|$)/.test(info)) return "runnable";
   return "code";
 }

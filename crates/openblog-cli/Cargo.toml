@@ -3,8 +3,15 @@ name = "openblog-cli"
 description = "The openblog command: build a static blog from Markdown, serve it locally, and import from Hashnode without a Pro plan."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+[features]
+# Mermaid diagrams are rendered at build time (ADR 0416). On by default; build with
+# `--no-default-features` for a binary without the renderer, where fences stay code.
+default = ["diagram-rendering"]
+diagram-rendering = ["openblog-core/diagram-rendering", "openblog-core/diagram-png"]
 
 [[bin]]
 name = "openblog"

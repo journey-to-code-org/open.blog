@@ -41,7 +41,10 @@ is a portable copy of the article; a video is not.
   private until the article is live.
 - **A digest binds what YouTube receives.** BLAKE2b (128 bits) over length-prefixed fields: the canonical address,
   the video reference, title, description, tags, privacy, the two answers, the thumbnail, the caption paths and the
-  transcript, so story #400 can require an approval of exactly this preview.
+  transcript, so story #400 can require an approval of exactly this preview. Amended for #623: the CLI also
+  incorporates each caption's complete file digest and size in the final preview digest, and reports those
+  fingerprints in JSON. An unreadable caption cannot produce an approvable preview. Old approvals for releases
+  with captions must be reviewed again; releases without captions retain their digest.
 - **`openblog video <slug>`.** Prints a summary; `--json` prints the preview; `--preview <new folder>` writes
   `title.txt`, `description.txt`, `tags.txt`, `transcript.txt` when there is one, a copy of a site-relative JPEG or
   PNG thumbnail named `thumbnail.<ext>` (never the author's file name), `preview.json` and a static `index.html`.

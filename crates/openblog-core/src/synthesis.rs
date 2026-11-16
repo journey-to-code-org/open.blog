@@ -95,6 +95,25 @@ struct ItemApproval {
     digest: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DeliveryConsent {
+    author: String,
+    recipient: String,
+    content_revision: u64,
+    membership_revision: u64,
+    authorization_revision: u64,
+}
+
+/// Current authorization context supplied by the caller after checking participant grants.
+#[derive(Clone, Copy)]
+pub struct DeliveryContext<'a> {
+    pub authors: &'a [&'a str],
+    pub recipients: &'a [&'a str],
+    pub membership_revision: u64,
+    pub authorization_revision: u64,
+}
+
 /// Where one item stands: who has approved its current revision and who is still awaited.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ItemApprovalStatus {
@@ -224,6 +243,14 @@ pub struct SynthesisSet {
     next_id: u64,
     #[serde(default)]
     items: Vec<SynthesisItem>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    content_revision: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    delivery_consents: Vec<DeliveryConsent>,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl Default for SynthesisSet {
@@ -388,6 +415,8 @@ impl SynthesisSet {
             revision: 0,
             next_id: 0,
             items: Vec::new(),
+            content_revision: 0,
+            delivery_consents: Vec::new(),
         }
     }
 
@@ -408,7 +437,16 @@ impl SynthesisSet {
 
     fn is_valid(&self) -> bool {
         let mut ids = HashSet::new();
+        let mut consents = HashSet::new();
         self.version == SYNTHESIS_SET_VERSION
+            && self.content_revision <= self.revision
+            && self.delivery_consents.len() <= MAX_PARTICIPANTS * MAX_PARTICIPANTS
+            && self.delivery_consents.iter().all(|consent| {
+                valid_id(&consent.author)
+                    && valid_id(&consent.recipient)
+                    && consent.content_revision <= self.content_revision
+                    && consents.insert((&consent.author, &consent.recipient))
+            })
             && self.items.len() <= MAX_SYNTHESIS_ITEMS
             && self.items.iter().all(|item| {
                 valid_id(&item.id)
@@ -454,6 +492,102 @@ impl SynthesisSet {
     ) -> Result<&[SynthesisItem], SynthesisError> {
         check_author(requester, authors)?;
         Ok(&self.items)
+    }
+
+    /// Record or withdraw one author's explicit consent to deliver the current conversation.
+    /// Every current synthesis author must consent before the recipient can read it.
+    pub fn consent_delivery(
+        &mut self,
+        requester: &str,
+        recipient: &str,
+        expected: u64,
+        context: &DeliveryContext<'_>,
+        consent: bool,
+    ) -> Result<(), SynthesisError> {
+        self.guard(requester, context.authors, expected)?;
+        if !valid_id(requester)
+            || !context.recipients.contains(&recipient)
+            || !valid_id(recipient)
+            || context.authors.is_empty()
+            || context.authors.len() > MAX_PARTICIPANTS
+            || context.recipients.len() > MAX_PARTICIPANTS
+        {
+            return Err(SynthesisError::Denied);
+        }
+        let existing = self
+            .delivery_consents
+            .iter()
+            .find(|entry| entry.author == requester && entry.recipient == recipient);
+        let replacement = DeliveryConsent {
+            author: requester.to_owned(),
+            recipient: recipient.to_owned(),
+            content_revision: self.content_revision,
+            membership_revision: context.membership_revision,
+            authorization_revision: context.authorization_revision,
+        };
+        if (consent && existing == Some(&replacement)) || (!consent && existing.is_none()) {
+            return Ok(());
+        }
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
+        self.delivery_consents.retain(|entry| {
+            context.authors.contains(&entry.author.as_str())
+                && context.recipients.contains(&entry.recipient.as_str())
+                && entry.content_revision == self.content_revision
+                && entry.membership_revision == context.membership_revision
+                && entry.authorization_revision == context.authorization_revision
+                && !(entry.author == requester && entry.recipient == recipient)
+        });
+        if consent {
+            self.delivery_consents.push(replacement);
+        }
+        self.revision = revision;
+        Ok(())
+    }
+
+    /// Read a delivered conversation only while every current author has explicitly consented.
+    pub fn view_delivered(
+        &self,
+        recipient: &str,
+        context: &DeliveryContext<'_>,
+    ) -> Result<&[SynthesisItem], SynthesisError> {
+        if context.authors.is_empty()
+            || !context.recipients.contains(&recipient)
+            || !context
+                .authors
+                .iter()
+                .all(|author| self.delivery_consented(author, recipient, context))
+        {
+            return Err(SynthesisError::Denied);
+        }
+        Ok(&self.items)
+    }
+
+    /// Whether this author currently consents to delivery to this recipient.
+    pub fn delivery_consented(
+        &self,
+        author: &str,
+        recipient: &str,
+        context: &DeliveryContext<'_>,
+    ) -> bool {
+        context.authors.contains(&author)
+            && context.recipients.contains(&recipient)
+            && self.delivery_consents.iter().any(|entry| {
+                entry.author == author
+                    && entry.recipient == recipient
+                    && entry.content_revision == self.content_revision
+                    && entry.membership_revision == context.membership_revision
+                    && entry.authorization_revision == context.authorization_revision
+            })
+    }
+
+    fn content_changed(&mut self) {
+        if !self.delivery_consents.is_empty() {
+            self.content_revision = self.revision;
+        }
+        self.delivery_consents.clear();
     }
 
     fn guard(
@@ -508,6 +642,7 @@ impl SynthesisSet {
             revision: 1,
             approvals: Vec::new(),
         });
+        self.content_changed();
         Ok(id)
     }
 
@@ -566,6 +701,7 @@ impl SynthesisSet {
             .ok_or(SynthesisError::Invalid)?;
         self.items[index] = item;
         self.revision = revision;
+        self.content_changed();
         Ok(())
     }
 
@@ -595,6 +731,7 @@ impl SynthesisSet {
             self.items[index].approvals.clear();
         }
         self.revision = revision;
+        self.content_changed();
         Ok(())
     }
 
@@ -681,8 +818,13 @@ impl SynthesisSet {
             );
         }
         if next != self.items {
+            let revision = self
+                .revision
+                .checked_add(1)
+                .ok_or(SynthesisError::Invalid)?;
             self.items = next;
-            self.revision += 1;
+            self.revision = revision;
+            self.content_changed();
         }
         Ok(())
     }
@@ -704,6 +846,7 @@ impl SynthesisSet {
         let changed = self.items != before;
         if changed {
             self.revision = self.revision.saturating_add(1);
+            self.content_changed();
         }
         changed
     }

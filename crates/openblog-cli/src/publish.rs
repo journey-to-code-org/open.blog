@@ -57,6 +57,47 @@ fn draft_files(root: &Path, config: &SiteConfig) -> Vec<String> {
     out
 }
 
+fn check_audio_publish(
+    sources: &openblog_core::Sources,
+    include_drafts: bool,
+) -> Result<(), String> {
+    for file in &sources.posts {
+        let mut lines = file.contents.trim_start_matches('\u{feff}').lines();
+        if lines.next().map(str::trim_end) != Some("---") {
+            continue;
+        }
+        let has_audio = lines
+            .take_while(|line| !matches!(line.trim_end(), "---" | "..."))
+            .filter(|line| !line.starts_with([' ', '\t', '#']))
+            .filter_map(|line| line.split_once(':'))
+            .any(|(key, _)| {
+                let key = key.trim();
+                key == "audio" || key.starts_with("audio.")
+            });
+        if !has_audio {
+            continue;
+        }
+        let doc = frontmatter::parse(&file.contents)
+            .map_err(|error| format!("{}: {error}", file.path))?;
+        let draft = doc.front_matter.get_bool("draft").unwrap_or(false)
+            || doc
+                .front_matter
+                .get("status")
+                .is_some_and(|status| status.eq_ignore_ascii_case("draft"));
+        if draft && !include_drafts {
+            continue;
+        }
+        if let Err(errors) = openblog_core::audio::prepare(
+            &doc.front_matter,
+            &doc.body,
+            sources.audio_files.as_ref(),
+        ) {
+            return Err(format!("{}: {}", file.path, errors.join("; ")));
+        }
+    }
+    Ok(())
+}
+
 /// What `publish` would do, without doing it.
 pub fn status(root: &Path, config: &SiteConfig) -> Result<serde_json::Value, String> {
     let git = Git::new(root);
@@ -101,6 +142,7 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
         return Err("private assistant files are staged in Git; unstage .openblog/private/ before publishing".into());
     }
     let p = &config.publish;
+    check_audio_publish(&site::read_sources(root, config)?, p.include_drafts)?;
     let drafts = draft_files(root, config);
     let changed: Vec<String> = git
         .changed_paths(&p.paths)?
@@ -314,6 +356,32 @@ mod tests {
     use super::*;
     use std::fs;
 
+    #[test]
+    fn audio_publish_guard_refuses_published_and_included_draft_episodes() {
+        let contents = "---\ntitle: Episode\ndraft: true\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: /a.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n---\n## Transcript\nWords\n";
+        let mut sources = openblog_core::Sources {
+            posts: vec![openblog_core::SourceFile {
+                path: "posts/episode.md".into(),
+                contents: contents.into(),
+            }],
+            ..Default::default()
+        };
+        assert!(check_audio_publish(&sources, false).is_ok());
+        assert!(check_audio_publish(&sources, true)
+            .unwrap_err()
+            .contains("verification is unavailable"));
+        sources.posts[0].contents = contents.replace("draft: true", "draft: false");
+        assert!(check_audio_publish(&sources, false)
+            .unwrap_err()
+            .contains("posts/episode.md"));
+        sources.posts[0].contents = contents.replace("  version: 1", "  version: 1\n  version: 2");
+        assert!(check_audio_publish(&sources, false)
+            .unwrap_err()
+            .contains("duplicate"));
+        sources.posts[0].contents = "---\ntitle: malformed\n".into();
+        assert!(check_audio_publish(&sources, false).is_ok());
+    }
+
     struct RemoteFixture {
         dir: std::path::PathBuf,
         root: std::path::PathBuf,
@@ -363,6 +431,25 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.dir).unwrap();
         }
+    }
+
+    #[test]
+    fn publish_refuses_audio_before_staging_or_pushing() {
+        let fixture = RemoteFixture::new("audio-blocked");
+        fs::write(
+            fixture.root.join("content/posts/episode.md"),
+            "---\ntitle: Episode\ndate: 2026-01-01\naudio:\n  version: 1\n  durationSeconds: 30\n  sources:\n    - url: /a.mp3\n      type: audio/mpeg\n      sizeBytes: 123\n---\n## Transcript\nWords\n",
+        )
+        .unwrap();
+        let error = publish(&fixture.root, &fixture.config, None).unwrap_err();
+        assert!(error.contains("cannot read"), "{error}");
+        let git = Git::new(&fixture.root);
+        assert!(git.run(&["rev-parse", "--verify", "HEAD"]).is_err());
+        assert!(git
+            .run(&["diff", "--cached", "--name-only"])
+            .unwrap()
+            .is_empty());
+        assert!(fixture.remote(&["rev-parse", "--verify", "main"]).is_err());
     }
 
     #[test]

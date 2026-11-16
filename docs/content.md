@@ -46,6 +46,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `cover` | Canonical cover shown at the top and used in feeds, exports, and social cards. It is also the on-site fallback for either colour mode. Defaults to the first image in the body. |
 | `coverLight`, `coverDark` | Optional on-site cover variants for light and dark mode. The saved theme toggle and the system preference select the matching image; `cover` is used when a variant is omitted. |
 | `coverAlt` | Alternative text for the cover. |
+| `coverDiagram` | Use a diagram in the post as the cover: its number, counting from 1. open.blog draws a 1200 × 630 image of it for link previews and cards, described by the diagram's title and description unless `coverAlt` is set. Not with `cover`. See [Diagrams](diagrams.md#a-diagram-as-the-posts-image). |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
 | `participation` | This post's mode for reader participation beyond comments, as `kind: mode` entries: `participation: [question: open, third-perspective: locked]`, or one `- kind: mode` per line. Modes are `open`, `locked` and `hidden`, as for `comments`. A kind only takes effect once the site switches it on; see [Reader participation](configuration.md#reader-participation). |
@@ -56,7 +57,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`; `/old-slug/index.html` means the same address. Also accepted as `redirectFrom`. Works on posts, pages and series pages (a series page in `content/series/`). The engine always writes a redirect page; set `redirectsFile: true` in `openblog.json` to also write a `_redirects` file with real 301s on hosts that read one. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, and `job`. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, `field-journal`, `job`, and `decision`. |
+| `decisionStatus`, `supersededBy` | Decision profile only. The status is `proposed`, `accepted`, or `superseded`; a superseded record names another published post or page by its site-relative URL. |
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
@@ -75,6 +77,66 @@ a `#` heading, which is then used. Everything else is optional:
 | `conditions` | Field-journal profile only. Creator-observed trail, water, weather, or habitat conditions. |
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
+
+### Decision records
+
+Use `openblog new "Choose storage" --profile decision` or **New decision record**
+in Admin to start a draft. Fill in the `## Context`, `## Options considered`,
+`## Decision`, and `## Consequences` sections. The starter includes **Before**
+and **After** headings as optional diagram slots: put a ` ```mermaid ` fence under
+each to draw the system before and after the decision (see [Diagrams](diagrams.md)).
+
+The status appears on the post and in its structured data. When a record is
+`superseded`, set `supersededBy` to another published post or page's exact
+site-relative URL; readers see a link to it. Missing sections, invalid status,
+or an unresolved successor stop publication; drafts and previews warn instead.
+
+### Audio episodes
+
+Put each audio file in the site's static folder and describe it in the post:
+
+```yaml
+audio:
+  version: 1
+  durationSeconds: 120
+  episodeNumber: 1
+  seasonNumber: 1
+  sources:
+    - url: /audio/episode.mp3
+      type: audio/mpeg
+      sizeBytes: 12345
+  chapters:
+    - timeSeconds: 0
+      title: Introduction
+    - timeSeconds: 60
+      title: Discussion
+      link: /notes/
+```
+
+Provide a nonempty `## Transcript` section in the post, or set `audio.transcript`
+to a static `.txt` or `.vtt` file, for example `transcript: /audio/episode.txt`
+inside the `audio` block. WebVTT files need a timed cue with text. `check`, builds,
+and Publish refuse a published episode if its transcript or media cannot be verified;
+drafts warn. Media must be at most 512 MiB each, with
+matching declared sizes and recognizable MPEG, Ogg (Opus, Vorbis or FLAC), WAV,
+FLAC, WebM (Opus or Vorbis) or M4A/M4B/M4P headers. Header checks do not decode the whole file.
+HTTPS audio on author-owned storage is also supported: publication checks a
+bounded byte-range response, declared length and media signature using public
+network addresses. Redirects, private addresses and servers without byte-range
+support are refused; an unavailable host blocks publication. The player never
+autoplays; chapter buttons work when JavaScript is available, and `?t=60`
+seeks after the listener starts playback.
+`episodeNumber` and `seasonNumber` are optional positive integers used in the
+optional podcast feed.
+
+In Studio's Write, **Put a recording with it** (in **More**) chooses an audio
+file (up to 64 MiB) or a voice note already on the blog, and copies it to the
+site only when you press for it. Copied audio lives in public static files even
+while the post is a draft. The length is read from the recording; chapters go
+in the sheet's details. You can type the transcript or request transcription;
+Studio shows what is sent and waits for confirmation, and the transcript goes
+into the post under `## Transcript`. Transcription accepts recordings up to
+8 MiB. See [Audio episodes](audio.md).
 
 ### Content profiles
 
@@ -161,6 +223,16 @@ with `/`; `sameAs` values must be complete HTTP(S) URLs. Executable and protocol
 schemes are rejected during configuration load. Admin Studio's **Site → Contributors**
 workspace manages this registry with conflict-aware saves, stable IDs, and deletion guards;
 editing `openblog.json` directly remains supported.
+
+Version 2 sidecars can freeze an approved public profile or give only a display name, independent
+of later registry changes. Their `identity` is either
+`{"kind":"profile","contributor":"ada-lovelace","profile":{"name":"Ada","url":"https://example.com/ada","sameAs":[],"orcid":""}}`
+or `{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Ada"}`.
+The display-name ID is a unique, public, randomly generated 32-character lowercase hexadecimal
+value, not a private participant ID. Each entry still has a `roles` array. The ordinary Admin
+credit editor cannot edit these frozen credits in place; saving without changing credits preserves
+the sidecar, while choosing a different authorship source replaces it. Older releases do not
+support version 2.
 
 Accepted Crossref roles are `author`, `corresponding-author`, `editor`, `chair`, `other`,
 `reviewer`, `review-assistant`, `reviewer-external`, `stats-reviewer`, `reader`, and
@@ -478,6 +550,7 @@ If both sides edited the same file, Git stops with a conflict.
 | `audio-lab` | A real, quiet Web Audio synth: oscillator, low-pass filter, live signal trace. Sound plays only after Start. |
 | `native-lab` | View Transitions, Web Animations, the popover attribute and the Intersection/Resize observers, each reporting browser support. |
 | `server-lab` | An in-memory multiplayer server simulator. Add `lesson="connections"`, `lesson="world"`, `lesson="async"` or `lesson="select"` to focus on connection handling, shared state, waiting tasks or `select!`. |
+| `cloud-lab` | A guided cloud practice lab: a pretend laptop terminal and EC2 instance terminal, a goal checklist, and a request path that shows which layer (name, door, process, padlock, app) each `curl` reached. Readers type real commands (`curl`, `ssh`, `systemctl`, `nslookup`); any command that does the job completes a goal. Add `lesson="<id>"`: `localhost`, `ec2-first-run`, `systemd` or `ladder` (defined in `web/components/ob-cloud-model.js`). |
 
 Everything the demo does runs in the reader's browser against pretend data; nothing is sent or
 stored. The body is plain Markdown, and the same text is used everywhere the demo cannot run:

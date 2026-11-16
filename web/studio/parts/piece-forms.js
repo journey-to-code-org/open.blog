@@ -13,6 +13,7 @@ import { codeFenceMarkdown, codeFenceProblems, codeInteractionMarkdown, codeInte
 import { imageMarkdown } from "./image-markdown.js";
 import { cardSummary, parsePhoto } from "./piece-words.js";
 import { photoProblem, pictureTile, sitePictures, uploadPhoto } from "./picture-picker.js";
+import { diagramForm } from "./diagram-form.js";
 
 let uid = 0;
 const nextId = (prefix) => `${prefix}-${++uid}`;
@@ -192,6 +193,8 @@ function photoPicker(ctx, { initial = "", onChosen }) {
 // ---- the forms
 
 const FORMS = {
+  diagram: diagramForm,
+
   photo(ctx) {
     const fromPiece = ctx.block?.kind === "piece" ? formValues(null, parsePieceFence(ctx.block.source)?.values || []).top : null;
     const fromLine = ctx.block && !fromPiece ? parsePhoto(ctx.block.source) : null;

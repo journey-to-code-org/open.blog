@@ -15,9 +15,9 @@
 // credential; errors are fixed text and never repeat a value they refused.
 
 export const MANIFEST_VERSION = 1;
-export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule"]);
+export const CAPABILITIES = Object.freeze(["link", "text", "article", "image", "video", "draft", "schedule", "diagram"]);
 const SUPPORT = Object.freeze(["unsupported", "manual", "adapter"]);
-const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video", "google-business-profile": "social", nextdoor: "community" });
+const PROVIDERS = Object.freeze({ dev: "syndication", hashnode: "syndication", ghost: "syndication", wordpress: "syndication", medium: "syndication", linkedin: "social", facebook: "social", "hacker-news": "community", reddit: "community", "product-hunt": "community", bluesky: "social", mastodon: "social", pinterest: "social", youtube: "video", "google-business-profile": "social", nextdoor: "community", "apple-podcasts": "podcast", spotify: "podcast", "podcast-index": "podcast" });
 const LOGIN_METHODS = Object.freeze(["none", "environment-credential", "oauth2", "app-password"]);
 const CANONICAL = Object.freeze(["sent", "linked", "manual", "not-supported"]);
 const PUBLISHING = Object.freeze(["explicit-approval", "draft-only", "manual"]);
@@ -153,6 +153,7 @@ export function parseManifest(value) {
     (manifest.publishing === "manual" && anyAdapter) ||
     (manifest.publishing === "draft-only" && capabilities.draft !== "adapter") ||
     ((manifest.family === "social" || manifest.family === "video") && manifest.canonical !== "linked") ||
+    (manifest.family === "podcast" && (anyAdapter || manifest.login.method !== "none" || manifest.publishing !== "manual")) ||
     // A community destination is submitted to by the author, by hand, never by open.blog (ADR 0337).
     (manifest.family === "community" &&
       (anyAdapter || method !== "none" || manifest.publishing !== "manual" || manifest.canonical !== "linked" || capabilities.link !== "manual")) ||
@@ -202,48 +203,49 @@ export function checkRequest(manifest, request = {}) {
 // built-in ones (the fixture holds both to the same JSON). Changing one is a provider policy
 // change: raise its policyVersion (ADR 0327).
 const SCHEDULE = { scheduleMinLeadSeconds: 60, scheduleMaxHorizonSeconds: 366 * 86400 };
-const SOCIAL_CAPABILITIES = { article: "unsupported", draft: "unsupported", image: "manual", link: "adapter", schedule: "adapter", text: "adapter", video: "manual" };
+const SOCIAL_CAPABILITIES = { article: "unsupported", diagram: "unsupported", draft: "unsupported", image: "manual", link: "adapter", schedule: "adapter", text: "adapter", video: "manual" };
 const none = { maxRequestBodyBytes: null, maxTagNameChars: null, maxTags: null, maxTextChars: null };
 export const MANIFESTS = Object.freeze({
   linkedin: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, maxTextChars: 3000, ...SCHEDULE },
     family: "social",
     label: "LinkedIn",
     login: { method: "oauth2", scopes: ["openid", "profile", "w_member_social"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-13",
     provider: "linkedin",
     publishing: "explicit-approval",
     sources: [
       "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api",
       "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema",
+      "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api",
     ],
   }),
   facebook: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, ...SCHEDULE },
     family: "social",
     label: "Facebook",
     login: { method: "oauth2", scopes: ["pages_show_list", "pages_manage_posts"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-13",
     provider: "facebook",
     publishing: "explicit-approval",
-    sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed"],
+    sources: ["https://developers.facebook.com/docs/pages-api/posts", "https://developers.facebook.com/docs/graph-api/reference/page/feed", "https://developers.facebook.com/docs/graph-api/reference/page/photos/"],
   }),
   // app.bsky.feed.post takes at most 300 graphemes; the link is an app.bsky.embed.external card (ADRs 0357, 0358).
   bluesky: parseManifest({
     canonical: "linked",
-    capabilities: SOCIAL_CAPABILITIES,
+    capabilities: { ...SOCIAL_CAPABILITIES, image: "adapter" },
     constraints: { ...none, maxTextChars: 300, ...SCHEDULE },
     family: "social",
     label: "Bluesky",
     login: { method: "app-password", scopes: [] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-13",
     provider: "bluesky",
     publishing: "explicit-approval",
     sources: [
@@ -251,6 +253,8 @@ export const MANIFESTS = Object.freeze({
       "https://docs.bsky.app/docs/advanced-guides/rate-limits",
       "https://atproto.com/specs/xrpc",
       "https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/post.json",
+      "https://github.com/bluesky-social/atproto/blob/main/lexicons-overrides/app/bsky/embed/external.json",
+      "https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/uploadBlob.json",
     ],
   }),
   // A status of at most 500 characters on a default instance, the link written into it as 23
@@ -263,7 +267,7 @@ export const MANIFESTS = Object.freeze({
     label: "Mastodon",
     login: { method: "oauth2", scopes: ["read:accounts", "write:statuses"] },
     manifestVersion: 1,
-    policyVersion: "2026-10-29",
+    policyVersion: "2026-11-13",
     provider: "mastodon",
     publishing: "explicit-approval",
     sources: [

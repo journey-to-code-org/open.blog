@@ -5,6 +5,7 @@
 //! the browser (the `openblog-wasm` package):
 //!
 //! - [`frontmatter`]: a small YAML-subset parser for post metadata
+//! - [`audio`]: versioned audio episode metadata and source validation
 //! - [`markdown`]: CommonMark + GFM rendering with heading ids, reading time, excerpts
 //! - [`model`]: posts, series, tags, and pages
 //! - [`theme`]: design tokens in JSON, emitted as CSS custom properties, with inheritance
@@ -59,6 +60,7 @@ pub mod assistant_guide;
 pub mod atlas_publication;
 pub mod atlas_query;
 pub mod attributed_perspective;
+pub mod audio;
 pub mod author_response;
 pub mod bibliography;
 pub mod business;
@@ -88,7 +90,13 @@ pub mod correction_decision;
 pub mod curated_context;
 pub mod curated_selection;
 pub mod date;
+pub mod decision;
 pub mod decorations;
+pub mod diagram;
+#[cfg(feature = "diagram-rendering")]
+pub mod diagram_svg;
+#[cfg(feature = "diagram-rendering")]
+pub mod diagram_theme;
 pub mod distribution;
 pub mod docs_section;
 pub mod draft;
@@ -129,6 +137,7 @@ pub mod participation;
 pub mod passage_target;
 pub mod perspective_publication;
 pub mod piece;
+pub mod podcast;
 pub mod portability;
 pub mod preview;
 pub mod profile;
@@ -162,6 +171,7 @@ pub mod seasonal;
 pub mod seasons;
 pub mod service;
 pub mod service_area;
+pub mod shared_credit;
 pub mod shared_series;
 pub mod shared_source;
 pub mod shingles;
@@ -173,6 +183,7 @@ pub mod source_library;
 pub mod source_review;
 pub mod subscription;
 pub mod synthesis;
+pub mod text_compare;
 pub mod theme;
 pub mod theme_draft;
 pub mod third_perspective;

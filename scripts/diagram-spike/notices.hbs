@@ -1,0 +1,22 @@
+open.blog experimental diagram WASM: third-party notices
+
+The open.blog source is available at https://github.com/journey-to-code-org/open.blog.
+The exact crate source for each named version can be downloaded from
+https://crates.io/api/v1/crates/NAME/VERSION/download. In particular,
+cssparser 0.38.0, cssparser-macros 0.7.1 and dtoa-short 0.3.5 contain
+MPL-2.0-covered source. Their original source files and notices are included
+in those archives. See Cargo.lock for pinned versions and checksums.
+
+Components and license expressions:
+{{#each crates}}
+{{package.name}} {{package.version}}: {{license}}
+{{/each}}
+
+License and copyright texts:
+{{#each licenses}}
+========================================================================
+{{name}} ({{id}})
+Used by:{{#each used_by}} {{crate.name}} {{crate.version}}{{/each}}
+------------------------------------------------------------------------
+{{{text}}}
+{{/each}}

@@ -16,6 +16,7 @@ const components = [
   "ob-web-sandbox",
   "ob-git-sandbox",
   "ob-practice-lab",
+  "ob-cloud-lab",
   "ob-fetch-lab",
   "ob-component-lab",
   "ob-evolution-lab",

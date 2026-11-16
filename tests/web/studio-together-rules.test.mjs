@@ -7,7 +7,7 @@ import {
   invitationPayload, invitationShareLink, invitationStatusText, joinNames, memberWarnings, peopleWords, previewSectionText,
   previewStateText, removalImpact, revealSlotText, roleChangeImpact, roleChoice, roleWords, sharedReflectionFieldId,
   sharedReflectionPayload, sharedSourceHref, sourceWords, stepButtonWords, suggestSignInName, togetherPeopleRows,
-  togetherProblem, togetherStep, validateInvitationDraft, validateSharedReflectionDraft,
+  togetherProblem, togetherStep, validateInvitationDraft, validateSharedReflectionDraft, nameChoice, nameSaid, NAME_MAX_BYTES,
 } from "../../web/studio/parts/together-rules.js";
 import { catalog, configureWords, say } from "../../web/studio/parts/words.js";
 import { HER_BANNED, bannedExcept } from "../../web/studio/parts/plain-words.js";
@@ -229,6 +229,9 @@ test("every state has one badge, one sentence and at most one primary step", () 
     [summary({ state: "stuck", unmetNamed: ["Sam"] }), "Stuck", "It can't be published as it stands: Sam can't agree any more.", null],
     [summary({ state: "privateParts" }), "Each part private", say("together.stepPrivate"), "change"],
     [summary({ archived: true }), "Put away", "", "bringBack"],
+    // #650: everyone whose part is in it says how their name goes on it before agreeing.
+    [withYou(summary({ state: "naming", people: [{ ...person("Ann", "ready", true), credit: "notChosen" }, { ...person("Ruth", "ready"), credit: "name" }] }), { wrote: true, shared: true, credit: "notChosen" }), "Waiting on you", say("together.stepName"), "name"],
+    [withYou(summary({ state: "naming", people: [{ ...person("Ann", "ready", true), credit: "profile" }, { ...person("Ruth", "ready"), credit: "notChosen" }] }), { wrote: true, shared: true, credit: "profile" }), "Waiting on others", "Waiting for Ruth to say how their name goes on it.", null],
   ];
   for (const [s, badge, step, primary] of cases) {
     const at = togetherStep(s, { now, timeZone: "UTC" });
@@ -315,4 +318,20 @@ test("a co-writer's only menu item is said with say(), so a site's words reach i
   assert.ok(line, "the co-writer's menu");
   assert.doesNotMatch(line, /label: "/, "no literal label");
   assert.match(line, /say\("together\.signOut"\)/);
+});
+
+test("your name on it: three choices, a typed name checked, and said back in her words", () => {
+  assert.deepEqual(nameChoice("profile"), { choice: { kind: "profile" } });
+  assert.deepEqual(nameChoice("uncredited", "ignored"), { choice: { kind: "uncredited" } });
+  assert.deepEqual(nameChoice("displayName", "  Sam   Lee "), { choice: { kind: "displayName", name: "Sam Lee" } });
+  assert.deepEqual(nameChoice("displayName", "   "), { error: say("name.needName"), field: "name" });
+  assert.deepEqual(nameChoice("displayName", "é".repeat(NAME_MAX_BYTES)), { error: say("name.tooLong"), field: "name" });
+  assert.equal(nameChoice("").field, "kind");
+  assert.equal(nameSaid(null), say("name.notYet"));
+  assert.equal(nameSaid({ kind: "displayName", name: "Sam" }), "Readers will see: Sam");
+  assert.equal(nameSaid({ kind: "uncredited" }), "Readers will see: no name");
+  assert.equal(nameSaid({ kind: "profile", contributorId: "sam", profile: { name: "Sam" } }), "Readers will see: your name as People has it");
+  // A writer who shared but hasn't said shows so on the list of people.
+  const rows = togetherPeopleRows({ people: [{ displayName: "Ruth", where: "ready", credit: "notChosen" }] });
+  assert.match(rows[0].text, /hasn't said how their name goes on it/);
 });

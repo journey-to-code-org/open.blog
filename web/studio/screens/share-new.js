@@ -10,6 +10,7 @@ import { accountLabel, captionWords, providerName, sentWords, shareTrouble } fro
 import { sayWhen } from "../parts/dates.js";
 import * as M from "../parts/announcements-rules.js";
 import { createSharePreview } from "../parts/share-preview.js";
+import { createSharePictures } from "../parts/share-picture.js";
 import { product, say } from "../parts/words.js";
 
 const SOON_MS = 5 * 60 * 1000;
@@ -33,7 +34,7 @@ export async function createShareNew({ api, go }, route) {
   const element = h("section", { class: "studio-page studio-share-new", "aria-labelledby": "studio-share-new-h" },
     h("a", { class: "studio-more-link", href: "#/sharing", text: "Back to Sharing" }), heading, banner, status, body);
 
-  let post, caption, count, whenPick, day, time, button, preview;
+  let post, caption, count, whenPick, day, time, button, preview, pictures;
   const toggles = new Map();
 
   const chosen = () => destinations.filter((d) => toggles.get(d.id)?.checked && !shared.has(d.id) && !maybe.has(d.id));
@@ -43,6 +44,7 @@ export async function createShareNew({ api, go }, route) {
     count.textContent = words.text;
     count.classList.toggle("studio-comment-trouble", words.over);
     preview?.schedule();
+    pictures?.draw();
   }
 
   async function load() {
@@ -103,7 +105,9 @@ export async function createShareNew({ api, go }, route) {
       },
     });
     for (const field of [day, time]) field.addEventListener("valuechange", () => preview.schedule());
-    body.replaceChildren(post, accounts, caption, count, preview.element, whenPick, picked,
+    // #656: the post's picture, shown exactly as it goes before she chooses to send it.
+    pictures = createSharePictures({ api, accounts: () => chosen(), work: () => post.value });
+    body.replaceChildren(post, accounts, caption, count, preview.element, pictures.element, whenPick, picked,
       h("p", { class: "studio-help", text: "The link to your post goes with it." }), button,
       h("details", { class: "studio-help" }, h("summary", { text: say("common.forHelper") }),
         h("p", { class: "studio-mono", text: `zone ${zone}; ${posts.length} posts can be shared; ${destinations.map((d) => `${d.provider}:${d.id}`).join(", ")}` })));
@@ -141,7 +145,8 @@ export async function createShareNew({ api, go }, route) {
     for (const d of to) {
       keys[d.id] ||= M.newKey();
       try {
-        await api.post("social/announcements", { accountId: d.id, work: post.value, caption: caption.value, scheduledFor: at.iso, timeZone: zone, idempotencyKey: keys[d.id] });
+        const media = pictures.media(d.id);
+        await api.post("social/announcements", { accountId: d.id, work: post.value, caption: caption.value, scheduledFor: at.iso, timeZone: zone, idempotencyKey: keys[d.id], ...(media ? { media } : {}) });
         shared.add(d.id);
         done.push(providerName(d.provider));
       } catch (error) {

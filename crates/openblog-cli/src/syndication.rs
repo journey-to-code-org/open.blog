@@ -2669,6 +2669,95 @@ Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series
         assert!(!root.join(".openblog/syndication.json").exists());
     }
 
+    #[cfg(feature = "diagram-rendering")]
+    #[test]
+    fn diagram_image_projection_matches_each_destination_preview_and_request() {
+        use openblog_core::{LoadOptions, Site, SourceFile, Sources};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let config = site::load_config(&root).unwrap();
+        let make_post = |description: &str| {
+            let source = format!(
+                "---\ntitle: Diagram example\ndate: 2020-01-01\n---\n\
+                 ```mermaid title=\"Request\" description=\"{description}\"\n\
+                 flowchart LR\nA --> B\n```\n"
+            );
+            let loaded = Site::load(
+                config.clone(),
+                Sources {
+                    posts: vec![SourceFile {
+                        path: "posts/diagram-example.md".into(),
+                        contents: source.clone(),
+                    }],
+                    ..Default::default()
+                },
+                LoadOptions::default(),
+            )
+            .unwrap();
+            syndication_post(&loaded.posts[0], &source, &config, None, None).unwrap()
+        };
+        let post = make_post("A calls B");
+        let changed = make_post("A sends a request to B");
+        let selected = select_targets(&config, &[]).unwrap();
+        assert_eq!(selected.len(), 5);
+        for (name, target) in selected {
+            let preview = destination_preview(name, target, &post, &State::default(), false);
+            let changed_preview =
+                destination_preview(name, target, &changed, &State::default(), false);
+            assert_ne!(preview.digest, changed_preview.digest, "{name}");
+            assert!(preview.content.contains("assets/diagrams/"), "{name}");
+            assert!(preview.content.contains("Request: A calls B"), "{name}");
+            assert!(!preview.content.contains("```mermaid"), "{name}");
+            let request_content = match target.provider {
+                SyndicationProvider::Dev => dev_request(&post, None, false, "fixture")
+                    .unwrap()
+                    .body["article"]["body_markdown"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                SyndicationProvider::Hashnode => {
+                    hashnode_request("fixture", &post, None, false, "fixture")
+                        .unwrap()
+                        .body["variables"]["input"]["contentMarkdown"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned()
+                }
+                SyndicationProvider::Ghost => ghost_request(
+                    "https://ghost.example.org",
+                    &post,
+                    None,
+                    false,
+                    "abc:00112233445566778899aabbccddeeff",
+                )
+                .unwrap()
+                .body["posts"][0]["html"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                SyndicationProvider::Wordpress => wordpress_request(
+                    "https://wordpress.example.org/wp-json/wp/v2",
+                    "",
+                    &post,
+                    None,
+                    false,
+                    "fixture",
+                )
+                .unwrap()
+                .body["content"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                SyndicationProvider::Medium => post.markdown.clone(),
+            };
+            assert_eq!(preview.content, request_content, "{name}");
+        }
+    }
+
     #[test]
     fn json_dry_run_plan_contains_deterministic_before_and_after_without_remote_intent() {
         let post = post_fixture();

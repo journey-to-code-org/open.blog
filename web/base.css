@@ -1570,6 +1570,32 @@ ob-compare {
   }
 }
 
+/* ---------- Textual comparison: ```text-compare (one <ob-text-compare> per point) ---------- */
+
+ob-text-compare.ob-text-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ob-space-4, 1rem);
+  margin: 1.5rem 0;
+}
+
+ob-text-compare.ob-text-comparison > div {
+  min-width: 0;
+  padding: 1rem 1.2rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+}
+
+ob-text-compare.ob-text-comparison .ob-compare-label {
+  margin-bottom: 0.4rem;
+}
+
+@media (max-width: 36rem) {
+  ob-text-compare.ob-text-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ob-compare-pane {
   margin: 0;
   min-width: 0;
@@ -4816,6 +4842,87 @@ ob-reading-trail {
   box-sizing: border-box;
   inline-size: 100%;
 }
+/* <ob-cloud-lab>: guided cloud practice lab (laptop and instance terminals, goals, request path).
+   Themed through --ob-* tokens. */
+ob-cloud-lab {
+  display: block;
+  margin-block: var(--ob-space-5, 1.5rem);
+  padding: var(--ob-space-4, 1rem);
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+  background: var(--ob-color-surface, transparent);
+}
+ob-cloud-lab [hidden] { display: none; }
+ob-cloud-lab .ob-cloud-status { margin: 0 0 0.25rem; color: var(--ob-color-muted, inherit); font-size: 0.8em; letter-spacing: 0.06em; text-transform: uppercase; }
+ob-cloud-lab .ob-cloud-goal { margin: 0 0 0.75rem; font-weight: 700; }
+ob-cloud-lab .ob-cloud-goals { display: grid; gap: 0.3rem; margin: 0 0 1rem; padding-left: 1.4rem; font-size: 0.9em; }
+ob-cloud-lab .ob-cloud-goals li { color: var(--ob-color-muted, inherit); }
+ob-cloud-lab .ob-cloud-goals li[data-state="current"] { color: var(--ob-color-text, inherit); font-weight: 600; }
+ob-cloud-lab .ob-cloud-goals li[data-state="done"] { text-decoration: line-through; text-decoration-color: var(--ob-color-accent, currentColor); }
+ob-cloud-lab .ob-cloud-goals li[data-state="done"]::marker { content: "✓  "; color: var(--ob-color-accent, currentColor); }
+ob-cloud-lab .ob-cloud-body { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 52rem) { ob-cloud-lab .ob-cloud-body { grid-template-columns: minmax(0, 1fr) 12rem; } }
+ob-cloud-lab .ob-cloud-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; }
+ob-cloud-lab .ob-cloud-tab[aria-pressed="true"] { background: var(--ob-color-accent, currentColor); color: var(--ob-color-accent-contrast, Canvas); border-color: var(--ob-color-accent, currentColor); }
+ob-cloud-lab .ob-cloud-log {
+  height: 16rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 0.85rem/1.5 var(--ob-font-mono, monospace);
+}
+ob-cloud-lab .ob-cloud-line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+ob-cloud-lab .ob-cloud-line.is-cmd { font-weight: 700; margin-top: 0.4rem; }
+ob-cloud-lab .ob-cloud-line.is-err { border-left: 4px solid var(--ob-color-callout-caution, currentColor); padding-left: 0.5rem; }
+ob-cloud-lab .ob-cloud-line.is-why { font-style: italic; opacity: 0.85; }
+ob-cloud-lab .ob-cloud-line.is-tip { color: var(--ob-color-muted, inherit); }
+ob-cloud-lab .ob-cloud-line.is-ok { color: var(--ob-color-callout-tip, inherit); font-weight: 700; }
+ob-cloud-lab .ob-cloud-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+ob-cloud-lab .ob-cloud-form label { flex-basis: 100%; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+ob-cloud-lab .ob-cloud-input {
+  flex: 1 1 14rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.7rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: var(--ob-color-code-bg, transparent);
+  color: var(--ob-color-code-text, inherit);
+  font: 1rem var(--ob-font-mono, monospace);
+}
+ob-cloud-lab button {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-accent-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: transparent;
+  color: var(--ob-color-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+ob-cloud-lab button:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--ob-color-surface-raised, transparent); }
+ob-cloud-lab :is(button, .ob-cloud-input, .ob-cloud-log):focus-visible { outline: var(--ob-focus-ring, 3px solid currentColor); outline-offset: 2px; }
+ob-cloud-lab .ob-cloud-path-title { margin: 0 0 0.5rem; font-size: 0.8em; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ob-color-muted, inherit); }
+ob-cloud-lab .ob-cloud-path { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+ob-cloud-lab .ob-cloud-path li {
+  display: grid;
+  padding: 0.4rem 0.6rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+  font-size: 0.85em;
+}
+ob-cloud-lab .ob-cloud-rung { font-weight: 700; }
+ob-cloud-lab .ob-cloud-rung-state { font-size: 0.85em; color: var(--ob-color-muted, inherit); }
+ob-cloud-lab .ob-cloud-path li[data-state="pass"] { border-color: var(--ob-color-callout-tip, currentColor); background: color-mix(in srgb, var(--ob-color-callout-tip, #2da44e) 10%, transparent); }
+ob-cloud-lab .ob-cloud-path li[data-state="pass"] .ob-cloud-rung::before { content: "✓ "; }
+ob-cloud-lab .ob-cloud-path li[data-state="fail"] { border: 2px dashed var(--ob-color-callout-caution, currentColor); background: color-mix(in srgb, var(--ob-color-callout-caution, #cf222e) 10%, transparent); }
+ob-cloud-lab .ob-cloud-path li[data-state="fail"] .ob-cloud-rung::before { content: "✕ "; }
+ob-cloud-lab .ob-cloud-path li[data-state="skip"] { border-style: dotted; opacity: 0.7; }
+ob-cloud-lab .ob-cloud-path li[data-state="idle"] { opacity: 0.55; }
+ob-cloud-lab .ob-cloud-path-caption { margin: 0.6rem 0 0; font-size: 0.85em; }
+ob-cloud-lab .ob-cloud-restart { margin-top: 0.75rem; }
+
 /* <ob-practice-lab>: guided Git practice terminal. Themed through --ob-* tokens. */
 ob-practice-lab {
   display: block;
@@ -5065,6 +5172,20 @@ ob-docs-nav {
   }
 }
 
+.ob-docs-search {
+  margin-block-end: 0.75rem;
+}
+
+.ob-docs-search input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  color: var(--ob-color-text);
+  background: var(--ob-color-surface);
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: 0.4rem;
+}
+
 .ob-docs-nav > summary {
   font-weight: 600;
   cursor: pointer;
@@ -5138,4 +5259,106 @@ ob-docs-nav {
 .ob-docs-pager .ob-docs-next {
   margin-inline-start: auto;
   text-align: end;
+}
+
+/* ---------- Diagrams (ADRs 0416, 0417) ----------
+   A diagram's colours are these variables, made from the look's own colours, so one SVG follows
+   the look in light and dark. The accents mix six hues with the text colour: dark in light mode,
+   light in dark mode, and readable against the page and the diagram's fills in every bundled look
+   (checked by diagram_contrast.rs, which reads the hues and amounts below). */
+
+.ob-diagram {
+  --ob-diagram-text: var(--ob-color-text);
+  --ob-diagram-fill: var(--ob-color-surface-raised);
+  --ob-diagram-line: var(--ob-color-muted);
+  --ob-diagram-highlight: color-mix(in srgb, var(--ob-color-accent) 14%, var(--ob-color-surface-raised));
+  --ob-diagram-accent-1: color-mix(in srgb, #e5484d 60%, var(--ob-color-text));
+  --ob-diagram-accent-2: color-mix(in srgb, #f76b15 60%, var(--ob-color-text));
+  --ob-diagram-accent-3: color-mix(in srgb, #30a46c 60%, var(--ob-color-text));
+  --ob-diagram-accent-4: color-mix(in srgb, #12a594 60%, var(--ob-color-text));
+  --ob-diagram-accent-5: color-mix(in srgb, #3e63dd 60%, var(--ob-color-text));
+  --ob-diagram-accent-6: color-mix(in srgb, #8e4ec6 60%, var(--ob-color-text));
+  margin: 1.75rem 0;
+  overflow-x: auto;
+}
+
+.ob-diagram > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.ob-diagram figcaption {
+  margin-top: 0.5rem;
+  text-align: center;
+  color: var(--ob-color-muted);
+  font-size: 0.9rem;
+}
+
+.ob-diagram details {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Printed on paper: black on white, whatever the look. */
+@media print {
+  .ob-diagram {
+    --ob-diagram-text: #000000;
+    --ob-diagram-fill: #ffffff;
+    --ob-diagram-line: #000000;
+    --ob-diagram-highlight: #ffffff;
+    --ob-diagram-accent-1: #000000;
+    --ob-diagram-accent-2: #000000;
+    --ob-diagram-accent-3: #000000;
+    --ob-diagram-accent-4: #000000;
+    --ob-diagram-accent-5: #000000;
+    --ob-diagram-accent-6: #000000;
+    break-inside: avoid;
+  }
+
+  .ob-diagram details {
+    display: none;
+  }
+}
+
+/* Forced colours (Windows High Contrast and the like): the system's own text and background. */
+@media (forced-colors: active) {
+  .ob-diagram {
+    --ob-diagram-text: CanvasText;
+    --ob-diagram-fill: Canvas;
+    --ob-diagram-line: CanvasText;
+    --ob-diagram-highlight: Canvas;
+    --ob-diagram-accent-1: CanvasText;
+    --ob-diagram-accent-2: CanvasText;
+    --ob-diagram-accent-3: CanvasText;
+    --ob-diagram-accent-4: CanvasText;
+    --ob-diagram-accent-5: CanvasText;
+    --ob-diagram-accent-6: CanvasText;
+  }
+
+  .ob-diagram > svg {
+    forced-color-adjust: none;
+  }
+}
+
+/* Diagram node links (ADR 0418): the nodes are links for a pointer; the list under the figure is
+   where a keyboard or screen reader finds them. */
+.ob-diagram .ob-diagram-link {
+  cursor: pointer;
+}
+
+.ob-diagram .ob-diagram-link:hover {
+  opacity: 0.8;
+}
+
+.ob-diagram-links ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  justify-content: center;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
 }

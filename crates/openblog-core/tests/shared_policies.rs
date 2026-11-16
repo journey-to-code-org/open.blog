@@ -3,10 +3,12 @@
 //! policy versions. Every rule needs each writer's own approval; none fabricates one.
 
 use openblog_core::approval::{
-    ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet, PolicyChange, PolicyError,
-    Readiness, RuleAuthority, RuleGaps,
+    public_metadata, ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet,
+    ApprovalSubject, PolicyChange, PolicyError, Readiness, RuleAuthority, RuleGaps,
 };
-use openblog_core::assembly::{assemble, with_subject, AssemblyError};
+use openblog_core::assembly::{
+    assemble, with_subject, with_subject_for_all_contributions, AssemblyError,
+};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
@@ -38,6 +40,8 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name, roles) in [
@@ -116,11 +120,668 @@ fn gate(
     .map(|_| ())
 }
 
+#[test]
+fn contribution_reordering_and_reversion_do_not_revive_approval() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    drafts
+        .save("ann", "ann-second", 0, "another perspective", T)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_initial_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::AllAuthors,
+        scope: ApprovalScope::WholePiece,
+    })
+    .unwrap();
+    for who in ["ann", "bo", "cy", "di"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    let token = with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    let order_revision = drafts.order_revision();
+    drafts
+        .reorder_owned(
+            "ann",
+            order_revision,
+            &["ann", "ann-second"],
+            &["ann-second", "ann"],
+        )
+        .unwrap();
+    drafts
+        .reorder_owned(
+            "ann",
+            order_revision + 1,
+            &["ann-second", "ann"],
+            &["ann", "ann-second"],
+        )
+        .unwrap();
+    assert_eq!(
+        drafts.reorder_owned(
+            "ann",
+            order_revision,
+            &["ann", "ann-second"],
+            &["ann-second", "ann"]
+        ),
+        Err(openblog_core::draft::DraftError::Stale)
+    );
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_ne!(approvals.binding_for(subject, "ann").unwrap(), token);
+            assert!(!approvals.is_approved(subject, "ann"));
+        },
+    );
+}
+
+#[test]
+fn multi_contribution_subject_binds_each_live_revision_and_owner() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    let approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let legacy = with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    let multiple = with_subject_for_all_contributions(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    assert_eq!(legacy, multiple);
+    drafts
+        .save("ann", "second", 0, "another perspective", T)
+        .unwrap();
+    let token = |drafts: &DraftSet| {
+        with_subject_for_all_contributions(
+            &record,
+            None,
+            drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            &ALL,
+            |subject| {
+                assert_eq!(
+                    subject
+                        .sections
+                        .iter()
+                        .map(|section| (section.owner, section.contribution_id))
+                        .collect::<Vec<_>>(),
+                    [("ann", "ann"), ("ann", "second"), ("bo", "bo")]
+                );
+                approvals.binding_for(subject, "ann").unwrap()
+            },
+        )
+    };
+    let original = token(&drafts);
+    drafts.save("ann", "second", 1, "edited", T + 1).unwrap();
+    assert_ne!(token(&drafts), original);
+    drafts
+        .save("ann", "second", 2, "another perspective", T + 2)
+        .unwrap();
+    assert_ne!(token(&drafts), original);
+}
+
+#[test]
+fn multi_contribution_credits_cover_distinct_draft_ids_and_bind_both_revisions() {
+    use openblog_core::assembly::{
+        public_credit_projection_for_all_contributions, with_credit_subject_for_all_contributions,
+        with_credit_subject_for_participants,
+    };
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let mut drafts = drafts(&["bo"]);
+    drafts.save("ann", "first", 0, "Ann writes", T).unwrap();
+    let active = ["ann", "bo"];
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut choices = CreditChoices::default();
+    choices
+        .select("bo", "bo", "bo", 0, CreditChoice::Uncredited)
+        .unwrap();
+    assert!(public_credit_projection_for_all_contributions(
+        &record, &drafts, &synthesis, &moments, &active, &choices
+    )
+    .is_err());
+    choices
+        .select("ann", "ann", "ann", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let (projected, _) = public_credit_projection_for_all_contributions(
+        &record, &drafts, &synthesis, &moments, &active, &choices,
+    )
+    .unwrap();
+    assert_eq!(
+        projected.collaboration.participants[0].display_name,
+        "Uncredited participant"
+    );
+    let approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let token = |drafts: &DraftSet, choices: &CreditChoices| {
+        with_credit_subject_for_all_contributions(
+            &record,
+            None,
+            drafts,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            choices,
+            |subject| approvals.binding_for(subject, "ann").unwrap(),
+        )
+        .unwrap()
+    };
+    let original = token(&drafts, &choices);
+    drafts.save("ann", "first", 1, "Changed", T + 1).unwrap();
+    assert_ne!(token(&drafts, &choices), original);
+    drafts.save("ann", "first", 2, "Ann writes", T + 2).unwrap();
+    assert_ne!(token(&drafts, &choices), original);
+    let before_credit_change = token(&drafts, &choices);
+    choices
+        .select(
+            "ann",
+            "ann",
+            "ann",
+            2,
+            CreditChoice::DisplayName {
+                name: "A".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    choices
+        .select("ann", "ann", "ann", 3, CreditChoice::Uncredited)
+        .unwrap();
+    assert_ne!(token(&drafts, &choices), before_credit_change);
+
+    let mut single = DraftSet::new(&ALL).unwrap();
+    for who in active {
+        single.save(who, who, 0, "words", T).unwrap();
+    }
+    let legacy = with_credit_subject_for_participants(
+        &record,
+        None,
+        &single,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(token(&single, &choices), legacy);
+}
+
 fn policy(requirement: ApprovalRequirement) -> ApprovalPolicy {
     ApprovalPolicy {
         requirement,
         scope: ApprovalScope::OwnSections,
     }
+}
+
+#[test]
+fn numeric_quorum_never_replaces_writers_or_shrinks_when_members_leave() {
+    let record = record();
+    let mut drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "cy", "di"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert!(matches!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    approve(&record, &drafts, &mut approvals, &ALL, "bo");
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    let mut threshold = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(threshold.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo"] {
+        approve(&record, &drafts, &mut threshold, &ALL, who);
+    }
+    assert_eq!(
+        gate(&record, &drafts, &threshold, &ALL),
+        Err(AssemblyError::QuorumBlocked {
+            approved: 2,
+            required: 3,
+        })
+    );
+    approve(&record, &drafts, &mut threshold, &ALL, "cy");
+    assert_eq!(gate(&record, &drafts, &threshold, &ALL), Ok(()));
+    let remaining = ["ann", "bo"];
+    assert!(gate(&record, &drafts, &approvals, &remaining).is_err());
+    drafts.save("bo", "bo", 1, "changed", T + 1).unwrap();
+    assert!(gate(&record, &drafts, &approvals, &ALL).is_err());
+}
+
+#[test]
+fn numeric_quorum_rejects_bad_thresholds_and_unconsented_lowering() {
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    for (count, scope) in [
+        (0, ApprovalScope::WholePiece),
+        (101, ApprovalScope::WholePiece),
+        (2, ApprovalScope::OwnSections),
+    ] {
+        assert!(ApprovalPolicy {
+            requirement: ApprovalRequirement::Quorum(count),
+            scope
+        }
+        .normalized()
+        .is_err());
+    }
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let q = |count| ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(count),
+        scope: ApprovalScope::WholePiece,
+    };
+    assert!(approvals.set_policy(q(3)));
+    let restored = ApprovalSet::from_json(&approvals.to_json()).unwrap();
+    assert_eq!(restored, approvals);
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_eq!(
+                approvals.change_policy(q(2), 1, true, RuleAuthority::Coordinator, subject, &ALL),
+                Err(PolicyError::QuorumProtection)
+            );
+            assert_eq!(
+                approvals.change_policy(
+                    q(4),
+                    1,
+                    true,
+                    RuleAuthority::SiteOwner,
+                    subject,
+                    &ALL[..3]
+                ),
+                Err(PolicyError::QuorumUnavailable {
+                    required: 4,
+                    available: 3
+                })
+            );
+            assert_eq!(
+                approvals.change_policy(q(2), 1, true, RuleAuthority::SiteOwner, subject, &ALL),
+                Ok(PolicyChange::Changed { cleared: 0 })
+            );
+        },
+    );
+}
+
+#[test]
+fn losing_and_regaining_a_quorum_approval_grant_does_not_revive_consent() {
+    let mut record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo", "cy"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    let cy = record
+        .authorization
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.participant_id == "cy")
+        .unwrap();
+    cy.roles = vec![AuthorizationRole::Coordinator, AuthorizationRole::Editor];
+    with_subject(
+        &record,
+        None,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &ALL,
+        |subject| {
+            assert_eq!(approvals.reconcile(subject), Ok(1));
+        },
+    );
+    record
+        .authorization
+        .bindings
+        .iter_mut()
+        .find(|binding| binding.participant_id == "cy")
+        .unwrap()
+        .roles
+        .push(AuthorizationRole::Contributor);
+    assert_eq!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::QuorumBlocked {
+            approved: 2,
+            required: 3
+        })
+    );
+}
+
+#[test]
+fn quorum_churn_cannot_revive_consent_even_without_reconciliation() {
+    let mut record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::Quorum(3),
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ["ann", "bo", "cy"] {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    record.authorization.revision += 2;
+    assert!(matches!(
+        gate(&record, &drafts, &approvals, &ALL),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn whole_piece_rules_cannot_revive_consent_after_membership_or_access_changes() {
+    for requirement in [
+        ApprovalRequirement::AllAuthors,
+        ApprovalRequirement::ContributingAuthors,
+        ApprovalRequirement::NamedAuthors(vec!["cy".into()]),
+        ApprovalRequirement::AuthorsWithRoles(vec![AuthorizationRole::Contributor]),
+    ] {
+        for membership_change in [true, false] {
+            let mut record = record();
+            let drafts = drafts(&["ann", "bo"]);
+            let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+            approvals.set_policy(ApprovalPolicy {
+                requirement: requirement.clone(),
+                scope: ApprovalScope::WholePiece,
+            });
+            for who in ALL {
+                approve(&record, &drafts, &mut approvals, &ALL, who);
+            }
+            assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+            if membership_change {
+                record.collaboration.revision += 2;
+            } else {
+                record.authorization.revision += 2;
+            }
+            assert!(
+                matches!(
+                    gate(&record, &drafts, &approvals, &ALL),
+                    Err(AssemblyError::Blocked { .. })
+                ),
+                "{requirement:?}, membership_change={membership_change}"
+            );
+        }
+    }
+}
+
+#[test]
+fn publication_credit_projection_never_falls_back_to_private_names() {
+    use openblog_core::assembly::public_credit_projection;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo", "cy"];
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    assert!(public_credit_projection(
+        &record,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        &choices
+    )
+    .is_err());
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            1,
+            CreditChoice::DisplayName {
+                name: "Pen Name".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    let (projected, credits) = public_credit_projection(
+        &record,
+        &drafts,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        &choices,
+    )
+    .unwrap();
+    assert_eq!(record.collaboration.participants[0].display_name, "Ann");
+    assert_eq!(
+        projected.collaboration.participants[0].display_name,
+        "Uncredited participant"
+    );
+    assert_eq!(
+        projected.collaboration.participants[1].display_name,
+        "Pen Name"
+    );
+    assert!(!credits.sidecar().contains("\"ann\""));
+    assert!(!credits.sidecar().contains("\"bo\""));
+    assert!(credits.sidecar().contains("Pen Name"));
+}
+
+#[test]
+fn credit_selection_and_reversion_invalidate_whole_piece_approvals() {
+    use openblog_core::assembly::with_credit_subject_for_participants;
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let first_token = with_credit_subject_for_participants(
+        &record,
+        None,
+        &drafts,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| {
+            let token = approvals.binding_for(subject, "ann").unwrap();
+            for who in active {
+                let seen = approvals.binding_for(subject, who).unwrap();
+                approvals
+                    .approve(who, who, subject, &seen, true, T)
+                    .unwrap();
+            }
+            assert_eq!(approvals.evaluate(subject), Ok(Readiness::Ready));
+            token
+        },
+    )
+    .unwrap();
+    choices
+        .select(
+            "bo",
+            "bo",
+            "bo",
+            2,
+            CreditChoice::DisplayName {
+                name: "B".into(),
+                public_id: Some("0123456789abcdef0123456789abcdef".into()),
+            },
+        )
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 3, CreditChoice::Uncredited)
+        .unwrap();
+    with_credit_subject_for_participants(
+        &record,
+        None,
+        &drafts,
+        &synthesis,
+        &moments,
+        &active,
+        &active,
+        &choices,
+        |subject| {
+            assert_ne!(approvals.binding_for(subject, "ann").unwrap(), first_token);
+            assert!(matches!(
+                approvals.evaluate(subject),
+                Ok(Readiness::Blocked { .. })
+            ));
+            assert!(approvals
+                .approve("ann", "ann", subject, &first_token, true, T)
+                .is_err());
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn participant_rules_require_readers_and_never_waive_writer_consent() {
+    let record = record();
+    let drafts = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let people = ["ann", "bo", "cy"];
+    for requirement in [
+        ApprovalRequirement::AllParticipants,
+        ApprovalRequirement::ParticipantQuorum(2),
+    ] {
+        let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+        assert!(approvals.set_policy(ApprovalPolicy {
+            requirement: requirement.clone(),
+            scope: ApprovalScope::WholePiece,
+        }));
+        openblog_core::assembly::with_subject_for_participants(
+            &record,
+            None,
+            &drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &active,
+            &people,
+            |subject| {
+                for who in ["ann", "cy"] {
+                    let seen = approvals.binding_for(subject, who).unwrap();
+                    approvals
+                        .approve(who, who, subject, &seen, true, T)
+                        .unwrap();
+                }
+                assert!(matches!(
+                    approvals.evaluate(subject),
+                    Ok(Readiness::Blocked { .. })
+                ));
+                let seen = approvals.binding_for(subject, "bo").unwrap();
+                approvals
+                    .approve("bo", "bo", subject, &seen, true, T)
+                    .unwrap();
+                assert_eq!(approvals.evaluate(subject), Ok(Readiness::Ready));
+                assert!(approvals.binding_for(subject, "outside").is_err());
+            },
+        );
+        let changed = ["ann", "bo"];
+        openblog_core::assembly::with_subject_for_participants(
+            &record,
+            None,
+            &drafts,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &active,
+            &changed,
+            |subject| {
+                assert!(matches!(
+                    approvals.evaluate(subject),
+                    Ok(Readiness::Blocked { .. })
+                ));
+            },
+        );
+    }
+}
+
+#[test]
+fn legacy_section_only_bindings_remain_unchanged_by_revision_counters() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let drafts = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &drafts, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+    record.collaboration.revision += 2;
+    record.authorization.revision += 2;
+    assert_eq!(gate(&record, &drafts, &approvals, &ALL), Ok(()));
+}
+
+#[test]
+fn new_reflections_cannot_publish_section_only_approvals() {
+    let mut record = record();
+    record.initial_approval_scope = Some(ApprovalScope::WholePiece);
+    let mut set = drafts(&["ann", "bo"]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &set, &mut approvals, &ALL, who);
+    }
+    assert_eq!(
+        gate(&record, &set, &approvals, &ALL),
+        Err(AssemblyError::ApprovalScope)
+    );
+    record.initial_approval_scope = None;
+    assert_eq!(gate(&record, &set, &approvals, &ALL), Ok(()));
+
+    record.initial_approval_scope = Some(ApprovalScope::WholePiece);
+    assert!(approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::AllAuthors,
+        scope: ApprovalScope::WholePiece,
+    }));
+    for who in ALL {
+        approve(&record, &set, &mut approvals, &ALL, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &ALL), Ok(()));
+    set.save("bo", "bo", 1, "changed", T + 1).unwrap();
+    assert!(
+        matches!(gate(&record, &set, &approvals, &ALL), Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo", "Cy", "Di"])
+    );
 }
 
 fn change(
@@ -149,6 +810,85 @@ fn change(
             )
         },
     )
+}
+
+#[test]
+fn new_record_approvals_bind_participant_attribution() {
+    let mut record = record();
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &active), Ok(()));
+
+    record.collaboration.participants[1].display_name = "Different name".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    record.collaboration.participants[1].display_name = "Bo".into();
+    record.authorization.bindings[1].contributor_id = "different-profile".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn legacy_record_approvals_also_bind_participant_attribution() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::new();
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    record.collaboration.participants[1].display_name = "Different name".into();
+    record.authorization.bindings[1].contributor_id = "different-profile".into();
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn approvals_from_before_attribution_binding_need_review_again() {
+    let mut record = record();
+    record.initial_approval_scope = None;
+    let set = drafts(&["ann", "bo"]);
+    let active = ["ann", "bo"];
+    let mut approvals = ApprovalSet::new();
+    let old_metadata = public_metadata(&record);
+    let old_metadata: Vec<_> = old_metadata.iter().map(String::as_str).collect();
+    with_subject(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &active,
+        |subject| {
+            let old = ApprovalSubject {
+                metadata: &old_metadata,
+                ..*subject
+            };
+            for who in active {
+                let seen = approvals.binding_for(&old, who).unwrap();
+                approvals.approve(who, who, &old, &seen, true, T).unwrap();
+            }
+        },
+    );
+    assert!(matches!(
+        gate(&record, &set, &approvals, &active),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    for who in active {
+        approve(&record, &set, &mut approvals, &active, who);
+    }
+    assert_eq!(gate(&record, &set, &approvals, &active), Ok(()));
 }
 
 #[test]
@@ -425,6 +1165,9 @@ fn under_membership_churn_no_rule_publishes_without_every_writers_own_approval()
                         .collect();
                     assert_eq!(gaps.named, gone);
                 }
+            }
+            Readiness::QuorumBlocked { .. } => {
+                assert!(gate(&base, &set, &approvals, &active).is_err());
             }
         }
         // The stored set never holds an approval for someone who did not give one.

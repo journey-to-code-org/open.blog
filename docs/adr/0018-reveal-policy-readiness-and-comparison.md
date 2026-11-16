@@ -18,6 +18,26 @@ each draft would allow.
 - The draft set holds a reveal policy, defaulting to `independent`: nothing is ever revealed.
   `voluntary` reveals among any two or more participants who mark a revision ready, and only those.
   `allReady` reveals only when every participant who currently holds the draft grant is ready.
+  New shared reflection records now select `allReady` when their first draft set is created;
+  legacy records and existing draft sets keep their previous behavior (see ADR 0016).
+- The optional `namedRecipients` policy lets each author release their current exact draft
+  revision to explicitly selected active participants without waiting for reciprocal releases. The
+  private draft set records its contribution, revision, recipient IDs and release time. Later
+  edits remain private; releasing to a different person does not extend an earlier release.
+  The author must retain draft access and the recipient must retain publication access to read a
+  named release. Non-drafters see only explicitly named releases, never private offer state or
+  mutual releases. They may also read publication moments sealed to a current revision they can
+  read; private, changed, or unsealed moments remain hidden. Releases identify the recipients
+  explicitly allowed to read without draft access. Earlier releases, and releases to someone
+  who held draft access at the time, do not gain that permission if they become a reader: the
+  author must release again after the role change. The release checks the authorization revision
+  read when choosing recipients. Older releases cannot read stored releases with the new
+  non-draft-recipient field. As with other
+  committed reveals, a copy already read cannot be recalled, and restoring the same participant's
+  access makes their previously named releases readable again. Proposed source moments may be
+  sealed and shown with the released revision under ADR 0063. Changing policy does not undo a
+  completed release. Older open.blog versions cannot read a draft set containing this new policy
+  or a named release.
 - A new action `SetRevealPolicy` targets the publication and is held by Site owners and
   Coordinators. It reads no draft. A coordinator who is not a drafter can set the policy and sees
   the policy only.
@@ -54,10 +74,16 @@ each draft would allow.
   `DraftSet::view`), or a placeholder that is identical for missing, unrevealed, withdrawn and
   unknown drafts. A placeholder says only whether that participant has offered a revision. Prose,
   names and metadata are JSON strings; a client renders them as text, never as markup.
+- The sharing response names the requester's own offered revision, if any. Admin warns when the
+  offer names an older revision than the latest save; no other participant's offered revision
+  number is disclosed by that field.
 - Routes: `GET /admin/api/collaboration/reveal`, `PUT .../reveal/policy`, `PUT .../reveal/ready`.
   All need the Admin session, writes need CSRF and strict JSON, every refusal is the same 404, and
-  writes use the revision-checked draft store (409 on a race, nothing changed). Manual exchange
-  creation and `POST .../contribution/reveal` still have no route. No browser panel ships here.
+  writes use the revision-checked draft store (409 on a race, nothing changed). `POST
+  .../reveal/named` requires a current revision and explicit recipient IDs; the server resolves
+  the author from the session and rejects inactive or repeated recipients. Admin shows recipients
+  and asks for confirmation before sharing. Manual exchange creation and
+  `POST .../contribution/reveal` still have no route.
 
 ## Consequences
 

@@ -163,6 +163,7 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
     { id: "write-recipe", label: "Write a new recipe", group: "Do", href: "#/write/new/recipe" },
     { id: "put-up", label: "Put a look up now", group: "Do", href: "#/decorations?do=putup" },
     { id: "write-story", label: "Write a new story", group: "Do", href: "#/write/new/story" },
+    { id: "write-decision", label: "Write a new decision record", group: "Do", href: "#/write/new/decision" },
     { id: "go-people", label: "People", group: "Go to", href: "#/people" },
     { id: "go-business", label: "Business facts", group: "Go to", href: "#/business" },
     // R8: on a post, Write lists its own "Writing helper" (the sheet) first; anywhere else, the screen.

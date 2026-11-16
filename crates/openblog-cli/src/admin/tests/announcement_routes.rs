@@ -137,6 +137,9 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         ("GET", "destinations"),
         ("GET", "announcements"),
         ("POST", "announcements"),
+        ("POST", "announcements/media-preview"),
+        ("POST", "job-photo-preview"),
+        ("POST", "job-photo-schedule"),
         ("PATCH", "announcements"),
         ("POST", "announcements/reschedule"),
         ("POST", "announcements/cancel"),
@@ -162,6 +165,154 @@ fn every_route_needs_a_session_and_every_write_a_csrf_token() {
         );
         assert_eq!(without.status, 403, "{method} {path} without a CSRF token");
     }
+}
+
+#[test]
+fn job_photo_approval_binds_bytes_description_and_safe_metadata() {
+    let f = social_site("job-photo");
+    let content = "---\ntitle: Floor\ndate: 2026-01-02\ndescription: New floor\nprofile: job\njob:\n  trade: flooring\n  service: hardwood-install\n  place:\n    town: Maple Falls\n    region: WA\n  started: 2025-12-01\n  finished: 2025-12-02\n  media:\n    after:\n      - /images/floor.png\n---\nDone.\n";
+    fs::write(f.dir.join("content/posts/floor.md"), content).unwrap();
+    fs::create_dir_all(f.dir.join("static/images")).unwrap();
+    let image = f.dir.join("static/images/floor.png");
+    fs::write(
+        &image,
+        openblog_core::image_facts::samples::png(400, 400, false),
+    )
+    .unwrap();
+    let projection = crate::job_share::load_job(
+        &f.dir,
+        crate::job_share::Which::Source("posts/floor.md"),
+        &[openblog_core::job_destination::JobDestination::Facebook],
+    )
+    .unwrap()
+    .projections
+    .remove(0);
+    let calls = Calls::default();
+    let transport = fake(&calls, 201, json!({ "announcement": announcement() }));
+    let preview = json!({"path": "posts/floor.md", "digest": projection.digest, "description": "A new floor"});
+    let (status, shown) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/job-photo-preview",
+        Some(preview.clone()),
+    );
+    assert_eq!(status, 200, "{shown}");
+    assert!(shown["imageDataUrl"]
+        .as_str()
+        .unwrap()
+        .starts_with("data:image/png;base64,"));
+    let mut schedule = preview.clone();
+    schedule["approvalDigest"] = shown["approvalDigest"].clone();
+    schedule["accountId"] = json!(ACCOUNT);
+    schedule["scheduledFor"] = json!(when(1, 0).1);
+    schedule["idempotencyKey"] = json!("job-share-key-000001");
+    let (status, _) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/job-photo-schedule",
+        Some(schedule.clone()),
+    );
+    assert_eq!(status, 201);
+    let recorded = calls.lock().unwrap();
+    let sent = recorded[0].4.as_ref().unwrap();
+    assert_eq!(sent["expectedProvider"], "facebook");
+    assert_eq!(sent["media"]["snapshot"]["description"], "A new floor");
+    assert_eq!(
+        sent["media"]["snapshot"]["sha256"],
+        projection.photo.unwrap().sha256
+    );
+    assert_eq!(sent["media"]["snapshot"]["fallback"], "stop");
+    drop(recorded);
+    schedule["description"] = json!("A different floor");
+    assert_eq!(
+        call(
+            &f,
+            &transport,
+            "POST",
+            "/admin/api/social/job-photo-schedule",
+            Some(schedule.clone())
+        )
+        .0,
+        409
+    );
+    schedule["description"] = json!("A new floor");
+    let mut changed = fs::read(&image).unwrap();
+    let last = changed.len() - 1;
+    changed[last] ^= 1;
+    fs::write(&image, changed).unwrap();
+    assert_eq!(
+        call(
+            &f,
+            &transport,
+            "POST",
+            "/admin/api/social/job-photo-schedule",
+            Some(schedule.clone())
+        )
+        .0,
+        409
+    );
+    fs::write(
+        &image,
+        openblog_core::image_facts::samples::png(400, 400, true),
+    )
+    .unwrap();
+    let located = crate::job_share::load_job(
+        &f.dir,
+        crate::job_share::Which::Source("posts/floor.md"),
+        &[openblog_core::job_destination::JobDestination::Facebook],
+    )
+    .unwrap();
+    let mut located_preview = preview.clone();
+    located_preview["digest"] = json!(located.projections[0].digest);
+    assert_eq!(
+        call(
+            &f,
+            &transport,
+            "POST",
+            "/admin/api/social/job-photo-preview",
+            Some(located_preview)
+        )
+        .0,
+        409
+    );
+    let mut unreadable = openblog_core::image_facts::samples::png(400, 400, false);
+    unreadable.truncate(unreadable.len() - 12);
+    fs::write(&image, unreadable).unwrap();
+    let unread = crate::job_share::load_job(
+        &f.dir,
+        crate::job_share::Which::Source("posts/floor.md"),
+        &[openblog_core::job_destination::JobDestination::Facebook],
+    )
+    .unwrap();
+    let mut unread_preview = preview.clone();
+    unread_preview["digest"] = json!(unread.projections[0].digest);
+    assert_eq!(
+        call(
+            &f,
+            &transport,
+            "POST",
+            "/admin/api/social/job-photo-preview",
+            Some(unread_preview)
+        )
+        .0,
+        409
+    );
+    let mut missing_alt = preview;
+    missing_alt["description"] = json!("");
+    assert_eq!(
+        call(
+            &f,
+            &transport,
+            "POST",
+            "/admin/api/social/job-photo-preview",
+            Some(missing_alt)
+        )
+        .0,
+        422
+    );
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -343,6 +494,72 @@ fn a_create_is_checked_against_the_site_then_sent_with_the_actor_and_the_sites_o
     assert_eq!(sent["scheduledFor"], utc.as_str(), "sent as UTC");
     assert_eq!(sent["accountId"], ACCOUNT);
     assert!(sent.get("site_id").is_none() && sent.get("siteId").is_none());
+}
+
+#[test]
+fn media_preview_and_schedule_use_the_sites_canonical_url_and_keep_the_approval() {
+    let f = social_site("media");
+    let calls = Calls::default();
+    let media = json!({
+        "snapshot": {
+            "version": 1, "url": "https://blog.example.org/cover.png",
+            "description": "A lantern", "mimeType": "image/png", "size": 9,
+            "sha256": "2a040b0881c18593d21859f4107cee1c9c5f40521161b2acdf3b392b8158e05a", "fallback": "text",
+        },
+        "approvalDigest": "1".repeat(64),
+    });
+    let transport = fake(
+        &calls,
+        200,
+        json!({"media": media, "imageDataUrl": "data:image/png;base64,iVBORw0KGgoq"}),
+    );
+    let (status, answer) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/hello/"})),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(answer["media"], media);
+    assert_eq!(answer["imageDataUrl"], "data:image/png;base64,iVBORw0KGgoq");
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].1, "announcements/media-preview");
+    assert_eq!(
+        recorded[0].4.as_ref().unwrap()["canonicalUrl"],
+        "https://blog.example.org/posts/hello/"
+    );
+    drop(recorded);
+    let (status, _) = call(
+        &f,
+        &transport,
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/secret/"})),
+    );
+    assert_ne!(status, 200);
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    let (status, _) = call(
+        &f,
+        &fake(&calls, 201, json!({"announcement": announcement()})),
+        "POST",
+        "/admin/api/social/announcements",
+        Some(draft(json!({"media": media}))),
+    );
+    assert_eq!(status, 201);
+    assert_eq!(calls.lock().unwrap()[1].4.as_ref().unwrap()["media"], media);
+    let (status, _) = call(
+        &f,
+        &fake(
+            &calls,
+            200,
+            json!({"media": media, "imageDataUrl": "data:image/png;base64,AAAA"}),
+        ),
+        "POST",
+        "/admin/api/social/announcements/media-preview",
+        Some(json!({"accountId": ACCOUNT, "work": "/posts/hello/"})),
+    );
+    assert_eq!(status, 502, "preview bytes must match the approved digest");
 }
 
 #[test]

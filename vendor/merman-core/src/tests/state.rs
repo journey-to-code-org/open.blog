@@ -1,0 +1,2570 @@
+use crate::*;
+use futures::executor::block_on;
+use serde_json::json;
+
+#[test]
+fn parse_diagram_state_v2_alias_and_colon_description() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+state "Small State 1" as namedState1"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(res.meta.diagram_type, "stateDiagram");
+    assert_eq!(
+        res.model["states"]["namedState1"]["descriptions"][0],
+        json!("Small State 1")
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+namedState1 : Small State 1"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["states"]["namedState1"]["descriptions"][0],
+        json!("Small State 1")
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+namedState1:Small State 1"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["states"]["namedState1"]["descriptions"][0],
+        json!("Small State 1")
+    );
+}
+
+#[test]
+fn parse_diagram_state_v2_multibyte_ids_do_not_panic() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+顧客 --> 完了: 送信
+"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(res.model["relations"][0]["id1"], json!("顧客"));
+    assert_eq!(res.model["relations"][0]["id2"], json!("完了"));
+    assert_eq!(res.model["edges"][0]["label"], json!("送信"));
+}
+
+#[test]
+fn parse_diagram_state_v2_accepts_ecmascript_unicode_whitespace() {
+    let engine = MermaidEngine::new();
+    for whitespace in ['\u{00A0}', '\u{202F}', '\u{3000}', '\u{FEFF}'] {
+        for newline in ["\n", "\r\n"] {
+            let text = format!(
+                "stateDiagram-v2{newline}state{whitespace}\"正常\" as{whitespace}用户{whitespace}{newline}\
+                 用户{whitespace}-->{whitespace}完成{newline}"
+            );
+            let res = engine
+                .parse_diagram_sync(&text, ParseOptions::default())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                res.model["states"]["用户"]["descriptions"][0], "正常",
+                "{text:?}"
+            );
+            assert_eq!(res.model["states"].as_object().unwrap().len(), 2);
+            assert_eq!(res.model["edges"].as_array().unwrap().len(), 1);
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_v2_accepts_unicode_whitespace_in_direction() {
+    let engine = MermaidEngine::new();
+    let text = "stateDiagram-v2\ndirection\u{3000}LR\nA --> B\n";
+
+    let res = engine
+        .parse_diagram_sync(text, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(res.model["direction"], json!("LR"));
+}
+
+#[test]
+fn parse_diagram_state_v2_accepts_unicode_whitespace_before_composite_block() {
+    let engine = MermaidEngine::new();
+    let text =
+        "stateDiagram-v2\nstate\u{3000}外部\u{3000}\n\u{3000}{\n用户\u{3000}-->\u{3000}完成\n}\n";
+    let res = engine
+        .parse_diagram_sync(text, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        res.model["states"]["外部"]["doc"][0]["state1"]["id"],
+        "用户"
+    );
+    assert_eq!(
+        res.model["states"]["外部"]["doc"][0]["state2"]["id"],
+        "完成"
+    );
+}
+
+#[test]
+fn parse_diagram_state_v2_preserves_colons_in_transition_labels() {
+    let res = block_on(MermaidEngine::new().parse_diagram(
+        r#"stateDiagram-v2
+Active --> Deleted: DELETE /users/:id"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(res.model["edges"][0]["label"], json!("DELETE /users/:id"));
+}
+
+#[test]
+fn parse_diagram_state_v2_groups_and_unsafe_ids() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+state "Small State 1" as namedState1
+state "Big State 1" as bigState1 {
+  bigState1InternalState
+}
+namedState1 --> bigState1: should point to \nBig State 1 container
+
+state "Small State 2" as namedState2
+state bigState2 {
+  bigState2InternalState
+}
+namedState2 --> bigState2: should point to \nbigState2 container"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["states"]["bigState1"]["doc"][0]["id"],
+        json!("bigState1InternalState")
+    );
+    assert_eq!(
+        res.model["states"]["bigState2"]["doc"][0]["id"],
+        json!("bigState2InternalState")
+    );
+    assert_eq!(res.model["relations"][0]["id1"], json!("namedState1"));
+    assert_eq!(res.model["relations"][0]["id2"], json!("bigState1"));
+    assert_eq!(res.model["relations"][1]["id1"], json!("namedState2"));
+    assert_eq!(res.model["relations"][1]["id2"], json!("bigState2"));
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+[*] --> __proto__
+__proto__ --> [*]"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert!(res.model["states"]["__proto__"].is_object());
+    assert!(res.model["states"]["root_start"].is_object());
+    assert!(res.model["states"]["root_end"].is_object());
+}
+
+#[test]
+fn parse_diagram_state_v2_tracks_explicit_composite_direction() {
+    let res = block_on(MermaidEngine::new().parse_diagram(
+        r#"stateDiagram-v2
+state Implicit {
+  A
+}
+state Explicit {
+  direction LR
+  B
+}
+"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    let nodes = res.model["nodes"].as_array().expect("state render nodes");
+    let node = |id: &str| {
+        nodes
+            .iter()
+            .find(|node| node["id"] == id)
+            .unwrap_or_else(|| panic!("missing state node {id}"))
+    };
+
+    assert_eq!(node("Implicit")["dir"], json!("TB"));
+    assert!(node("Implicit").get("explicitDir").is_none());
+    assert_eq!(node("Explicit")["dir"], json!("LR"));
+    assert!(node("Explicit").get("explicitDir").is_none());
+    assert!(node("A").get("explicitDir").is_none());
+    assert!(node("B").get("explicitDir").is_none());
+}
+
+#[test]
+fn parse_state_render_model_preserves_alias_trailing_description() {
+    let input = r#"stateDiagram-v2
+state "Display label" as S1: Trailing description
+"#;
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(input, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    let RenderSemanticModel::State(model) = parsed.model() else {
+        panic!("expected typed state render model");
+    };
+    let node = model
+        .nodes
+        .iter()
+        .find(|node| node.id == "S1")
+        .expect("state render node S1");
+
+    assert_eq!(node.label, Some(json!("Display label")));
+    assert_eq!(
+        node.description.as_deref(),
+        Some(["Trailing description".to_string()].as_slice())
+    );
+    assert_eq!(node.shape, "rectWithTitle");
+
+    let parsed = block_on(MermaidEngine::new().parse_diagram(input, ParseOptions::strict()))
+        .unwrap()
+        .unwrap();
+    let json_node = parsed.model["nodes"]
+        .as_array()
+        .expect("JSON state render nodes")
+        .iter()
+        .find(|node| node["id"] == "S1")
+        .expect("JSON state render node S1");
+
+    assert_eq!(json_node.get("label"), node.label.as_ref());
+    assert_eq!(
+        json_node["description"],
+        json!(node.description.as_ref().expect("typed descriptions"))
+    );
+    assert_eq!(json_node["shape"].as_str(), Some(node.shape.as_str()));
+}
+
+#[test]
+fn parse_state_plain_alias_uses_only_the_first_two_colon_segments() {
+    use merman_model::families::state::StateStatement;
+
+    let engine = MermaidEngine::new();
+    for header in ["stateDiagram", "stateDiagram-v2"] {
+        for newline in ["\n", "\r\n"] {
+            for (tail, extra) in [
+                ("A:x", Some("x")),
+                ("A:x:y", Some("x")),
+                ("A:x:y:z", Some("x")),
+                ("A: x :y:z", Some("x")),
+                ("A:x:", Some("x")),
+                ("A", None),
+            ] {
+                let source = format!("{header}{newline}state \"L\" as {tail}{newline}");
+                let compat = engine
+                    .parse_diagram_sync(&source, ParseOptions::strict())
+                    .unwrap()
+                    .unwrap();
+                let expected_descriptions = match extra {
+                    Some(description) => vec!["L", description],
+                    None => vec!["L"],
+                };
+                let expected_node_description =
+                    Some(extra.into_iter().map(str::to_string).collect::<Vec<_>>());
+                assert_eq!(compat.model["states"].as_object().unwrap().len(), 1);
+                assert_eq!(
+                    compat.model["states"]["A"]["descriptions"],
+                    json!(expected_descriptions),
+                    "{source:?}"
+                );
+                let nodes = compat.model["nodes"].as_array().unwrap();
+                assert_eq!(nodes.len(), 1);
+                assert_eq!(nodes[0]["id"], "A");
+                assert_eq!(nodes[0]["label"], "L");
+                assert_eq!(nodes[0]["description"], json!(expected_node_description));
+
+                let semantic = SemanticParser::new().parse_diagram_sync(&source).unwrap();
+                let SemanticDiagramModel::State(model) = semantic.model else {
+                    panic!("expected canonical State model");
+                };
+                assert_eq!(model.states["A"].descriptions, expected_descriptions);
+                assert_eq!(model.nodes[0].description, expected_node_description);
+                let root = model.document.get(model.document.root().unwrap()).unwrap();
+                let StateStatement::State(alias) = &root[0] else {
+                    panic!("expected alias declaration");
+                };
+                let normalized_source = source.replace("\r\n", "\n");
+                let start = normalized_source.find(tail).unwrap();
+                assert_eq!(alias.id, "A");
+                assert_eq!(alias.id_span, Some(SourceSpan::new(start, start + 1)));
+
+                let typed = engine
+                    .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+                    .unwrap()
+                    .unwrap();
+                let RenderSemanticModel::State(model) = typed.model() else {
+                    panic!("expected typed State model");
+                };
+                assert_eq!(
+                    merman_model::families::state::compat::project(
+                        model,
+                        &merman_model::presentation::compat::CompatJsonMetadata::from(
+                            typed.metadata()
+                        )
+                    )
+                    .unwrap(),
+                    compat.model,
+                    "{source:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_state_composite_token_ids_preserve_nested_identity_across_models() {
+    use merman_model::families::state::StateStatement;
+
+    let engine = MermaidEngine::new();
+    for header in ["stateDiagram", "stateDiagram-v2"] {
+        for newline in ["\n", "\r\n"] {
+            for id in ["A-B", "A:B", "外部-状態:組"] {
+                for separator in [" ", newline] {
+                    for body in ["", "[*] --> Child"] {
+                        let source = format!(
+                            "{header}{newline}state Outer {{{newline}state {id}{separator}{{{newline}\
+                             {body}{newline}}}{newline}}}{newline}"
+                        );
+                        let compat = engine
+                            .parse_diagram_sync(&source, ParseOptions::strict())
+                            .unwrap()
+                            .unwrap();
+                        let composite = &compat.model["states"]["Outer"]["doc"][0];
+                        assert_eq!(composite["id"], id, "{source:?}");
+                        assert_eq!(
+                            composite["doc"].as_array().unwrap().len(),
+                            usize::from(!body.is_empty())
+                        );
+
+                        let semantic = SemanticParser::new().parse_diagram_sync(&source).unwrap();
+                        let SemanticDiagramModel::State(model) = semantic.model else {
+                            panic!("expected canonical State model");
+                        };
+                        let group = model.nodes.iter().find(|node| node.id == id).unwrap();
+                        assert!(group.is_group, "{source:?}");
+                        assert_eq!(group.label, Some(json!(id)));
+                        assert_eq!(group.parent_id.as_deref(), Some("Outer"));
+                        assert_eq!(model.nodes.len(), if body.is_empty() { 2 } else { 4 });
+                        let outer = model
+                            .document
+                            .get(model.states["Outer"].doc.unwrap())
+                            .unwrap();
+                        let StateStatement::State(group_statement) = &outer[0] else {
+                            panic!("expected nested composite declaration");
+                        };
+                        let normalized_source = source.replace("\r\n", "\n");
+                        let start = normalized_source.find(&format!("state {id}")).unwrap()
+                            + "state ".len();
+                        assert_eq!(group_statement.id, id);
+                        assert_eq!(
+                            group_statement.id_span,
+                            Some(SourceSpan::new(start, start + id.len()))
+                        );
+                        if !body.is_empty() {
+                            let start_id = format!("{id}_start");
+                            let start_node =
+                                model.nodes.iter().find(|node| node.id == start_id).unwrap();
+                            assert_eq!(start_node.shape, "stateStart");
+                            assert_eq!(start_node.parent_id.as_deref(), Some(id));
+                            let child = model.nodes.iter().find(|node| node.id == "Child").unwrap();
+                            assert_eq!(child.parent_id.as_deref(), Some(id));
+                            assert_eq!(model.edges.len(), 1);
+                            assert_eq!(model.edges[0].start, start_id);
+                            assert_eq!(model.edges[0].end, "Child");
+                            assert_eq!(composite["doc"][0]["state1"]["id"], start_id);
+                        }
+
+                        let typed = engine
+                            .parse_diagram_for_render_model_sync(&source, ParseOptions::strict())
+                            .unwrap()
+                            .unwrap();
+                        let RenderSemanticModel::State(model) = typed.model() else {
+                            panic!("expected typed State model");
+                        };
+                        assert_eq!(
+                            merman_model::families::state::compat::project(
+                                model,
+                                &merman_model::presentation::compat::CompatJsonMetadata::from(
+                                    typed.metadata()
+                                )
+                            )
+                            .unwrap(),
+                            compat.model,
+                            "{source:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_state_ordinary_transition_ids_keep_their_existing_boundaries() {
+    let engine = MermaidEngine::new();
+    for statement in ["A-B --> C", "A --> B-C"] {
+        let source = format!("stateDiagram-v2\n{statement}\n");
+        assert!(
+            engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .is_err(),
+            "{source:?}"
+        );
+        assert!(SemanticParser::new().parse_diagram_sync(&source).is_err());
+    }
+    let parsed = engine
+        .parse_diagram_sync("stateDiagram-v2\nA-->B:x:y\n", ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["states"].as_object().unwrap().len(), 2);
+    assert_eq!(parsed.model["edges"][0]["start"], "A");
+    assert_eq!(parsed.model["edges"][0]["end"], "B");
+    assert_eq!(parsed.model["edges"][0]["label"], "x:y");
+}
+
+#[test]
+fn parse_state_editor_facts_keep_composite_token_selections_and_alias_payloads() {
+    let engine = MermaidEngine::new();
+    for header in ["stateDiagram", "stateDiagram-v2"] {
+        for newline in ["\n", "\r\n"] {
+            let source = [
+                header,
+                "state Outer {",
+                "state A-B {",
+                "[*] --> Left",
+                "}",
+                "state A:B {",
+                "[*] --> Right",
+                "}",
+                "state 外部-状態:組 {",
+                "Child",
+                "}",
+                "}",
+                "state \"L\" as A:x:y",
+                "A --> Done: continue",
+                "state \"Container\" as Box:x:y {",
+                "Nested",
+                "}",
+                "",
+            ]
+            .join(newline);
+            let closing = format!("}}{newline}");
+            let incomplete = source.strip_suffix(closing.as_str()).unwrap();
+            for (source, completeness) in [
+                (source.as_str(), EditorSemanticCompleteness::Complete),
+                (incomplete, EditorSemanticCompleteness::Recovered),
+            ] {
+                let facts = engine
+                    .parse_editor_semantic_facts_with_type_sync("stateDiagram", source)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(facts.completeness, completeness, "{source:?}");
+                assert_eq!(
+                    facts.diagnostics.is_empty(),
+                    completeness == EditorSemanticCompleteness::Complete,
+                    "{source:?}"
+                );
+                for id in ["Outer", "A-B", "A:B", "外部-状態:組", "Box:x:y"] {
+                    let start = source.find(id).unwrap();
+                    let selection = SourceSpan::new(start, start + id.len());
+                    assert!(
+                        facts.symbols.iter().any(|symbol| {
+                            symbol.name == id
+                                && symbol.role == EditorSemanticRole::Entity
+                                && symbol.selection == selection
+                        }),
+                        "missing composite {id}: {source:?}"
+                    );
+                    assert!(facts.expected_syntax.iter().any(|expected| {
+                        expected.kind == EditorExpectedSyntaxKind::NodeIdentifier
+                            && expected.span == selection
+                    }));
+                }
+                let alias_start = source.find("A:x:y").unwrap();
+                let alias_selection = SourceSpan::new(alias_start, alias_start + 1);
+                assert_eq!(
+                    facts
+                        .symbols
+                        .iter()
+                        .filter(|symbol| {
+                            symbol.name == "A"
+                                && symbol.role == EditorSemanticRole::Entity
+                                && symbol.selection == alias_selection
+                        })
+                        .count(),
+                    1,
+                    "{source:?}"
+                );
+                assert!(facts.expected_syntax.iter().any(|expected| {
+                    expected.kind == EditorExpectedSyntaxKind::NodeIdentifier
+                        && expected.span == alias_selection
+                }));
+                assert!(!facts.expected_syntax.iter().any(|expected| {
+                    expected.kind == EditorExpectedSyntaxKind::NodeIdentifier
+                        && expected.span.start == alias_start
+                        && expected.span.end > alias_selection.end
+                }));
+                let reference_start = source.find("A --> Done").unwrap();
+                assert!(facts.symbols.iter().any(|symbol| {
+                    symbol.name == "A"
+                        && symbol.role == EditorSemanticRole::Reference
+                        && symbol.selection == SourceSpan::new(reference_start, reference_start + 1)
+                }));
+                let label_start = source.find("\"L\"").unwrap() + 1;
+                assert!(facts.symbols.iter().any(|symbol| {
+                    symbol.name == "L"
+                        && symbol.role == EditorSemanticRole::Payload
+                        && symbol.selection == SourceSpan::new(label_start, label_start + 1)
+                }));
+                assert!(!facts.symbols.iter().any(|symbol| {
+                    matches!(
+                        symbol.role,
+                        EditorSemanticRole::Entity | EditorSemanticRole::Reference
+                    ) && matches!(symbol.name.as_str(), "A:x:y" | "A:x" | "x" | "y" | "x:y")
+                }));
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_state_alias_editor_identity_trims_before_colon_suffixes() {
+    let engine = MermaidEngine::new();
+    for newline in ["\n", "\r\n"] {
+        for separator in [" ", "\t", " \t"] {
+            let source = format!(
+                "stateDiagram-v2{newline}state \"L\" as A{separator}:x:y{newline}A --> Done{newline}"
+            );
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                parsed.model["states"]["A"]["descriptions"],
+                json!(["L", "x"])
+            );
+            for recovery in ["", "state Open {\n"] {
+                let input = format!("{source}{recovery}");
+                let facts = engine
+                    .parse_editor_semantic_facts_with_type_sync("stateDiagram", &input)
+                    .unwrap()
+                    .unwrap();
+                let declaration = input.find(&format!("A{separator}:")).unwrap();
+                let reference = input.find("A --> Done").unwrap();
+                let entities = facts
+                    .symbols
+                    .iter()
+                    .filter(|symbol| {
+                        symbol.name == "A" && symbol.role == EditorSemanticRole::Entity
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(entities.len(), 1, "{input:?}");
+                assert_eq!(
+                    entities[0].selection,
+                    SourceSpan::new(declaration, declaration + 1)
+                );
+                assert!(facts.symbols.iter().any(|symbol| {
+                    symbol.name == "A"
+                        && symbol.role == EditorSemanticRole::Reference
+                        && symbol.selection == SourceSpan::new(reference, reference + 1)
+                }));
+                assert!(!facts.symbols.iter().any(|symbol| {
+                    matches!(
+                        symbol.role,
+                        EditorSemanticRole::Entity | EditorSemanticRole::Reference
+                    ) && symbol.name.starts_with('A')
+                        && symbol.name != "A"
+                }));
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_state_render_model_tracks_explicit_composite_direction() {
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(
+            r#"stateDiagram-v2
+state Implicit {
+  A
+}
+state Explicit {
+  direction LR
+  B
+}
+"#,
+            ParseOptions::strict(),
+        )
+        .unwrap()
+        .unwrap();
+    let RenderSemanticModel::State(model) = parsed.model() else {
+        panic!("expected typed state render model");
+    };
+    let node = |id: &str| {
+        model
+            .nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap_or_else(|| panic!("missing state render node {id}"))
+    };
+
+    assert_eq!(node("Implicit").dir.as_deref(), Some("TB"));
+    assert_eq!(node("Implicit").explicit_dir, Some(false));
+    assert_eq!(node("Explicit").dir.as_deref(), Some("LR"));
+    assert_eq!(node("Explicit").explicit_dir, Some(true));
+    assert_eq!(node("A").explicit_dir, None);
+    assert_eq!(node("B").explicit_dir, None);
+}
+
+#[test]
+fn parse_diagram_state_rejects_same_line_multi_word_composite_state_name() {
+    let engine = MermaidEngine::new();
+    let text = r#"stateDiagram-v2
+state Invalid Name {
+  Idle
+}
+"#;
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let Error::DiagramParse { diagnostic, .. } =
+        block_on(engine.parse_diagram(text, ParseOptions::default())).unwrap_err()
+    else {
+        panic!("expected state parse error");
+    };
+    let offset = text.find("Name").unwrap();
+
+    assert!(
+        diagnostic
+            .message()
+            .contains("State name must be a single word")
+    );
+    assert_eq!(
+        diagnostic.span(),
+        Some(SourceSpan::new(offset, offset + "Name".len()))
+    );
+    assert_eq!(diagnostic.span_kind(), ParseDiagnosticSpanKind::Exact);
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "strict malformed State parsing must construct one lexical event tape"
+    );
+
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .expect("malformed State editor parse returns recovery facts")
+        .expect("malformed State editor facts are available");
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "malformed State recovery must reuse one lexical event tape"
+    );
+    assert!(facts.diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind == EditorSemanticDiagnosticKind::ParserRecovery
+            && diagnostic.span == Some(SourceSpan::new(offset, offset + "Name".len()))
+    }));
+}
+
+#[test]
+fn parse_diagram_state_keeps_newline_composite_block_compatibility() {
+    let engine = MermaidEngine::new();
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+state Valid
+{
+  Idle
+}
+"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(res.model["states"]["Valid"]["doc"][0]["id"], json!("Idle"));
+}
+
+#[test]
+fn parse_diagram_state_v2_classdef_class_and_shorthand() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+classDef exampleStyleClass background:#bbb,border:1.5px solid red;
+a --> b:::exampleStyleClass
+class a exampleStyleClass"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["styleClasses"]["exampleStyleClass"]["styles"][0],
+        json!("background:#bbb")
+    );
+    assert_eq!(
+        res.model["styleClasses"]["exampleStyleClass"]["styles"][1],
+        json!("border:1.5px solid red")
+    );
+    assert_eq!(
+        res.model["states"]["a"]["classes"][0],
+        json!("exampleStyleClass")
+    );
+    assert_eq!(
+        res.model["states"]["b"]["classes"][0],
+        json!("exampleStyleClass")
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+classDef exampleStyleClass background:#bbb,border:1px solid red;
+[*]:::exampleStyleClass --> b"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["states"]["root_start"]["classes"][0],
+        json!("exampleStyleClass")
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+classDef exampleStyleClass background:#bbb,border:1px solid red;
+a-->b
+class a,b,c, d, e exampleStyleClass"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    for id in ["a", "b", "c", "d", "e"] {
+        assert_eq!(
+            res.model["states"][id]["classes"][0],
+            json!("exampleStyleClass")
+        );
+    }
+}
+
+#[test]
+fn parse_diagram_state_v2_style_statement_sets_node_styles_and_ignores_comments() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+id1
+id2
+style id1,id2 background:#bbb, font-weight:bold, font-style:italic;"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["nodes"][0]["cssStyles"],
+        json!(["background:#bbb", "font-weight:bold", "font-style:italic"])
+    );
+    assert_eq!(
+        res.model["nodes"][1]["cssStyles"],
+        json!(["background:#bbb", "font-weight:bold", "font-style:italic"])
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+[*] --> Moving
+Moving --> Still
+Moving --> Crash
+state Moving {
+%% comment inside state
+slow  --> fast
+}"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["states"]["Moving"]["doc"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn parse_diagram_state_v2_click_and_href_store_links() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+S1
+click S1 "https://example.com" "Go to Example""#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["links"]["S1"]["url"],
+        json!("https://example.com")
+    );
+    assert_eq!(res.model["links"]["S1"]["tooltip"], json!("Go to Example"));
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+S0
+click S0 "https://example.com/empty" """#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(res.model["links"]["S0"]["tooltip"], json!(""));
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+S2
+click S2 href "https://example.com""#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["links"]["S2"]["url"],
+        json!("https://example.com")
+    );
+    assert_eq!(res.model["links"]["S2"]["tooltip"], json!(""));
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+S3
+click S3 href "jav&#x61;script:alert(1)""#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["links"]["S3"]["url"],
+        json!("jav&ﬂ°x61¶ßscript:alert(1)")
+    );
+}
+
+#[test]
+fn parse_diagram_state_v2_repeated_clicks_preserve_declaration_order() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+S1
+click S1 "https://example.com/first" "First"
+click S1 "https://example.com/last" "Last""#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["links"]["S1"],
+        json!([
+            {
+                "url": "https://example.com/first",
+                "tooltip": "First"
+            },
+            {
+                "url": "https://example.com/last",
+                "tooltip": "Last"
+            }
+        ])
+    );
+}
+
+#[test]
+fn typed_state_links_preserve_declaration_order_and_empty_tooltips() {
+    let parsed = MermaidEngine::new()
+        .parse_diagram_for_render_model_sync(
+            r#"stateDiagram-v2
+S1
+S2
+click S1 "https://example.com/first" "First"
+click S1 "https://example.com/last" ""
+click S2 href "https://example.com/omitted"
+"#,
+            ParseOptions::strict(),
+        )
+        .unwrap()
+        .unwrap();
+    let RenderSemanticModel::State(model) = parsed.model() else {
+        panic!("expected typed state render model");
+    };
+
+    let crate::diagrams::state::StateLinks::Many(repeated) =
+        model.links.get("S1").expect("S1 links")
+    else {
+        panic!("expected repeated S1 links");
+    };
+    assert_eq!(repeated.len(), 2);
+    assert_eq!(repeated[0].url, "https://example.com/first");
+    assert_eq!(repeated[0].tooltip, "First");
+    assert_eq!(repeated[1].url, "https://example.com/last");
+    assert_eq!(repeated[1].tooltip, "");
+
+    let crate::diagrams::state::StateLinks::One(omitted) = model.links.get("S2").expect("S2 link")
+    else {
+        panic!("expected one S2 link");
+    };
+    assert_eq!(omitted.url, "https://example.com/omitted");
+    assert_eq!(omitted.tooltip, "");
+}
+
+#[test]
+fn parse_diagram_state_v2_note_right_of_and_block_note() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+[*] --> A
+note right of A : This is a note"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        res.model["states"]["A"]["note"]["position"],
+        json!("right of")
+    );
+    assert_eq!(
+        res.model["states"]["A"]["note"]["text"],
+        json!("This is a note")
+    );
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+[*] --> A
+note right of A
+  line1
+  line2
+end note"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    let note_text = res.model["states"]["A"]["note"]["text"].as_str().unwrap();
+    assert_eq!(note_text, "line1\n  line2");
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram
+foo: bar
+note "This is a floating note" as N1"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    // Mermaid `@11.12.2` treats floating notes as a no-op in state diagrams.
+    // (See upstream `stateDiagram floating notes` specs.)
+    assert!(res.model["states"].get("N1").is_none());
+}
+
+#[test]
+fn parse_diagram_state_note_closes_only_on_a_dedicated_end_note_line() {
+    let engine = MermaidEngine::new();
+    let text = r#"stateDiagram-v2
+State1
+note right of State1
+  this sentence contains end note as part of the note text
+end note
+State1 --> State2"#;
+
+    let res = block_on(engine.parse_diagram(text, ParseOptions::strict()))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        res.model["states"]["State1"]["note"]["text"],
+        json!("this sentence contains end note as part of the note text")
+    );
+    let relations = res.model["relations"].as_array().unwrap();
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0]["id1"], json!("State1"));
+    assert_eq!(relations[0]["id2"], json!("State2"));
+
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+}
+
+#[test]
+fn parse_diagram_state_v2_getdata_edges_and_note_edges() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+A --> B: hello"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(res.model["edges"][0]["start"], json!("A"));
+    assert_eq!(res.model["edges"][0]["end"], json!("B"));
+    assert_eq!(res.model["edges"][0]["label"], json!("hello"));
+    assert_eq!(res.model["edges"][0]["arrowhead"], json!("normal"));
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+[*] --> A
+note left of A : note text"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    let note_edge = res.model["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["arrowhead"] == json!("none"))
+        .unwrap();
+    assert_eq!(note_edge["classes"], json!("transition note-edge"));
+}
+
+#[test]
+fn parse_diagram_state_v2_uses_neo_arrow_type_when_look_is_neo() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"%%{init: {"look": "neo"}}%%
+stateDiagram-v2
+A --> B: hello"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        res.model["edges"][0]["arrowTypeEnd"],
+        json!("arrow_barb_neo")
+    );
+}
+
+#[test]
+fn parse_diagram_state_v2_sanitizes_edge_labels_like_mermaid_common() {
+    let engine = MermaidEngine::new();
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+A --> B: hello<script>alert(1)</script>world"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+    assert_eq!(res.model["edges"][0]["label"], json!("helloworld"));
+}
+
+#[test]
+fn parse_diagram_state_v2_getdata_dom_id_counter_and_note_padding_match_mermaid() {
+    let engine = MermaidEngine::new();
+
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+A --> B
+note right of A : note text"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    let nodes = res.model["nodes"].as_array().unwrap();
+    let node_a = nodes.iter().find(|n| n["id"] == json!("A")).unwrap();
+    let node_b = nodes.iter().find(|n| n["id"] == json!("B")).unwrap();
+    let note_group = nodes
+        .iter()
+        .find(|n| n["id"] == json!("A----parent"))
+        .unwrap();
+    let note_node = nodes
+        .iter()
+        .find(|n| n["id"] == json!("A----note-1"))
+        .unwrap();
+
+    assert_eq!(node_a["domId"], json!("state-A-1"));
+    assert_eq!(node_b["domId"], json!("state-B-0"));
+    assert_eq!(note_group["domId"], json!("state-A----parent-1"));
+    assert_eq!(note_node["domId"], json!("state-A----note-1"));
+    assert_eq!(note_group["padding"], json!(16));
+    assert_eq!(note_node["padding"], json!(15));
+    assert_eq!(note_node["parentId"], json!("A----parent"));
+}
+
+#[test]
+fn parse_diagram_state_v2_keeps_multiple_note_groups_distinct() {
+    let engine = MermaidEngine::new();
+    let res = block_on(engine.parse_diagram(
+        r#"stateDiagram-v2
+A
+note left of A : left text
+note right of A : right text"#,
+        ParseOptions::default(),
+    ))
+    .unwrap()
+    .unwrap();
+
+    let nodes = res.model["nodes"].as_array().unwrap();
+    let groups: Vec<_> = nodes
+        .iter()
+        .filter(|node| node["shape"] == json!("noteGroup"))
+        .collect();
+    assert_eq!(groups.len(), 2, "each note needs its own group node");
+    assert_ne!(groups[0]["id"], groups[1]["id"]);
+    assert!(nodes.iter().any(|node| node["label"] == json!("left text")));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["label"] == json!("right text"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["position"] == json!("left of"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["position"] == json!("right of"))
+    );
+}
+
+fn deep_state_composite_chain(depth: usize) -> String {
+    let mut input = String::from("stateDiagram-v2\n");
+    for level in 0..depth {
+        input.push_str(&format!("state S{level} {{\n"));
+    }
+    input.push_str("Leaf\n");
+    for _ in 0..depth {
+        input.push_str("}\n");
+    }
+    input
+}
+
+#[test]
+fn state_deep_composite_chain_semantic_and_render_model_use_heap_traversal() {
+    const DEPTH: usize = 1200;
+    let input = deep_state_composite_chain(DEPTH);
+    let engine = MermaidEngine::new();
+
+    let parsed = block_on(engine.parse_diagram(&input, ParseOptions::strict()))
+        .expect("parse ok")
+        .expect("diagram detected");
+    assert_eq!(parsed.meta.diagram_type, "stateDiagram");
+    assert!(parsed.model["states"]["S0"]["doc"].is_array());
+    assert!(
+        parsed.model["nodes"]
+            .as_array()
+            .expect("nodes array")
+            .iter()
+            .any(|node| node["id"] == json!("Leaf"))
+    );
+
+    let parsed = engine
+        .parse_diagram_for_render_model_sync(&input, ParseOptions::strict())
+        .expect("render model parse ok")
+        .expect("diagram detected");
+    assert_eq!(parsed.metadata().diagram_type, "stateDiagram");
+}
+
+#[test]
+fn state_family_entrypoints_construct_one_lexical_event_tape() {
+    let engine = MermaidEngine::new();
+    let input = concat!(
+        "stateDiagram-v2\n",
+        "state \"Waiting\" as Idle\n",
+        "Idle --> Running: starts\n",
+        "classDef active fill:#0f0\n",
+        "class Running active\n",
+    );
+
+    for known_type in [false, true] {
+        crate::editor::test_work::reset();
+        crate::diagrams::state::reset_state_syntax_construction_count();
+        let parsed = if known_type {
+            engine.parse_diagram_with_type_sync("stateDiagram", input, ParseOptions::strict())
+        } else {
+            engine.parse_diagram_sync(input, ParseOptions::strict())
+        }
+        .expect("State JSON parse succeeds")
+        .expect("State JSON parse returns a diagram");
+        assert_eq!(parsed.model["states"]["Idle"]["id"], "Idle");
+        assert_eq!(parsed.model["states"]["Idle"]["descriptions"][0], "Waiting");
+        assert_eq!(parsed.model["relations"][0]["id2"], "Running");
+        assert_eq!(parsed.model["edges"][0]["label"], "starts");
+        assert_eq!(
+            crate::diagrams::state::state_syntax_construction_count(),
+            1,
+            "the State JSON entrypoint must construct one lexical event tape"
+        );
+        assert_eq!(crate::editor::test_work::read(), Default::default());
+
+        crate::editor::test_work::reset();
+        crate::diagrams::state::reset_state_syntax_construction_count();
+        let parsed = if known_type {
+            engine.parse_diagram_for_render_model_with_type_sync(
+                "stateDiagram",
+                input,
+                ParseOptions::strict(),
+            )
+        } else {
+            engine.parse_diagram_for_render_model_sync(input, ParseOptions::strict())
+        }
+        .expect("State typed parse succeeds")
+        .expect("State typed parse returns a diagram");
+        let RenderSemanticModel::State(model) = parsed.model() else {
+            panic!("State typed parse returned another family");
+        };
+        assert_eq!(model.states["Idle"].id, "Idle");
+        assert_eq!(model.states["Idle"].descriptions, ["Waiting"]);
+        assert_eq!(model.relations[0].id2, "Running");
+        assert_eq!(model.edges[0].label, "starts");
+        assert_eq!(
+            crate::diagrams::state::state_syntax_construction_count(),
+            1,
+            "the State typed entrypoint must construct one lexical event tape"
+        );
+        assert_eq!(crate::editor::test_work::read(), Default::default());
+    }
+
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", input)
+        .expect("State editor parse succeeds")
+        .expect("State editor parse returns facts");
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "the State editor entrypoint must construct one lexical event tape"
+    );
+    let idle_start = input.find("Idle").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Idle"
+            && symbol.selection == SourceSpan::new(idle_start, idle_start + "Idle".len())
+    }));
+    let label_start = input.find("starts").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "starts"
+            && symbol.role == EditorSemanticRole::Payload
+            && symbol.selection == SourceSpan::new(label_start, label_start + "starts".len())
+    }));
+    assert!(facts.expected_syntax.iter().any(|expected| {
+        expected.kind == EditorExpectedSyntaxKind::Payload
+            && expected.span.start <= label_start
+            && expected.span.end >= label_start + "starts".len()
+    }));
+    assert_eq!(crate::editor::test_work::read().collections, 1);
+    assert!(crate::editor::test_work::read().symbols > 0);
+    assert!(crate::editor::test_work::read().expected_syntax > 0);
+
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let snapshot = engine.parse_diagram_snapshot_sync(input).unwrap().unwrap();
+    let DiagramParseOutcome::Parsed { model, .. } = snapshot.outcome() else {
+        panic!("State snapshot must retain its canonical model");
+    };
+    assert_eq!(model["states"]["Idle"]["descriptions"][0], "Waiting");
+    assert_eq!(model["edges"][0]["label"], "starts");
+    let ParsedEditorFacts::Available(captured) = snapshot.editor_facts() else {
+        panic!("State snapshot must retain editor facts");
+    };
+    assert_eq!(captured, &facts);
+    assert_eq!(crate::diagrams::state::state_syntax_construction_count(), 1);
+    assert_eq!(crate::editor::test_work::read().collections, 1);
+    assert!(crate::editor::test_work::read().symbols > 0);
+    assert!(crate::editor::test_work::read().expected_syntax > 0);
+}
+
+#[test]
+fn state_combined_projection_constructs_once_and_matches_standalone_entrypoints() {
+    let engine = MermaidEngine::new();
+    let input = concat!(
+        "stateDiagram-v2\n",
+        "accTitle: Lifecycle\n",
+        "accDescr: State transitions\n",
+        "state \"Waiting\" as Idle\n",
+        "Idle --> Running: starts\n",
+        "note right of Running : Active work\n",
+        "classDef active fill:#0f0,border:#333\n",
+        "class Running active\n",
+        "click Running \"https://example.com/run\" \"Run details\"\n",
+    );
+    let standalone = engine
+        .parse_diagram_sync(input, ParseOptions::strict())
+        .expect("standalone State JSON parse succeeds")
+        .expect("standalone State JSON parse returns a diagram");
+    let standalone_editor = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", input)
+        .expect("standalone State editor parse succeeds")
+        .expect("standalone State editor parse returns facts");
+
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let (combined_json, mut combined_editor) = crate::family::test_support::into_result(
+        crate::diagrams::state::parse_state_json_and_editor_facts(
+            input,
+            &crate::diagrams::source_metadata_for_test(&standalone.meta),
+            &crate::OperationControl::new(),
+        ),
+    )
+    .expect("combined State parse succeeds");
+    combined_editor.family_semantics =
+        crate::family::diagram_type_editor_semantics(&standalone.meta.diagram_type)
+            .expect("State has typed editor family semantics");
+
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "one combined State request must construct syntax once"
+    );
+    assert_eq!(
+        combined_json, standalone.model,
+        "State JSON projection drift"
+    );
+    assert_eq!(
+        combined_editor, standalone_editor,
+        "State editor projection drift"
+    );
+}
+
+#[test]
+fn state_typed_render_model_projects_exact_compatibility_json() {
+    let engine = MermaidEngine::new();
+    let input = concat!(
+        "stateDiagram-v2\n",
+        "direction LR\n",
+        "accTitle: Lifecycle\n",
+        "accDescr: State transitions\n",
+        "state \"Waiting\" as Idle\n",
+        "state Running {\n",
+        "  direction LR\n",
+        "  [*] --> Working\n",
+        "  Working --> [*]\n",
+        "}\n",
+        "Idle --> Running: starts\n",
+        "note right of Running : Active work\n",
+        "classDef active fill:#0f0,border:#333\n",
+        "class Running active\n",
+        "click Running \"https://example.com/run\" \"Run details\"\n",
+    );
+    let compat = engine
+        .parse_diagram_sync(input, ParseOptions::strict())
+        .expect("State JSON parse succeeds")
+        .expect("State JSON parse returns a diagram")
+        .model;
+    let typed = engine
+        .parse_diagram_for_render_model_sync(input, ParseOptions::strict())
+        .expect("State typed parse succeeds")
+        .expect("State typed parse returns a diagram");
+    let RenderSemanticModel::State(model) = typed.model() else {
+        panic!("State typed parse returned another family");
+    };
+
+    assert_eq!(
+        merman_model::families::state::compat::project(
+            model,
+            &merman_model::presentation::compat::CompatJsonMetadata::from(typed.metadata())
+        )
+        .unwrap(),
+        compat
+    );
+}
+
+#[test]
+fn parse_state_editor_facts_preserve_parser_state_spans() {
+    let engine = MermaidEngine::new();
+    let text = r#"stateDiagram-v2
+[*] --> Idle
+Idle --> Running
+Idle: Waiting state
+Idle --> Running: starts
+state Running {
+  [*] --> Active
+}
+state "Paused State" as Paused
+note right of Running : Running details
+note "Floating note" as note1
+classDef activeStyle fill:#0f0,border:#333
+class Idle, Running activeStyle
+style Running fill:#f00
+accTitle: Lifecycle chart
+accDescr: Shows state transitions
+click Running "https://example.com/run" "Run details""#;
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+
+    let symbol_at = |name: &str, start: usize| {
+        facts
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name && symbol.selection.start == start)
+            .unwrap_or_else(|| panic!("missing symbol {name} at {start}"))
+    };
+
+    let idle_start = text.find("Idle").unwrap();
+    assert_eq!(
+        symbol_at("Idle", idle_start).selection.end,
+        idle_start + "Idle".len()
+    );
+
+    let running_start = text.find("Running").unwrap();
+    assert_eq!(
+        symbol_at("Running", running_start).selection.end,
+        running_start + "Running".len()
+    );
+
+    let idle_relation_source_start = text.find("Idle --> Running").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Idle"
+            && symbol.detail.as_deref() == Some("state reference")
+            && symbol.selection.start == idle_relation_source_start
+            && symbol.role == EditorSemanticRole::Reference
+    }));
+
+    let running_relation_target_start = text.find("Idle --> Running").unwrap() + "Idle --> ".len();
+    assert_eq!(
+        symbol_at("Running", running_relation_target_start).role,
+        EditorSemanticRole::Entity
+    );
+
+    let repeated_running_target_start =
+        text.find("Idle --> Running: starts").unwrap() + "Idle --> ".len();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Running"
+            && symbol.detail.as_deref() == Some("state reference")
+            && symbol.selection.start == repeated_running_target_start
+            && symbol.role == EditorSemanticRole::Reference
+    }));
+
+    let active_start = text.find("Active").unwrap();
+    assert_eq!(
+        symbol_at("Active", active_start).selection.end,
+        active_start + "Active".len()
+    );
+
+    let paused_start = text.rfind("Paused").unwrap();
+    assert_eq!(
+        symbol_at("Paused", paused_start).selection.end,
+        paused_start + "Paused".len()
+    );
+
+    let display_label = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "Paused State" && symbol.detail.as_deref() == Some("state display label")
+        })
+        .unwrap();
+    assert_eq!(display_label.role, EditorSemanticRole::Payload);
+
+    let state_description = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "Waiting state" && symbol.detail.as_deref() == Some("state description")
+        })
+        .unwrap();
+    assert_eq!(state_description.role, EditorSemanticRole::Payload);
+
+    let relation_label = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "starts" && symbol.detail.as_deref() == Some("state relation label")
+        })
+        .unwrap();
+    assert_eq!(relation_label.role, EditorSemanticRole::Payload);
+
+    let positioned_note = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "Running details" && symbol.detail.as_deref() == Some("state note")
+        })
+        .unwrap();
+    assert_eq!(positioned_note.role, EditorSemanticRole::Payload);
+
+    let floating_note = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "Floating note" && symbol.detail.as_deref() == Some("state note")
+        })
+        .unwrap();
+    assert_eq!(floating_note.role, EditorSemanticRole::Payload);
+    assert!(!facts.symbols.iter().any(|symbol| symbol.name == "note1"));
+
+    let active_style_start = text.find("activeStyle").unwrap();
+    let active_style = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "activeStyle"
+                && symbol.detail.as_deref() == Some("state class definition")
+        })
+        .unwrap();
+    assert_eq!(active_style.role, EditorSemanticRole::ClassDefinition);
+    assert_eq!(active_style.selection.start, active_style_start);
+
+    let idle_class_target = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "Idle" && symbol.detail.as_deref() == Some("state class target")
+        })
+        .unwrap();
+    assert_eq!(idle_class_target.role, EditorSemanticRole::Reference);
+
+    let running_style = facts
+        .symbols
+        .iter()
+        .find(|symbol| {
+            symbol.name == "fill:#f00" && symbol.detail.as_deref() == Some("state style")
+        })
+        .unwrap();
+    assert_eq!(running_style.role, EditorSemanticRole::Payload);
+    assert!(running_style.selection.start > running_style.span.start);
+
+    let acc_title = facts
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Lifecycle chart")
+        .unwrap();
+    assert_eq!(acc_title.role, EditorSemanticRole::Payload);
+    assert_eq!(
+        acc_title.detail.as_deref(),
+        Some("state accessibility title")
+    );
+
+    let acc_descr = facts
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Shows state transitions")
+        .unwrap();
+    assert_eq!(acc_descr.role, EditorSemanticRole::Payload);
+    assert_eq!(
+        acc_descr.detail.as_deref(),
+        Some("state accessibility description")
+    );
+
+    let click_url = facts
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "https://example.com/run")
+        .unwrap();
+    assert_eq!(click_url.role, EditorSemanticRole::Payload);
+    assert_eq!(click_url.detail.as_deref(), Some("state click url"));
+
+    let click_target_start = text.find("click Running").unwrap() + "click ".len();
+    let click_target = symbol_at("Running", click_target_start);
+    assert_eq!(click_target.role, EditorSemanticRole::Reference);
+    assert_eq!(click_target.detail.as_deref(), Some("state click target"));
+
+    let click_tooltip = facts
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == "Run details")
+        .unwrap();
+    assert_eq!(click_tooltip.role, EditorSemanticRole::Payload);
+    assert_eq!(click_tooltip.detail.as_deref(), Some("state click tooltip"));
+}
+
+#[test]
+fn parse_state_editor_facts_record_expected_syntax_spans() {
+    let engine = MermaidEngine::new();
+    let text = concat!(
+        "stateDiagram-v2\n",
+        "state \"Small State\" as namedState\n",
+        "namedState: Waiting state\n",
+        "classDef exampleStyleClass background:#bbb,border:1px solid red\n",
+        "a --> b:::exampleStyleClass\n",
+        "class namedState exampleStyleClass\n",
+        "style namedState fill:#f00\n",
+        "click namedState \"https://example.com/run\" \"Run details\"",
+    );
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::Payload,
+        text,
+        "state \"Small State\" as namedState",
+        "Small State",
+        "state display label payload",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::NodeIdentifier,
+        text,
+        "state \"Small State\" as namedState",
+        "namedState",
+        "state alias node identifier",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::Payload,
+        text,
+        "namedState: Waiting state",
+        "Waiting state",
+        "state description payload",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::ClassName,
+        text,
+        "classDef exampleStyleClass background:#bbb,border:1px solid red",
+        "exampleStyleClass",
+        "state class definition name",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::NodeIdentifier,
+        text,
+        "a --> b:::exampleStyleClass",
+        "b",
+        "state inline class node identifier",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::ClassName,
+        text,
+        "class namedState exampleStyleClass",
+        "exampleStyleClass",
+        "state class name",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::ClassName,
+        text,
+        "a --> b:::exampleStyleClass",
+        "exampleStyleClass",
+        "state inline class name",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::IdList,
+        text,
+        "class namedState exampleStyleClass",
+        "namedState",
+        "state class target list",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::IdList,
+        text,
+        "style namedState fill:#f00",
+        "namedState",
+        "state style target list",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::Payload,
+        text,
+        "style namedState fill:#f00",
+        "fill:#f00",
+        "state style payload",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::NodeIdentifier,
+        text,
+        "click namedState \"https://example.com/run\" \"Run details\"",
+        "namedState",
+        "state click target",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::Payload,
+        text,
+        "click namedState \"https://example.com/run\" \"Run details\"",
+        "https://example.com/run",
+        "state click url",
+    );
+    assert_expected_syntax_covers(
+        &facts,
+        EditorExpectedSyntaxKind::Payload,
+        text,
+        "click namedState \"https://example.com/run\" \"Run details\"",
+        "Run details",
+        "state click tooltip",
+    );
+}
+
+#[test]
+fn state_relations_create_only_the_first_implicit_entity_occurrence() {
+    let engine = MermaidEngine::new();
+    let text = concat!(
+        "stateDiagram-v2\n",
+        "Future --> Known\n",
+        "Known --> Future\n",
+        "state Known\n",
+        "style Later fill:#fff\n",
+        "state Later\n",
+        "click Known \"https://example.com\"\n",
+        "note right of Known : Existing state note\n",
+    );
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+
+    let roles = |name: &str| {
+        facts
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.name == name)
+            .map(|symbol| symbol.role)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        roles("Future"),
+        [EditorSemanticRole::Entity, EditorSemanticRole::Reference]
+    );
+    assert_eq!(
+        roles("Known"),
+        [
+            EditorSemanticRole::Entity,
+            EditorSemanticRole::Reference,
+            EditorSemanticRole::Entity,
+            EditorSemanticRole::Reference,
+            EditorSemanticRole::Reference,
+        ]
+    );
+    assert_eq!(
+        roles("Later"),
+        [EditorSemanticRole::Reference, EditorSemanticRole::Entity]
+    );
+}
+
+#[test]
+fn parse_state_editor_facts_do_not_consume_classdef_names_across_line_endings() {
+    let engine = MermaidEngine::new();
+
+    for line_ending in ["\n", "\r", "\r\n"] {
+        let text = ["stateDiagram-v2", "classDef", "Active --> Idle", ""].join(line_ending);
+        let facts = engine
+            .parse_editor_semantic_facts_with_type_sync("stateDiagram", &text)
+            .unwrap()
+            .expect("state editor facts");
+
+        assert!(
+            !facts.symbols.iter().any(|symbol| {
+                symbol.name == "Active" && symbol.role == EditorSemanticRole::ClassDefinition
+            }),
+            "classDef consumed the next physical line for {line_ending:?}"
+        );
+    }
+}
+
+#[test]
+fn parse_state_editor_facts_recovers_from_incomplete_input() {
+    let engine = MermaidEngine::new();
+    let text = "stateDiagram-v2\nIdle --> Running\nRunning -->";
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert_eq!(facts.diagnostics.len(), 1);
+    let diagnostic = &facts.diagnostics[0];
+    assert!(diagnostic.message.contains("state parser recovered"));
+    assert_eq!(
+        diagnostic.span,
+        Some(SourceSpan::new(text.len(), text.len()))
+    );
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "Idle"));
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "Running"));
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "incomplete State editor recovery must reuse one lexical event tape"
+    );
+    assert_eq!(crate::editor::test_work::read().collections, 1);
+    assert!(crate::editor::test_work::read().symbols > 0);
+    assert_eq!(crate::editor::test_work::read().diagnostics, 1);
+
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let Error::DiagramParse { diagnostic, .. } = engine
+        .parse_diagram_sync(text, ParseOptions::strict())
+        .expect_err("strict State parsing rejects the incomplete relation")
+    else {
+        panic!("incomplete State relation returned a non-parse error");
+    };
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "strict incomplete State parsing must construct one lexical event tape"
+    );
+    assert_eq!(
+        diagnostic.span(),
+        Some(SourceSpan::new(text.len(), text.len()))
+    );
+    assert_eq!(
+        diagnostic.span_kind(),
+        ParseDiagnosticSpanKind::InsertionPoint
+    );
+    assert_eq!(crate::editor::test_work::read(), Default::default());
+
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let error = engine
+        .parse_diagram_for_render_model_sync(text, ParseOptions::strict())
+        .unwrap_err();
+    let Error::DiagramParse { diagnostic, .. } = error else {
+        panic!("incomplete typed State parsing must return its original parse error");
+    };
+    assert_eq!(
+        diagnostic.span(),
+        Some(SourceSpan::new(text.len(), text.len()))
+    );
+    assert_eq!(
+        diagnostic.span_kind(),
+        ParseDiagnosticSpanKind::InsertionPoint
+    );
+    assert_eq!(crate::diagrams::state::state_syntax_construction_count(), 1);
+    assert_eq!(crate::editor::test_work::read(), Default::default());
+
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let snapshot = engine.parse_diagram_snapshot_sync(text).unwrap().unwrap();
+    assert!(matches!(snapshot.outcome(), DiagramParseOutcome::Failed(_)));
+    let ParsedEditorFacts::Available(captured) = snapshot.editor_facts() else {
+        panic!("State grammar failure must retain requested recovery facts");
+    };
+    assert_eq!(captured, &facts);
+    assert_eq!(crate::diagrams::state::state_syntax_construction_count(), 1);
+    assert_eq!(crate::editor::test_work::read().collections, 1);
+    assert!(crate::editor::test_work::read().symbols > 0);
+    assert_eq!(crate::editor::test_work::read().diagnostics, 1);
+}
+
+#[test]
+fn state_group_description_failure_retains_requested_facts_without_discarded_editor_work() {
+    let engine = MermaidEngine::new();
+    let text = concat!(
+        "stateDiagram-v2\nstate Group {\nChild\n}\n",
+        "Group: first\nGroup: second\n",
+    );
+    crate::editor::test_work::reset();
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let snapshot = engine.parse_diagram_snapshot_sync(text).unwrap().unwrap();
+    let DiagramParseOutcome::Failed(error) = snapshot.outcome() else {
+        panic!("multiple group descriptions must fail semantic validation");
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("Group nodes can only have label")
+    );
+    let ParsedEditorFacts::Available(facts) = snapshot.editor_facts() else {
+        panic!("State semantic failure must retain requested facts");
+    };
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    let child_start = text.find("Child").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Child"
+            && symbol.selection == SourceSpan::new(child_start, child_start + "Child".len())
+    }));
+    assert!(
+        facts.symbols.iter().any(|symbol| {
+            symbol.name == "second" && symbol.role == EditorSemanticRole::Payload
+        })
+    );
+    assert!(facts.diagnostics.is_empty());
+    assert_eq!(crate::diagrams::state::state_syntax_construction_count(), 1);
+    assert_eq!(crate::editor::test_work::read().collections, 1);
+    assert!(crate::editor::test_work::read().symbols > 0);
+    assert_eq!(crate::editor::test_work::read().diagnostics, 0);
+
+    for typed in [false, true] {
+        crate::editor::test_work::reset();
+        crate::diagrams::state::reset_state_syntax_construction_count();
+        let omitted_error = if typed {
+            engine
+                .parse_diagram_for_render_model_sync(text, ParseOptions::strict())
+                .unwrap_err()
+        } else {
+            engine
+                .parse_diagram_sync(text, ParseOptions::strict())
+                .unwrap_err()
+        };
+        assert_eq!(omitted_error.to_string(), error.to_string());
+        assert_eq!(crate::diagrams::state::state_syntax_construction_count(), 1);
+        assert_eq!(crate::editor::test_work::read(), Default::default());
+    }
+}
+
+#[test]
+fn parse_state_editor_facts_stop_after_non_advancing_lexer_error() {
+    let engine = MermaidEngine::new();
+    let text = "stateDiagram-v2\nstate {\nIdle --> Running\n";
+    crate::diagrams::state::reset_state_syntax_construction_count();
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", text)
+        .unwrap()
+        .expect("state editor facts");
+
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Recovered);
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("state parser recovered"))
+    );
+    assert_eq!(
+        crate::diagrams::state::state_syntax_construction_count(),
+        1,
+        "a non-advancing State lexer error must terminate the one shared event tape"
+    );
+}
+
+fn assert_expected_syntax_covers(
+    facts: &EditorSemanticFacts,
+    kind: EditorExpectedSyntaxKind,
+    text: &str,
+    marker: &str,
+    target: &str,
+    label: &str,
+) {
+    let marker_start = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing {label} source text"));
+    let target_start = text[marker_start..]
+        .find(target)
+        .map(|offset| marker_start + offset)
+        .unwrap_or_else(|| panic!("missing {label} target"));
+    let end = target_start + target.len();
+    assert!(
+        facts.expected_syntax.iter().any(|expected| {
+            expected.kind == kind && expected.span.start <= target_start && expected.span.end >= end
+        }),
+        "missing {label}"
+    );
+}
+
+#[test]
+fn parse_diagram_state_direction_name_is_not_a_direction_statement() {
+    let engine = MermaidEngine::new();
+    for source in [
+        "stateDiagram-v2\ndirection\n",
+        "stateDiagram-v2\ndirection --> Done\n",
+    ] {
+        let parsed = engine
+            .parse_diagram_sync(source, ParseOptions::default())
+            .unwrap()
+            .unwrap();
+        assert!(
+            parsed.model["states"].get("direction").is_some(),
+            "{source}"
+        );
+    }
+    for (statement, expected) in [
+        ("direction lrignored", "LR"),
+        ("prefixdirection BT", "BT"),
+        ("direction LR direction TB", "TB"),
+    ] {
+        let source = format!("stateDiagram-v2\n{statement}\nA --> B\n");
+        let parsed = engine
+            .parse_diagram_sync(&source, ParseOptions::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.model["direction"], expected, "{source}");
+    }
+}
+
+#[test]
+fn parse_diagram_state_direction_does_not_hide_prior_initial_tokens() {
+    let engine = MermaidEngine::new();
+    for statement in [
+        r#"click A href "https://example.test/direction LR""#,
+        r#"click A "https://example.test" "direction LR""#,
+        r#""direction LR" as A"#,
+        r#"href "direction LR""#,
+        "default direction LR",
+    ] {
+        let source = format!("stateDiagram-v2\nA\n{statement}\n");
+        assert!(
+            engine
+                .parse_diagram_sync(&source, ParseOptions::default())
+                .is_err(),
+            "{source}"
+        );
+    }
+    // The STATE introducer has lower lexer priority than a whole-line direction.
+    let source = "stateDiagram-v2\nstate \"direction LR\" as A\n";
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["direction"], "LR");
+    assert!(parsed.model["states"].get("A").is_none());
+}
+
+#[test]
+fn parse_diagram_state_struct_directives_precede_greedy_direction_rules() {
+    let engine = MermaidEngine::new();
+    for (statement, kind, id, field, value) in [
+        (
+            r#"state "direction LR" as Inner"#,
+            "state",
+            "Inner",
+            "description",
+            "direction LR",
+        ),
+        (
+            "classDef custom fill:direction LR",
+            "classDef",
+            "custom",
+            "classes",
+            "fill:direction LR",
+        ),
+        (
+            "style Inner fill:direction LR",
+            "style",
+            "Inner",
+            "styleClass",
+            "fill:direction LR",
+        ),
+        (
+            "class Inner direction LR",
+            "applyClass",
+            "Inner",
+            "styleClass",
+            "direction LR",
+        ),
+    ] {
+        let source = format!("stateDiagram-v2\nstate Outer {{\n{statement}\n}}\n");
+        let parsed = engine
+            .parse_diagram_sync(&source, ParseOptions::strict())
+            .unwrap()
+            .unwrap();
+        let statement = &parsed.model["states"]["Outer"]["doc"][0];
+        assert_eq!(statement["stmt"], kind, "{source}");
+        assert_eq!(statement["id"], id, "{source}");
+        assert_eq!(statement[field], value, "{source}");
+    }
+    // NOTE remains lower priority than directions in the upstream struct lexer.
+    let source = "stateDiagram-v2\nstate Outer {\nnote \"direction LR\" as N\n}\n";
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        parsed.model["states"]["Outer"]["doc"][0],
+        json!({"stmt": "dir", "value": "LR"})
+    );
+}
+
+#[test]
+fn parse_state_editor_struct_state_label_preserves_entity_selection() {
+    let engine = MermaidEngine::new();
+    let source = "stateDiagram-v2\nstate Outer {\nstate \"direction LR\" as Inner\n}\n";
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", source)
+        .unwrap()
+        .unwrap();
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    let start = source.find("Inner").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| symbol.name == "Inner"
+        && symbol.selection == SourceSpan::new(start, start + "Inner".len())));
+    assert!(
+        !facts
+            .expected_syntax
+            .iter()
+            .any(|expected| expected.kind == EditorExpectedSyntaxKind::CardinalDirectionValue)
+    );
+}
+
+#[test]
+fn parse_diagram_state_initial_direction_uses_raw_cursor() {
+    let engine = MermaidEngine::new();
+    for prefix in ["  ", "\t", "\u{00a0}", "\u{feff}"] {
+        for statement in [
+            r#"click A href "direction LR""#,
+            "default direction LR",
+            r#""direction LR" as Hidden"#,
+            "# direction LR",
+            "accTitle: direction LR",
+        ] {
+            let source = format!("stateDiagram-v2\nA\n{prefix}{statement}\n");
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::default())
+                .unwrap()
+                .unwrap();
+            assert_eq!(parsed.model["direction"], "LR", "{source}");
+            assert!(parsed.model["states"].get("A").is_some(), "{source}");
+            assert!(parsed.model["states"].get("Hidden").is_none(), "{source}");
+            let facts = engine
+                .parse_editor_semantic_facts_with_type_sync("stateDiagram", &source)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                facts.completeness,
+                EditorSemanticCompleteness::Complete,
+                "{source}"
+            );
+            assert!(
+                !facts.symbols.iter().any(|symbol| symbol.name == "Hidden"),
+                "{source}"
+            );
+            let selected = facts
+                .expected_syntax
+                .iter()
+                .find(|item| item.kind == EditorExpectedSyntaxKind::CardinalDirectionValue)
+                .unwrap();
+            let start = source.rfind("LR").unwrap();
+            assert_eq!(selected.span, SourceSpan::new(start, start + 2), "{source}");
+        }
+    }
+    // The header owns its whitespace suffix, including the first declaration's indent.
+    assert!(
+        engine
+            .parse_diagram_sync(
+                "stateDiagram-v2\n  default direction LR\n",
+                ParseOptions::default()
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn parse_diagram_state_struct_whitespace_and_comments_precede_direction() {
+    let engine = MermaidEngine::new();
+    let source =
+        "stateDiagram-v2\nstate Outer {\n  # direction LR\n  state \"direction LR\" as Inner\n}\n";
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["direction"], "TB");
+    assert_eq!(parsed.model["states"]["Outer"]["doc"][0]["id"], "Inner");
+}
+
+#[test]
+fn parse_diagram_state_accessibility_requires_complete_prefix() {
+    let engine = MermaidEngine::new();
+    for name in ["accTitle", "accDescr"] {
+        let source = format!("stateDiagram-v2\n{name}\n");
+        let parsed = engine
+            .parse_diagram_sync(&source, ParseOptions::default())
+            .unwrap()
+            .unwrap();
+        assert!(parsed.model["states"].get(name).is_some(), "{source}");
+        let facts = engine
+            .parse_editor_semantic_facts_with_type_sync("stateDiagram", &source)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            facts.completeness,
+            EditorSemanticCompleteness::Complete,
+            "{source}"
+        );
+        let start = source.find(name).unwrap();
+        assert!(
+            facts.symbols.iter().any(|symbol| symbol.name == name
+                && symbol.selection == SourceSpan::new(start, start + name.len())),
+            "{source}"
+        );
+    }
+    let source = "stateDiagram-v2\naccDescr nonsense direction LR: label\n";
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["direction"], "LR");
+    assert!(parsed.model["accDescr"].is_null());
+    for (keyword, field) in [("accTitle", "accTitle"), ("accDescr", "accDescr")] {
+        for (before_colon, after_colon) in [("\u{feff}", "\u{feff}"), ("", "\n"), ("\n", " ")] {
+            let source = format!("stateDiagram-v2\n{keyword}{before_colon}:{after_colon}Heading\n");
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::default())
+                .unwrap()
+                .unwrap();
+            assert_eq!(parsed.model[field], "Heading", "{source}");
+            assert!(parsed.model["states"].get("Heading").is_none(), "{source}");
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_accessibility_multiline_uses_ecmascript_trim() {
+    let engine = MermaidEngine::new();
+    for (body, expected) in [
+        ("\u{feff}Heading\u{feff}", "Heading"),
+        ("\u{0085}Heading\u{0085}", "\u{0085}Heading\u{0085}"),
+    ] {
+        let source = format!("stateDiagram-v2\naccDescr {{{body}}}\nA\n");
+        let parsed = engine
+            .parse_diagram_sync(&source, ParseOptions::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.model["accDescr"], expected, "{source}");
+    }
+}
+
+#[test]
+fn parse_diagram_state_unterminated_accessibility_block_keeps_eof_assignment() {
+    let engine = MermaidEngine::new();
+    let source = "stateDiagram-v2\naccDescr: previous\naccDescr { unclosed\n";
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["accDescr"], "");
+}
+
+#[test]
+fn parse_diagram_state_alias_inline_comments_preserve_identity() {
+    let engine = MermaidEngine::new();
+    for newline in ["\n", "\r\n"] {
+        for comment in [" %% keep { this alias", "%%keep this alias"] {
+            let source = format!(
+                "stateDiagram-v2{newline}\
+                 state \"Ready %% label\" as Ready{comment}{newline}\
+                 Ready --> Done: finish{newline}"
+            );
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            let states = parsed.model["states"].as_object().unwrap();
+            assert_eq!(states.len(), 2, "{source}");
+            assert_eq!(states["Ready"]["descriptions"], json!(["Ready %% label"]));
+            assert!(states.contains_key("Done"));
+            let nodes = parsed.model["nodes"].as_array().unwrap();
+            assert_eq!(nodes.len(), 2);
+            let ready = nodes.iter().find(|node| node["id"] == "Ready").unwrap();
+            assert_eq!(ready["label"], "Ready %% label");
+            let edges = parsed.model["edges"].as_array().unwrap();
+            assert_eq!(edges.len(), 1);
+            assert_eq!(edges[0]["start"], "Ready");
+            assert_eq!(edges[0]["end"], "Done");
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_empty_alias_preserves_upstream_identity_before_a_comment() {
+    let engine = MermaidEngine::new();
+    for tail in ["", "   ", " %% comment", "\u{00a0}%% comment"] {
+        for ending in ["", "\n"] {
+            let source = format!("stateDiagram-v2\nstate \"Label\" as {tail}{ending}");
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            assert_eq!(parsed.model["states"][""]["descriptions"], json!(["Label"]));
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_special_markers_accept_trailing_comments() {
+    let engine = MermaidEngine::new();
+    for (open, close) in [("<<", ">>"), ("[[", "]]")] {
+        for newline in ["\n", "\r\n"] {
+            let source = format!(
+                "stateDiagram-v2{newline}\
+                 state Gate {open}choice{close}%% decision{newline}\
+                 state Split {open}fork{close} %% parallel start{newline}\
+                 state Merge {open}join{close} # parallel end{newline}\
+                 Gate --> Split: yes{newline}\
+                 Split --> Merge{newline}"
+            );
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            let states = parsed.model["states"].as_object().unwrap();
+            let nodes = parsed.model["nodes"].as_array().unwrap();
+            assert_eq!(states.len(), 3, "{source}");
+            assert_eq!(nodes.len(), 3, "{source}");
+            for (id, ty) in [("Gate", "choice"), ("Split", "fork"), ("Merge", "join")] {
+                assert_eq!(states[id]["type"], ty, "{source}");
+                let node = nodes.iter().find(|node| node["id"] == id).unwrap();
+                assert_eq!(node["shape"], ty, "{source}");
+            }
+            let edges = parsed.model["edges"].as_array().unwrap();
+            assert_eq!(edges.len(), 2);
+            assert_eq!(edges[0]["start"], "Gate");
+            assert_eq!(edges[0]["end"], "Split");
+            assert_eq!(edges[1]["start"], "Split");
+            assert_eq!(edges[1]["end"], "Merge");
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_note_terminator_comments_preserve_body_and_following_edges() {
+    let engine = MermaidEngine::new();
+    for newline in ["\n", "\r\n"] {
+        for comment in [
+            " %% close the note",
+            "%%close the note",
+            " # close the note",
+        ] {
+            let source = [
+                "stateDiagram-v2",
+                "A --> B",
+                "note right of A",
+                "  this sentence contains end note %% literal text",
+                "  another %% literal line",
+                &format!("end note{comment}"),
+                "B --> C: continue %% literal label",
+                "",
+            ]
+            .join(newline);
+            let parsed = engine
+                .parse_diagram_sync(&source, ParseOptions::strict())
+                .unwrap()
+                .unwrap();
+            let note_text =
+                "this sentence contains end note %% literal text\n  another %% literal line";
+            assert_eq!(parsed.model["states"]["A"]["note"]["text"], note_text);
+            let nodes = parsed.model["nodes"].as_array().unwrap();
+            assert!(
+                nodes
+                    .iter()
+                    .any(|node| { node["shape"] == "note" && node["label"] == note_text })
+            );
+            let relations = parsed.model["relations"].as_array().unwrap();
+            assert_eq!(relations.len(), 2);
+            assert_eq!(relations[0]["id1"], "A");
+            assert_eq!(relations[0]["id2"], "B");
+            assert_eq!(relations[1]["id1"], "B");
+            assert_eq!(relations[1]["id2"], "C");
+            let edges = parsed.model["edges"].as_array().unwrap();
+            assert_eq!(edges.len(), 3);
+            assert!(edges.iter().any(|edge| {
+                edge["start"] == "B"
+                    && edge["end"] == "C"
+                    && edge["label"] == "continue %% literal label"
+            }));
+            assert!(edges.iter().any(|edge| {
+                edge["classes"] == "transition note-edge" && edge["arrowhead"] == "none"
+            }));
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_composite_alias_keeps_literal_colon_id() {
+    let engine = MermaidEngine::new();
+    for body in ["", "\n  A --> B\n"] {
+        let source = format!("stateDiagram-v2\nstate \"Container\" as Box:tag {{{body}}}\n");
+        let parsed = engine
+            .parse_diagram_sync(&source, ParseOptions::strict())
+            .unwrap()
+            .unwrap();
+        let states = parsed.model["states"].as_object().unwrap();
+        assert!(states.contains_key("Box:tag"), "{source}");
+        assert!(!states.contains_key("Box"), "{source}");
+        assert_eq!(states["Box:tag"]["descriptions"], json!(["Container"]));
+        let doc = states["Box:tag"]["doc"].as_array().unwrap();
+        let nodes = parsed.model["nodes"].as_array().unwrap();
+        let group = nodes.iter().find(|node| node["id"] == "Box:tag").unwrap();
+        assert_eq!(group["label"], "Container");
+        assert_eq!(group["isGroup"], true);
+        if body.is_empty() {
+            assert!(doc.is_empty());
+            assert_eq!(nodes.len(), 1);
+        } else {
+            assert_eq!(doc.len(), 1);
+            assert_eq!(doc[0]["state1"]["id"], "A");
+            assert_eq!(doc[0]["state2"]["id"], "B");
+            assert_eq!(nodes.len(), 3);
+            for id in ["A", "B"] {
+                let child = nodes.iter().find(|node| node["id"] == id).unwrap();
+                assert_eq!(child["parentId"], "Box:tag");
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_diagram_state_nested_accessibility_keywords_are_ordinary_states() {
+    let engine = MermaidEngine::new();
+    let source = concat!(
+        "stateDiagram-v2\n",
+        "accTitle: Initial title\n",
+        "accDescr: Root description\n",
+        "state Outer {\n",
+        "  state Inner {\n",
+        "    accTitle: Nested title\n",
+        "    accDescr: Nested description\n",
+        "    accTitle --> accDescr\n",
+        "  }\n",
+        "}\n",
+        "accTitle: Root title\n",
+    );
+    let parsed = engine
+        .parse_diagram_sync(source, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.model["accTitle"], "Root title");
+    assert_eq!(parsed.model["accDescr"], "Root description");
+    let doc = parsed.model["states"]["Outer"]["doc"][0]["doc"]
+        .as_array()
+        .unwrap();
+    assert_eq!(doc.len(), 3);
+    let nodes = parsed.model["nodes"].as_array().unwrap();
+    assert_eq!(nodes.len(), 4);
+    for (index, id, label) in [
+        (0, "accTitle", "Nested title"),
+        (1, "accDescr", "Nested description"),
+    ] {
+        assert_eq!(doc[index]["stmt"], "state");
+        assert_eq!(doc[index]["id"], id);
+        assert_eq!(doc[index]["type"], "default");
+        assert_eq!(doc[index]["description"], label);
+        let node = nodes.iter().find(|node| node["id"] == id).unwrap();
+        assert_eq!(node["label"], label);
+        assert_eq!(node["parentId"], "Inner");
+    }
+    let edges = parsed.model["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0]["start"], "accTitle");
+    assert_eq!(edges[0]["end"], "accDescr");
+}
+
+#[test]
+fn parse_diagram_state_comment_markers_remain_literal_in_payloads() {
+    let source = concat!(
+        "stateDiagram-v2\n",
+        "state \"quoted %% label\" as Ready %% ignored comment\n",
+        "Ready: state %% description\n",
+        "Ready --> Done: edge %% label\n",
+        "note right of Done: inline %% note\n",
+        "accTitle: title %% text\n",
+        "accDescr { multiline %% description }\n",
+    );
+    let parsed = MermaidEngine::new()
+        .parse_diagram_sync(source, ParseOptions::strict())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        parsed.model["states"]["Ready"]["descriptions"],
+        json!(["quoted %% label", "state %% description"])
+    );
+    assert_eq!(
+        parsed.model["relations"][0]["relationTitle"],
+        "edge %% label"
+    );
+    assert_eq!(
+        parsed.model["states"]["Done"]["note"]["text"],
+        "inline %% note"
+    );
+    assert_eq!(parsed.model["accTitle"], "title %% text");
+    assert_eq!(parsed.model["accDescr"], "multiline %% description");
+}
+
+#[test]
+fn parse_state_editor_facts_preserve_selections_after_inline_comments() {
+    let engine = MermaidEngine::new();
+    let source = concat!(
+        "stateDiagram-v2\r\n",
+        "accTitle: Root title\r\n",
+        "accDescr: Root description\r\n",
+        "state \"準備 %% label\" as Ready %% ignored alias {\r\n",
+        "state Gate <<choice>> %% ignored choice\r\n",
+        "state Split [[fork]] %% ignored fork\r\n",
+        "state Merge <<join>> %% ignored join\r\n",
+        "state \"Container\" as Box:tag {\r\n",
+        "  accTitle: Nested title\r\n",
+        "  accDescr: Nested description\r\n",
+        "  note right of Ready\r\n",
+        "    body %% literal\r\n",
+        "  end note %% ignored terminator\r\n",
+        "  Ready --> Done: edge %% literal\r\n",
+        "}\r\n",
+    );
+    let facts = engine
+        .parse_editor_semantic_facts_with_type_sync("stateDiagram", source)
+        .unwrap()
+        .unwrap();
+    assert_eq!(facts.completeness, EditorSemanticCompleteness::Complete);
+    assert!(facts.diagnostics.is_empty());
+    for (name, marker) in [
+        ("Ready", "Ready %% ignored alias"),
+        ("Gate", "Gate <<choice>>"),
+        ("Split", "Split [[fork]]"),
+        ("Merge", "Merge <<join>>"),
+        ("Box:tag", "Box:tag {"),
+        ("accTitle", "accTitle: Nested title"),
+        ("accDescr", "accDescr: Nested description"),
+        ("Done", "Done: edge"),
+    ] {
+        let start = source.find(marker).unwrap();
+        assert!(
+            facts.symbols.iter().any(|symbol| {
+                symbol.name == name
+                    && symbol.role == EditorSemanticRole::Entity
+                    && symbol.selection == SourceSpan::new(start, start + name.len())
+            }),
+            "missing entity {name}"
+        );
+    }
+    let reference_start = source.find("Ready --> Done").unwrap();
+    assert!(facts.symbols.iter().any(|symbol| {
+        symbol.name == "Ready"
+            && symbol.role == EditorSemanticRole::Reference
+            && symbol.selection == SourceSpan::new(reference_start, reference_start + "Ready".len())
+    }));
+    for (name, detail) in [
+        ("準備 %% label", "state display label"),
+        ("body %% literal", "state note"),
+        ("edge %% literal", "state relation label"),
+        ("Nested title", "state description"),
+        ("Nested description", "state description"),
+        ("Root title", "state accessibility title"),
+        ("Root description", "state accessibility description"),
+    ] {
+        assert!(
+            facts.symbols.iter().any(|symbol| {
+                symbol.name == name
+                    && symbol.role == EditorSemanticRole::Payload
+                    && symbol.detail.as_deref() == Some(detail)
+                    && source.get(symbol.selection.start..symbol.selection.end) == Some(name)
+            }),
+            "missing payload {name}"
+        );
+    }
+    assert!(
+        !facts
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name.contains("ignored"))
+    );
+}
