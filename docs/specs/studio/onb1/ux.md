@@ -14,7 +14,7 @@ About your blog, What you use.
 | Id | Name (`area.<id>`) | One line (`area.<id>About`) | Turned on by | What it holds in Studio |
 | --- | --- | --- | --- | --- |
 | `pages` | Pages | Pages that aren't posts, like About or Contact. | technical, trade, teaching, research, docs | Pages, a page |
-| `collections` | Collections | Posts gathered into a series. | technical, recipes, teaching, podcast, docs, personal | Collections, a collection |
+| `collections` | Collections | Posts you group together, like a series. | technical, recipes, teaching, podcast, docs, personal | Collections, a collection |
 | `recipes` | Recipes | Recipe boxes for ingredients, steps and times. | recipes | Write's "A recipe", the recipe-or-story question, Find's "Write a new recipe", Home's recipe notes |
 | `trade` | Your business | Services, reviews, jobs, requests for a price and business facts. | trade | New job, Services, Reviews, Business, Requests, Reminders, Share this job, Write's "A job", Home's ready list and jobs, the add menu's hours and contact |
 | `seasonal` | Seasons and holidays | Decorations, greeting cards and gifts for the holidays. | seasons: Yes | Decorations, Cards, Gifts, Find's "Put a look up now", Home's card line |
@@ -26,7 +26,7 @@ About your blog, What you use.
 | `together` | Writing together | Writing one post with other people. | together: A few people | Writing together |
 
 **In use** (server, nothing stored): pages (any page), collections (any series), recipes (a post
-with the recipe kind), trade (as `meta.siteUses.trade`), seasonal (seasons on, decorations chosen,
+with the recipe kind), trade (as `meta.siteUses.trade`, or the quote form set up), seasonal (seasons on, decorations chosen,
 greeting cards or gifts set up), sharing (accounts set up, anything shared, Pinterest on, a
 cross-posting target), readers (comments or the visitor counter on), research (as
 `siteUses.research`, or readings), teaching (a reading path, or a post with a question for
@@ -157,8 +157,8 @@ already saved.
 | State | Words |
 | --- | --- |
 | Applying | `welcome.applying` "Changing your blog…" (button loading) |
-| Applied | the card says `welcome.applied` "Done. Your blog will show it after the next update." (role status); its button goes |
-| File changed (409 `stale`) | `welcome.suggestStale` "Your blog's settings changed a moment ago. Here's the change again; press Do this if it's still right." (refetched) |
+| Applied | the card says `welcome.applied` "Done. Readers will see it after the next update." (role status); its button goes |
+| File changed (409 `stale`) | `welcome.suggestStale` "The settings of {product} changed a moment ago. Here's the change again; press Do this if it's still right." (refetched) |
 | Failure | `welcome.suggestFailed` "That wasn't changed. Nothing else was touched." + details |
 | None to suggest | the screen is passed over |
 
@@ -174,7 +174,7 @@ Declining is simply **Next**: nothing is written.
 | stays private.                           |
 | One of them is always a true story from  |  welcome.voiceStory
 | your life.                               |
-| (You have 2 pieces already. Add more?)   |  welcome.voiceHas ({n}), when samples > 0
+| (You've written 2 already. Add more?)   |  welcome.voiceHas ({n}) / welcome.voiceHasOne, when there are any |
 |==========================================|
 | No thanks    Later          [ Start ]    |  welcome.voiceNo / welcome.voiceLater / welcome.voiceStart
 +------------------------------------------+
@@ -217,8 +217,8 @@ the address asked for. Failure: `area.turnOnFailed` "It wasn't turned on. Try ag
 | [toggle] Show everything                 |  area.everything / area.everythingAbout
 | Recipes                         [on ]    |  toggle-switch per area: label = name,
 | Recipe boxes for ingredients...          |  description = one line
-| Pages                           [on, ⊘]  |  in use: on and disabled, description
-| Your blog uses this.                     |  area.inUse
+| Pages                         [Shown]    |  in use: no switch, a badge, description
+| In use on your blog, so it stays.        |  area.inUse
 | ...                                      |
 | [Ask me the questions again]             |  area.askAgain → #/welcome
 | Always here: writing, posts, ...         |  welcome.always

@@ -199,7 +199,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `area.code` | her | Code and diagrams | none | 40 |
 | `area.codeAbout` | her | Code examples, diagrams, and code readers can run. | none | 100 |
 | `area.collections` | her | Collections | none | 40 |
-| `area.collectionsAbout` | her | Posts gathered into a series. | none | 58 |
+| `area.collectionsAbout` | her | Posts you group together, like a series. | none | 80 |
 | `area.everything` | her | Show everything | none | 40 |
 | `area.everythingAbout` | her | Every tool, whatever you choose below. | none | 76 |
 | `area.everythingOn` | her | Everything shows while this is on. Your choices below are kept. | none | 126 |

@@ -38,3 +38,10 @@ line says what was decided and why in one sentence.
     `openblog.json`: answers are per login and never part of the site's settings.
 15. **A practice run applies answers to the window only**, so Mikey sees the effect while
     rehearsing as her and nothing of hers is decided by him.
+
+## Sign-off (`studio-stakeholder`)
+
+Walked the brief's finish line against `qa.md`, `review-grammi.md` and `review-mikey.md`: items 1–9
+are met by the tests and reviews named there. **Ship.** Follow-ups: a no-signal browser test for
+saving answers; areas for audio episodes and a documentation editor when Studio has those screens;
+marking a story from a piece's own page.

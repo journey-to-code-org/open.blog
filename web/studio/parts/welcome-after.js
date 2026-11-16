@@ -25,13 +25,15 @@ function summary(context, frame) {
   const line = (id, shown) => {
     const name = areaName(id);
     const reason = result.reasons[id];
-    const change = reason.question ? h("a", { class: "studio-more-link", href: welcomeHash(reason.question, answers), text: say("welcome.change") }) : null;
+    const change = reason.question ? h("a", { class: "studio-welcome-change-link", href: welcomeHash(reason.question, answers), text: say("welcome.change") }) : null;
     if (change) change.setAttribute("aria-label", say("welcome.changeName", { area: name }));
     return h("li", { class: "studio-welcome-line" },
-      h("span", { "aria-hidden": "true", text: shown ? "✓ " : "– " }),
-      h("span", { class: "studio-visually-hidden", text: `${shown ? say("welcome.markShown") : say("welcome.markTucked")}: ` }),
-      h("strong", { text: name }), " ",
-      h("span", { class: "studio-help", text: reasonText(reason, answers) }), " ", change);
+      h("span", { class: "studio-welcome-line-text" },
+        h("span", { "aria-hidden": "true", text: shown ? "✓ " : "– " }),
+        h("span", { class: "studio-visually-hidden", text: `${shown ? say("welcome.markShown") : say("welcome.markTucked")}: ` }),
+        h("strong", { text: name }), " ",
+        h("span", { class: "studio-help", text: reasonText(reason, answers) })),
+      change);
   };
   const shown = AREA_IDS.filter((id) => result.shown.includes(id));
   const tucked = AREA_IDS.filter((id) => result.hidden.includes(id));

@@ -178,7 +178,7 @@ The [command reference](cli-reference.md) lists every command and option. It is 
 `openblog help`, so it always matches the binary. The ones you use most:
 
 ```
-openblog init [dir] [--github-pages]    Create a new blog (--starter trade for a trade site)
+openblog init [dir] [--github-pages]    Create a new blog (--kind recipes|technical|..., --starter trade)
 openblog new "Title" [--draft]          Start a post
 openblog serve [--admin]                Preview at http://localhost:8080, with the editor at /admin
 openblog check                          Validate content and themes, writing nothing

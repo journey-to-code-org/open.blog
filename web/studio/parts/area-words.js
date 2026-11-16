@@ -11,7 +11,7 @@ export const WORDS = {
   "area.pages": her("Pages"),
   "area.pagesAbout": her("Pages that aren't posts, like About or Contact."),
   "area.collections": her("Collections"),
-  "area.collectionsAbout": her("Posts gathered into a series."),
+  "area.collectionsAbout": her("Posts you group together, like a series."),
   "area.recipes": her("Recipes"),
   "area.recipesAbout": her("Recipe boxes for ingredients, steps and times."),
   "area.trade": her("Your business"),

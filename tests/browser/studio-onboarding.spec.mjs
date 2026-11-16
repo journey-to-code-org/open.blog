@@ -67,7 +67,9 @@ test("Grammi on a phone: the questions, the summary, a story, and finding it aga
   await fresh(page, "grammi");
   const before = config();
   const draws = [];
+  const drawn = [];
   page.on("request", (request) => { if (request.url().endsWith("/admin/api/voice/draw")) draws.push(request.postDataJSON()); });
+  page.on("response", async (response) => { if (response.url().endsWith("/admin/api/voice/draw")) drawn.push(await response.json().catch(() => ({}))); });
 
   // First sign-in: About your blog, not Home.
   await home(page);
@@ -132,7 +134,11 @@ test("Grammi on a phone: the questions, the summary, a story, and finding it aga
   await expect(page.locator(".studio-start").getByRole("heading", { name: "Tell a few short stories", level: 2 })).toBeFocused();
   await expect.poll(() => draws.length).toBeGreaterThan(0);
   expect(draws[0]).toMatchObject({ packs: ["stories", "people", "reviews"], story: true });
-  await page.locator(".studio-start choice-cards [role=radio]").first().click();
+  await expect.poll(() => drawn.length).toBeGreaterThan(0);
+  // A true story (the draw always has one): the Stories set is what My stories gathers.
+  const storyAt = drawn[0].prompts.findIndex((prompt) => prompt.pack === "stories");
+  expect(storyAt).toBeGreaterThanOrEqual(0);
+  await page.locator(".studio-start choice-cards [role=radio]").nth(storyAt).click();
   await page.locator(".studio-start").getByRole("button", { name: "Type it", exact: true }).click();
   const box = page.locator("textarea.studio-voice-rough");
   await expect(box).toBeFocused();
@@ -195,11 +201,16 @@ test("Mikey by keyboard: a technical blog shows nothing seasonal or recipe-shape
   await page.keyboard.press("ArrowDown");
   await expect(screen(page).getByRole("radio", { name: /^No/ })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Control+Enter");
+  await expect(question(page, "Do you want to share posts beyond your blog?")).toBeFocused();
   // Back by keyboard keeps the answer.
   await page.keyboard.press("Alt+ArrowLeft");
+  await expect(question(page, "Should your blog dress up for holidays and seasons?")).toBeFocused();
   await expect(screen(page).getByRole("radio", { name: /^No/ })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Control+Enter");
-  for (let i = 0; i < 3; i += 1) await page.keyboard.press("Control+Enter");
+  for (const name of ["Do you want to share posts beyond your blog?", "Do you want readers to comment or react?", "How much would you like to see?"]) {
+    await expect(question(page, name)).toBeFocused();
+    await page.keyboard.press("Control+Enter");
+  }
   await expect(screen(page).getByRole("heading", { name: "Here is what your blog will show you" })).toBeFocused();
   await page.keyboard.press("Control+Enter"); // Save these
   await expect(page.locator("toast-region")).toContainText("Saved.");
@@ -315,4 +326,40 @@ test("a documentation blog is offered the section: the exact change is one layer
   const shownRemoved = (await change.textContent()).split("\n").filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
   expect(removed).toEqual(shownRemoved);
   writeFileSync(join(site.dir, "openblog.json"), before);
+});
+
+test("edges: a save that fails puts the switch back, another window's change is adopted, and dark mode passes axe", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await fresh(page, "dana");
+  const areas = await (await page.request.get(`${site.origin}/admin/api/areas`)).json();
+  expect((await api(page, site, "PUT", "areas", { etag: areas.etag, onboarding: { state: "done" }, hidden: ["seasonal"] })).status).toBe(200);
+  await page.goto("about:blank");
+  await page.goto(`${site.origin}/admin/studio/#/what-you-use`);
+  await expect(page.getByRole("heading", { name: "What you use", level: 2 })).toBeFocused();
+  await axeClean(page, "what you use, dark", ".studio-use");
+
+  // The server refuses: the switch goes back and the page says so.
+  await page.route("**/admin/api/areas", (route) => (route.request().method() === "PUT" ? route.fulfill({ status: 500, json: { error: "disk full" } }) : route.fallback()));
+  const research = page.getByRole("switch", { name: /^Research/ });
+  await expect(research).toHaveAttribute("aria-checked", "true");
+  await research.click();
+  await expect(page.locator(".studio-use")).toContainText("That wasn't saved. Try again.");
+  await expect(research).toHaveAttribute("aria-checked", "true");
+  await page.unroute("**/admin/api/areas");
+
+  // Another window turns Seasons and holidays on; coming back to this one shows it.
+  const now = await (await page.request.get(`${site.origin}/admin/api/areas`)).json();
+  expect((await api(page, site, "PUT", "areas", { etag: now.etag, hidden: [] })).status).toBe(200);
+  await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
+  await expect.poll(() => navLabels(page)).toContain("Decorations");
+  // What you use shows the newer choices too.
+  await page.evaluate(() => { location.hash = "#/"; });
+  await page.evaluate(() => { location.hash = "#/what-you-use"; });
+  await expect(page.getByRole("switch", { name: /^Seasons and holidays/ })).toHaveAttribute("aria-checked", "true");
+
+  // The questions in dark mode.
+  await page.goto(`${site.origin}/admin/studio/#/welcome`);
+  await expect(question(page, "What will you mostly write?")).toBeFocused();
+  await axeClean(page, "question, dark", ".studio-welcome");
 });

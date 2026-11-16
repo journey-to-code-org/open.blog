@@ -468,9 +468,9 @@
       "vars": []
     },
     "area.collectionsAbout": {
-      "text": "Posts gathered into a series.",
+      "text": "Posts you group together, like a series.",
       "layer": "her",
-      "max": 58,
+      "max": 80,
       "vars": []
     },
     "area.everything": {

@@ -25,6 +25,11 @@ cd my-blog
 
 This creates starter content, themes, configuration, and a Pages-ready baseline.
 
+In a terminal, `init` first asks **What will you mostly write?** (press Enter to skip). Say it in a
+script with `--kind technical|recipes|trade|teaching|research|podcast|docs|personal`; `trade` and
+`docs` use their starters. Studio's first questions start from the answer
+([Your first time](admin.md#your-first-time-about-your-blog)).
+
 ## 3) Run locally
 
 ```bash

@@ -1074,8 +1074,10 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 /* ONB1: About your blog, What you use, the turned-off page, My stories. */
 .studio-welcome-cards { min-width: 0; }
 .studio-welcome-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
-.studio-welcome-line { overflow-wrap: anywhere; }
+.studio-welcome-line { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--space-2); min-width: 0; }
+.studio-welcome-line-text { flex: 1 1 14rem; min-width: 0; }
 .studio-welcome-line .studio-help { display: inline; margin: 0; }
+.studio-welcome-change-link { color: var(--studio-damson); text-underline-offset: 0.2em; min-height: 2.75rem; display: inline-flex; align-items: center; }
 .studio-welcome-change { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 .studio-use { max-width: 40rem; display: grid; gap: var(--space-3); min-width: 0; }
 .studio-use-list, .studio-story-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }

@@ -97,6 +97,7 @@ pub(super) fn in_use(
         || !sources.proof.is_empty()
         || !config.business.trade.is_empty()
         || config.seasonal_prompts.enabled
+        || quote::is_configured()
         || job;
     let seasonal = config.seasons.enabled
         || !config.decorations.is_empty()
