@@ -406,6 +406,8 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
 /// JSON for a data element: `<`, `>`, `&` and the line separators written
 /// as escapes, so no published text can end or confuse the element.
 fn script_json(data: &serde_json::Value) -> String {
+    let mut data = data.clone();
+    data.sort_all_objects();
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -672,6 +674,44 @@ pub fn generate_with_trail_budget(
     };
     let default_theme = &resolved[&c.theme];
 
+    let mut diagrams = std::collections::BTreeMap::new();
+    for asset in site
+        .posts
+        .iter()
+        .flat_map(|post| &post.diagrams)
+        .chain(site.pages.iter().flat_map(|page| &page.diagrams))
+        .chain(
+            site.series
+                .iter()
+                .filter(|series| !series.posts.is_empty())
+                .flat_map(|series| &series.diagrams),
+        )
+    {
+        if let Some(previous) = diagrams.insert(&asset.path, &asset.svg) {
+            if previous != &asset.svg {
+                return Err(format!("conflicting diagram asset `{}`", asset.path));
+            }
+        }
+    }
+    for (path, svg) in diagrams {
+        out.add(path.clone(), svg.clone())?;
+    }
+
+    if let Some(podcast) = &c.podcast {
+        let (feed, files) = crate::podcast::generate(site, podcast)?;
+        out.add("podcast.xml".into(), feed)?;
+        for file in files {
+            out.add(file.path, file.contents)?;
+        }
+    }
+
+    if site.posts.iter().any(|post| post.audio.is_some()) {
+        out.add(
+            "assets/components/ob-episode.js".into(),
+            include_str!("../../../web/components/ob-episode.js").into(),
+        )?;
+    }
+
     // Home and pagination.
     let per_page = if c.posts_per_page == 0 {
         site.posts.len().max(1)
@@ -679,7 +719,14 @@ pub fn generate_with_trail_budget(
         c.posts_per_page
     };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
-    for page_number in 1..=page_count {
+    // With docs.home the documentation's index is the home page (ADR 0424), written with the
+    // other pages; there is no post list at `/` or `/page/N/`.
+    let home_pages = if c.docs.enabled && c.docs.home {
+        0
+    } else {
+        page_count
+    };
+    for page_number in 1..=home_pages {
         let path = if page_number == 1 {
             "index.html".to_string()
         } else {
@@ -1135,6 +1182,16 @@ pub fn generate_home(site: &Site, themes: &ThemeSet) -> Result<OutputFile, Strin
         c.posts_per_page
     };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
+    if let Some(page) = site
+        .pages
+        .iter()
+        .find(|page| page.doc.is_some() && page.url == "/")
+    {
+        return Ok(OutputFile {
+            path: "index.html".to_string(),
+            contents: renderer.page(page),
+        });
+    }
     Ok(OutputFile {
         path: "index.html".to_string(),
         contents: renderer.home(&resolved[&c.theme], 1, page_count, per_page),
@@ -1480,6 +1537,7 @@ impl<'a> Renderer<'a> {
             if let Some(served) = c.service_areas.area_served() {
                 business["areaServed"] = served;
             }
+            business.sort_all_objects();
             h.push_str(&format!(
                 "<script type=\"application/ld+json\">{}</script>\n",
                 business
@@ -1530,6 +1588,12 @@ impl<'a> Renderer<'a> {
             h.push_str(
                 "<script type=\"module\" src=\"/assets/components/ob-explanation-levels.js\"></script>\n",
             );
+        }
+        if let Some(podcast) = &c.podcast {
+            h.push_str(&format!(
+                "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"/podcast.xml\">\n",
+                attr(&podcast.title)
+            ));
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
@@ -2387,6 +2451,7 @@ impl<'a> Renderer<'a> {
                     blog["author"] = author.clone();
                     blog["publisher"] = author;
                 }
+                blog.sort_all_objects();
                 blog.to_string()
             }),
             reader_references: None,
@@ -2540,6 +2605,19 @@ impl<'a> Renderer<'a> {
             body.push_str("</ul>\n");
         }
         body.push_str("</header>\n");
+        if let Some(decision) = &post.decision {
+            body.push_str(&format!(
+                "<p class=\"ob-decision-status\">Decision status: <strong>{}</strong>",
+                text(decision.status.as_str())
+            ));
+            if let Some(successor) = &decision.superseded_by {
+                body.push_str(&format!(
+                    ". <a href=\"{}\">Read the decision that supersedes this one</a>",
+                    attr(successor)
+                ));
+            }
+            body.push_str(".</p>\n");
+        }
         if post.credit_provenance == CreditProvenance::ExplicitSidecar && !post.credits.is_empty() {
             body.push_str(&contributions_html(post));
         }
@@ -2584,6 +2662,41 @@ impl<'a> Renderer<'a> {
         if let Some(recipe) = &post.recipe {
             body.push_str(&self.recipe_open_tag(post, recipe));
             body.push_str(&self.recipe_card(recipe));
+        }
+        if let Some(audio) = &post.audio {
+            body.push_str("<ob-episode><figure><audio controls preload=\"none\" aria-label=\"");
+            body.push_str(&attr(&format!("Audio: {}", post.title)));
+            body.push_str("\">\n");
+            for source in &audio.sources {
+                body.push_str(&format!(
+                    "<source src=\"{}\" type=\"{}\">\n",
+                    attr(&source.url),
+                    attr(&source.media_type)
+                ));
+            }
+            body.push_str("Your browser does not support audio.</audio></figure>\n");
+            if let Some(transcript) = &audio.transcript {
+                body.push_str(&format!(
+                    "<p><a href=\"{}\">Read the transcript</a></p>\n",
+                    attr(transcript)
+                ));
+            }
+            if !audio.chapters.is_empty() {
+                body.push_str("<section aria-label=\"Chapters\"><h2>Chapters</h2><ol>\n");
+                for chapter in &audio.chapters {
+                    body.push_str(&format!(
+                        "<li><button type=\"button\" disabled data-audio-time=\"{}\">{}</button>",
+                        chapter.time_seconds,
+                        text(&chapter.title)
+                    ));
+                    if let Some(link) = &chapter.link {
+                        body.push_str(&format!(" <a href=\"{}\">Related link</a>", attr(link)));
+                    }
+                    body.push_str("</li>\n");
+                }
+                body.push_str("</ol></section>\n");
+            }
+            body.push_str("</ob-episode>\n");
         }
         // Table of contents.
         let toc: Vec<_> = post
@@ -2794,6 +2907,9 @@ impl<'a> Renderer<'a> {
                 if let Some(subtitle) = &post.subtitle {
                     posting["alternativeHeadline"] = serde_json::json!(subtitle);
                 }
+                if let Some(decision) = &post.decision {
+                    posting["creativeWorkStatus"] = serde_json::json!(decision.status.as_str());
+                }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {
                         if let Some(author) = author_json_ld(c) {
@@ -2883,6 +2999,7 @@ impl<'a> Renderer<'a> {
                     nodes.push(crate::proof::review_node(self.site, proof, true));
                 }
                 if nodes.is_empty() {
+                    posting.sort_all_objects();
                     posting.to_string()
                 } else {
                     let mut posting = posting;
@@ -2890,15 +3007,17 @@ impl<'a> Renderer<'a> {
                         o.remove("@context");
                     }
                     nodes.insert(0, posting);
-                    serde_json::json!({
+                    let mut graph = serde_json::json!({
                         "@context": "https://schema.org",
                         "@graph": nodes,
-                    })
-                    .to_string()
+                    });
+                    graph.sort_all_objects();
+                    graph.to_string()
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
             participation_scripts: [
+                post.audio.as_ref().map(|_| "ob-episode.js"),
                 passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
                 reader_annotations.then_some("ob-annotations.js"),
                 reader_annotations.then_some("ob-reflection-history.js"),
@@ -3704,8 +3823,20 @@ impl<'a> Renderer<'a> {
         body.push_str(
             "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
         );
+        if self.site.config.docs.enabled {
+            // A site with documentation searches it too (ADR 0424).
+            body = body.replace(
+                "<label for=\"q\">Search posts</label>",
+                "<label for=\"q\">Search the site</label>",
+            );
+        }
         body.push_str("</section>\n</div>");
-        let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
+        let description = if self.site.config.docs.enabled {
+            "Search the documentation and every post."
+        } else {
+            "Search every post."
+        };
+        let mut meta = self.meta_simple(theme, "Search", description, "/search/");
         meta.noindex = true;
         self.document(&meta, &body)
     }
@@ -5684,6 +5815,7 @@ mod tests {
                     src("posts/solo.md", "---\ntitle: Solo\ndate: 2026-03-01\n---\nbody"),
                 ],
                 credits: Vec::new(),
+                audio_files: None,
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
 docs: Vec::new(),

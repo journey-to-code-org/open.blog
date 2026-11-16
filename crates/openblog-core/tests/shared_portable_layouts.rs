@@ -3,7 +3,7 @@
 //! labels and words in the same reading order, with no CSS, placeholder, part marker, layout
 //! class in the plain forms, or private value, and hostile labels, prompts and names stay inert.
 
-use openblog_core::approval::ApprovalSet;
+use openblog_core::approval::{ApprovalScope, ApprovalSet};
 use openblog_core::arrangement::Arrangement;
 use openblog_core::assembly::{assemble, with_subject, Assembly};
 use openblog_core::collaboration::{
@@ -124,7 +124,7 @@ fn publish(
     for (who, text) in drafts {
         set.save(who, who, 0, text, T).unwrap();
     }
-    let mut approvals = ApprovalSet::new();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
     for who in ALL {
         let seen = with_subject(
             record,

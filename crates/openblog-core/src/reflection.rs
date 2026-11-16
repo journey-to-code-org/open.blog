@@ -171,6 +171,55 @@ pub struct Placement {
 }
 
 impl ReflectionStructure {
+    /// Create a complete initial arrangement in participant and owner-controlled draft order.
+    /// This reads private drafts; callers must first authorize the full contribution metadata.
+    /// Refuse oversized pieces rather than silently dropping any part.
+    pub fn from_all_contributions(
+        contract: &CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<Self, ReflectionError> {
+        let mut turns = Vec::new();
+        for participant in &contract.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            for view in drafts
+                .owned_views(&participant.id)
+                .map_err(|_| ReflectionError::Invalid)?
+            {
+                let count = split_parts(&view.markdown).len();
+                if count > MAX_PART + 1 || turns.len().saturating_add(count) > MAX_TOTAL_TURNS {
+                    return Err(ReflectionError::Invalid);
+                }
+                for part in 0..count {
+                    turns.push(Turn {
+                        draft: view.stamp.contribution_id.clone(),
+                        part,
+                        label: None,
+                    });
+                }
+            }
+        }
+        let rounds = turns
+            .chunks(MAX_TURNS_PER_ROUND)
+            .enumerate()
+            .map(|(index, chunk)| Round {
+                id: format!("round-{}", index + 1),
+                round_prompt: None,
+                turns: chunk.to_vec(),
+            })
+            .collect();
+        let result = Self {
+            version: REFLECTION_STRUCTURE_VERSION,
+            revision: 1,
+            layout: ReflectionLayout::default(),
+            rounds,
+        };
+        result.validate_contribution_coverage(contract, drafts, active)?;
+        Ok(result)
+    }
+
     /// One round holding every part of every participant's draft, in participant order, for a
     /// publication that has not arranged anything. A participant with no draft or a withdrawn
     /// draft has no turns. It reads prose to count parts, so it is crate-private.
@@ -316,20 +365,194 @@ impl ReflectionStructure {
         })
     }
 
+    /// The reading order visible to a non-drafting participant with explicit named releases.
+    pub fn reading_order_for_recipient<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order(contract, |draft_id, part| {
+            let Ok(view) = drafts.view_named(requester, draft_id, active) else {
+                return Ok(None);
+            };
+            let parts = split_parts(&view.markdown);
+            let text = parts.get(part).ok_or(ReflectionError::Invalid)?;
+            Ok(Some((*text).to_owned()))
+        })
+    }
+
+    /// Resolve contribution IDs through the caller-authorized contract, withholding every
+    /// revision the requester cannot read. The caller must authorize access to the structure
+    /// and its contribution ownership metadata before calling this method.
+    pub fn reading_order_for_contributions<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order_contributions(contract, drafts, requester, active, false)
+    }
+
+    /// Like [`Self::reading_order_for_contributions`], but only explicit named-reader releases
+    /// grant access to text. The caller must authorize the structure and ownership metadata.
+    pub fn reading_order_for_recipient_contributions<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order_contributions(contract, drafts, requester, active, true)
+    }
+
+    /// Validate exact coverage of all live parts belonging to active authors. This reads private
+    /// drafts: callers must not expose the result until the whole piece has been approved.
+    pub fn validate_contribution_coverage(
+        &self,
+        contract: &CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<(), ReflectionError> {
+        if !self.is_valid() {
+            return Err(ReflectionError::Invalid);
+        }
+        let mut expected = HashSet::new();
+        for author in active {
+            let views = drafts
+                .owned_views(author)
+                .map_err(|_| ReflectionError::Invalid)?;
+            for view in views {
+                let id = &view.stamp.contribution_id;
+                let mut matches = contract
+                    .contributions
+                    .iter()
+                    .filter(|contribution| contribution.id.eq_ignore_ascii_case(id));
+                let contribution = matches.next().ok_or(ReflectionError::Invalid)?;
+                if contribution.participant_id != *author || matches.next().is_some() {
+                    return Err(ReflectionError::Invalid);
+                }
+                for part in 0..split_parts(&view.markdown).len() {
+                    if !expected.insert((id.to_ascii_lowercase(), part)) {
+                        return Err(ReflectionError::Invalid);
+                    }
+                }
+            }
+        }
+        let actual: HashSet<_> = self
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .map(|turn| (turn.draft.to_ascii_lowercase(), turn.part))
+            .collect();
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(ReflectionError::Invalid)
+        }
+    }
+
+    /// Unscoped, complete reading order for the publish gate after approvals are met.
+    pub(crate) fn reading_order_for_publication<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.validate_contribution_coverage(contract, drafts, active)?;
+        self.order_with_owners(
+            contract,
+            |id| {
+                contract
+                    .contributions
+                    .iter()
+                    .find(|contribution| contribution.id.eq_ignore_ascii_case(id))
+                    .map(|contribution| contribution.participant_id.as_str())
+            },
+            true,
+            |id, part| {
+                let view = drafts.latest_view(id).ok_or(ReflectionError::Invalid)?;
+                let text = split_parts(&view.markdown)
+                    .get(part)
+                    .ok_or(ReflectionError::Invalid)?
+                    .to_string();
+                Ok(Some(text))
+            },
+        )
+    }
+
+    fn order_contributions<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+        named_reader: bool,
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order_with_owners(
+            contract,
+            |id| {
+                let contribution = contract
+                    .contributions
+                    .iter()
+                    .find(|contribution| contribution.id.eq_ignore_ascii_case(id))?;
+                if drafts
+                    .draft_owner(id)
+                    .is_some_and(|owner| owner != contribution.participant_id)
+                {
+                    return None;
+                }
+                Some(contribution.participant_id.as_str())
+            },
+            true,
+            |draft_id, part| {
+                let view = if named_reader {
+                    drafts.view_named(requester, draft_id, active)
+                } else {
+                    drafts.view(requester, draft_id, active)
+                };
+                let Ok(view) = view else {
+                    return Ok(None);
+                };
+                let parts = split_parts(&view.markdown);
+                let text = parts.get(part).ok_or(ReflectionError::Invalid)?;
+                Ok(Some((*text).to_owned()))
+            },
+        )
+    }
+
     fn order<'a>(
         &'a self,
         contract: &'a CollaborationContract,
         read: impl Fn(&str, usize) -> Result<Option<String>, ReflectionError>,
     ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order_with_owners(contract, Some, false, read)
+    }
+
+    fn order_with_owners<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        owner: impl Fn(&'a str) -> Option<&'a str>,
+        separate_draft_ids: bool,
+        read: impl Fn(&str, usize) -> Result<Option<String>, ReflectionError>,
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
         let mut entries = Vec::new();
         for (round_index, round) in self.rounds.iter().enumerate() {
             for (turn_index, turn) in round.turns.iter().enumerate() {
+                let owner_id = owner(&turn.draft).ok_or(ReflectionError::Invalid)?;
                 let participant = contract
                     .participants
                     .iter()
-                    .find(|p| p.id.eq_ignore_ascii_case(&turn.draft))
+                    .find(|p| p.id.eq_ignore_ascii_case(owner_id))
                     .ok_or(ReflectionError::Invalid)?;
-                let markdown = read(&participant.id, turn.part)?.filter(|m| !m.trim().is_empty());
+                let draft_id = if separate_draft_ids {
+                    &turn.draft
+                } else {
+                    &participant.id
+                };
+                let markdown = read(draft_id, turn.part)?.filter(|m| !m.trim().is_empty());
                 entries.push(ReadingEntry {
                     ordinal: entries.len(),
                     round: round_index,
@@ -342,7 +565,7 @@ impl ReflectionStructure {
                     label: turn.label.as_deref(),
                     participant_id: &participant.id,
                     display_name: &participant.display_name,
-                    draft_id: &participant.id,
+                    draft_id,
                     part: turn.part,
                     markdown,
                 });

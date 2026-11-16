@@ -504,6 +504,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `card.code` | details | Code, {language}, {count} lines | `{language}` `{count}` | 62 |
 | `card.codepen` | details | A CodePen: {words} | `{words}` | 40 |
 | `card.compare` | her | Before and after photos: {words} | `{words}` | 64 |
+| `card.diagram` | details | Diagram: {title} | `{title}` | 40 |
 | `card.elsewhere` | her | This photo is on another website. | none | 66 |
 | `card.faq` | her | Questions and answers, {count} | `{count}` | 60 |
 | `card.footnote` | her | Note at the bottom, {n}: {words} | `{n}` `{words}` | 64 |
@@ -1031,6 +1032,27 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.withPage` | her | the page color | none | 40 |
 | `design.withText` | her | the writing color | none | 40 |
 | `design.withWhite` | her | white | none | 40 |
+| `diagram.cantDraw` | details | It can't be drawn: {why} | `{why}` | 240 |
+| `diagram.captionHelp` | details | Shown under the diagram. | none | 48 |
+| `diagram.describe` | details | What it shows | none | 40 |
+| `diagram.describeHelp` | details | A sentence or two for people who can't see it. Feeds and copies carry it with the picture. | none | 200 |
+| `diagram.draw` | details | Draw it | none | 40 |
+| `diagram.example` | details | Start from an example | none | 42 |
+| `diagram.exampleHelp` | details | Puts an example in the box below to change. | none | 86 |
+| `diagram.exampleNone` | details | No example | none | 40 |
+| `diagram.fixFirst` | details | Fill in what's marked first, then draw it. | none | 84 |
+| `diagram.needDescribe` | details | Say what it shows, or write accDescr: in the diagram. | none | 106 |
+| `diagram.needTitle` | details | Give it a title, or write accTitle: in the diagram. | none | 102 |
+| `diagram.needsSignal` | details | Drawing it needs a signal. Your diagram is kept in the form. | none | 120 |
+| `diagram.quotes` | details | Use one kind of quotation mark here, not both. | none | 92 |
+| `diagram.replaceAsk` | details | Put the example in place of your diagram? | none | 82 |
+| `diagram.replaceGo` | details | Use the example | none | 40 |
+| `diagram.replaceKeep` | details | Keep mine | none | 40 |
+| `diagram.replaceText` | details | What's in the box now is replaced by the example. | none | 98 |
+| `diagram.source` | details | The diagram | none | 40 |
+| `diagram.sourceHelp` | details | In Mermaid, like flowchart LR then A --> B. Link a box to a page here with click A "/about/". | none | 200 |
+| `diagram.title` | details | Title | none | 40 |
+| `diagram.titleHelp` | details | A few words that name it, read out to people who can't see it. | none | 124 |
 | `did.added` | her | {thing} added. | `{thing}` | 40 |
 | `did.cantMoveDown` | her | This is already at the end. | none | 54 |
 | `did.cantMoveUp` | her | This is already at the top. | none | 54 |
@@ -1632,6 +1654,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `item.compareAbout` | her | Two photos side by side, like the room before and after. | none | 112 |
 | `item.contact` | her | How to reach you | none | 40 |
 | `item.contactAbout` | her | Your email, phone and address. | none | 60 |
+| `item.diagram` | details | A diagram | none | 40 |
+| `item.diagramAbout` | details | A flowchart, sequence or other Mermaid diagram, drawn as a picture with its description. | none | 176 |
 | `item.faq` | her | Questions and answers | none | 42 |
 | `item.faqAbout` | her | Questions readers ask. Each opens to show your answer. | none | 108 |
 | `item.footnote` | details | A footnote | none | 40 |
@@ -1691,6 +1715,17 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `job.writeUpOff` | her | Writing it up isn't set up for {product}. | `{product}` | 82 |
 | `job.writeUpTitle` | her | Write it up for me | none | 40 |
 | `job.writeUpWorking` | her | Writing it up… | none | 40 |
+| `jobphoto.agree` | her | Send this photo and description | none | 62 |
+| `jobphoto.changed` | her | The photo or its description changed. Show what goes again. | none | 118 |
+| `jobphoto.checking` | her | Checking the photo… | none | 40 |
+| `jobphoto.describe` | her | Describe the photo | none | 40 |
+| `jobphoto.describeHelp` | her | What's in it, for people who can't see it. It goes with the photo. | none | 132 |
+| `jobphoto.first` | her | Describe the photo, look at what goes, and choose Send this photo first. | none | 144 |
+| `jobphoto.ifNot` | her | If the photo can't go, nothing is posted. | none | 82 |
+| `jobphoto.needWords` | her | Describe the photo first. | none | 50 |
+| `jobphoto.show` | her | Show what goes | none | 40 |
+| `jobphoto.title` | her | The photo that goes to {page} | `{page}` | 58 |
+| `jobphoto.trouble` | her | The photo can't go as it is. Pick another after photo in Write. | none | 126 |
 | `join.declined` | her | You said no thanks. They can invite you again. | none | 92 |
 | `join.invitedYou` | her | {name} invited you to write about: | `{name}` | 68 |
 | `join.joined` | her | You're in. Write your part when you're ready. | none | 90 |
@@ -1847,6 +1882,32 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `moments.unlisted` | her | Something no longer listed | none | 52 |
 | `moments.whereKind` | her | Where in it | none | 40 |
 | `moments.yours` | her | Your moments | none | 40 |
+| `name.changeAsk` | her | Change how your name goes on it? | none | 64 |
+| `name.changeGo` | her | Change it | none | 40 |
+| `name.changeKeep` | her | Keep it as it is | none | 40 |
+| `name.changeText` | her | Everyone who agreed will need to read it again and agree again. | none | 126 |
+| `name.choose` | her | How your name goes on it | none | 48 |
+| `name.lede` | her | Readers see this with your part. Changing it later means everyone reads it again and agrees again. | none | 200 |
+| `name.needChoice` | her | Choose how your name goes on it. | none | 64 |
+| `name.needName` | her | Write the name readers see. | none | 54 |
+| `name.notYet` | her | You haven't said yet. | none | 42 |
+| `name.now` | her | Readers will see: {said} | `{said}` | 48 |
+| `name.off` | her | Leave my name off | none | 40 |
+| `name.offHelp` | her | Your part is still in it, with no name. | none | 78 |
+| `name.people` | her | My name as People has it | none | 48 |
+| `name.peopleHelp` | her | With its link, as it is now. A later change in People doesn't change this. | none | 200 |
+| `name.saidOff` | her | no name | none | 40 |
+| `name.saidPeople` | her | your name as People has it | none | 52 |
+| `name.saidTyped` | her | {name} | `{name}` | 40 |
+| `name.save` | her | Use this | none | 40 |
+| `name.saved` | her | Saved. Readers will see your name this way. | none | 86 |
+| `name.savedAgain` | her | Saved. Everyone reads it again and agrees again. | none | 96 |
+| `name.sheetTitle` | her | Your name on {title} | `{title}` | 40 |
+| `name.title` | her | Your name on it | none | 40 |
+| `name.tooLong` | her | Use a shorter name. | none | 40 |
+| `name.typed` | her | A name I write here | none | 40 |
+| `name.typedLabel` | her | The name readers see | none | 40 |
+| `name.whereNaming` | her | hasn't said how their name goes on it | none | 74 |
 | `notebook.aboutMissing` | her | About a passage that's gone | none | 54 |
 | `notebook.aboutPassages` | her | About these passages | none | 40 |
 | `notebook.aboutSources` | her | About these sources | none | 40 |
@@ -2356,6 +2417,24 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `people.withdrawText` | her | The link stops working. | none | 46 |
 | `people.withdrawn` | her | Withdrawn. The link doesn't work any more. | none | 84 |
 | `photo.altHelp` | her | For people who can't see it, like “A red front door with a wreath”. | none | 134 |
+| `picture.blueskyNoWords` | her | Bluesky shows it with no description. If the picture changes before it goes, the link goes without it. | none | 200 |
+| `picture.blueskySmaller` | her | Made smaller to fit Bluesky. This is exactly what goes. | none | 110 |
+| `picture.described` | her | Described as: {description} | `{description}` | 240 |
+| `picture.facebookCheck` | her | If Facebook doesn't say whether it went, look at your Page before trying again. | none | 158 |
+| `picture.for` | her | To {account} | `{account}` | 40 |
+| `picture.ifNot` | her | If the picture can't go | none | 46 |
+| `picture.ifNotStop` | her | Don't share it | none | 40 |
+| `picture.ifNotText` | her | Share the link without it | none | 50 |
+| `picture.lede` | her | The post's cover can go with the link. See exactly what goes, then choose. | none | 148 |
+| `picture.none` | her | Your post has no cover with a description to send. | none | 100 |
+| `picture.notYet` | her | Pictures can't go yet. {helper} can turn them on. | `{helper}` | 98 |
+| `picture.send` | her | Send this picture to {account} | `{account}` | 60 |
+| `picture.show` | her | Show the picture | none | 40 |
+| `picture.showLabel` | her | Show the picture that goes to {account} | `{account}` | 78 |
+| `picture.title` | her | The picture that goes with it | none | 58 |
+| `picture.tooBig` | her | The cover is too big to send. Choose a smaller one for the post. | none | 128 |
+| `picture.trouble` | her | The picture didn't load. Try again, or share without it. | none | 112 |
+| `picture.wordsGo` | her | The description goes with it, for people who can't see it. | none | 116 |
 | `place.atRow` | her | Place {n} | `{n}` | 40 |
 | `place.canonical` | her | canonical place | none | 40 |
 | `place.chapter` | her | chapter | none | 40 |
@@ -2487,6 +2566,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `read.linePrivate` | her | {name}'s part isn't shared with you yet | `{name}` | 78 |
 | `read.lineWaiting` | her | {name} hasn't agreed yet | `{name}` | 48 |
 | `read.missing` | her | Not ready: {names} still need to agree. | `{names}` | 78 |
+| `read.nameFirst` | her | Say how your name goes on it first. Then you can read the whole thing as readers will. | none | 200 |
+| `read.namesFirst` | her | Everyone needs to say how their name goes on it first. | none | 108 |
 | `read.notAllShared` | her | You can agree once everyone's part can be read. | none | 94 |
 | `read.notShared` | her | Kept private until {name} is ready. | `{name}` | 70 |
 | `read.notSharedYou` | her | Only you can read this until everyone's ready. | none | 92 |
@@ -3385,6 +3466,57 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `recipe.askAddName` | her | This recipe doesn't say who wrote it. Ask {helper} to add your name. | `{helper}` | 136 |
 | `recipe.notesHeading` | her | Notes | none | 60 |
 | `recipe.numberedStep` | her | Step {n} starts with its own number. Take it out; {product} numbers the steps. | `{n}` `{product}` | 156 |
+| `recording.another` | her | Choose a different recording | none | 56 |
+| `recording.cardLength` | her | {length} long | `{length}` | 40 |
+| `recording.cardNoLength` | her | Say how long it is | none | 40 |
+| `recording.change` | her | Change | none | 40 |
+| `recording.changeLabel` | her | Change the recording | none | 40 |
+| `recording.choose` | her | Choose a recording | none | 40 |
+| `recording.chooseHint` | her | From this phone or computer, up to {max} MB. | `{max}` | 88 |
+| `recording.chosenFile` | her | Chosen: {name} ({size} MB). | `{name}` `{size}` | 240 |
+| `recording.chosenNote` | her | Chosen: your voice note. | none | 48 |
+| `recording.file` | details | The file | none | 40 |
+| `recording.goesPublic` | her | Once it's on {product}, anyone with its address can listen, even before you publish the post. | `{product}` | 200 |
+| `recording.heard` | her | Here are the words. Read them over, then put them in your post. | none | 126 |
+| `recording.heardPart` | her | Here are the words for the first part only. Read them over and add the rest. | none | 152 |
+| `recording.lede` | her | Readers can listen to it on the post. It needs the words said, written out, for people who can't hear it. | none | 200 |
+| `recording.length` | her | How long it is | none | 40 |
+| `recording.lengthBad` | her | Write it as minutes and seconds, like 12:30. | none | 88 |
+| `recording.lengthHelp` | her | Minutes and seconds, like 12:30. | none | 64 |
+| `recording.listen` | her | Listen to the recording | none | 46 |
+| `recording.menu` | her | Put a recording with it | none | 46 |
+| `recording.needsSignal` | her | Putting it on {product} needs a signal. Try again when you have one. | `{product}` | 136 |
+| `recording.notSent` | her | It didn't go on {product}. Try again, or tell {helper}. | `{product}` `{helper}` | 110 |
+| `recording.notSound` | her | That isn't a recording {product} can play. Choose another. | `{product}` | 116 |
+| `recording.noteGone` | her | That voice note isn't on {product} any more. Choose another. | `{product}` | 120 |
+| `recording.noteLabel` | her | Voice note {n} ({size} MB) | `{n}` `{size}` | 52 |
+| `recording.noteNone` | her | Choose one | none | 40 |
+| `recording.notesLoading` | her | Looking for your voice notes… | none | 58 |
+| `recording.notesNone` | her | No voice notes yet | none | 40 |
+| `recording.now` | her | The recording now | none | 40 |
+| `recording.partBad` | details | Line {line}: write the time, then the name, like 1:05 Making the dough. | `{line}` | 142 |
+| `recording.partLink` | details | Line {line}: a link is an address on your site, starting with /, or https://. | `{line}` | 154 |
+| `recording.partOrder` | details | Line {line}: each part starts after the one before. | `{line}` | 102 |
+| `recording.partPastEnd` | details | Line {line}: it starts after the recording ends. | `{line}` | 96 |
+| `recording.parts` | details | Parts of the recording | none | 44 |
+| `recording.partsHelp` | details | One a line: when it starts and its name, like 1:05 Making the dough. Add \| and an address to link it. | none | 200 |
+| `recording.putOn` | her | Put it on {product} | `{product}` | 40 |
+| `recording.putOnDone` | her | It's on {product}. It goes with the post when the post is saved. | `{product}` | 128 |
+| `recording.takeOff` | her | Take the recording off this post | none | 64 |
+| `recording.title` | her | A recording to listen to | none | 48 |
+| `recording.tooBig` | her | That recording is too big. Choose one up to 64 MB. | none | 100 |
+| `recording.tooManyParts` | details | At most 10 parts here; write more in the file. | none | 92 |
+| `recording.tookOff` | her | The recording comes off this post when it's saved. It stays on {product}. | `{product}` | 146 |
+| `recording.turnIntoWords` | her | Turn it into words | none | 40 |
+| `recording.voiceNote` | her | Or a voice note already on {product} | `{product}` | 72 |
+| `recording.words` | her | The words said | none | 40 |
+| `recording.wordsHelp` | her | Type or paste them. They go at the end of your post, where you can change them. | none | 200 |
+| `recording.wordsIn` | her | The words said are in your post, under Transcript. Change them there. | none | 138 |
+| `recording.wordsNeeded` | her | Write the words said first. | none | 54 |
+| `recording.wordsPut` | her | The words said are at the end of your post, under Transcript. | none | 122 |
+| `recording.wordsPutIn` | her | Put them in my post | none | 40 |
+| `recording.wordsTitle` | her | Turn the recording into words | none | 58 |
+| `recording.wordsWhy` | her | Before it can be published, write out what's said, so people who can't hear it can read it. | none | 200 |
 | `reminders.lede` | her | At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself. | `{product}` | 240 |
 | `reminders.nothing` | her | Nothing to write about for the next month. {product} will tell you when something comes up. | `{product}` | 182 |
 | `reminders.stopsSuggesting` | her | {product} stops suggesting it. A draft you started from it stays. | `{product}` | 130 |
@@ -3616,8 +3748,12 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `route.waitsPrivate` | her | Your route file waits, private, until your post is on your site. | none | 128 |
 | `route.waitsSignal` | her | Waiting for a signal to send your route file. The numbers and drawing are in. It sends while this page is open. | none | 222 |
 | `route.whatReadersSee` | her | What readers see | none | 40 |
+| `rules.agreeRule` | her | Agree to this rule | none | 40 |
+| `rules.agreedRule` | her | You agreed to the new rule. | none | 54 |
 | `rules.allAuthors` | her | Everyone writing | none | 40 |
 | `rules.allAuthorsHelp` | her | Everyone who writes a part agrees, whether or not they've written yet. | none | 200 |
+| `rules.allParticipants` | her | Everyone taking part | none | 40 |
+| `rules.allParticipantsHelp` | her | Everyone in it agrees, including people who only read. Someone who only reads agrees once they can read all of it. | none | 200 |
 | `rules.askChange` | her | Change whose agreement counts? | none | 60 |
 | `rules.askChangeText` | her | Everyone who agreed will need to agree again. Nothing is shared or published by the change. | none | 200 |
 | `rules.askGo` | her | Change it | none | 40 |
@@ -3633,9 +3769,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.details` | details | The rule as stored: {rule} | `{rule}` | 240 |
 | `rules.fixNamed` | her | Whoever is in charge can take them off the rule, or bring them back. | none | 136 |
 | `rules.fixRole` | her | Whoever runs it can change the rule, or give someone that job. | none | 124 |
+| `rules.howMany` | her | How many agree, at least | none | 48 |
 | `rules.left` | her | {name} (isn't in it any more) | `{name}` | 58 |
 | `rules.namedAuthors` | her | Everyone who wrote, and people you choose | none | 82 |
 | `rules.namedAuthorsHelp` | her | The people you choose below agree too, even if they later leave. | none | 200 |
+| `rules.needCount` | her | Write how many need to agree, like 3. | none | 74 |
 | `rules.needPeople` | her | Choose at least one person who agrees. | none | 76 |
 | `rules.needRoles` | her | Choose at least one job whose people agree. | none | 86 |
 | `rules.never` | details | Never: each part stays private | none | 60 |
@@ -3643,19 +3781,34 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `rules.ownParts` | her | Their own part | none | 40 |
 | `rules.ownPartsHelp` | her | Each person agrees to their own part and how it's all put together. | none | 134 |
 | `rules.ownerOnlyDrop` | her | Only whoever is in charge can stop someone from having to agree. Nothing changed. | none | 200 |
+| `rules.participantQuorum` | her | Everyone who wrote, and enough of everyone | none | 120 |
+| `rules.participantQuorumHelp` | her | Everyone who wrote agrees, and at least the number you choose of everyone taking part. It doesn't go down if someone leaves. | none | 200 |
+| `rules.proposalIs` | her | Suggested: {rule} | `{rule}` | 240 |
+| `rules.proposalOld` | her | It no longer fits, because people or jobs changed since. Whoever runs it can suggest it again. | none | 200 |
+| `rules.proposalTitle` | her | A new rule was suggested | none | 48 |
+| `rules.proposalWaiting` | her | Waiting for {names} to agree to it. | `{names}` | 70 |
+| `rules.proposalYouAgreed` | her | You agreed to it. | none | 40 |
 | `rules.published` | her | It's on {product}, so its rules stay as they were. | `{product}` | 100 |
+| `rules.quorum` | her | Everyone who wrote, and enough of the writers | none | 120 |
+| `rules.quorumHelp` | her | Everyone who wrote agrees, and at least the number you choose of the people writing. It doesn't go down if someone leaves. | none | 200 |
 | `rules.readOnly` | her | Whoever runs it chooses the rules. | none | 68 |
 | `rules.roleInCharge` | her | In charge | none | 40 |
 | `rules.roleRuns` | her | Helps run it | none | 40 |
 | `rules.roleWrites` | her | Writes a part | none | 40 |
+| `rules.ruleChanged` | her | Everyone agreed, so the new rule is in place. Agreements given before need giving again. | none | 200 |
 | `rules.save` | her | Save the rules | none | 40 |
 | `rules.saved` | her | Rules saved. Agreements given before need giving again. | none | 110 |
 | `rules.scope` | her | What each agreement covers | none | 52 |
+| `rules.seeRule` | her | See the rule | none | 40 |
 | `rules.sharingTitle` | her | When you read each other's parts | none | 64 |
 | `rules.sheetTitle` | her | Rules for {title} | `{title}` | 40 |
+| `rules.suggested` | her | Suggested. It changes once everyone taking part agrees to it. | none | 122 |
+| `rules.takeBack` | her | Take back my agreement to it | none | 56 |
 | `rules.title` | her | Rules | none | 40 |
+| `rules.tookBack` | her | You took back your agreement to the new rule. | none | 90 |
 | `rules.whole` | her | The whole thing | none | 40 |
 | `rules.wholeHelp` | her | Each person agrees to everyone's parts, so any change asks everyone again. | none | 148 |
+| `rules.wholeOnly` | her | Each person agrees to the whole thing, so any change asks everyone again. | none | 200 |
 | `rules.whoseAgreement` | her | Whose agreement counts | none | 44 |
 | `share.couldntRead` | her | {product} couldn't read that | `{product}` | 56 |
 | `share.couldntTell` | her | {product} couldn't tell whether it posted. Look at the account it was going to. Is it there? | `{product}` | 184 |
@@ -4134,6 +4287,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `thing.compare` | her | Before and after photos | none | 46 |
 | `thing.contact` | her | How to reach you | none | 40 |
 | `thing.demo` | her | A lesson demo | none | 40 |
+| `thing.diagram` | details | A diagram | none | 40 |
 | `thing.faq` | her | Questions and answers | none | 42 |
 | `thing.footnote` | details | Footnote | none | 40 |
 | `thing.heading` | her | Heading | none | 40 |
@@ -4180,6 +4334,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.doBringBack` | her | Bring it back | none | 40 |
 | `together.doChange` | her | Change | none | 40 |
 | `together.doInvite` | her | Invite someone | none | 40 |
+| `together.doName` | her | Your name on it | none | 40 |
 | `together.doOpen` | her | Open it | none | 40 |
 | `together.doPublish` | her | Publish | none | 40 |
 | `together.doRead` | her | Read everyone's parts | none | 42 |
@@ -4293,6 +4448,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.stateWaitingHear` | her | Waiting to hear back | none | 40 |
 | `together.stepEveryoneAgreed` | her | Everyone agreed. | none | 40 |
 | `together.stepInvite` | her | Invite someone to write with you. | none | 66 |
+| `together.stepName` | her | Say how your name goes on it. Then you can all read the whole thing and agree. | none | 200 |
 | `together.stepPrivate` | her | Each part stays private, so it can't be published together. Whoever runs it can change that. | none | 200 |
 | `together.stepPublished` | her | It's on {product}. | `{product}` | 40 |
 | `together.stepRead` | her | Read everyone's parts and say if you agree. | none | 86 |
@@ -4303,6 +4459,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.stepShare` | her | Let the others read it when you're ready. | none | 82 |
 | `together.stepShareChanges` | her | You changed your part since you shared it. Let them read your changes when you're ready. | none | 200 |
 | `together.stepWaitingAgree` | her | Waiting for {names} to agree. | `{names}` | 58 |
+| `together.stepWaitingName` | her | Waiting for {names} to say how their name goes on it. | `{names}` | 106 |
+| `together.stepWaitingOthersName` | her | Waiting for the others to say how their name goes on it. | none | 112 |
 | `together.stepWaitingOthersReady` | her | Waiting for the others to be ready. | none | 70 |
 | `together.stepWaitingReady` | her | Waiting for {names} to be ready. | `{names}` | 64 |
 | `together.stepWaitingYes` | her | Waiting for {names} to say yes. Start your part meanwhile. | `{names}` | 116 |

@@ -41,7 +41,7 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
 
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) 1.85 or newer (`cargo` on your path),
+- [Rust](https://www.rust-lang.org/tools/install) 1.95 or newer (`cargo` on your path),
   to install the `openblog` command. Nothing else: the search engine's WebAssembly module
   is built into the command and written out by `openblog init`.
 

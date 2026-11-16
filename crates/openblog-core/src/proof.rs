@@ -717,6 +717,7 @@ pub fn reviews_json_ld(site: &Site) -> String {
     if let Some(object) = graph.as_object_mut() {
         object.insert("@context".into(), "https://schema.org".into());
     }
+    graph.sort_all_objects();
     graph.to_string()
 }
 

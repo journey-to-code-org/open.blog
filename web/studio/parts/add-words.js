@@ -74,6 +74,8 @@ export const WORDS = {
   "item.referencesAbout": { text: "The list of works you cite, at the end.", layer: "her" },
   "item.code": { text: "Code", layer: "details" },
   "item.codeAbout": { text: "A code block with a language, a title and highlighted lines.", layer: "details" },
+  "item.diagram": { text: "A diagram", layer: "details" },
+  "item.diagramAbout": { text: "A flowchart, sequence or other Mermaid diagram, drawn as a picture with its description.", layer: "details" },
   "item.runnable": { text: "Code readers can run", layer: "details" },
   "item.runnableAbout": { text: "An example or a challenge readers edit and run.", layer: "details" },
   "item.codepen": { text: "A CodePen", layer: "details" },
@@ -106,6 +108,8 @@ export const ADD_ITEMS = [
   { id: "cite", research: true, name: () => say("add.citation"), about: () => say("add.citationBlurb") },
   { id: "quotation", research: true, name: () => say("add.quotation"), about: () => say("add.quotationBlurb") },
   { id: "code", name: () => say("item.code"), about: () => say("item.codeAbout") },
+  // #646: only where the server draws diagrams.
+  { id: "diagram", needs: "diagram", name: () => say("item.diagram"), about: () => say("item.diagramAbout") },
   { id: "runnable", name: () => say("item.runnable"), about: () => say("item.runnableAbout") },
   { id: "codepen", name: () => say("item.codepen"), about: () => say("item.codepenAbout") },
   { id: "footnote", name: () => say("item.footnote"), about: () => say("item.footnoteAbout") },
@@ -113,7 +117,7 @@ export const ADD_ITEMS = [
 
 const MOST = ["photo", "tip", "checklist", "table", "video", "link", "heading"];
 const MORE = ["compare", "quote", "faq", "quiz", "button", "social", "map"];
-const DETAILS = ["code", "runnable", "codepen", "footnote"];
+const DETAILS = ["code", "diagram", "runnable", "codepen", "footnote"];
 
 /**
  * What this post can have added, in groups: `{ most, more, details }`, each a list of
@@ -122,7 +126,7 @@ const DETAILS = ["code", "runnable", "codepen", "footnote"];
  */
 export function addItems(meta, post = {}) {
   const known = new Set((meta?.pieces || []).map((piece) => piece.kind));
-  const has = (item) => !item.needs || (item.needs === "compare" ? Boolean(meta?.compare) : known.has(item.needs));
+  const has = (item) => !item.needs || (item.needs === "compare" ? Boolean(meta?.compare) : item.needs === "diagram" ? meta?.diagramRendering === true : known.has(item.needs));
   const byId = (id) => ADD_ITEMS.find((item) => item.id === id);
   const trade = Boolean(meta?.siteUses?.trade);
   const most = [...MOST];
@@ -136,7 +140,7 @@ export function addItems(meta, post = {}) {
   if (meta?.siteUses?.research === true) (post.kind === "research" ? most : more).push("cite", "quotation");
   // ONB1: code items follow Code and diagrams, a question for readers follows Teaching, hours and
   // contact follow Your business (a piece already in the post shows whatever is tucked away).
-  const ITEM_AREAS = { code: "code", runnable: "code", codepen: "code", quiz: "teaching", hours: "trade", contact: "trade" };
+  const ITEM_AREAS = { code: "code", diagram: "code", runnable: "code", codepen: "code", quiz: "teaching", hours: "trade", contact: "trade" };
   const seen = (item) => !ITEM_AREAS[item.id] || areaVisible(meta, ITEM_AREAS[item.id]);
   const list = (ids) => ids.map(byId).filter(has).filter(seen).map((item) => ({ id: item.id, name: item.name(), about: item.about() }));
   return { most: list(most), more: list(more), details: list(details) };

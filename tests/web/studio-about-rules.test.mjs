@@ -176,6 +176,15 @@ test("changing the kind says what happens to her words", () => {
   assert.deepEqual(kindChange("article", "job", "", { scaffold: "## The job\n" }), { help: "Fill in About this job, under the title.", body: "## The job\n" });
   assert.equal(kindChange("job", "article", "x").help, "The job details are kept if you change back.");
   assert.equal(withRecipeParts("My words.\n", starter), "My words.\n\n## Ingredients\n\n## Steps\n");
+  const decision = "## Context\n\n## Options considered\n\n## Decision\n\n## Consequences\n";
+  assert.deepEqual(kindChange("article", "decision", "", { starter: decision }), { help: "The decision's parts are ready to fill in.", body: decision });
+  assert.match(kindChange("article", "decision", "My words.", { starter: decision }).help, /Your words stay as they are\. A decision needs Context/);
+  assert.equal(kindChange("article", "decision", "My words.", { starter: decision }).body, undefined);
+});
+
+test("a decision post keeps its own kind and shows where it stands", () => {
+  assert.deepEqual(kindChoices({ profiles: [...PROFILES, { id: "decision" }] }, "decision").map((c) => c.label), ["A story", "A recipe", "A decision"]);
+  assert.deepEqual(groupKeys("decision"), ["decisionStatus", "supersededBy"]);
 });
 
 test("kinds she can choose: no Job on Grammi's site; a video keeps its own; unknown is kept", () => {

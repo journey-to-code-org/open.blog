@@ -231,4 +231,10 @@
     ("POST", "voice/spoken"),
     ("PUT", "onboarding"),
     ("PUT", "onboarding/restore"),
+    // Audio episodes (#645): a saved voice note or a file copied into the site's public files.
+    ("GET", "episode-voice-notes"),
+    ("POST", "episode-audio"),
+    // Studio's diagram preview (#646).
+    ("GET", "diagram/templates"),
+    ("POST", "diagram/preview"),
 ]

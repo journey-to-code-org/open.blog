@@ -6,7 +6,7 @@ on GitHub or on the site; nothing here is a copy of it.
 
 - `openblog.json` turns on the [documentation section](../docs/docs-sites.md), points `docs.source` at `docs/` on
   GitHub, and uses the engine's own `themes/` and `web/` folders.
-- `content/landing.json` is the home page.
+- `docs.home` makes the documentation's index (`docs/README.md`) the home page.
 - `content/docs/` is filled from `docs/` when the site is built and is never committed.
 
 Build and preview it from the repository root:

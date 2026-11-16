@@ -1,5 +1,37 @@
 # Configuration
 
+## Podcast feed
+
+The optional `podcast` block enables the podcast feed. It is absent by default;
+see [Audio episodes](content.md#audio-episodes) for episode metadata.
+
+```json
+{
+  "podcast": {
+    "version": 1,
+    "title": "The show",
+    "description": "Conversations about the craft.",
+    "author": "The host",
+    "email": "podcast@example.com",
+    "category": "Technology",
+    "explicit": false,
+    "image": "/images/podcast.jpg"
+  }
+}
+```
+
+The site URL must be HTTPS. Builds write `/podcast.xml`, with the first source
+of each published episode as its enclosure and a Podcasting 2.0 chapter file
+where chapters are present. The image must be a site-relative path or HTTPS
+URL; ensure it meets your directory's artwork requirements before submitting.
+`email` is optional and is published in the feed when set; Spotify uses the
+address in a feed to verify show ownership, so choose an address intended to
+be public.
+See the [directory submission guide](podcast-directories.md) for deployment,
+validation, and manual submission steps.
+
+## General settings
+
 All settings live in `openblog.json` at the root of your blog. Every key is optional; the
 values below are the defaults. `openblog init` writes the file with every key at its
 default, so you can edit values in place and delete the ones you do not need.
@@ -210,6 +242,9 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
 - `analytics.campaigns` (off by default) counts a page address's `utm_source` when it names a destination and
   tags the links open.blog sends to Pinterest and shared-job places; see
   [Where your posts went](distribution-reporting.md#campaign-tags-optional).
+- `analytics.fediverseHosts` (omitted by default) is a list of up to 20 bare fediverse instance hosts, such as
+  `hachyderm.io`; visits referred by them count as `mastodon`. The built-in counter also includes the social
+  Mastodon instance when configured. Run `openblog analytics attribution` for the settings used by hosted counters.
 - `analytics.builtin` turns the view counter in `openblog serve` on or off;
   `showViews` controls the count shown on posts. `endpoint` points pages at a counter
   hosted elsewhere, `branch` names the git branch that backs the counts up, and
@@ -730,10 +765,12 @@ wins over it when set, and is the only place for a round (`on:<round>`) or a pra
 ## Documentation section
 
 `docs` publishes `content/docs/` as a tree of pages at `/docs/` with a sidebar: `{ "enabled": true, "title":
-"Documentation", "source": "" }`. Off and absent by default; while it is off, files in `content/docs/` are not
+"Documentation", "source": "", "home": false }`. `home: true` makes the documentation's index the home page in place
+of the post list. Off and absent by default; while it is off, files in `content/docs/` are not
 published and the build says so. `title` is the sidebar's heading. `source` is where the folder can be read in a
 repository viewer (such as `https://github.com/you/project/blob/main/docs/`): each page then links to its own
-source, and links to files outside the folder point there. See [Documentation sites](docs-sites.md).
+source, and links to files outside the folder point there. Documentation pages are in the site's search. See
+[Documentation sites](docs-sites.md).
 
 ## Themes
 

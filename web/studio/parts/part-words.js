@@ -106,6 +106,8 @@ export const WORDS = {
   "read.agreeUndone": { text: "Your agreement is taken back.", layer: "her" },
   "read.readFirst": { text: "Open See it as readers will first, then agree.", layer: "her" },
   "read.notAllShared": { text: "You can agree once everyone's part can be read.", layer: "her" },
+  "read.nameFirst": { text: "Say how your name goes on it first. Then you can read the whole thing as readers will.", layer: "her", max: 200 },
+  "read.namesFirst": { text: "Everyone needs to say how their name goes on it first.", layer: "her" },
   "read.agreeStale": { text: "Someone changed their part since you agreed. Read it again, then agree.", layer: "her", max: 200 },
   "read.alreadyAgreed": { text: "You agreed to exactly this.", layer: "her" },
   "read.changedSinceRead": { text: "It changed after you read it. Open See it as readers will again, then agree.", layer: "her", max: 200 },

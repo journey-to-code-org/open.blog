@@ -65,6 +65,12 @@ even if another writer creates that name concurrently. Paths containing `..` or 
 components are rejected. Filesystems without hard-link support return an explicit error rather
 than falling back to a partial or overwriting write. Only published, due posts are eligible.
 
+With the experimental `diagram-rendering` feature enabled, a Markdown export containing diagrams
+also creates a sibling `openblog-diagrams-<digest>` directory of SVG images and uses relative
+image links. Move that directory with the Markdown file. The dry run with `--out` lists the
+images; JSON includes `diagramFiles`. The export refuses an existing image directory and removes
+its own newly written images if publication fails. Exports without diagrams are unchanged.
+
 After the open.blog URL is deployed and reachable, create or update remote drafts:
 
 ```sh

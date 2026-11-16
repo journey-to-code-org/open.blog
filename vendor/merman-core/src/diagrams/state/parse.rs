@@ -1,0 +1,1376 @@
+#[cfg(feature = "editor-facts")]
+use crate::diagrams::scan::is_ecmascript_whitespace;
+#[cfg(feature = "editor-facts")]
+use crate::family::EditorFactsDemand;
+use crate::family::SemanticConstruction;
+#[cfg(feature = "editor-facts")]
+use crate::parse_diagnostic::{format_lalrpop_parse_error, lalrpop_recovery_span};
+#[cfg(feature = "editor-facts")]
+use crate::source_span::{
+    has_ascii_separator, line_content_end, source_value_span, trailing_ascii_whitespace_slot,
+};
+#[cfg(feature = "editor-facts")]
+use crate::{
+    EditorExpectedSyntax, EditorExpectedSyntaxKind, EditorSemanticFacts, EditorSemanticKind,
+    EditorSemanticSymbol,
+};
+use crate::{
+    Error, OperationControl, OperationControlResult, ParseDiagnostic, ParseDiagnosticSpanKind,
+    SourceSpan, parse_diagnostic::lalrpop_parse_diagnostic,
+};
+#[cfg(feature = "presentation")]
+use crate::{Result, SourcePresentationMetadata};
+#[cfg(feature = "compat-json")]
+use serde_json::Value;
+#[cfg(test)]
+use std::cell::Cell;
+#[cfg(feature = "editor-facts")]
+use std::collections::HashSet;
+
+#[cfg(feature = "presentation")]
+use super::StateDiagramRenderModel;
+use super::db::StateDb;
+use super::{Lexer, StateDiagramModel, StateDocumentScratch, StateStatement, Tok};
+
+#[cfg(test)]
+thread_local! {
+    static STATE_SYNTAX_CONSTRUCTION_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_state_syntax_construction_count() {
+    STATE_SYNTAX_CONSTRUCTION_COUNT.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn state_syntax_construction_count() -> usize {
+    STATE_SYNTAX_CONSTRUCTION_COUNT.get()
+}
+
+type StateLexicalEvent = std::result::Result<(usize, Tok, usize), super::LexError>;
+type StateGrammarError = lalrpop_util::ParseError<usize, Tok, super::LexError>;
+
+struct StateSyntaxOutcome {
+    document: std::result::Result<StateDocumentScratch, StateGrammarError>,
+    #[cfg(feature = "editor-facts")]
+    editor_facts: Option<EditorSemanticFacts>,
+}
+
+struct StateSyntax {
+    events: Vec<StateLexicalEvent>,
+}
+
+impl StateSyntax {
+    fn lex(code: &str, control: &OperationControl) -> OperationControlResult<Self> {
+        #[cfg(test)]
+        STATE_SYNTAX_CONSTRUCTION_COUNT.set(STATE_SYNTAX_CONSTRUCTION_COUNT.get() + 1);
+
+        let events = crate::diagrams::scan::collect_lexical_events(&mut Lexer::new(code), control)?;
+        Ok(Self { events })
+    }
+
+    fn into_document(
+        self,
+        #[cfg(feature = "editor-facts")] code: &str,
+        #[cfg(feature = "editor-facts")] facts_demand: EditorFactsDemand,
+        control: &OperationControl,
+    ) -> OperationControlResult<StateSyntaxOutcome> {
+        #[cfg(feature = "editor-facts")]
+        let editor_facts = match facts_demand {
+            EditorFactsDemand::Omit => None,
+            EditorFactsDemand::Recovery => Some(EditorSemanticFacts::new()),
+            EditorFactsDemand::Capture => Some(collect_state_editor_facts_from_events(
+                &self.events,
+                code,
+                control,
+            )?),
+        };
+        control.checkpoint()?;
+        let mut emitted = 0usize;
+        let controlled_events = self.events.into_iter().take_while(|_| {
+            let active = !emitted.is_multiple_of(128) || control.checkpoint().is_ok();
+            emitted = emitted.saturating_add(1);
+            active
+        });
+        let mut document = StateDocumentScratch::default();
+        let parsed =
+            super::state_grammar::RootParser::new().parse(&mut document, controlled_events);
+        let document = parsed.map(|root| {
+            document.root = Some(root);
+            document
+        });
+        control.checkpoint()?;
+        Ok(StateSyntaxOutcome {
+            document,
+            #[cfg(feature = "editor-facts")]
+            editor_facts,
+        })
+    }
+}
+
+struct StateSemanticSource {
+    db: StateDb,
+    #[cfg(feature = "editor-facts")]
+    editor_facts: Option<EditorSemanticFacts>,
+}
+
+struct StateSemanticFailure {
+    error: Box<StateGrammarError>,
+    #[cfg(feature = "editor-facts")]
+    editor_facts: Option<Box<EditorSemanticFacts>>,
+}
+
+impl StateSemanticFailure {
+    #[cfg(feature = "presentation")]
+    fn into_parse_error(self, meta: &SourcePresentationMetadata, fallback_offset: usize) -> Error {
+        self.into_parse_error_for_type(&meta.diagram_type, fallback_offset)
+    }
+
+    fn into_parse_error_for_type(self, diagram_type: &str, fallback_offset: usize) -> Error {
+        Error::diagram_parse_diagnostic(
+            diagram_type.to_string(),
+            state_parse_diagnostic(&self.error, fallback_offset),
+        )
+    }
+
+    #[cfg(feature = "compat-json")]
+    #[cfg(feature = "editor-facts")]
+    fn into_error_and_editor_facts(
+        self,
+        meta: &SourcePresentationMetadata,
+        fallback_offset: usize,
+    ) -> (Error, EditorSemanticFacts) {
+        self.into_error_and_editor_facts_for_type(&meta.diagram_type, fallback_offset)
+    }
+
+    #[cfg(feature = "editor-facts")]
+    fn into_error_and_editor_facts_for_type(
+        self,
+        diagram_type: &str,
+        fallback_offset: usize,
+    ) -> (Error, EditorSemanticFacts) {
+        let error = Error::diagram_parse_diagnostic(
+            diagram_type.to_string(),
+            state_parse_diagnostic(&self.error, fallback_offset),
+        );
+        let span = match self.error.as_ref() {
+            lalrpop_util::ParseError::User { error } => error
+                .span
+                .unwrap_or_else(|| SourceSpan::new(fallback_offset, fallback_offset)),
+            _ => lalrpop_recovery_span(&self.error, fallback_offset),
+        };
+        let mut editor_facts = self
+            .editor_facts
+            .expect("State capture requests its failure journal");
+        editor_facts.mark_recovered_from_parse_error(
+            format!(
+                "state parser recovered after parse error: {}",
+                format_lalrpop_parse_error(self.error.as_ref())
+            ),
+            Some(span),
+        );
+        (error, *editor_facts)
+    }
+}
+
+fn state_parse_diagnostic(error: &StateGrammarError, fallback_offset: usize) -> ParseDiagnostic {
+    let diagnostic = lalrpop_parse_diagnostic(error, fallback_offset);
+    match error {
+        lalrpop_util::ParseError::UnrecognizedToken {
+            token: (start, Tok::Newline, end),
+            ..
+        } if start == end && *end == fallback_offset => diagnostic.with_span(
+            SourceSpan::new(*start, *end),
+            ParseDiagnosticSpanKind::InsertionPoint,
+        ),
+        _ => diagnostic,
+    }
+}
+
+#[cfg(feature = "compat-json")]
+pub(crate) fn parse_state(code: &str, meta: &SourcePresentationMetadata) -> Result<Value> {
+    parse_state_semantic_source(code, meta)?.db.into_model(meta)
+}
+
+#[cfg(feature = "presentation")]
+pub(crate) fn parse_state_model_for_render_controlled(
+    code: &str,
+    meta: &SourcePresentationMetadata,
+    control: &OperationControl,
+) -> OperationControlResult<Result<StateDiagramRenderModel>> {
+    let construction = construct_state_semantic_source(
+        code,
+        #[cfg(feature = "editor-facts")]
+        EditorFactsDemand::Omit,
+        control,
+    )?;
+    match construction {
+        Ok(source) => source.db.into_model_controlled(meta, control),
+        Err(failure) => Ok(Err(failure.into_parse_error(meta, code.len()))),
+    }
+}
+
+pub(crate) fn parse_state_semantic_model_controlled(
+    code: &str,
+    diagram_type: &str,
+    config: &crate::MermaidConfig,
+    #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
+    control: &OperationControl,
+) -> OperationControlResult<SemanticConstruction<StateDiagramModel>> {
+    let construction = construct_state_semantic_source(
+        code,
+        #[cfg(feature = "editor-facts")]
+        editor_demand,
+        control,
+    )?;
+    match construction {
+        Ok(StateSemanticSource {
+            db,
+            #[cfg(feature = "editor-facts")]
+            editor_facts,
+        }) => {
+            let model = match db.into_semantic_model_controlled(diagram_type, config, control)? {
+                Ok(mut model) => {
+                    super::sanitize_common_db_fields(&mut model, config);
+                    control.checkpoint()?;
+                    Ok(model)
+                }
+                Err(error) => Err(error),
+            };
+            Ok(SemanticConstruction {
+                model,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            })
+        }
+        #[cfg(feature = "editor-facts")]
+        Err(failure) if editor_demand.needs_recovery() => {
+            let (error, editor_facts) =
+                failure.into_error_and_editor_facts_for_type(diagram_type, code.len());
+            Ok(SemanticConstruction {
+                model: Err(error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: Some(editor_facts),
+            })
+        }
+        Err(failure) => Ok(SemanticConstruction {
+            model: Err(failure.into_parse_error_for_type(diagram_type, code.len())),
+            #[cfg(feature = "editor-facts")]
+            editor_facts: None,
+        }),
+    }
+}
+
+#[cfg(feature = "compat-json")]
+#[cfg(feature = "editor-facts")]
+pub(crate) fn parse_state_json_and_editor_facts(
+    code: &str,
+    meta: &SourcePresentationMetadata,
+    control: &OperationControl,
+) -> OperationControlResult<crate::family::CombinedSemanticParse> {
+    let construction = construct_state_semantic_source(code, EditorFactsDemand::Capture, control)?;
+    let construction = match construction {
+        Ok(StateSemanticSource {
+            db,
+            #[cfg(feature = "editor-facts")]
+            editor_facts,
+        }) => {
+            let model = match db.into_model_controlled(meta, control)? {
+                Ok(model) => super::render_model::render_model_to_compat_json_controlled(
+                    &model, meta, control,
+                )?,
+                Err(error) => Err(error),
+            };
+            Ok((
+                model,
+                editor_facts.expect("State combined parse requests editor facts"),
+            ))
+        }
+        Err(failure) => Err(failure),
+    };
+    control.checkpoint()?;
+    let parsed = crate::family::CombinedSemanticParse::from_construction(
+        construction,
+        |(model, editor_facts)| {
+            (
+                model.map(crate::ManagedSemanticJson::into_unmanaged_value),
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )
+        },
+        |failure| failure.into_error_and_editor_facts(meta, code.len()),
+    );
+    Ok(parsed)
+}
+
+#[cfg(feature = "compat-json")]
+fn parse_state_semantic_source(
+    code: &str,
+    meta: &SourcePresentationMetadata,
+) -> Result<StateSemanticSource> {
+    construct_state_semantic_source(
+        code,
+        #[cfg(feature = "editor-facts")]
+        EditorFactsDemand::Omit,
+        &OperationControl::new(),
+    )
+    .expect("a private parse control cannot be cancelled")
+    .map_err(|failure| failure.into_parse_error(meta, code.len()))
+}
+
+fn construct_state_semantic_source(
+    code: &str,
+    #[cfg(feature = "editor-facts")] facts_demand: EditorFactsDemand,
+    control: &OperationControl,
+) -> OperationControlResult<std::result::Result<StateSemanticSource, StateSemanticFailure>> {
+    let syntax = StateSyntax::lex(code, control)?;
+    let StateSyntaxOutcome {
+        document,
+        #[cfg(feature = "editor-facts")]
+        editor_facts,
+    } = syntax.into_document(
+        #[cfg(feature = "editor-facts")]
+        code,
+        #[cfg(feature = "editor-facts")]
+        facts_demand,
+        control,
+    )?;
+    let mut doc = match document {
+        Ok(doc) => doc,
+        Err(error) => {
+            return Ok(Err(StateSemanticFailure {
+                error: Box::new(error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: editor_facts.map(Box::new),
+            }));
+        }
+    };
+
+    let mut divider_cnt = 0usize;
+    assign_divider_ids(&mut doc, &mut divider_cnt, control)?;
+
+    let mut db = StateDb::new();
+    db.set_root_doc(doc, control)?;
+    control.checkpoint()?;
+    Ok(Ok(StateSemanticSource {
+        db,
+        #[cfg(feature = "editor-facts")]
+        editor_facts,
+    }))
+}
+
+pub(super) fn assign_divider_ids(
+    document: &mut StateDocumentScratch,
+    cnt: &mut usize,
+    control: &OperationControl,
+) -> OperationControlResult<()> {
+    let Some(root) = document.root else {
+        return Ok(());
+    };
+    let mut stack = vec![(root, 0usize)];
+    let mut inspected = 0usize;
+    while let Some((doc, index)) = stack.last_mut() {
+        if inspected.is_multiple_of(128) {
+            control.checkpoint()?;
+        }
+        let Some(stmt) = document.get_mut(*doc).get_mut(*index) else {
+            stack.pop();
+            continue;
+        };
+        *index += 1;
+        let mut child = None;
+        match stmt {
+            StateStatement::State(st) => {
+                if st.ty == "divider" && st.id == "__divider__" {
+                    *cnt += 1;
+                    st.id = format!("divider-id-{cnt}");
+                }
+                child = st.doc;
+            }
+            StateStatement::Relation(relation) => {
+                for st in [&mut relation.state1, &mut relation.state2] {
+                    if st.ty == "divider" && st.id == "__divider__" {
+                        *cnt += 1;
+                        st.id = format!("divider-id-{cnt}");
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(child) = child {
+            stack.push((child, 0));
+        }
+        inspected = inspected.saturating_add(1);
+    }
+    control.checkpoint()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(feature = "editor-facts")]
+enum StateTokenContext {
+    Default,
+    StateAliasAs,
+    StateAliasId,
+    ClickTarget,
+    ClickAfterTarget,
+    ClickAfterHref,
+    ClickTooltip,
+}
+
+#[derive(Debug)]
+#[cfg(feature = "editor-facts")]
+struct StatePendingEntity {
+    name: String,
+    selection: SourceSpan,
+    detail: &'static str,
+    kind: EditorSemanticKind,
+    is_alias: bool,
+}
+
+#[cfg(feature = "editor-facts")]
+fn collect_state_editor_facts_from_events(
+    lexical_events: &[StateLexicalEvent],
+    code: &str,
+    control: &OperationControl,
+) -> OperationControlResult<EditorSemanticFacts> {
+    #[cfg(test)]
+    crate::editor::test_work::record_collection();
+    let mut collector = StateTokenFactCollector {
+        code,
+        context: StateTokenContext::Default,
+        pending_entity: None,
+        pending_directive_slot: None,
+        directive_start: None,
+        interaction_target_end: None,
+        note_text_pending: false,
+        note_position_seen: false,
+        note_alias_pending: false,
+        relation_label_pending: false,
+        relation_target_seen: false,
+        declared_entities: HashSet::new(),
+    };
+    let mut facts = EditorSemanticFacts::new();
+    for (index, event) in lexical_events.iter().enumerate() {
+        if index % 128 == 0 {
+            control.checkpoint()?;
+        }
+        match event {
+            Ok((start, token, end)) => {
+                collector.collect_token(token.clone(), *start, *end, &mut facts, control)?;
+            }
+            Err(error) => {
+                if let Some(expected) = error.expected_syntax.as_ref() {
+                    facts.push_expected_syntax(EditorExpectedSyntax::new(
+                        expected.kind,
+                        expected.span,
+                    ));
+                }
+            }
+        }
+    }
+    collector.finish_statement(line_content_end(code, code.len()), &mut facts);
+    control.checkpoint()?;
+    Ok(facts)
+}
+
+#[cfg(feature = "editor-facts")]
+struct StateTokenFactCollector<'a> {
+    code: &'a str,
+    context: StateTokenContext,
+    pending_entity: Option<StatePendingEntity>,
+    pending_directive_slot: Option<PendingDirectiveSlot>,
+    directive_start: Option<usize>,
+    interaction_target_end: Option<usize>,
+    note_text_pending: bool,
+    note_position_seen: bool,
+    note_alias_pending: bool,
+    relation_label_pending: bool,
+    relation_target_seen: bool,
+    declared_entities: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg(feature = "editor-facts")]
+struct PendingDirectiveSlot {
+    kind: EditorExpectedSyntaxKind,
+    anchor_end: usize,
+}
+
+#[cfg(feature = "editor-facts")]
+impl StateTokenFactCollector<'_> {
+    fn collect_token(
+        &mut self,
+        token: Tok,
+        start: usize,
+        end: usize,
+        facts: &mut EditorSemanticFacts,
+        control: &OperationControl,
+    ) -> OperationControlResult<()> {
+        match token {
+            Tok::Newline => self.finish_statement(line_content_end(self.code, start), facts),
+            Tok::StructStart => {
+                if let Some(entity) = self.pending_entity.as_mut()
+                    && entity.is_alias
+                {
+                    entity.is_alias = false;
+                    push_state_expected_syntax(
+                        facts,
+                        EditorExpectedSyntaxKind::NodeIdentifier,
+                        entity.selection,
+                    );
+                }
+                self.reset_statement(facts);
+            }
+            Tok::StructStop => self.reset_statement(facts),
+            Tok::Arrow => {
+                self.flush_pending_entity_for_relation(facts);
+                self.relation_label_pending = true;
+                self.relation_target_seen = false;
+            }
+            Tok::Click => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("click");
+                self.directive_start = Some(start);
+                self.expect_after_separator(EditorExpectedSyntaxKind::NodeIdentifier, end);
+                self.context = StateTokenContext::ClickTarget;
+            }
+            Tok::Href if self.context == StateTokenContext::ClickAfterTarget => {
+                push_state_expected_syntax(
+                    facts,
+                    EditorExpectedSyntaxKind::InteractionAction,
+                    SourceSpan::new(start, end),
+                );
+                self.context = StateTokenContext::ClickAfterHref;
+                self.interaction_target_end = None;
+            }
+            Tok::Id(id) if self.context == StateTokenContext::ClickTarget => {
+                self.pending_directive_slot = None;
+                self.interaction_target_end = Some(end);
+                push_state_reference_fact(facts, id, start, end, "state click target");
+                self.context = StateTokenContext::ClickAfterTarget;
+            }
+            Tok::StyledId((id, class_id)) if self.context == StateTokenContext::ClickTarget => {
+                self.pending_directive_slot = None;
+                self.interaction_target_end = Some(end);
+                push_state_reference_fact(facts, id, start, end, "state click target");
+                push_state_payload_fact_from_token_as(
+                    facts,
+                    self.code,
+                    class_id.as_str(),
+                    SourceSpan::new(start, end),
+                    "state inline class",
+                    EditorSemanticKind::Property,
+                    EditorExpectedSyntaxKind::ClassName,
+                );
+                self.context = StateTokenContext::ClickAfterTarget;
+            }
+            Tok::EdgeState if self.context == StateTokenContext::ClickTarget => {
+                self.pending_directive_slot = None;
+                self.interaction_target_end = Some(end);
+                self.context = StateTokenContext::ClickAfterTarget;
+            }
+            Tok::Id(_) if self.context == StateTokenContext::ClickAfterTarget => {
+                push_state_expected_syntax(
+                    facts,
+                    EditorExpectedSyntaxKind::InteractionAction,
+                    SourceSpan::new(start, end),
+                );
+                self.interaction_target_end = None;
+                self.context = StateTokenContext::Default;
+            }
+            Tok::EdgeState => {
+                self.flush_pending_entity(facts);
+                if self.relation_label_pending {
+                    self.relation_target_seen = true;
+                }
+            }
+            Tok::Note => {
+                self.flush_pending_entity(facts);
+                self.note_text_pending = true;
+                self.note_position_seen = false;
+                self.note_alias_pending = false;
+            }
+            Tok::LeftOf | Tok::RightOf => {
+                self.note_position_seen = true;
+            }
+            Tok::NoteText(text) if self.note_text_pending => {
+                self.flush_pending_entity(facts);
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    text.as_str(),
+                    start,
+                    end,
+                    "state note",
+                    EditorSemanticKind::String,
+                );
+                self.note_alias_pending = !self.note_position_seen;
+                self.note_text_pending = false;
+            }
+            Tok::StateDescr(text) => {
+                self.flush_pending_entity(facts);
+                push_state_string_payload_fact(
+                    facts,
+                    text.as_str(),
+                    start,
+                    end,
+                    "state display label",
+                    EditorSemanticKind::String,
+                );
+                self.context = StateTokenContext::StateAliasAs;
+            }
+            Tok::As if self.context == StateTokenContext::StateAliasAs => {
+                self.context = StateTokenContext::StateAliasId;
+            }
+            Tok::Descr(text) => {
+                self.flush_pending_entity(facts);
+                let detail = if self.relation_label_pending && self.relation_target_seen {
+                    "state relation label"
+                } else {
+                    "state description"
+                };
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    text.as_str(),
+                    start,
+                    end,
+                    detail,
+                    EditorSemanticKind::String,
+                );
+                self.relation_label_pending = false;
+                self.relation_target_seen = false;
+            }
+            Tok::StringLit(text)
+                if matches!(
+                    self.context,
+                    StateTokenContext::ClickAfterTarget | StateTokenContext::ClickAfterHref
+                ) =>
+            {
+                self.flush_pending_entity(facts);
+                self.interaction_target_end = None;
+                push_state_string_payload_fact(
+                    facts,
+                    text.as_str(),
+                    start,
+                    end,
+                    "state click url",
+                    EditorSemanticKind::String,
+                );
+                self.context = if self.context == StateTokenContext::ClickAfterTarget {
+                    StateTokenContext::ClickTooltip
+                } else {
+                    StateTokenContext::Default
+                };
+            }
+            Tok::StringLit(text) if self.context == StateTokenContext::ClickTooltip => {
+                push_state_string_payload_fact(
+                    facts,
+                    text.as_str(),
+                    start,
+                    end,
+                    "state click tooltip",
+                    EditorSemanticKind::String,
+                );
+                self.context = StateTokenContext::Default;
+            }
+            Tok::Id(id) | Tok::CompositState(id) => {
+                self.handle_state_entity(id, start, end, "state", facts);
+            }
+            Tok::StyledId((id, class_id)) => {
+                self.handle_state_entity(id, start, end, "state", facts);
+                push_state_payload_fact_from_token_as(
+                    facts,
+                    self.code,
+                    class_id.as_str(),
+                    SourceSpan::new(start, end),
+                    "state inline class",
+                    EditorSemanticKind::Property,
+                    EditorExpectedSyntaxKind::ClassName,
+                );
+            }
+            Tok::Fork(id) => {
+                self.handle_state_entity(id, start, end, "state fork", facts);
+            }
+            Tok::Join(id) => {
+                self.handle_state_entity(id, start, end, "state join", facts);
+            }
+            Tok::Choice(id) => {
+                self.handle_state_entity(id, start, end, "state choice", facts);
+            }
+            Tok::ClassDef => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("classDef");
+                self.directive_start = Some(start);
+                self.expect_after_separator(EditorExpectedSyntaxKind::ClassName, end);
+            }
+            Tok::ClassDefId(id) => {
+                if !id.trim_matches(is_ecmascript_whitespace).is_empty() {
+                    push_state_expected_syntax(
+                        facts,
+                        EditorExpectedSyntaxKind::ClassName,
+                        SourceSpan::new(start, end),
+                    );
+                    self.expect_after_separator(EditorExpectedSyntaxKind::StyleValue, end);
+                }
+                push_state_class_definition_fact(
+                    facts,
+                    id,
+                    start,
+                    end,
+                    "state class definition",
+                    EditorSemanticKind::Property,
+                );
+            }
+            Tok::ClassDefStyleOpts(raw) => {
+                if let Some(span) = trailing_ascii_whitespace_slot(self.code, start, end) {
+                    push_state_expected_syntax(facts, EditorExpectedSyntaxKind::StyleValue, span);
+                }
+                self.pending_directive_slot = None;
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    raw.as_str(),
+                    start,
+                    end,
+                    "state class definition style",
+                    EditorSemanticKind::String,
+                );
+            }
+            Tok::Class => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("class");
+                self.directive_start = Some(start);
+                self.expect_after_separator(EditorExpectedSyntaxKind::IdList, end);
+            }
+            Tok::ClassEntityIds(ids) => {
+                let has_targets = !ids.trim_matches(is_ecmascript_whitespace).is_empty();
+                push_state_reference_id_list_facts(
+                    facts,
+                    self.code,
+                    ids.as_str(),
+                    SourceSpan::new(start, end),
+                    "state class target",
+                    EditorExpectedSyntaxKind::IdList,
+                    control,
+                )?;
+                if has_targets {
+                    self.expect_after_separator(EditorExpectedSyntaxKind::ClassName, end);
+                }
+            }
+            Tok::StyleClass(class_id) => {
+                if !class_id.trim_matches(is_ecmascript_whitespace).is_empty() {
+                    self.pending_directive_slot = None;
+                }
+                push_state_payload_fact_from_token_as(
+                    facts,
+                    self.code,
+                    class_id.as_str(),
+                    SourceSpan::new(start, end),
+                    "state class reference",
+                    EditorSemanticKind::Property,
+                    EditorExpectedSyntaxKind::ClassName,
+                );
+            }
+            Tok::Style => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("style");
+                self.directive_start = Some(start);
+                self.expect_after_separator(EditorExpectedSyntaxKind::IdList, end);
+            }
+            Tok::StyleIds(ids) => {
+                let has_targets = !ids.trim_matches(is_ecmascript_whitespace).is_empty();
+                push_state_reference_id_list_facts(
+                    facts,
+                    self.code,
+                    ids.as_str(),
+                    SourceSpan::new(start, end),
+                    "state style target",
+                    EditorExpectedSyntaxKind::IdList,
+                    control,
+                )?;
+                if has_targets {
+                    self.expect_after_separator(EditorExpectedSyntaxKind::StyleValue, end);
+                }
+            }
+            Tok::StyleDefStyleOpts(raw) => {
+                if let Some(span) = trailing_ascii_whitespace_slot(self.code, start, end) {
+                    push_state_expected_syntax(facts, EditorExpectedSyntaxKind::StyleValue, span);
+                }
+                self.pending_directive_slot = None;
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    raw.as_str(),
+                    start,
+                    end,
+                    "state style",
+                    EditorSemanticKind::String,
+                );
+            }
+            Tok::AccTitle(value) => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("accTitle");
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    value.as_str(),
+                    start,
+                    end,
+                    "state accessibility title",
+                    EditorSemanticKind::String,
+                );
+            }
+            Tok::AccDescr(value) | Tok::AccDescrMultiline(value) => {
+                self.flush_pending_entity(facts);
+                facts.push_directive_prefix("accDescr");
+                push_state_payload_fact_from_token(
+                    facts,
+                    self.code,
+                    value.as_str(),
+                    start,
+                    end,
+                    "state accessibility description",
+                    EditorSemanticKind::String,
+                );
+            }
+            Tok::Sd
+            | Tok::As
+            | Tok::NoteText(_)
+            | Tok::Concurrent
+            | Tok::HideEmptyDescription
+            | Tok::ScaleWidth(_)
+            | Tok::Href
+            | Tok::StringLit(_) => {}
+            Tok::Direction(direction) => {
+                push_state_expected_syntax(
+                    facts,
+                    EditorExpectedSyntaxKind::CardinalDirectionValue,
+                    direction.selection,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_state_entity(
+        &mut self,
+        id: String,
+        start: usize,
+        end: usize,
+        default_detail: &'static str,
+        facts: &mut EditorSemanticFacts,
+    ) {
+        if self.note_alias_pending {
+            self.note_alias_pending = false;
+            push_state_expected_syntax(
+                facts,
+                EditorExpectedSyntaxKind::Payload,
+                SourceSpan::new(start, end),
+            );
+            return;
+        }
+
+        if self.note_text_pending && self.note_position_seen {
+            self.push_state_relation_occurrence(id, start, end, "state note target", facts);
+            return;
+        }
+
+        if self.relation_label_pending {
+            self.flush_pending_entity(facts);
+            self.push_state_relation_occurrence(id, start, end, "state reference", facts);
+            self.relation_target_seen = true;
+            return;
+        }
+
+        self.queue_state_entity(id, start, end, default_detail, facts);
+    }
+
+    fn queue_state_entity(
+        &mut self,
+        id: String,
+        start: usize,
+        end: usize,
+        detail: &'static str,
+        facts: &mut EditorSemanticFacts,
+    ) {
+        self.flush_pending_entity(facts);
+        let is_alias = self.context == StateTokenContext::StateAliasId;
+        if is_alias {
+            self.context = StateTokenContext::Default;
+        }
+        let Some(mut entity) = state_pending_entity(id, start, end, detail) else {
+            return;
+        };
+        entity.is_alias = is_alias;
+        if !is_alias {
+            push_state_expected_syntax(
+                facts,
+                EditorExpectedSyntaxKind::NodeIdentifier,
+                entity.selection,
+            );
+        }
+        self.pending_entity = Some(entity);
+    }
+
+    fn take_pending_entity(
+        &mut self,
+        facts: &mut EditorSemanticFacts,
+    ) -> Option<StatePendingEntity> {
+        let mut entity = self.pending_entity.take()?;
+        if entity.is_alias {
+            if let Some(separator) = entity.name.find(':') {
+                entity.name.truncate(separator);
+            }
+            let trimmed = entity.name.trim_matches(is_ecmascript_whitespace);
+            let leading = entity.name.len()
+                - entity
+                    .name
+                    .trim_start_matches(is_ecmascript_whitespace)
+                    .len();
+            entity.selection.start += leading;
+            entity.selection.end = entity
+                .selection
+                .end
+                .min(entity.selection.start + trimmed.len());
+            entity.name = trimmed.to_string();
+            push_state_expected_syntax(
+                facts,
+                EditorExpectedSyntaxKind::NodeIdentifier,
+                entity.selection,
+            );
+            if !is_editor_visible_state_name(&entity.name) {
+                return None;
+            }
+        }
+        Some(entity)
+    }
+
+    fn flush_pending_entity(&mut self, facts: &mut EditorSemanticFacts) {
+        if let Some(entity) = self.take_pending_entity(facts) {
+            self.declared_entities.insert(entity.name.clone());
+            facts.push_symbol(EditorSemanticSymbol::new(
+                entity.name,
+                Some(entity.detail.to_string()),
+                entity.kind,
+                entity.selection,
+                entity.selection,
+            ));
+        }
+    }
+
+    fn flush_pending_entity_for_relation(&mut self, facts: &mut EditorSemanticFacts) {
+        if let Some(entity) = self.take_pending_entity(facts) {
+            self.push_state_relation_occurrence_with_selection(
+                entity.name,
+                entity.selection,
+                "state reference",
+                facts,
+            );
+        }
+    }
+
+    fn push_state_relation_occurrence(
+        &mut self,
+        id: String,
+        start: usize,
+        end: usize,
+        detail: &'static str,
+        facts: &mut EditorSemanticFacts,
+    ) {
+        let Some(entity) = state_pending_entity(id, start, end, detail) else {
+            return;
+        };
+        push_state_expected_syntax(
+            facts,
+            EditorExpectedSyntaxKind::NodeIdentifier,
+            entity.selection,
+        );
+        self.push_state_relation_occurrence_with_selection(
+            entity.name,
+            entity.selection,
+            entity.detail,
+            facts,
+        );
+    }
+
+    fn push_state_relation_occurrence_with_selection(
+        &mut self,
+        name: String,
+        selection: SourceSpan,
+        detail: &'static str,
+        facts: &mut EditorSemanticFacts,
+    ) {
+        let kind = EditorSemanticKind::Class;
+        if self.declared_entities.insert(name.clone()) {
+            facts.push_symbol(EditorSemanticSymbol::new(
+                name,
+                Some(detail.to_string()),
+                kind,
+                selection,
+                selection,
+            ));
+        } else {
+            facts.push_symbol(EditorSemanticSymbol::reference(
+                name,
+                Some(detail.to_string()),
+                kind,
+                selection,
+                selection,
+            ));
+        }
+    }
+
+    fn finish_statement(&mut self, line_end: usize, facts: &mut EditorSemanticFacts) {
+        self.flush_pending_entity(facts);
+        if let Some(start) = self.directive_start {
+            push_state_expected_syntax(
+                facts,
+                EditorExpectedSyntaxKind::Directive,
+                SourceSpan::new(start, line_end),
+            );
+        }
+        if let Some(slot) = self.pending_directive_slot
+            && has_ascii_separator(self.code, slot.anchor_end, line_end)
+        {
+            push_state_expected_syntax(facts, slot.kind, SourceSpan::new(line_end, line_end));
+        }
+        if let Some(target_end) = self.interaction_target_end
+            && has_ascii_separator(self.code, target_end, line_end)
+        {
+            push_state_expected_syntax(
+                facts,
+                EditorExpectedSyntaxKind::InteractionAction,
+                SourceSpan::new(line_end, line_end),
+            );
+        }
+        self.reset_statement_state();
+    }
+
+    fn reset_statement(&mut self, facts: &mut EditorSemanticFacts) {
+        self.flush_pending_entity(facts);
+        self.reset_statement_state();
+    }
+
+    fn reset_statement_state(&mut self) {
+        self.context = StateTokenContext::Default;
+        self.pending_directive_slot = None;
+        self.directive_start = None;
+        self.interaction_target_end = None;
+        self.note_text_pending = false;
+        self.note_position_seen = false;
+        self.note_alias_pending = false;
+        self.relation_label_pending = false;
+        self.relation_target_seen = false;
+    }
+
+    fn expect_after_separator(&mut self, kind: EditorExpectedSyntaxKind, anchor_end: usize) {
+        self.pending_directive_slot = Some(PendingDirectiveSlot { kind, anchor_end });
+    }
+}
+
+#[cfg(feature = "editor-facts")]
+fn state_pending_entity(
+    id: String,
+    start: usize,
+    end: usize,
+    detail: &'static str,
+) -> Option<StatePendingEntity> {
+    if !is_editor_visible_state_name(&id) {
+        return None;
+    }
+
+    let selection_end = start + id.len();
+    let selection = SourceSpan::new(start, selection_end.min(end));
+    Some(StatePendingEntity {
+        name: id,
+        selection,
+        detail,
+        kind: EditorSemanticKind::Class,
+        is_alias: false,
+    })
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_reference_fact(
+    facts: &mut EditorSemanticFacts,
+    id: String,
+    start: usize,
+    end: usize,
+    detail: &'static str,
+) {
+    let Some(entity) = state_pending_entity(id, start, end, detail) else {
+        return;
+    };
+    push_state_expected_syntax(
+        facts,
+        EditorExpectedSyntaxKind::NodeIdentifier,
+        entity.selection,
+    );
+    facts.push_symbol(EditorSemanticSymbol::reference(
+        entity.name,
+        Some(entity.detail.to_string()),
+        entity.kind,
+        entity.selection,
+        entity.selection,
+    ));
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_reference_fact_with_selection(
+    facts: &mut EditorSemanticFacts,
+    id: String,
+    selection: SourceSpan,
+    detail: &'static str,
+) {
+    if !is_editor_visible_state_name(&id) {
+        return;
+    }
+
+    push_state_expected_syntax(facts, EditorExpectedSyntaxKind::NodeIdentifier, selection);
+    facts.push_symbol(EditorSemanticSymbol::reference(
+        id,
+        Some(detail.to_string()),
+        EditorSemanticKind::Class,
+        selection,
+        selection,
+    ));
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_class_definition_fact(
+    facts: &mut EditorSemanticFacts,
+    name: String,
+    start: usize,
+    end: usize,
+    detail: &'static str,
+    kind: EditorSemanticKind,
+) {
+    if name.trim_matches(is_ecmascript_whitespace).is_empty() {
+        return;
+    }
+
+    let selection = SourceSpan::new(start, end);
+    facts.push_symbol(EditorSemanticSymbol::class_definition(
+        name,
+        Some(detail.to_string()),
+        kind,
+        selection,
+        selection,
+    ));
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_expected_syntax(
+    facts: &mut EditorSemanticFacts,
+    kind: EditorExpectedSyntaxKind,
+    span: SourceSpan,
+) {
+    if span.start > span.end {
+        return;
+    }
+
+    facts.push_expected_syntax(EditorExpectedSyntax::new(kind, span));
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_reference_id_list_facts(
+    facts: &mut EditorSemanticFacts,
+    code: &str,
+    fallback_ids: &str,
+    span: SourceSpan,
+    detail: &'static str,
+    expected_kind: EditorExpectedSyntaxKind,
+    control: &OperationControl,
+) -> OperationControlResult<()> {
+    push_state_expected_syntax(facts, expected_kind, span);
+
+    let Some(slice) = code.get(span.start..span.end) else {
+        for (index, raw_id) in fallback_ids.split(',').enumerate() {
+            if index.is_multiple_of(128) {
+                control.checkpoint()?;
+            }
+            let id = raw_id.trim_matches(is_ecmascript_whitespace);
+            if !id.is_empty() {
+                push_state_reference_fact_with_selection(facts, id.to_string(), span, detail);
+            }
+        }
+        return control.checkpoint();
+    };
+
+    let mut cursor = 0usize;
+    let mut parts = 0usize;
+    while cursor <= slice.len() {
+        if parts.is_multiple_of(128) {
+            control.checkpoint()?;
+        }
+        parts += 1;
+        let next_comma = slice[cursor..]
+            .find(',')
+            .map(|offset| cursor + offset)
+            .unwrap_or(slice.len());
+        let part = &slice[cursor..next_comma];
+        let leading = part
+            .len()
+            .saturating_sub(part.trim_start_matches(is_ecmascript_whitespace).len());
+        let trailing = part.trim_end_matches(is_ecmascript_whitespace).len();
+        if leading < trailing {
+            let id_start = cursor + leading;
+            let id_end = cursor + trailing;
+            push_state_reference_fact_with_selection(
+                facts,
+                slice[id_start..id_end].to_string(),
+                SourceSpan::new(span.start + id_start, span.start + id_end),
+                detail,
+            );
+        }
+
+        if next_comma == slice.len() {
+            break;
+        }
+        cursor = next_comma + 1;
+    }
+    control.checkpoint()
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_payload_fact_from_token(
+    facts: &mut EditorSemanticFacts,
+    code: &str,
+    value: &str,
+    start: usize,
+    end: usize,
+    detail: &'static str,
+    kind: EditorSemanticKind,
+) {
+    push_state_payload_fact_from_token_as(
+        facts,
+        code,
+        value,
+        SourceSpan::new(start, end),
+        detail,
+        kind,
+        EditorExpectedSyntaxKind::Payload,
+    );
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_payload_fact_from_token_as(
+    facts: &mut EditorSemanticFacts,
+    code: &str,
+    value: &str,
+    span: SourceSpan,
+    detail: &'static str,
+    kind: EditorSemanticKind,
+    expected_kind: EditorExpectedSyntaxKind,
+) {
+    let value = value.trim_matches(is_ecmascript_whitespace);
+    if value.is_empty() {
+        return;
+    }
+
+    let selection = source_value_span(code, span, value).unwrap_or(span);
+    push_state_expected_syntax(facts, expected_kind, selection);
+    facts.push_symbol(EditorSemanticSymbol::payload(
+        value.to_string(),
+        Some(detail.to_string()),
+        kind,
+        span,
+        selection,
+    ));
+}
+
+#[cfg(feature = "editor-facts")]
+fn push_state_string_payload_fact(
+    facts: &mut EditorSemanticFacts,
+    value: &str,
+    start: usize,
+    end: usize,
+    detail: &'static str,
+    kind: EditorSemanticKind,
+) {
+    if value.is_empty() {
+        return;
+    }
+
+    let span = SourceSpan::new(start, end);
+    let selection = if end >= start + value.len() + 2 {
+        SourceSpan::new(start + 1, start + 1 + value.len())
+    } else {
+        span
+    };
+    push_state_expected_syntax(facts, EditorExpectedSyntaxKind::Payload, selection);
+    facts.push_symbol(EditorSemanticSymbol::payload(
+        value.to_string(),
+        Some(detail.to_string()),
+        kind,
+        span,
+        selection,
+    ));
+}
+
+#[cfg(feature = "editor-facts")]
+fn is_editor_visible_state_name(id: &str) -> bool {
+    let id = id.trim_matches(is_ecmascript_whitespace);
+    !id.is_empty() && id != "[*]"
+}
+
+#[cfg(all(test, feature = "editor-facts"))]
+mod semantic_capture_tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "editor-facts")]
+    fn canonical_state_capture_preserves_grammar_recovery_and_database_validation_facts() {
+        for (source, valid, recovered) in [
+            ("stateDiagram-v2\nA --> B\n", true, false),
+            ("stateDiagram-v2\nstate A {\nB\n", false, true),
+            (
+                "stateDiagram-v2\nstate Group {\nChild\n}\nGroup: first\nGroup: second\n",
+                false,
+                false,
+            ),
+            (
+                "stateDiagram-v2\nnote right of A : note\nstate \"Authored\" as A----note-0\n",
+                false,
+                false,
+            ),
+        ] {
+            reset_state_syntax_construction_count();
+            #[cfg(feature = "editor-facts")]
+            crate::editor::test_work::reset();
+            let parsed = parse_state_semantic_model_controlled(
+                source,
+                "stateDiagram-v2",
+                &crate::MermaidConfig::default(),
+                EditorFactsDemand::Capture,
+                &OperationControl::new(),
+            )
+            .unwrap();
+            assert_eq!(parsed.model.is_ok(), valid);
+            if source.contains("A----note-0") {
+                let error = parsed.model.as_ref().unwrap_err();
+                assert!(
+                    error.to_string().contains(
+                        "Authored state id `A----note-0` conflicts with generated note id for state `A`"
+                    ),
+                    "unexpected State collision error: {error}"
+                );
+            }
+            let facts = parsed.editor_facts.expect("same-pass State facts");
+            assert!(!facts.symbols.is_empty());
+            assert_eq!(state_syntax_construction_count(), 1);
+            #[cfg(feature = "editor-facts")]
+            assert_eq!(crate::editor::test_work::read().collections, 1);
+            assert_eq!(
+                facts.completeness,
+                if recovered {
+                    crate::EditorSemanticCompleteness::Recovered
+                } else {
+                    crate::EditorSemanticCompleteness::Complete
+                }
+            );
+            assert_eq!(facts.diagnostics.is_empty(), !recovered);
+        }
+    }
+}

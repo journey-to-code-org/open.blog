@@ -4,6 +4,7 @@
 import { parseCallout, parsePieceFence, parseTable, parseTaskList, parseEmbed, tableCells } from "./block-forms.js";
 import { parseQuiz } from "./quiz-rules.js";
 import { parseCodeFence } from "./code-rules.js";
+import { diagramTitle, parseDiagramFence } from "./diagram-rules.js";
 import { imageMarkdown } from "./image-markdown.js";
 import { say } from "./words.js";
 import { parseQuotation, quotedWords } from "./word-blocks.js";
@@ -35,6 +36,7 @@ export const WORDS = {
   "thing.hours": { text: "Opening hours", layer: "her" },
   "thing.contact": { text: "How to reach you", layer: "her" },
   "thing.code": { text: "Code", layer: "details" },
+  "thing.diagram": { text: "A diagram", layer: "details" },
   "thing.runnable": { text: "Code readers can run", layer: "details" },
   "thing.codepen": { text: "A CodePen", layer: "details" },
   "thing.footnote": { text: "Footnote", layer: "details" },
@@ -86,6 +88,7 @@ export const WORDS = {
   "card.social": { text: "Links: {words}", layer: "her" },
   "card.map": { text: "Map: {words}", layer: "her" },
   "card.code": { text: "Code, {language}, {count} lines", layer: "details" },
+  "card.diagram": { text: "Diagram: {title}", layer: "details" },
   "card.codepen": { text: "A CodePen: {words}", layer: "details" },
   "card.footnote": { text: "Note at the bottom, {n}: {words}", layer: "her" },
   "card.writeHere": { text: "Write here", layer: "her" },
@@ -122,6 +125,7 @@ export function thingName(kind, extra = "") {
     case "hours": return say("thing.hours");
     case "contact": return say("thing.contact");
     case "code": return say("thing.code");
+    case "diagram": return say("thing.diagram");
     case "runnable": return say("thing.runnable");
     case "codepen": return say("thing.codepen");
     case "footnote": return say("thing.footnote");
@@ -137,7 +141,7 @@ export function thingName(kind, extra = "") {
 /** The name of what a card is, for "Tip taken out." */
 export function blockThing(block) {
   const kind = { photo: "photo", "photo-web": "photo", callout: "tip", tasklist: "checklist", table: "table", "video-link": "video", "codepen-link": "codepen",
-    quiz: "quiz", code: "code", runnable: "runnable", footnote: "footnote", compare: "compare" }[block.kind];
+    quiz: "quiz", code: "code", runnable: "runnable", footnote: "footnote", compare: "compare", diagram: "diagram" }[block.kind];
   if (kind) return thingName(kind, /\[!([A-Za-z]+)\]/.exec(block.source)?.[1]?.toUpperCase());
   if (block.kind === "quotation") return thingName("quotation");
   if (block.kind === "piece") {
@@ -180,6 +184,8 @@ export function cardForm(block, pieces = []) {
     case "code":
     case "runnable": return parseCodeFence(source) ? "code" : "";
     case "footnote": return /^\[\^\d+\]: [^\n]+$/.test(source.trim()) ? "footnote" : "";
+    // A diagram the form can write back exactly; any other keeps its words as written.
+    case "diagram": return parseDiagramFence(source) ? "diagram" : "";
     case "compare":
     case "piece": {
       const parsed = parsePieceFence(source);
@@ -202,6 +208,14 @@ export function cardSummary(block) {
   const source = block.source;
   const out = { name: "", badge: "", lines: [], thumbs: [], more: "", tone: "", mono: false };
   switch (block.kind) {
+    case "diagram": {
+      const title = diagramTitle(source);
+      out.name = say("card.diagram", { title });
+      out.badge = say("thing.diagram");
+      out.lines.push(...source.split("\n").slice(1, -1).filter((line) => line.trim()).slice(0, 3));
+      out.mono = true;
+      return out;
+    }
     case "photo":
     case "photo-web": {
       const photo = parsePhoto(source) || { alt: "", url: "" };

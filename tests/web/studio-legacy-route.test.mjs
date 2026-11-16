@@ -26,6 +26,7 @@ test("an old editor address opens the right Studio editor by folder", () => {
 test("renamed screens, new things and the old inbox's states", () => {
   assert.equal(legacyRoute("#/overview"), "#/");
   assert.equal(legacyRoute("#/new/recipe"), "#/write/new/recipe");
+  assert.equal(legacyRoute("#/new/decision"), "#/write/new/decision");
   assert.equal(legacyRoute("#/new/post"), "#/write");
   assert.equal(legacyRoute("#/series"), "#/collections");
   assert.equal(legacyRoute("#/landing"), "#/front-page");

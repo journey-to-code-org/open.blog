@@ -62,10 +62,7 @@ A `rust runnable check` fence adds hidden `#[test]` functions after a `---checks
 [Rust checks](content.md)). The checks stay out of the editor; feeds and exports tuck them into a
 collapsed spoiler block.
 
-`demo` fences (`git-sandbox`, `git-practice`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`) embed a lesson demo whose
-authored Markdown body is the fallback for readers without JavaScript, feeds, and portable copies.
-
-`demo` fences (`git-sandbox`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`) embed a lesson demo whose
+`demo` fences (`git-sandbox`, `git-practice`, `fetch-lab`, `component-lab`, `js-evolution`, `audio-lab`, `native-lab`, `server-lab`, `cloud-lab`) embed a lesson demo whose
 authored Markdown body is the fallback for readers without JavaScript, feeds, and portable copies.
 
 `web runnable` fences provide dependency-free HTML, CSS, and JavaScript tabs with a local live

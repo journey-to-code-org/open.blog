@@ -69,7 +69,7 @@ The switch, its four values and a practice run are in
 
 A Getting started run opens with **About your blog** (`#/welcome`) while that sign-in hasn't
 answered it: up to six questions, one per screen, each with **Skip this one**, and **More › Skip
-the questions** ([ADR 0416](adr/0416-studio-shows-feature-areas-chosen-per-sign-in.md)).
+the questions** ([ADR 0429](adr/0429-studio-shows-feature-areas-chosen-per-sign-in.md)).
 
 1. What will you mostly write? (technical writing and code, recipes and family stories, a trade or
    local business, teaching, research with sources, a podcast, documentation for a project, a
@@ -91,10 +91,10 @@ After saving, the answers may **suggest site changes**: a documentation section 
 documentation blog, a recipe list for a recipe blog, or a screen to open (business details,
 decorations, comments, sharing accounts). A change is made only by its own **Do this**, and its
 exact change to `openblog.json` is under **For …**; going on changes nothing
-([ADR 0418](adr/0418-a-suggested-site-change-is-shown-exactly-and-applied-only-when-confirmed.md)).
+([ADR 0431](adr/0431-a-suggested-site-change-is-shown-exactly-and-applied-only-when-confirmed.md)).
 Last comes the offer to learn how she writes: **Start** goes on to Getting started's stories, drawn
 from the prompt sets that suit her blog and always with one true story; **Later** leaves a card on
-Home; **No thanks** stops the invitation ([ADR 0419](adr/0419-the-blog-kind-chooses-the-voice-prompt-sets-and-stories-are-kept-as-her-own.md)).
+Home; **No thanks** stops the invitation ([ADR 0432](adr/0432-the-blog-kind-chooses-the-voice-prompt-sets-and-stories-are-kept-as-her-own.md)).
 
 ### What Studio shows: feature areas
 
@@ -106,7 +106,7 @@ these settings) always show. The rest can be tucked away per sign-in: **Pages**,
 **Teaching** (reading paths, questions for readers), **Code and diagrams** and **Writing
 together**. Answers and hidden areas belong to one sign-in, so two people on the same site can see
 different Studios; they are kept in `.openblog/private/admin-preferences/` and never built
-([ADR 0417](adr/0417-first-run-answers-are-per-sign-in-preferences-not-site-settings.md)).
+([ADR 0430](adr/0430-first-run-answers-are-per-sign-in-preferences-not-site-settings.md)).
 
 A tucked-away part is one step away: its address says "Seasons and holidays is turned off for you"
 with **Turn it on**; Find offers **Turn on …** for each; and **What you use** (her name's menu and
@@ -217,11 +217,25 @@ filled in; a link also offers **Take the link off**. On a research post, **Abstr
 add their headings (the Abstract at the start, References at the end) unless the post already has them.
 
 The details ("For the person who set up your site") hold **Code** (language, title, highlighted lines,
-line numbers), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
+line numbers), **A diagram** (a Mermaid diagram from one of five examples, with a title and a description
+for people who can't see it; **Draw it** shows it as the build draws it, and it goes in as a card; see
+[Diagrams](diagrams.md)), **Code readers can run** (an example or a challenge; generating one comes in R8), **A
 CodePen**, **A footnote** (`[^n]` at the caret and the note at the end), opening hours and how to reach
 you on a site that isn't a trade site, and **Show the words as written**. Each form's details show
 **What it writes**. There is no option to write your own HTML. See
 [Pieces](content.md#pieces-buttons-videos-maps-and-more) and [Before and after](content.md#before-and-after).
+
+### A recording to listen to
+
+**Put a recording with it** (Write's **More**, or Find) puts a recording with a post, for readers to
+listen to: a file from this phone or computer, or a voice note already on the blog. It says that anyone
+with its address can listen once it's on the blog, even before the post is published, and sends it only
+when you press **Put it on your blog**. The length is read from the recording. A published recording
+needs **the words said**: type or paste them, or **Turn it into words** where the blog can (it says what
+goes to which company first), then **Put them in my post**, which adds them at the end under Transcript.
+The parts of the recording (chapters) are in the details. Once a post has a recording, a line under About
+this post shows its length with **Change**. **Take the recording off this post** removes it when the post
+is saved; the file stays on the blog. It all saves with the post. See [Audio episodes](audio.md).
 
 ### About this post, and who wrote it
 
@@ -591,13 +605,21 @@ reminder only opens an unpublished draft; it never publishes anything ([Seasonal
 shared to your accounts, and what happened to each share. **Share a post** picks the post, the accounts
 and a time, with how it looks on each; every row then has its own sheet: **Change** a waiting share's
 words or time, **Check it** for a share with no clear answer, and its **History**. One banner says when
-shares run late or wait on an account that needs reconnecting.
+shares run late or wait on an account that needs reconnecting. For Bluesky, LinkedIn and Facebook accounts,
+**The picture that goes with it** shows exactly what each would get (the post's cover, made smaller for
+Bluesky) and its description; the picture goes only with **Send this picture** after she has seen it, and for
+LinkedIn and Facebook she chooses what happens if it can't go (share the link without it, or don't share).
+This needs the optional media tables ([Social publishing](social-publishing.md)); until they are there, it
+says pictures can't go yet.
 
 **Where each post went** (`#/sharing?view=posts`) is Sharing's second view: every post that went
 anywhere, its status at each place, what that rests on, a link to it there, and visits from there in
 the last 30 days, 90 days or a year ([Where your posts went](distribution-reporting.md)). **Share this
 job** (`#/sharing/job/<path>`) posts a finished job to a connected Facebook Page once, or gives you the
 words to copy for Google and Nextdoor and remembers **I posted it**, with Undo ([Job sharing](job-sharing.md)).
+A job with an after photo goes to the Page with it once she describes the photo, presses **Show what goes**
+and says yes with **Send this photo and description**; a changed photo or description stops it instead of
+posting without it.
 
 **Your accounts** (`#/sharing/accounts`) connects, reconnects and disconnects LinkedIn, Facebook,
 Bluesky and Mastodon, one sheet per service. Signing in happens at the service, which sends you back to
@@ -703,15 +725,25 @@ from Posts (**Write something with others**) or Find.
 5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
    **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
    in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
-6. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
+6. **Your name on it.** Before anyone reads the whole thing to agree, each person whose part is in it says
+   how readers see their name: **My name as People has it** (with its link, as it is when chosen), **A name
+   I write here**, or **Leave my name off**. It's in the reflection's **More** and in Find; changing it later
+   asks once, because everyone then agrees again. Reflections started before this keep their names as they
+   were until someone chooses.
+7. **Publish** (or **Publish on a day**) is for an owner account in charge of it, once everyone needed has
    agreed. It asks once; the post is signed by everyone who wrote. **Put it away** (in **More**) takes an
    unpublished one off the list, and **Bring it back** returns it; nothing is ever thrown away.
 
 **Shaping it** (in the reflection's **More**): **Layout** chooses how the parts sit on the page (one
 after another, side by side, two sides, back and forth, or around a table) and arranges rounds of turns
 (whose part, which part of theirs, an optional label), moved with buttons or Alt+↑/↓. **Rules** says
-whose agreement counts (everyone writing, everyone who wrote, and people or jobs you choose) and what an
-agreement covers (their own part, or the whole thing). **Collection** puts it in a collection at a place
+whose agreement counts (everyone writing, everyone who wrote, people or jobs you choose, everyone taking
+part including people who only read, or everyone who wrote and at least a number you choose, which never
+goes down when someone leaves) and what an agreement covers (their own part, or the whole thing; a
+reflection started now is always agreed as a whole). A change is a suggestion: it takes effect once
+everyone taking part presses **Agree to this rule**, and the reflection shows it to each of them until
+they do. Several parts per writer and sharing one version with named people are in the API but not yet in
+Studio ([#705](https://github.com/journey-to-code-org/open.blog/issues/705)). **Collection** puts it in a collection at a place
 you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
 together** holds what you say after everyone's parts (an agreement, a difference, a question, something
 to try, or what you're not sure about), each speaking for the people named on it and agreed by each of

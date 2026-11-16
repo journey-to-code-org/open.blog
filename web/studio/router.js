@@ -58,7 +58,7 @@ export function legacyRoute(hash) {
     return `#/${screen}/${encodeURIComponent(file)}${sheet}`;
   }
   // The old Admin's kinds were "posts", "pages" and "series" (its KINDS); "page" is kept as R0 had it.
-  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "page" || rest[0] === "pages" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
+  if (name === "new") return rest[0] === "recipe" ? "#/write/new/recipe" : rest[0] === "decision" ? "#/write/new/decision" : rest[0] === "page" || rest[0] === "pages" ? "#/page/new" : rest[0] === "series" ? "#/collection/new" : "#/write";
   // A trade site's services and reviews: #/services and #/reviews are Studio's own lists; the old
   // form addresses open Studio's editor for one (#/service/new, #/service/<path>).
   if ((name === "services" || name === "reviews") && rest.length) {

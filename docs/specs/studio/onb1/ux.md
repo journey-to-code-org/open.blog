@@ -271,7 +271,7 @@ in your post. Copy what you need."); **Start a post from this** is offered from 
   while research shows. The open post's own kind always shows; when its area is hidden, under the
   choice: `area.shownForPost` "Shown because this post uses it."
 - **New post:** the recipe-or-story question only while recipes show.
-- **Add menu:** code, runnable code and CodePen only while code shows; a question for readers
+- **Add menu:** code, a diagram, runnable code and CodePen only while code shows; a question for readers
   while teaching shows; hours and contact while business shows.
 - **Home:** the recipe notes, the business ready list, jobs, requests and reminders lines, the
   cards line and the comments line follow their areas. The empty Home says

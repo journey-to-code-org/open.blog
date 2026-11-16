@@ -66,12 +66,13 @@ test("global completion gates protect canonical content, privacy, and legacy beh
   assert.ok(registry.global_invariants.some((invariant) => /Failures are scoped/.test(invariant)));
 });
 
-test("diagrams remain blocked until an owning story defines their scope", () => {
+test("diagrams are defined by epic #566 and ship an image with its text alternative", () => {
   const diagrams = registry.contracts.find((contract) => contract.id === "diagrams");
-  assert.equal(diagrams.status, "blocked-unscoped");
-  assert.equal(diagrams.owner_story, null);
-  assert.deepEqual(diagrams.implementation_issues, []);
-  assert.ok(diagrams.required_tests.some((requiredTest) => /create an owning story/.test(requiredTest)));
+  assert.equal(diagrams.status, "defined");
+  assert.equal(diagrams.implementation_status, "implemented");
+  assert.equal(diagrams.owner_story, 583);
+  assert.equal(diagrams.implemented_fallback, "image-with-text-alternative");
+  assert.ok(diagrams.required_tests.some((requiredTest) => /stop the build/.test(requiredTest)));
 });
 
 test("an implemented capability names the fallback it ships and keeps its static fallback decision", () => {
@@ -86,4 +87,5 @@ test("an implemented capability names the fallback it ships and keeps its static
   }
   const matrix = readFileSync(new URL("../docs/portability/capability-matrix.md", import.meta.url), "utf8");
   assert.ok(!/\| Guided explanations[^|]*\| Planned/.test(matrix), "the matrix still lists reading modes as planned");
+  assert.ok(!/\| Diagrams \| Planned/.test(matrix), "the matrix still lists diagrams as planned");
 });

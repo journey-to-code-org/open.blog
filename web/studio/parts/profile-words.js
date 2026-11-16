@@ -12,6 +12,7 @@ export const KIND_WORDS = Object.freeze({
   video: { label: "A video", help: "A page to go with a video on YouTube." },
   "field-journal": { label: "A trip outdoors", help: "A walk, a paddle or a day in the field." },
   research: { label: "Research", help: "Writing with sources and references." },
+  decision: { label: "A decision", help: "What was decided, the choices, and what follows." },
 });
 
 const UNKNOWN = { label: "Something else", get help() { return `${say("kinds.unknownAsStory")} ${say("common.chose")}`; } };
@@ -39,6 +40,14 @@ export const kindLabel = (id) => (KIND_WORDS[id] || UNKNOWN).label;
  * the site). `key` is the engine's; `control` "text" | "url" | "number" | "choice" | "picture" | "rows".
  */
 export const PROFILE_GROUPS = Object.freeze({
+  decision: {
+    heading: "This decision",
+    fields: [
+      { key: "decisionStatus", label: "Where it stands", control: "choice", select: true, choices: { proposed: "Suggested", accepted: "Decided", superseded: "Replaced by a later one" } },
+      { key: "supersededBy", label: "Replaced by", help: "Only when a later decision replaced this one: the address of that post on your site, like /posts/new-oven/." },
+    ],
+    details: [],
+  },
   recipe: {
     heading: "This recipe",
     fields: [

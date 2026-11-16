@@ -115,7 +115,7 @@ class ObSearch extends HTMLElement {
     const terms = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 2);
     this.status.textContent = hits.length
       ? `${hits.length} ${hits.length === 1 ? "result" : "results"}`
-      : "No posts match that search.";
+      : "Nothing matches that search.";
     this.results.innerHTML = hits
       .map(
         (h) =>

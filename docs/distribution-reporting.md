@@ -38,9 +38,44 @@ Settle an unknown where you sent it: `openblog pinterest pin <slug> --reconcile`
 The built-in, cookie-free [counter](features.md) already counts the referring site of each view. It now also counts,
 per page, views that came from one of the places above, when the referring site is one it knows (for example
 `bsky.app`, `facebook.com`, `news.ycombinator.com`, `reddit.com`, `pinterest.com`, `business.google.com`) or the
-address of one of your own cross-posting targets. These figures are **estimated**: many apps and sites hide where a
-visitor came from, and readers who send Do Not Track or Global Privacy Control are never counted. With the counter
-off (`analytics.builtin: false`), visits say **unavailable**.
+address of one of your own cross-posting targets. Add the fediverse instances you post from to
+`analytics.fediverseHosts` to attribute visits from them to Mastodon; when social Mastodon is configured, its
+instance is included automatically by the built-in counter. The list is omitted by default and accepts up to 20
+bare host names, for example:
+
+```json
+{ "analytics": { "fediverseHosts": ["hachyderm.io", "fosstodon.org"] } }
+```
+
+These figures are **estimated**: many apps and sites hide where a visitor came from, and readers who send Do Not
+Track or Global Privacy Control are never counted.
+
+### Counters you host
+
+The Cloudflare Worker and the hosted engagement function can attribute arrivals too. They use the same fixed
+destination list and referring-host table as the built-in counter, and only store aggregate counts per day,
+destination and page. The Worker gets `CAMPAIGNS` and `OWN_HOSTS` in its generated `wrangler.toml`.
+`openblog analytics attribution` prints their current values after you change settings. For a hosted engagement
+function, run [`supabase/arrivals.sql`](../supabase/arrivals.sql) after `openblog.sql`, set
+`OPENBLOG_ARRIVALS_ENABLED=true`, and use the same printed `OPENBLOG_ANALYTICS_CAMPAIGNS` and
+`OPENBLOG_ANALYTICS_OWN_HOSTS` values in the function's environment. Without that opt-in and schema, the function
+continues counting views as before and does not attempt to record arrivals.
+
+Pull either counter's export into `.openblog/analytics.json`:
+
+```sh
+# Cloudflare Worker
+openblog analytics pull https://<name>.<you>.workers.dev --secret <EXPORT_SECRET>
+
+# Hosted engagement function; use the function's OPENBLOG_ADMIN_API_KEY
+openblog analytics pull https://<site>/api --secret <OPENBLOG_ADMIN_API_KEY> --name hosted
+```
+
+Pulled data is merged idempotently by source, including arrivals. **Where it went** and the Admin report use these
+arrivals even when `analytics.builtin` is off; if neither the built-in counter is enabled nor a counter has been
+pulled, visits say **unavailable**. `openblog analytics attribution` also shows listed fediverse hosts and the
+configured social Mastodon instance as `mastodon` for external counters. Re-run it when those settings change,
+then update the deployed Worker or hosted-function environment.
 
 A platform's own statistics (impressions, likes, saves) are always shown as **unavailable**: open.blog never asks a
 platform for them.

@@ -38,6 +38,8 @@ fn record() -> SharedPublication {
         },
     })
     .unwrap();
+    record.initial_approval_scope = None;
+    record.initial_approval_requirement = None;
     record.collaboration.participants[0].id = "ann".into();
     record.authorization.bindings[0].participant_id = "ann".into();
     for (id, name) in [("bo", "Bo"), ("cy", "Cy")] {
@@ -139,6 +141,676 @@ fn in_order(haystack: &str, needles: &[&str]) -> bool {
 }
 
 const READING: [&str; 4] = ["ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO"];
+
+#[test]
+fn private_drafts_supply_transient_prose_free_ownership_metadata() {
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::DraftError;
+
+    let mut record = record();
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, "private Ann text", T).unwrap();
+    set.save("ann", "second", 0, "private Ann again", T)
+        .unwrap();
+    set.save("bo", "third", 0, "private Bo text", T).unwrap();
+    let derived = set
+        .contract_for_contributions(&record.collaboration, &["ann", "bo"])
+        .unwrap();
+    assert!(record.collaboration.contributions.is_empty());
+    assert_eq!(
+        derived
+            .contributions
+            .iter()
+            .map(|contribution| (
+                contribution.id.as_str(),
+                contribution.participant_id.as_str(),
+                contribution.markdown.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("first", "ann", ""),
+            ("second", "ann", ""),
+            ("third", "bo", "")
+        ]
+    );
+    assert!(ReflectionStructure::from_all_contributions(&derived, &set, &["ann", "bo"]).is_ok());
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "ann"]),
+        Err(DraftError::Invalid)
+    );
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["nobody"]),
+        Err(DraftError::Invalid)
+    );
+    record.collaboration.contributions.push(Contribution {
+        id: "first".into(),
+        participant_id: "bo".into(),
+        markdown: String::new(),
+    });
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "bo"]),
+        Err(DraftError::Invalid)
+    );
+    record.collaboration.contributions[0].participant_id = "ann".into();
+    record
+        .collaboration
+        .contributions
+        .push(record.collaboration.contributions[0].clone());
+    assert_eq!(
+        set.contract_for_contributions(&record.collaboration, &["ann", "bo"]),
+        Err(DraftError::Invalid)
+    );
+}
+
+#[test]
+fn legacy_review_and_publication_never_omit_an_extra_live_contribution() {
+    let record = record();
+    let mut set = drafts(&[("ann", "visible Ann"), ("bo", "visible Bo")]);
+    let approvals = approve_all(&record, None, &set);
+    let order_revision = set.order_revision();
+    set.save("ann", "extra", 0, "private extra", T).unwrap();
+    let preview = build(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &MomentSet::new(),
+        &approvals,
+        "bo",
+        &ALL,
+        true,
+        Default::default(),
+    )
+    .unwrap();
+    assert!(!preview.complete);
+    assert!(preview.seen.is_none());
+    assert!(!preview.document.contains("private extra"));
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    let legacy_approvals = approve_all(&record, None, &set);
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &legacy_approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Invalid)
+    ));
+    set.withdraw("ann", "extra").unwrap();
+    assert!(!set.requires_contribution_mode(&ALL));
+    assert_eq!(
+        set.reorder_owned("ann", order_revision, &["ann"], &["ann"]),
+        Err(openblog_core::draft::DraftError::Stale)
+    );
+    let withdrawn_revision = set.order_revision();
+    set.withdraw("ann", "extra").unwrap();
+    assert_eq!(set.order_revision(), withdrawn_revision);
+    assert!(matches!(
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &approvals,
+            &ALL,
+            DATE,
+        ),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
+
+#[test]
+fn multi_contribution_arrangement_shows_only_released_drafts() {
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::{DraftError, RevealPolicy};
+    let mut record = record();
+    record.collaboration.contributions = vec![
+        Contribution {
+            id: "first".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "second".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "third".into(),
+            participant_id: "bo".into(),
+            markdown: String::new(),
+        },
+    ];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.set_policy(RevealPolicy::NamedRecipients);
+    set.save("ann", "first", 0, "FIRST PRIVATE", T).unwrap();
+    set.save("ann", "second", 0, "SECOND PRIVATE", T).unwrap();
+    set.save("bo", "third", 0, "THIRD PRIVATE", T).unwrap();
+    set.release_named("ann", "first", 1, &["bo"], &ALL, T)
+        .unwrap();
+    assert_eq!(set.view("bo", "second", &ALL), Err(DraftError::Denied));
+    let layout = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"second","part":0},{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    let order = layout
+        .reading_order_for_contributions(&record.collaboration, &set, "bo", &ALL)
+        .unwrap();
+    assert_eq!(
+        order
+            .iter()
+            .map(|entry| entry.participant_id)
+            .collect::<Vec<_>>(),
+        ["ann", "ann", "bo"]
+    );
+    assert_eq!(
+        order.iter().map(|entry| entry.draft_id).collect::<Vec<_>>(),
+        ["second", "first", "third"]
+    );
+    assert_eq!(
+        order
+            .iter()
+            .map(|entry| entry.markdown.as_deref())
+            .collect::<Vec<_>>(),
+        [None, Some("FIRST PRIVATE"), Some("THIRD PRIVATE")]
+    );
+    set.release_named_with_readers("ann", "second", 1, &["cy"], &ALL, &["cy"], T)
+        .unwrap();
+    let reader = layout
+        .reading_order_for_recipient_contributions(&record.collaboration, &set, "cy", &ALL)
+        .unwrap();
+    assert_eq!(
+        reader
+            .iter()
+            .map(|entry| entry.markdown.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("SECOND PRIVATE"), None, None]
+    );
+    record.collaboration.contributions[0].participant_id = "bo".into();
+    assert!(layout
+        .reading_order_for_contributions(&record.collaboration, &set, "bo", &ALL)
+        .is_err());
+}
+
+#[test]
+fn multi_contribution_publication_requires_every_current_part_exactly_once() {
+    use openblog_core::collaboration::Contribution;
+    let mut record = record();
+    record.collaboration.contributions = vec![
+        Contribution {
+            id: "first".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "second".into(),
+            participant_id: "ann".into(),
+            markdown: String::new(),
+        },
+        Contribution {
+            id: "third".into(),
+            participant_id: "bo".into(),
+            markdown: String::new(),
+        },
+    ];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, &two_part("one", "two"), T)
+        .unwrap();
+    set.save("ann", "second", 0, "three", T).unwrap();
+    set.save("bo", "third", 0, "four", T).unwrap();
+    let initial =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(
+        initial
+            .rounds
+            .iter()
+            .flat_map(|round| &round.turns)
+            .map(|turn| (turn.draft.as_str(), turn.part))
+            .collect::<Vec<_>>(),
+        [("first", 0), ("first", 1), ("second", 0), ("third", 0)]
+    );
+    set.reorder_owned(
+        "ann",
+        set.order_revision(),
+        &["first", "second"],
+        &["second", "first"],
+    )
+    .unwrap();
+    let reordered =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(reordered.rounds[0].turns[0].draft, "second");
+    let complete = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":1},{"draft":"second","part":0},{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_ok());
+    let omitted = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"second","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(omitted
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    let omitted_draft = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"first","part":1},{"draft":"third","part":0}]}]}"#,
+    );
+    assert!(omitted_draft
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    let unknown = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"first","part":1},{"draft":"second","part":0},{"draft":"third","part":9}]}]}"#,
+    );
+    assert!(unknown
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    record.collaboration.contributions[1].participant_id = "bo".into();
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+    record.collaboration.contributions[1].participant_id = "ann".into();
+    record
+        .collaboration
+        .contributions
+        .push(record.collaboration.contributions[1].clone());
+    assert!(complete
+        .validate_contribution_coverage(&record.collaboration, &set, &ALL)
+        .is_err());
+}
+
+#[test]
+fn default_multi_contribution_arrangement_never_truncates_parts() {
+    use openblog_core::collaboration::Contribution;
+
+    let mut record = record();
+    record.collaboration.contributions = vec![Contribution {
+        id: "first".into(),
+        participant_id: "ann".into(),
+        markdown: String::new(),
+    }];
+    let mut set = DraftSet::new(&ALL).unwrap();
+    let parts = std::iter::repeat_n("word", 101)
+        .collect::<Vec<_>>()
+        .join(&format!("\n{PART_MARKER}\n"));
+    set.save("ann", "first", 0, &parts, T).unwrap();
+    let arrangement =
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).unwrap();
+    assert_eq!(arrangement.rounds.len(), 2);
+    assert_eq!(arrangement.rounds[0].turns.len(), 100);
+    assert_eq!(arrangement.rounds[1].turns[0].part, 100);
+    let too_many = std::iter::repeat_n("word", 1001)
+        .collect::<Vec<_>>()
+        .join(&format!("\n{PART_MARKER}\n"));
+    set.save("ann", "first", 1, &too_many, T + 1).unwrap();
+    assert!(
+        ReflectionStructure::from_all_contributions(&record.collaboration, &set, &ALL).is_err()
+    );
+}
+
+#[test]
+fn multi_contribution_assembly_needs_exact_approval_and_publishes_all_parts() {
+    use openblog_core::approval::ApprovalScope;
+    use openblog_core::assembly::{
+        assemble_all_contributions_with_credits, with_credit_subject_for_all_contributions,
+    };
+    use openblog_core::collaboration::Contribution;
+    use openblog_core::draft::RevealPolicy;
+    use openblog_core::preview::{build_all_contributions_with_credit_choices, PreviewError};
+    use openblog_core::shared_credit::{CreditChoice, CreditChoices};
+
+    let mut record = record();
+    record.collaboration.contributions = [("first", "ann"), ("second", "ann"), ("third", "bo")]
+        .into_iter()
+        .map(|(id, owner)| Contribution {
+            id: id.into(),
+            participant_id: owner.into(),
+            markdown: String::new(),
+        })
+        .collect();
+    let mut set = DraftSet::new(&ALL).unwrap();
+    set.save("ann", "first", 0, "FIRST", T).unwrap();
+    set.save("ann", "second", 0, "SECOND", T).unwrap();
+    set.save("bo", "third", 0, "THIRD", T).unwrap();
+    let arrangement = structure(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"third","part":0},{"draft":"second","part":0}]}]}"#,
+    );
+    let active = ["ann", "bo"];
+    let synthesis = SynthesisSet::new();
+    let moments = MomentSet::new();
+    let mut choices = CreditChoices::default();
+    choices
+        .select("ann", "ann", "ann", 0, CreditChoice::Uncredited)
+        .unwrap();
+    choices
+        .select("bo", "bo", "bo", 1, CreditChoice::Uncredited)
+        .unwrap();
+    let mut approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &ApprovalSet::with_scope(ApprovalScope::OwnSections),
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::ApprovalScope)
+    ));
+    set.set_policy(RevealPolicy::AllReady);
+    set.mark_ready_contributions("ann", &[("first", 1), ("second", 1)], &active)
+        .unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    set.mark_ready_contributions("bo", &[("third", 1)], &active)
+        .unwrap();
+    for who in active {
+        let preview = build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            who,
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        )
+        .unwrap();
+        assert!(preview.complete);
+        assert!(in_order(&preview.document, &["FIRST", "THIRD", "SECOND"]));
+        let seen = preview.seen.unwrap();
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&arrangement),
+            &set,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                assert_eq!(seen, approvals.binding_for(subject, who).unwrap());
+                approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    let assemble = |set: &DraftSet, choices: &CreditChoices| {
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            set,
+            &synthesis,
+            &moments,
+            &approvals,
+            &active,
+            &active,
+            DATE,
+            choices,
+        )
+    };
+    let result = assemble(&set, &choices).unwrap();
+    let receipt = openblog_core::assembly::PublishedRevision::capture_all_contributions(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &moments,
+        &approvals,
+        &active,
+        &result,
+    );
+    assert_eq!(
+        receipt
+            .sections
+            .iter()
+            .map(|section| (
+                section.participant_id.as_str(),
+                section.contribution_id.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("ann", "first"), ("ann", "second"), ("bo", "third")]
+    );
+    assert!(receipt.matches_files(&result.source, &result.credits));
+    let outcome = openblog_core::assembly::Outcome::published_with_revision(T, receipt);
+    assert!(openblog_core::assembly::Outcome::from_json(&outcome.to_json()).is_some());
+    assert!(in_order(
+        body(&result.source),
+        &["FIRST", "THIRD", "SECOND"]
+    ));
+    assert!(!result.source.contains("Ann"));
+    assert!(!result.source.contains("Bo"));
+    let incomplete = structure(
+        r#"{"version":1,"revision":1,"layout":"roundtable","rounds":[{"id":"r","turns":[{"draft":"first","part":0},{"draft":"third","part":0}]}]}"#,
+    );
+    let mut incomplete_approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&incomplete),
+            &set,
+            &synthesis,
+            &moments,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                let seen = incomplete_approvals.binding_for(subject, who).unwrap();
+                incomplete_approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &incomplete,
+            &set,
+            &synthesis,
+            &moments,
+            &incomplete_approvals,
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::ArrangementMismatch)
+    ));
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &incomplete,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    let mut with_moment = MomentSet::new();
+    with_moment
+        .add(
+            "ann",
+            &active,
+            0,
+            &record.sources,
+            openblog_core::media_moment::MomentInput {
+                source: record.sources[0].id.clone(),
+                locators: vec![openblog_core::research_notes::Locator {
+                    kind: openblog_core::research_notes::LocatorKind::Timestamp,
+                    value: "30".into(),
+                    to: None,
+                    extra: Default::default(),
+                }],
+                quotation: None,
+                observation: Some("A proposed moment".into()),
+                intent: openblog_core::media_moment::MomentIntent::Publication,
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &with_moment,
+            &approvals,
+            "ann",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    let mut moment_approvals = ApprovalSet::with_scope(ApprovalScope::WholePiece);
+    for who in active {
+        with_credit_subject_for_all_contributions(
+            &record,
+            Some(&arrangement),
+            &set,
+            &synthesis,
+            &with_moment,
+            &active,
+            &active,
+            &choices,
+            |subject| {
+                let seen = moment_approvals.binding_for(subject, who).unwrap();
+                moment_approvals.approve(who, who, subject, &seen, true, T)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    }
+    assert!(matches!(
+        assemble_all_contributions_with_credits(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &with_moment,
+            &moment_approvals,
+            &active,
+            &active,
+            DATE,
+            &choices,
+        ),
+        Err(AssemblyError::UnresolvedMoment)
+    ));
+    assert!(with_moment
+        .seal_contributions("ann", &active, &set)
+        .unwrap());
+    let moment_preview = build_all_contributions_with_credit_choices(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &with_moment,
+        &moment_approvals,
+        "bo",
+        &active,
+        &active,
+        false,
+        true,
+        Default::default(),
+        &choices,
+    )
+    .unwrap();
+    assert!(moment_preview.document.contains("A proposed moment"));
+    let with_moment_assembled = assemble_all_contributions_with_credits(
+        &record,
+        &arrangement,
+        &set,
+        &synthesis,
+        &with_moment,
+        &moment_approvals,
+        &active,
+        &active,
+        DATE,
+        &choices,
+    )
+    .unwrap();
+    assert!(with_moment_assembled.source.contains("A proposed moment"));
+    set.save("ann", "second", 1, "Changed", T + 1).unwrap();
+    assert!(matches!(
+        build_all_contributions_with_credit_choices(
+            &record,
+            &arrangement,
+            &set,
+            &synthesis,
+            &moments,
+            &approvals,
+            "bo",
+            &active,
+            &active,
+            false,
+            true,
+            Default::default(),
+            &choices,
+        ),
+        Err(PreviewError::Incomplete)
+    ));
+    assert!(matches!(
+        assemble(&set, &choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    set.save("ann", "second", 2, "SECOND", T + 2).unwrap();
+    assert!(matches!(
+        assemble(&set, &choices),
+        Err(AssemblyError::Blocked { .. })
+    ));
+}
 
 #[test]
 fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marker() {

@@ -99,6 +99,25 @@ async function axeClean(page, label) {
 
 const status = (page) => page.locator(".studio-did");
 
+/** "Your name on it" (#650), from its sheet already open: choose, Use this, and see it said back. */
+async function chooseNameInSheet(page, choice) {
+  const sheet = page.locator("side-sheet").filter({ has: page.getByRole("heading", { name: "Your name on What we noticed" }) });
+  await expect(sheet.getByText("You haven't said yet.")).toBeVisible();
+  // Use this with nothing chosen says what's missing; nothing is sent.
+  await sheet.getByRole("button", { name: "Use this" }).click();
+  await expect(sheet.locator(".studio-did")).toContainText("Choose how your name goes on it.");
+  await sheet.getByRole("radio", { name: choice }).click();
+  await axeClean(page, "Your name on it");
+  await sheet.getByRole("button", { name: "Use this" }).click();
+  await expect(sheet.getByText("Readers will see: your name as People has it")).toBeVisible();
+  await expect(sheet.locator(".studio-did")).toContainText("Saved. Readers will see your name this way.");
+}
+
+async function chooseName(page, choice) {
+  await open(page, `#/together/${id}?sheet=name`);
+  await chooseNameInSheet(page, choice);
+}
+
 test("an owner starts writing together, keyboard only, and it shares when everyone's ready", async ({ page }) => {
   await open(page, "#/posts");
   await expect(page.getByRole("link", { name: "Write something with others" })).toBeVisible();
@@ -276,6 +295,8 @@ test("both write, share, and read each other's words as text; two tabs never los
   await ask.getByRole("button", { name: "Let them read it" }).click();
   await expect(status(page)).toContainText("Ready. You'll all read each other's parts when everyone's ready.");
   await expect(page.getByRole("button", { name: "Not yet after all" })).toBeVisible();
+  // #650: before the whole thing is read, each writer says how their name goes on it.
+  await chooseName(page, /^My name as People has it/);
 
   // The co-writer, in two tabs.
   const context = await browser.newContext({ viewport: { width: 400, height: 800 }, serviceWorkers: "block" });
@@ -300,7 +321,12 @@ test("both write, share, and read each other's words as text; two tabs never los
   await two.getByRole("button", { name: "Let the others read it" }).click();
   await two.getByRole("dialog", { name: "Let the others read your part as it is now?" }).getByRole("button", { name: "Let them read it" }).click();
   await expect(status(two)).toContainText("Shared. You can read everyone's parts now.");
-  await two.getByRole("link", { name: "Read them" }).click();
+  // Until Lee says how their name goes on it, the whole thing waits, and the reflection says so.
+  await two.goto(`${origin}/admin/studio/#/together/${id}`);
+  await expect(two.getByText("Say how your name goes on it. Then you can all read the whole thing and agree.")).toBeVisible();
+  await two.getByRole("button", { name: "Your name on it: What we noticed" }).click();
+  await chooseNameInSheet(two, /^My name as People has it/);
+  await two.goto(`${origin}/admin/studio/#/together/${id}/read`);
   await expect(two.getByRole("heading", { name: "Everyone's parts", level: 2 })).toBeVisible();
   const ann = two.locator(".studio-together-part", { has: two.getByRole("heading", { name: "Ann Owner" }) });
   await expect(ann).toContainText("And **this** stays as typed.");
@@ -368,12 +394,8 @@ test("the owner agrees and publishes; the co-writer never has Publish; put away 
   await page.getByRole("button", { name: "Let the others read it" }).click();
   await page.getByRole("dialog", { name: "Let the others read your part as it is now?" }).getByRole("button", { name: "Let them read it" }).click();
   await expect(status(page)).toContainText("Shared. You can read everyone's parts now.");
-  // Each approves their own part (the rule's scope), so only Lee, who changed theirs, agrees again;
-  // she reads the new words and is told her agreement still stands.
-  await open(page, `#/together/${id}/read?preview=1`);
-  await expect(page.locator(".studio-together-part").filter({ hasText: "From the second tab, plainly." })).toHaveCount(1);
-  await expect(page.getByText("You agreed to exactly this.")).toBeVisible();
-  for (const [who, user, secret] of [[fix, "leepark", leePassword]]) {
+  // A new reflection is agreed as a whole (#650), so Lee's change asks both of them again.
+  for (const [who, user, secret] of [[page, "ann", password], [fix, "leepark", leePassword]]) {
     await open(who, `#/together/${id}/read?preview=1`, user, secret);
     await expect(who.locator("iframe.studio-together-frame")).toBeVisible();
     await expect(who.locator(".studio-together-part").filter({ hasText: "From the second tab, plainly." })).toHaveCount(1);
@@ -390,8 +412,9 @@ test("the owner agrees and publishes; the co-writer never has Publish; put away 
   await expect(status(page)).toContainText("It's on your blog.");
   const post = join(dir, "content", "posts", `${id}.md`);
   expect(existsSync(post)).toBe(true);
-  const credits = JSON.parse(readFileSync(join(dir, "content", "posts", `${id}.credits.json`), "utf8")).credits.map((c) => c.contributor);
-  expect(credits).toEqual(["ann-owner", "lee"]);
+  // Each chose their name as People has it (#650): the credits carry those, frozen when chosen.
+  const credits = JSON.parse(readFileSync(join(dir, "content", "posts", `${id}.credits.json`), "utf8")).credits.map((c) => [c.identity?.kind, c.identity?.contributor]);
+  expect(credits).toEqual([["profile", "ann-owner"], ["profile", "lee"]]);
   await expect(page.getByRole("link", { name: "Open it" }).first()).toHaveAttribute("href", `#/write/${encodeURIComponent(`posts/${id}.md`)}`);
 });
 

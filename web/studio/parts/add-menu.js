@@ -66,6 +66,11 @@ function problemWords(problem, kind) {
     case "run-backticks": return say("form.noTicks");
     case "codepen": return say("form.penBad");
     case "footnote": return say("form.needNote");
+    case "diagram-title": return say("diagram.needTitle");
+    case "diagram-describe": return say("diagram.needDescribe");
+    case "diagram-quotes": return say("diagram.quotes");
+    // The renderer's own sentence: diagrams are on the details layer, for whoever writes them.
+    case "diagram": return say("diagram.cantDraw", { why: problem.message || "" });
     default: return say("form.fillThis");
   }
 }

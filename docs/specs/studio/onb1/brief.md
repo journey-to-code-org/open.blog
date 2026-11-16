@@ -62,5 +62,5 @@ beside Write.
 8. axe clean, keyboard-only, 320 px and reduced motion on About your blog, the summary, the
    suggestions, the voice offer, What you use, the turned-off page and My stories; `studio-qa`
    signs the checklist (`qa.md`).
-9. Spec, ADRs 0416–0419, the guide (`docs/admin.md`), CHANGELOG, generated words and CLI
+9. Spec, ADRs 0429–0432, the guide (`docs/admin.md`), CHANGELOG, generated words and CLI
    reference are complete; doc-link and coverage tests pass.

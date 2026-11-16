@@ -106,7 +106,14 @@ export const APPROVAL_REQUIREMENTS = Object.freeze([
   { value: "contributingAuthors", words: () => say("rules.contributingAuthors"), help: () => say("rules.contributingAuthorsHelp") },
   { value: "namedAuthors", words: () => say("rules.namedAuthors"), help: () => say("rules.namedAuthorsHelp") },
   { value: "authorsWithRoles", words: () => say("rules.authorsWithRoles"), help: () => say("rules.authorsWithRolesHelp") },
+  // #650: everyone taking part, readers too, and the two kinds with a number that never goes down.
+  { value: "allParticipants", words: () => say("rules.allParticipants"), help: () => say("rules.allParticipantsHelp") },
+  { value: "quorum", words: () => say("rules.quorum"), help: () => say("rules.quorumHelp"), counted: true },
+  { value: "participantQuorum", words: () => say("rules.participantQuorum"), help: () => say("rules.participantQuorumHelp"), counted: true },
 ]);
+
+/** The most a counted rule can ask for (the server keeps it in 16 bits). */
+const MAX_COUNT = 65535;
 
 /** The jobs a job-based rule can list. Only readers and editors can't agree, so they aren't offered. */
 export const APPROVAL_ROLE_CHOICES = Object.freeze([
@@ -118,10 +125,12 @@ export const APPROVAL_ROLE_CHOICES = Object.freeze([
 /** The stored rule as form choices: one kind, the named people, the jobs and what it covers. */
 export function approvalPolicyChoice(policy) {
   const requirement = policy?.requirement ?? "allAuthors";
-  const choice = { kind: "allAuthors", named: [], roles: [], scope: policy?.scope === "wholePiece" ? "wholePiece" : "ownSections" };
-  if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement) ? requirement : "allAuthors";
+  const choice = { kind: "allAuthors", named: [], roles: [], count: "", scope: policy?.scope === "wholePiece" ? "wholePiece" : "ownSections" };
+  if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement && !item.counted) ? requirement : "allAuthors";
   else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
   else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
+  else if (Number.isInteger(requirement?.quorum)) Object.assign(choice, { kind: "quorum", count: String(requirement.quorum) });
+  else if (Number.isInteger(requirement?.participantQuorum)) Object.assign(choice, { kind: "participantQuorum", count: String(requirement.participantQuorum) });
   return choice;
 }
 
@@ -137,9 +146,24 @@ export function approvalPeopleRows(rule) {
   return rows;
 }
 
+/** A stored or suggested rule in her words: whose agreement counts, and what it covers. */
+export function approvalPolicyWords(policy) {
+  const choice = approvalPolicyChoice(policy);
+  const item = APPROVAL_REQUIREMENTS.find((r) => r.value === choice.kind) || APPROVAL_REQUIREMENTS[0];
+  const who = item.counted ? `${item.words()} (${say("rules.howMany").toLowerCase()}: ${choice.count})` : item.words();
+  return `${who}. ${choice.scope === "wholePiece" ? say("rules.wholeHelp") : say("rules.ownPartsHelp")}`;
+}
+
 /** The rule the server expects for these choices, or what is missing (`{ error, field }`). */
-export function approvalPolicyPayload(choice) {
-  const scope = choice?.scope === "wholePiece" ? "wholePiece" : "ownSections";
+export function approvalPolicyPayload(choice, { wholePieceRequired = false } = {}) {
+  const scope = wholePieceRequired || choice?.scope === "wholePiece" ? "wholePiece" : "ownSections";
+  if (choice?.kind === "quorum" || choice?.kind === "participantQuorum") {
+    const text = String(choice.count ?? "").trim();
+    const count = /^\d{1,5}$/.test(text) ? Number(text) : 0;
+    if (count < 1 || count > MAX_COUNT) return { error: say("rules.needCount"), field: "count" };
+    return { policy: { requirement: { [choice.kind]: count }, scope } };
+  }
+  if (choice?.kind === "allParticipants") return { policy: { requirement: "allParticipants", scope } };
   if (choice?.kind === "namedAuthors") {
     const named = [...new Set(choice.named || [])];
     if (!named.length) return { error: say("rules.needPeople"), field: "named" };

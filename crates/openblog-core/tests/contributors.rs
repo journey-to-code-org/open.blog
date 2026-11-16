@@ -109,6 +109,52 @@ fn explicit_sidecar_preserves_contributor_and_role_order() {
 }
 
 #[test]
+fn snapshot_credits_stay_frozen_in_public_and_portable_outputs() {
+    let config = SiteConfig::from_json(
+        r#"{"title":"Credit test","url":"https://example.org","author":{"name":"Site Owner"},"contributors":{"ann":{"name":"Changed Registry Name","url":"https://private.example/new"}}}"#,
+    )
+    .unwrap();
+    let site = Site::load(
+        config,
+        Sources {
+            posts: vec![post("posts/study.md", "")],
+            credits: vec![source(
+                "posts/study.credits.json",
+                r#"{"version":2,"credits":[
+                    {"identity":{"kind":"profile","contributor":"ann","profile":{"name":"Approved Name","url":"https://public.example/ann","sameAs":[],"orcid":""}},"roles":[{"vocabulary":"crossref","role":"author"}]},
+                    {"identity":{"kind":"displayName","id":"0123456789abcdef0123456789abcdef","name":"Pen Name"},"roles":[{"vocabulary":"crossref","role":"author"}]}
+                ]}"#,
+            )],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let post = &site.posts[0];
+    let page = openblog_core::render::generate(&site, &openblog_core::ThemeSet::new())
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path == format!("{}index.html", post.url.trim_start_matches('/')))
+        .unwrap()
+        .contents;
+    let projection = openblog_core::portability::PortableProjection::for_site(&site, post).unwrap();
+    let outputs = [
+        page,
+        projection.portable_html().unwrap().html,
+        projection.portable_markdown().unwrap(),
+        projection.portable_text().unwrap(),
+        openblog_core::feeds::rss(&site).unwrap(),
+        openblog_core::feeds::json_feed(&site).unwrap(),
+    ];
+    for output in outputs {
+        assert!(output.contains("Approved Name"));
+        assert!(output.contains("Pen Name"));
+        assert!(!output.contains("Changed Registry Name"));
+        assert!(!output.contains("private.example/new"));
+    }
+}
+
+#[test]
 fn an_empty_explicit_sidecar_disables_legacy_inheritance() {
     let config = SiteConfig::from_json(r#"{"author":{"name":"Legacy Author"}}"#).unwrap();
     let site = Site::load(
@@ -231,8 +277,8 @@ fn sidecar_validation_rejects_unknowns_duplicates_and_orphans() {
     .unwrap();
     let cases = [
         (
-            r#"{"version":2,"credits":[]}"#,
-            "unsupported credit file version 2",
+            r#"{"version":3,"credits":[]}"#,
+            "unsupported credit file version 3",
         ),
         (
             r#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,

@@ -2465,6 +2465,14 @@
         "words"
       ]
     },
+    "card.diagram": {
+      "text": "Diagram: {title}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
     "card.elsewhere": {
       "text": "This photo is on another website.",
       "layer": "her",
@@ -6015,6 +6023,134 @@
       "text": "white",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "diagram.cantDraw": {
+      "text": "It can't be drawn: {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "diagram.captionHelp": {
+      "text": "Shown under the diagram.",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "diagram.describe": {
+      "text": "What it shows",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.describeHelp": {
+      "text": "A sentence or two for people who can't see it. Feeds and copies carry it with the picture.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "diagram.draw": {
+      "text": "Draw it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.example": {
+      "text": "Start from an example",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "diagram.exampleHelp": {
+      "text": "Puts an example in the box below to change.",
+      "layer": "details",
+      "max": 86,
+      "vars": []
+    },
+    "diagram.exampleNone": {
+      "text": "No example",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.fixFirst": {
+      "text": "Fill in what's marked first, then draw it.",
+      "layer": "details",
+      "max": 84,
+      "vars": []
+    },
+    "diagram.needDescribe": {
+      "text": "Say what it shows, or write accDescr: in the diagram.",
+      "layer": "details",
+      "max": 106,
+      "vars": []
+    },
+    "diagram.needTitle": {
+      "text": "Give it a title, or write accTitle: in the diagram.",
+      "layer": "details",
+      "max": 102,
+      "vars": []
+    },
+    "diagram.needsSignal": {
+      "text": "Drawing it needs a signal. Your diagram is kept in the form.",
+      "layer": "details",
+      "max": 120,
+      "vars": []
+    },
+    "diagram.quotes": {
+      "text": "Use one kind of quotation mark here, not both.",
+      "layer": "details",
+      "max": 92,
+      "vars": []
+    },
+    "diagram.replaceAsk": {
+      "text": "Put the example in place of your diagram?",
+      "layer": "details",
+      "max": 82,
+      "vars": []
+    },
+    "diagram.replaceGo": {
+      "text": "Use the example",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.replaceKeep": {
+      "text": "Keep mine",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.replaceText": {
+      "text": "What's in the box now is replaced by the example.",
+      "layer": "details",
+      "max": 98,
+      "vars": []
+    },
+    "diagram.source": {
+      "text": "The diagram",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.sourceHelp": {
+      "text": "In Mermaid, like flowchart LR then A --> B. Link a box to a page here with click A \"/about/\".",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "diagram.title": {
+      "text": "Title",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.titleHelp": {
+      "text": "A few words that name it, read out to people who can't see it.",
+      "layer": "details",
+      "max": 124,
       "vars": []
     },
     "did.added": {
@@ -9965,6 +10101,18 @@
       "max": 60,
       "vars": []
     },
+    "item.diagram": {
+      "text": "A diagram",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "item.diagramAbout": {
+      "text": "A flowchart, sequence or other Mermaid diagram, drawn as a picture with its description.",
+      "layer": "details",
+      "max": 176,
+      "vars": []
+    },
     "item.faq": {
       "text": "Questions and answers",
       "layer": "her",
@@ -10362,6 +10510,74 @@
       "text": "Writing it up…",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "jobphoto.agree": {
+      "text": "Send this photo and description",
+      "layer": "her",
+      "max": 62,
+      "vars": []
+    },
+    "jobphoto.changed": {
+      "text": "The photo or its description changed. Show what goes again.",
+      "layer": "her",
+      "max": 118,
+      "vars": []
+    },
+    "jobphoto.checking": {
+      "text": "Checking the photo…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.describe": {
+      "text": "Describe the photo",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.describeHelp": {
+      "text": "What's in it, for people who can't see it. It goes with the photo.",
+      "layer": "her",
+      "max": 132,
+      "vars": []
+    },
+    "jobphoto.first": {
+      "text": "Describe the photo, look at what goes, and choose Send this photo first.",
+      "layer": "her",
+      "max": 144,
+      "vars": []
+    },
+    "jobphoto.ifNot": {
+      "text": "If the photo can't go, nothing is posted.",
+      "layer": "her",
+      "max": 82,
+      "vars": []
+    },
+    "jobphoto.needWords": {
+      "text": "Describe the photo first.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "jobphoto.show": {
+      "text": "Show what goes",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "jobphoto.title": {
+      "text": "The photo that goes to {page}",
+      "layer": "her",
+      "max": 58,
+      "vars": [
+        "page"
+      ]
+    },
+    "jobphoto.trouble": {
+      "text": "The photo can't go as it is. Pick another after photo in Write.",
+      "layer": "her",
+      "max": 126,
       "vars": []
     },
     "join.declined": {
@@ -11356,6 +11572,168 @@
       "text": "Your moments",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "name.changeAsk": {
+      "text": "Change how your name goes on it?",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "name.changeGo": {
+      "text": "Change it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.changeKeep": {
+      "text": "Keep it as it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.changeText": {
+      "text": "Everyone who agreed will need to read it again and agree again.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "name.choose": {
+      "text": "How your name goes on it",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "name.lede": {
+      "text": "Readers see this with your part. Changing it later means everyone reads it again and agrees again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "name.needChoice": {
+      "text": "Choose how your name goes on it.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "name.needName": {
+      "text": "Write the name readers see.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "name.notYet": {
+      "text": "You haven't said yet.",
+      "layer": "her",
+      "max": 42,
+      "vars": []
+    },
+    "name.now": {
+      "text": "Readers will see: {said}",
+      "layer": "her",
+      "max": 48,
+      "vars": [
+        "said"
+      ]
+    },
+    "name.off": {
+      "text": "Leave my name off",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.offHelp": {
+      "text": "Your part is still in it, with no name.",
+      "layer": "her",
+      "max": 78,
+      "vars": []
+    },
+    "name.people": {
+      "text": "My name as People has it",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "name.peopleHelp": {
+      "text": "With its link, as it is now. A later change in People doesn't change this.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "name.saidOff": {
+      "text": "no name",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.saidPeople": {
+      "text": "your name as People has it",
+      "layer": "her",
+      "max": 52,
+      "vars": []
+    },
+    "name.saidTyped": {
+      "text": "{name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "name.save": {
+      "text": "Use this",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.saved": {
+      "text": "Saved. Readers will see your name this way.",
+      "layer": "her",
+      "max": 86,
+      "vars": []
+    },
+    "name.savedAgain": {
+      "text": "Saved. Everyone reads it again and agrees again.",
+      "layer": "her",
+      "max": 96,
+      "vars": []
+    },
+    "name.sheetTitle": {
+      "text": "Your name on {title}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
+    "name.title": {
+      "text": "Your name on it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.tooLong": {
+      "text": "Use a shorter name.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.typed": {
+      "text": "A name I write here",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.typedLabel": {
+      "text": "The name readers see",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "name.whereNaming": {
+      "text": "hasn't said how their name goes on it",
+      "layer": "her",
+      "max": 74,
       "vars": []
     },
     "notebook.aboutMissing": {
@@ -14676,6 +15054,124 @@
       "max": 134,
       "vars": []
     },
+    "picture.blueskyNoWords": {
+      "text": "Bluesky shows it with no description. If the picture changes before it goes, the link goes without it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "picture.blueskySmaller": {
+      "text": "Made smaller to fit Bluesky. This is exactly what goes.",
+      "layer": "her",
+      "max": 110,
+      "vars": []
+    },
+    "picture.described": {
+      "text": "Described as: {description}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "description"
+      ]
+    },
+    "picture.facebookCheck": {
+      "text": "If Facebook doesn't say whether it went, look at your Page before trying again.",
+      "layer": "her",
+      "max": 158,
+      "vars": []
+    },
+    "picture.for": {
+      "text": "To {account}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.ifNot": {
+      "text": "If the picture can't go",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "picture.ifNotStop": {
+      "text": "Don't share it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "picture.ifNotText": {
+      "text": "Share the link without it",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "picture.lede": {
+      "text": "The post's cover can go with the link. See exactly what goes, then choose.",
+      "layer": "her",
+      "max": 148,
+      "vars": []
+    },
+    "picture.none": {
+      "text": "Your post has no cover with a description to send.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "picture.notYet": {
+      "text": "Pictures can't go yet. {helper} can turn them on.",
+      "layer": "her",
+      "max": 98,
+      "vars": [
+        "helper"
+      ]
+    },
+    "picture.send": {
+      "text": "Send this picture to {account}",
+      "layer": "her",
+      "max": 60,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.show": {
+      "text": "Show the picture",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "picture.showLabel": {
+      "text": "Show the picture that goes to {account}",
+      "layer": "her",
+      "max": 78,
+      "vars": [
+        "account"
+      ]
+    },
+    "picture.title": {
+      "text": "The picture that goes with it",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "picture.tooBig": {
+      "text": "The cover is too big to send. Choose a smaller one for the post.",
+      "layer": "her",
+      "max": 128,
+      "vars": []
+    },
+    "picture.trouble": {
+      "text": "The picture didn't load. Try again, or share without it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
+    },
+    "picture.wordsGo": {
+      "text": "The description goes with it, for people who can't see it.",
+      "layer": "her",
+      "max": 116,
+      "vars": []
+    },
     "place.atRow": {
       "text": "Place {n}",
       "layer": "her",
@@ -15528,6 +16024,18 @@
       "vars": [
         "names"
       ]
+    },
+    "read.nameFirst": {
+      "text": "Say how your name goes on it first. Then you can read the whole thing as readers will.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "read.namesFirst": {
+      "text": "Everyone needs to say how their name goes on it first.",
+      "layer": "her",
+      "max": 108,
+      "vars": []
     },
     "read.notAllShared": {
       "text": "You can agree once everyone's part can be read.",
@@ -21304,6 +21812,349 @@
         "product"
       ]
     },
+    "recording.another": {
+      "text": "Choose a different recording",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
+    "recording.cardLength": {
+      "text": "{length} long",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "length"
+      ]
+    },
+    "recording.cardNoLength": {
+      "text": "Say how long it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.change": {
+      "text": "Change",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.changeLabel": {
+      "text": "Change the recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.choose": {
+      "text": "Choose a recording",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.chooseHint": {
+      "text": "From this phone or computer, up to {max} MB.",
+      "layer": "her",
+      "max": 88,
+      "vars": [
+        "max"
+      ]
+    },
+    "recording.chosenFile": {
+      "text": "Chosen: {name} ({size} MB).",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "name",
+        "size"
+      ]
+    },
+    "recording.chosenNote": {
+      "text": "Chosen: your voice note.",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "recording.file": {
+      "text": "The file",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "recording.goesPublic": {
+      "text": "Once it's on {product}, anyone with its address can listen, even before you publish the post.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.heard": {
+      "text": "Here are the words. Read them over, then put them in your post.",
+      "layer": "her",
+      "max": 126,
+      "vars": []
+    },
+    "recording.heardPart": {
+      "text": "Here are the words for the first part only. Read them over and add the rest.",
+      "layer": "her",
+      "max": 152,
+      "vars": []
+    },
+    "recording.lede": {
+      "text": "Readers can listen to it on the post. It needs the words said, written out, for people who can't hear it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "recording.length": {
+      "text": "How long it is",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.lengthBad": {
+      "text": "Write it as minutes and seconds, like 12:30.",
+      "layer": "her",
+      "max": 88,
+      "vars": []
+    },
+    "recording.lengthHelp": {
+      "text": "Minutes and seconds, like 12:30.",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "recording.listen": {
+      "text": "Listen to the recording",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "recording.menu": {
+      "text": "Put a recording with it",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "recording.needsSignal": {
+      "text": "Putting it on {product} needs a signal. Try again when you have one.",
+      "layer": "her",
+      "max": 136,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.notSent": {
+      "text": "It didn't go on {product}. Try again, or tell {helper}.",
+      "layer": "her",
+      "max": 110,
+      "vars": [
+        "product",
+        "helper"
+      ]
+    },
+    "recording.notSound": {
+      "text": "That isn't a recording {product} can play. Choose another.",
+      "layer": "her",
+      "max": 116,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.noteGone": {
+      "text": "That voice note isn't on {product} any more. Choose another.",
+      "layer": "her",
+      "max": 120,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.noteLabel": {
+      "text": "Voice note {n} ({size} MB)",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "n",
+        "size"
+      ]
+    },
+    "recording.noteNone": {
+      "text": "Choose one",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.notesLoading": {
+      "text": "Looking for your voice notes…",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "recording.notesNone": {
+      "text": "No voice notes yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.now": {
+      "text": "The recording now",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.partBad": {
+      "text": "Line {line}: write the time, then the name, like 1:05 Making the dough.",
+      "layer": "details",
+      "max": 142,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partLink": {
+      "text": "Line {line}: a link is an address on your site, starting with /, or https://.",
+      "layer": "details",
+      "max": 154,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partOrder": {
+      "text": "Line {line}: each part starts after the one before.",
+      "layer": "details",
+      "max": 102,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.partPastEnd": {
+      "text": "Line {line}: it starts after the recording ends.",
+      "layer": "details",
+      "max": 96,
+      "vars": [
+        "line"
+      ]
+    },
+    "recording.parts": {
+      "text": "Parts of the recording",
+      "layer": "details",
+      "max": 44,
+      "vars": []
+    },
+    "recording.partsHelp": {
+      "text": "One a line: when it starts and its name, like 1:05 Making the dough. Add | and an address to link it.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "recording.putOn": {
+      "text": "Put it on {product}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.putOnDone": {
+      "text": "It's on {product}. It goes with the post when the post is saved.",
+      "layer": "her",
+      "max": 128,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.takeOff": {
+      "text": "Take the recording off this post",
+      "layer": "her",
+      "max": 64,
+      "vars": []
+    },
+    "recording.title": {
+      "text": "A recording to listen to",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "recording.tooBig": {
+      "text": "That recording is too big. Choose one up to 64 MB.",
+      "layer": "her",
+      "max": 100,
+      "vars": []
+    },
+    "recording.tooManyParts": {
+      "text": "At most 10 parts here; write more in the file.",
+      "layer": "details",
+      "max": 92,
+      "vars": []
+    },
+    "recording.tookOff": {
+      "text": "The recording comes off this post when it's saved. It stays on {product}.",
+      "layer": "her",
+      "max": 146,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.turnIntoWords": {
+      "text": "Turn it into words",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.voiceNote": {
+      "text": "Or a voice note already on {product}",
+      "layer": "her",
+      "max": 72,
+      "vars": [
+        "product"
+      ]
+    },
+    "recording.words": {
+      "text": "The words said",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.wordsHelp": {
+      "text": "Type or paste them. They go at the end of your post, where you can change them.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "recording.wordsIn": {
+      "text": "The words said are in your post, under Transcript. Change them there.",
+      "layer": "her",
+      "max": 138,
+      "vars": []
+    },
+    "recording.wordsNeeded": {
+      "text": "Write the words said first.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "recording.wordsPut": {
+      "text": "The words said are at the end of your post, under Transcript.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "recording.wordsPutIn": {
+      "text": "Put them in my post",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "recording.wordsTitle": {
+      "text": "Turn the recording into words",
+      "layer": "her",
+      "max": 58,
+      "vars": []
+    },
+    "recording.wordsWhy": {
+      "text": "Before it can be published, write out what's said, so people who can't hear it can read it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "reminders.lede": {
       "text": "At the right time of year, {product} suggests something your customers are wondering about. You choose: write it, wait, or skip it. Nothing here goes on your site by itself.",
       "layer": "her",
@@ -22844,6 +23695,18 @@
       "max": 40,
       "vars": []
     },
+    "rules.agreeRule": {
+      "text": "Agree to this rule",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.agreedRule": {
+      "text": "You agreed to the new rule.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
     "rules.allAuthors": {
       "text": "Everyone writing",
       "layer": "her",
@@ -22852,6 +23715,18 @@
     },
     "rules.allAuthorsHelp": {
       "text": "Everyone who writes a part agrees, whether or not they've written yet.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.allParticipants": {
+      "text": "Everyone taking part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "rules.allParticipantsHelp": {
+      "text": "Everyone in it agrees, including people who only read. Someone who only reads agrees once they can read all of it.",
       "layer": "her",
       "max": 200,
       "vars": []
@@ -22950,6 +23825,12 @@
       "max": 124,
       "vars": []
     },
+    "rules.howMany": {
+      "text": "How many agree, at least",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
     "rules.left": {
       "text": "{name} (isn't in it any more)",
       "layer": "her",
@@ -22968,6 +23849,12 @@
       "text": "The people you choose below agree too, even if they later leave.",
       "layer": "her",
       "max": 200,
+      "vars": []
+    },
+    "rules.needCount": {
+      "text": "Write how many need to agree, like 3.",
+      "layer": "her",
+      "max": 74,
       "vars": []
     },
     "rules.needPeople": {
@@ -23012,6 +23899,52 @@
       "max": 200,
       "vars": []
     },
+    "rules.participantQuorum": {
+      "text": "Everyone who wrote, and enough of everyone",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "rules.participantQuorumHelp": {
+      "text": "Everyone who wrote agrees, and at least the number you choose of everyone taking part. It doesn't go down if someone leaves.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.proposalIs": {
+      "text": "Suggested: {rule}",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "rule"
+      ]
+    },
+    "rules.proposalOld": {
+      "text": "It no longer fits, because people or jobs changed since. Whoever runs it can suggest it again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "rules.proposalTitle": {
+      "text": "A new rule was suggested",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
+    "rules.proposalWaiting": {
+      "text": "Waiting for {names} to agree to it.",
+      "layer": "her",
+      "max": 70,
+      "vars": [
+        "names"
+      ]
+    },
+    "rules.proposalYouAgreed": {
+      "text": "You agreed to it.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "rules.published": {
       "text": "It's on {product}, so its rules stay as they were.",
       "layer": "her",
@@ -23019,6 +23952,18 @@
       "vars": [
         "product"
       ]
+    },
+    "rules.quorum": {
+      "text": "Everyone who wrote, and enough of the writers",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "rules.quorumHelp": {
+      "text": "Everyone who wrote agrees, and at least the number you choose of the people writing. It doesn't go down if someone leaves.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
     },
     "rules.readOnly": {
       "text": "Whoever runs it chooses the rules.",
@@ -23044,6 +23989,12 @@
       "max": 40,
       "vars": []
     },
+    "rules.ruleChanged": {
+      "text": "Everyone agreed, so the new rule is in place. Agreements given before need giving again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "rules.save": {
       "text": "Save the rules",
       "layer": "her",
@@ -23062,6 +24013,12 @@
       "max": 52,
       "vars": []
     },
+    "rules.seeRule": {
+      "text": "See the rule",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "rules.sharingTitle": {
       "text": "When you read each other's parts",
       "layer": "her",
@@ -23076,10 +24033,28 @@
         "title"
       ]
     },
+    "rules.suggested": {
+      "text": "Suggested. It changes once everyone taking part agrees to it.",
+      "layer": "her",
+      "max": 122,
+      "vars": []
+    },
+    "rules.takeBack": {
+      "text": "Take back my agreement to it",
+      "layer": "her",
+      "max": 56,
+      "vars": []
+    },
     "rules.title": {
       "text": "Rules",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "rules.tookBack": {
+      "text": "You took back your agreement to the new rule.",
+      "layer": "her",
+      "max": 90,
       "vars": []
     },
     "rules.whole": {
@@ -23092,6 +24067,12 @@
       "text": "Each person agrees to everyone's parts, so any change asks everyone again.",
       "layer": "her",
       "max": 148,
+      "vars": []
+    },
+    "rules.wholeOnly": {
+      "text": "Each person agrees to the whole thing, so any change asks everyone again.",
+      "layer": "her",
+      "max": 200,
       "vars": []
     },
     "rules.whoseAgreement": {
@@ -26356,6 +27337,12 @@
       "max": 40,
       "vars": []
     },
+    "thing.diagram": {
+      "text": "A diagram",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
     "thing.faq": {
       "text": "Questions and answers",
       "layer": "her",
@@ -26649,6 +27636,12 @@
     },
     "together.doInvite": {
       "text": "Invite someone",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "together.doName": {
+      "text": "Your name on it",
       "layer": "her",
       "max": 40,
       "vars": []
@@ -27383,6 +28376,12 @@
       "max": 66,
       "vars": []
     },
+    "together.stepName": {
+      "text": "Say how your name goes on it. Then you can all read the whole thing and agree.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "together.stepPrivate": {
       "text": "Each part stays private, so it can't be published together. Whoever runs it can change that.",
       "layer": "her",
@@ -27448,6 +28447,20 @@
       "vars": [
         "names"
       ]
+    },
+    "together.stepWaitingName": {
+      "text": "Waiting for {names} to say how their name goes on it.",
+      "layer": "her",
+      "max": 106,
+      "vars": [
+        "names"
+      ]
+    },
+    "together.stepWaitingOthersName": {
+      "text": "Waiting for the others to say how their name goes on it.",
+      "layer": "her",
+      "max": 112,
+      "vars": []
     },
     "together.stepWaitingOthersReady": {
       "text": "Waiting for the others to be ready.",

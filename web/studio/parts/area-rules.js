@@ -4,7 +4,7 @@
 // same ids (AREA_IDS, KIND_IDS), and a test compares the two.
 //
 // A new screen picks its area here (`SCREEN_AREAS`), or is essential: the test fails for a screen
-// that isn't listed (ADR 0416).
+// that isn't listed (ADR 0429).
 import { say } from "./words.js";
 
 /** The areas a login can hide, in the order What you use lists them. Essentials aren't here. */
@@ -30,7 +30,7 @@ export const areaAbout = (id) => (NAMES[id] ? NAMES[id]()[1] : "");
 
 /**
  * The kinds of blog (the first question, and `openblog init --kind`): the areas each turns on,
- * and the writing sets whose prompts suit it (Stories always comes too, ADR 0419).
+ * and the writing sets whose prompts suit it (Stories always comes too, ADR 0432).
  */
 export const KINDS = Object.freeze({
   technical: { areas: ["code", "pages", "collections"], packs: ["teaching", "expertise", "opinions", "craft"] },

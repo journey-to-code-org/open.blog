@@ -140,11 +140,15 @@ test("the layout: one of five, a turn moved with the keyboard, saved, and undone
   expect(undone.body.structure.layout).toBe("sequential");
 });
 
-test("whose agreement counts: asked once, saved, and undone", async ({ page }) => {
+test("whose agreement counts: asked once, suggested, and changed once everyone agrees", async ({ page, browser }) => {
   await open(page, `#/together/${id}`);
   await page.getByRole("button", { name: /^More/ }).click();
   await page.getByRole("menuitem", { name: "Rules" }).click();
   const sheet = page.locator("side-sheet").filter({ has: page.getByRole("heading", { name: "Rules for What we noticed" }) });
+  const before = (await api(page, "GET", `collaboration/approval-policy?publicationId=${id}`)).body.policy;
+  // A new reflection is agreed as a whole (#650): "their own part" isn't offered.
+  await expect(sheet.getByText("Each person agrees to the whole thing, so any change asks everyone again.")).toBeVisible();
+  await expect(sheet.getByRole("radio", { name: /^Their own part/ })).toHaveCount(0);
   await sheet.getByRole("radio", { name: /^Everyone who wrote, and people you choose/ }).click();
   await sheet.getByRole("button", { name: "Save the rules" }).click();
   await expect(status(page)).toContainText("Choose at least one person who agrees.");
@@ -152,11 +156,32 @@ test("whose agreement counts: asked once, saved, and undone", async ({ page }) =
   await axeClean(page, "Rules");
   await sheet.getByRole("button", { name: "Save the rules" }).click();
   await page.getByRole("dialog", { name: "Change whose agreement counts?" }).getByRole("button", { name: "Change it" }).click();
-  await expect(status(page)).toContainText("Rules saved.");
-  expect((await api(page, "GET", `collaboration/approval-policy?publicationId=${id}`)).body.policy.requirement).toEqual({ namedAuthors: ["participant-2"] });
+  // A change is a suggestion until everyone taking part agrees to it; nothing changed yet.
+  await expect(status(page)).toContainText("Suggested. It changes once everyone taking part agrees to it.");
+  expect((await api(page, "GET", `collaboration/approval-policy?publicationId=${id}`)).body.policy).toEqual(before);
+  await expect(sheet.getByText("Suggested: Everyone who wrote, and people you choose.")).toBeVisible();
+  await expect(sheet.getByText("Waiting for Ann Owner and Lee Park to agree to it.")).toBeVisible();
+  await sheet.getByRole("button", { name: "Agree to this rule" }).click();
+  await expect(status(page)).toContainText("You agreed to the new rule.");
   await status(page).getByRole("button", { name: "Undo" }).click();
-  await expect(status(page)).toContainText("Rules saved.");
-  expect((await api(page, "GET", `collaboration/approval-policy?publicationId=${id}`)).body.policy.requirement).toBe("allAuthors");
+  await expect(status(page)).toContainText("You took back your agreement to the new rule.");
+  await sheet.getByRole("button", { name: "Agree to this rule" }).click();
+  await expect(sheet.getByText("Waiting for Lee Park to agree to it.")).toBeVisible();
+  await expect(sheet.getByText("You agreed to it.")).toBeVisible();
+
+  // Lee doesn't run it, but is asked: the reflection says so, and the rule opens from there.
+  const context = await browser.newContext({ viewport: { width: 400, height: 800 }, serviceWorkers: "block" });
+  const lee = await context.newPage();
+  await open(lee, `#/together/${id}`, "lee", leePassword);
+  await expect(lee.getByText("A new rule was suggested")).toBeVisible();
+  await lee.getByRole("button", { name: "See the rule" }).click();
+  const leeSheet = lee.locator("side-sheet").filter({ has: lee.getByRole("heading", { name: "Rules for What we noticed" }) });
+  await expect(leeSheet.getByRole("button", { name: "Save the rules" })).toHaveCount(0);
+  await axeClean(lee, "Rules, as someone who is asked");
+  await leeSheet.getByRole("button", { name: "Agree to this rule" }).click();
+  await expect(lee.locator("side-sheet .studio-did").first()).toContainText("Everyone agreed, so the new rule is in place.");
+  await context.close();
+  expect((await api(page, "GET", `collaboration/approval-policy?publicationId=${id}`)).body.policy.requirement).toEqual({ namedAuthors: ["participant-2"] });
 });
 
 test("a new collection, the reading order, and a place in it", async ({ page }) => {

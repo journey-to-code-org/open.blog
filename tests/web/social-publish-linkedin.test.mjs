@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { escapeLinkedInCommentary, linkedInTitle, linkedinAdapter } from "../../netlify/lib/social-publish.mjs";
+import { captureMedia, mediaApprovalDigest } from "../../netlify/lib/social-media.mjs";
 import { LI_TOKEN, call, isDelivery, networkFailure, providers, scripted, settle } from "./social-publish-fakes.mjs";
 
 const URN = "urn:li:share:7123456789012345678";
@@ -13,6 +14,90 @@ const run = async (reply, input = {}, overrides) => {
   const adapter = linkedinAdapter(providers(overrides).linkedin, { fetchImpl: fake.fetchImpl, now: () => NOW });
   return { ...(await settle(adapter.publish(call("linkedin", input)))), calls: fake.calls };
 };
+
+test("an approved LinkedIn image is uploaded to its trusted URL and posted with alt text", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "stop" }, page);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+  const image = "urn:li:image:abc123";
+  const uploadUrl = "https://www.linkedin.com/dms-uploads/abc123/uploaded-image/0?token=signed";
+  const { value, calls } = await run((n, url) => {
+    if (url === snapshot.url) return { status: 200, headers: { "content-type": "image/png" }, body: png };
+    if (url.includes("initializeUpload")) return { status: 200, body: { value: { image, uploadUrl, uploadUrlExpiresAt: NOW + 60_000 } } };
+    if (url === uploadUrl) return { status: 201 };
+    if (url.endsWith("/rest/posts")) return CREATED;
+    return { status: 599 };
+  }, { post: { media } });
+  assert.deepEqual(value, { providerPostId: URN });
+  assert.equal(calls[0].headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(calls[1].body), { initializeUploadRequest: { owner: "urn:li:person:abc123" } });
+  assert.equal(calls[2].method, "PUT");
+  assert.equal(calls[2].redirect, "manual");
+  assert.deepEqual(calls[2].body, png);
+  const post = JSON.parse(calls[3].body);
+  assert.deepEqual(post.content, { media: { id: image, altText: "A lantern" } });
+  assert.equal(post.commentary, `A new post is up.\n\n${page}`);
+});
+
+test("a forged LinkedIn upload URL never receives a token, and only the approved fallback posts", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  for (const fallback of ["text", "stop"]) {
+    const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback }, page);
+    const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+    const { value, error, calls } = await run((n, url) => {
+      if (url === snapshot.url) return { status: 200, headers: { "content-type": "image/png" }, body: png };
+      if (url.includes("initializeUpload")) return { status: 200, body: { value: { image: "urn:li:image:abc123", uploadUrl: "https://evil.example/dms-uploads/abc123/a", uploadUrlExpiresAt: NOW + 60_000 } } };
+      return CREATED;
+    }, { post: { media } });
+    assert.equal(calls.some((call) => call.url.includes("evil.example")), false);
+    if (fallback === "text") {
+      assert.deepEqual(value, { providerPostId: URN });
+      assert.ok(JSON.parse(calls.at(-1).body).content.article);
+    } else {
+      assert.ok(isDelivery(error, "rejected"));
+      assert.equal(calls.length, 2);
+    }
+  }
+});
+
+test("LinkedIn upload initialization must name a live matching image on the exact upload host", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "stop" }, page);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+  const valid = { image: "urn:li:image:abc123", uploadUrl: "https://www.linkedin.com/dms-uploads/abc123/image/0?token=signed", uploadUrlExpiresAt: NOW + 60_000 };
+  for (const change of [
+    { uploadUrl: "https://www.linkedin.com.evil.example/dms-uploads/abc123/image/0" },
+    { uploadUrl: "https://user@www.linkedin.com/dms-uploads/abc123/image/0" },
+    { uploadUrl: "https://www.linkedin.com:8443/dms-uploads/abc123/image/0" },
+    { uploadUrl: "https://www.linkedin.com/dms-uploads/other/image/0" },
+    { image: "urn:li:image:../other" },
+    { uploadUrlExpiresAt: NOW },
+  ]) {
+    const result = await run((n, url) => url === snapshot.url
+      ? { status: 200, headers: { "content-type": "image/png" }, body: png }
+      : { status: 200, body: { value: { ...valid, ...change } } }, { post: { media } });
+    assert.ok(isDelivery(result.error, "rejected"), JSON.stringify(change));
+    assert.equal(result.calls.length, 2, JSON.stringify(change));
+  }
+});
+
+test("a LinkedIn post with an uncertain result is not retried as an article", async () => {
+  const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 42]);
+  const page = "https://blog.example.com/posts/hello/";
+  const snapshot = await captureMedia({ url: "https://blog.example.com/cover.png", description: "A lantern", mimeType: "image/png", bytes: png, fallback: "text" }, page);
+  const media = { snapshot, approvalDigest: await mediaApprovalDigest(snapshot, page) };
+  const result = await run((n, url) => {
+    if (url === snapshot.url) return { status: 200, headers: { "content-type": "image/png" }, body: png };
+    if (url.includes("initializeUpload")) return { status: 200, body: { value: { image: "urn:li:image:abc123", uploadUrl: "https://www.linkedin.com/dms-uploads/abc123/image/0", uploadUrlExpiresAt: NOW + 60_000 } } };
+    if (url.includes("/dms-uploads/")) return { status: 201 };
+    return { status: 503 };
+  }, { post: { media } });
+  assert.ok(isDelivery(result.error, "uncertain"));
+  assert.equal(result.calls.filter((call) => call.url.endsWith("/rest/posts")).length, 1);
+});
 
 test("a 201 with the post URN resolves to the URN and nothing else", async () => {
   const { value, calls } = await run(CREATED);

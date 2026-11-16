@@ -42,6 +42,9 @@ the preview must not widen that, and it must not look like a published page.
   already tell authors whether others offered a revision. A non-writer sees no one else's prose
   under the reveal rules, since they have nothing to offer, so their own preview stays incomplete;
   whether such an author may approve unseen content is left to the approval step (#168).
+- A viewer without access to the continuing conversation never receives a complete preview or
+  review token, even when all draft sections are visible. This applies whether or not a
+  conversation exists, so completeness does not reveal the presence of private synthesis.
 - Prose is rendered by the production Markdown renderer with the site's own options
   (`SiteConfig::render_options`, which `Site::load` also uses): smart punctuation, heading
   anchors, embeds and the code runner follow `openblog.json`, so the preview's HTML for a section

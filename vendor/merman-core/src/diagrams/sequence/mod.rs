@@ -1,0 +1,655 @@
+include_checked_in_lalrpop_parser!(
+    #[allow(
+        clippy::empty_line_after_outer_attr,
+        clippy::type_complexity,
+        clippy::result_large_err
+    )]
+    sequence_grammar,
+    "sequence_grammar.rs"
+);
+
+// The source grammar and typed consumers share the model-owned numeric protocol.
+use merman_model::families::sequence::{
+    LINETYPE_ACTIVE_END, LINETYPE_ACTIVE_START, LINETYPE_ALT_ELSE, LINETYPE_ALT_END,
+    LINETYPE_ALT_START, LINETYPE_AUTONUMBER, LINETYPE_BIDIRECTIONAL_DOTTED,
+    LINETYPE_BIDIRECTIONAL_SOLID, LINETYPE_BREAK_END, LINETYPE_BREAK_START,
+    LINETYPE_CENTRAL_CONNECTION, LINETYPE_CENTRAL_CONNECTION_DUAL,
+    LINETYPE_CENTRAL_CONNECTION_REVERSE, LINETYPE_CRITICAL_END, LINETYPE_CRITICAL_OPTION,
+    LINETYPE_CRITICAL_START, LINETYPE_DOTTED, LINETYPE_DOTTED_CROSS, LINETYPE_DOTTED_OPEN,
+    LINETYPE_DOTTED_POINT, LINETYPE_LOOP_END, LINETYPE_LOOP_START, LINETYPE_NOTE, LINETYPE_OPT_END,
+    LINETYPE_OPT_START, LINETYPE_PAR_AND, LINETYPE_PAR_END, LINETYPE_PAR_OVER_START,
+    LINETYPE_PAR_START, LINETYPE_RECT_END, LINETYPE_RECT_START, LINETYPE_SOLID,
+    LINETYPE_SOLID_ARROW_BOTTOM_REVERSE, LINETYPE_SOLID_ARROW_BOTTOM_REVERSE_DOTTED,
+    LINETYPE_SOLID_ARROW_TOP_REVERSE, LINETYPE_SOLID_ARROW_TOP_REVERSE_DOTTED,
+    LINETYPE_SOLID_BOTTOM, LINETYPE_SOLID_BOTTOM_DOTTED, LINETYPE_SOLID_CROSS, LINETYPE_SOLID_OPEN,
+    LINETYPE_SOLID_POINT, LINETYPE_SOLID_TOP, LINETYPE_SOLID_TOP_DOTTED,
+    LINETYPE_STICK_ARROW_BOTTOM_REVERSE, LINETYPE_STICK_ARROW_BOTTOM_REVERSE_DOTTED,
+    LINETYPE_STICK_ARROW_TOP_REVERSE, LINETYPE_STICK_ARROW_TOP_REVERSE_DOTTED,
+    LINETYPE_STICK_BOTTOM, LINETYPE_STICK_BOTTOM_DOTTED, LINETYPE_STICK_TOP,
+    LINETYPE_STICK_TOP_DOTTED,
+};
+#[cfg(test)]
+use merman_model::families::sequence::{PLACEMENT_LEFT_OF, PLACEMENT_OVER, PLACEMENT_RIGHT_OF};
+
+mod ast;
+mod compat;
+mod db;
+mod lexer;
+mod model;
+mod parse;
+#[cfg(feature = "presentation")]
+mod presentation;
+
+use ast::Action;
+pub(crate) use lexer::{LexError, Tok};
+
+#[cfg(feature = "compat-json")]
+pub(crate) use compat::parse_sequence;
+#[cfg(all(feature = "compat-json", feature = "editor-facts"))]
+pub(crate) use compat::parse_sequence_json_and_editor_facts;
+#[cfg(test)]
+use merman_model::families::sequence::{
+    SequenceCentralDecoration, SequenceControlSemantics, SequenceDiagramModel, SequenceMessage,
+    SequenceMessageKind, SequenceMessagePayload, SequenceNotePlacement,
+};
+#[cfg(all(test, feature = "presentation"))]
+use merman_model::families::sequence::{
+    SequenceMessageDirection, SequenceMessageMarker, SequenceMessageStroke,
+};
+pub(crate) use model::sanitize_common_db_fields;
+pub(crate) use parse::parse_sequence_semantic_model_controlled;
+#[cfg(all(test, feature = "editor-facts"))]
+pub(crate) use parse::{
+    reset_sequence_syntax_construction_count, sequence_syntax_construction_count,
+};
+#[cfg(feature = "presentation")]
+pub(crate) use presentation::parse_sequence_model_for_render_controlled;
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        LINETYPE_ALT_ELSE, LINETYPE_ALT_END, LINETYPE_ALT_START, LINETYPE_BREAK_END,
+        LINETYPE_BREAK_START, LINETYPE_CENTRAL_CONNECTION, LINETYPE_CENTRAL_CONNECTION_DUAL,
+        LINETYPE_CENTRAL_CONNECTION_REVERSE, LINETYPE_CRITICAL_END, LINETYPE_CRITICAL_OPTION,
+        LINETYPE_CRITICAL_START, LINETYPE_LOOP_END, LINETYPE_LOOP_START, LINETYPE_NOTE,
+        LINETYPE_OPT_END, LINETYPE_OPT_START, LINETYPE_PAR_AND, LINETYPE_PAR_END,
+        LINETYPE_PAR_OVER_START, LINETYPE_PAR_START, LINETYPE_RECT_END, LINETYPE_RECT_START,
+        PLACEMENT_LEFT_OF, PLACEMENT_OVER, PLACEMENT_RIGHT_OF, SequenceCentralDecoration,
+        SequenceControlSemantics, SequenceMessage, SequenceMessageKind, SequenceMessagePayload,
+        SequenceNotePlacement,
+    };
+    #[cfg(feature = "presentation")]
+    use super::{SequenceMessageDirection, SequenceMessageMarker, SequenceMessageStroke};
+    #[cfg(feature = "presentation")]
+    use crate::{MermaidEngine, ParseOptions, RenderSemanticModel};
+    use merman_model::families::sequence::{SequenceControlKind, SequenceControlRole};
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn parser_preserves_bracketed_block_titles_for_the_renderer() {
+        let parsed = MermaidEngine::new()
+            .parse_diagram_for_render_model_sync(
+                r#"sequenceDiagram
+    par [Action 1]
+        Alice->>Bob: First
+    and [Action 2]
+        Bob-->>Alice: Second
+    end"#,
+                ParseOptions::strict(),
+            )
+            .expect("parse should succeed")
+            .expect("sequence diagram should be detected");
+        let RenderSemanticModel::Sequence(model) = parsed.model() else {
+            panic!("expected typed Sequence render model");
+        };
+
+        assert_eq!(model.messages[0].message_text(), "[Action 1]");
+        assert_eq!(model.messages[2].message_text(), "[Action 2]");
+    }
+
+    #[cfg(feature = "compat-json")]
+    #[test]
+    fn typed_render_model_projects_exact_compatibility_json() {
+        let source = r#"sequenceDiagram
+title: Delivery
+accTitle: Delivery sequence
+autonumber 10 5
+participant Alice
+actor Bob
+box rgb(240,240,240) Team
+participant Carol
+end
+Alice->>Bob: Request
+Note over Alice,Bob: Review
+create participant Worker
+Bob->>Worker: Start
+destroy Worker
+Worker-->>Bob: Done"#;
+        let engine = crate::MermaidEngine::new();
+        let compat = engine
+            .parse_diagram_sync(source, crate::ParseOptions::strict())
+            .unwrap()
+            .unwrap();
+        let typed = engine
+            .parse_diagram_for_render_model_sync(source, crate::ParseOptions::strict())
+            .unwrap()
+            .unwrap();
+        let crate::RenderSemanticModel::Sequence(model) = typed.model() else {
+            panic!("expected Sequence render model");
+        };
+
+        assert_eq!(
+            merman_model::families::sequence::compat::project(
+                model,
+                &merman_model::presentation::compat::CompatJsonMetadata::from(typed.metadata())
+            )
+            .unwrap(),
+            compat.model
+        );
+    }
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn typed_render_model_resolves_add_message_lifecycle_ownership() {
+        let parsed = MermaidEngine::new()
+            .parse_diagram_for_render_model_sync(
+                concat!(
+                    "sequenceDiagram\n",
+                    "participant A\n",
+                    "participant C\n",
+                    "create participant B\n",
+                    "destroy A\n",
+                    "loop pending\n",
+                    "Note over C: pending\n",
+                    "end\n",
+                    "autonumber\n",
+                    "activate C\n",
+                    "deactivate C\n",
+                    "C->>B: create\n",
+                    "A--xC: destroy\n",
+                ),
+                ParseOptions::strict(),
+            )
+            .expect("parse should succeed")
+            .expect("sequence diagram should be detected");
+        let RenderSemanticModel::Sequence(model) = parsed.model() else {
+            panic!("expected typed Sequence render model");
+        };
+
+        assert_eq!(model.created_actors.get("B"), Some(&0));
+        assert_eq!(model.destroyed_actors.get("A"), Some(&0));
+        assert_eq!(model.created_actor_message_index("B"), Some(6));
+        assert_eq!(model.destroyed_actor_message_index("A"), Some(7));
+
+        let typed_json =
+            serde_json::to_value(model).expect("typed lifecycle truth should serialize");
+        assert!(typed_json.get("actorLifecycles").is_some());
+        let round_trip: super::SequenceDiagramModel =
+            serde_json::from_value(typed_json).expect("typed lifecycle truth should deserialize");
+        assert_eq!(round_trip.created_actor_message_index("B"), Some(6));
+        assert_eq!(round_trip.destroyed_actor_message_index("A"), Some(7));
+
+        #[cfg(feature = "compat-json")]
+        {
+            let compat = merman_model::families::sequence::compat::project(
+                model,
+                &merman_model::presentation::compat::CompatJsonMetadata::from(parsed.metadata()),
+            )
+            .expect("compatibility projection should succeed");
+            assert!(compat.get("actorLifecycles").is_none());
+        }
+    }
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn consecutive_lifecycle_declarations_keep_only_the_latest_pending_actor() {
+        for (source, consumed_actor, superseded_actor, created) in [
+            (
+                concat!(
+                    "sequenceDiagram\n",
+                    "participant A\n",
+                    "create participant B\n",
+                    "create participant C\n",
+                    "A->>C: create\n",
+                ),
+                "C",
+                "B",
+                true,
+            ),
+            (
+                concat!(
+                    "sequenceDiagram\n",
+                    "participant A\n",
+                    "participant B\n",
+                    "destroy A\n",
+                    "destroy B\n",
+                    "A--xB: destroy\n",
+                ),
+                "B",
+                "A",
+                false,
+            ),
+        ] {
+            let parsed = MermaidEngine::new()
+                .parse_diagram_for_render_model_sync(source, ParseOptions::strict())
+                .expect("consecutive lifecycle declarations should parse")
+                .expect("sequence diagram should be detected");
+            let RenderSemanticModel::Sequence(model) = parsed.model() else {
+                panic!("expected typed Sequence render model");
+            };
+
+            let consumed_index = if created {
+                model.created_actor_message_index(consumed_actor)
+            } else {
+                model.destroyed_actor_message_index(consumed_actor)
+            };
+            let superseded_index = if created {
+                model.created_actor_message_index(superseded_actor)
+            } else {
+                model.destroyed_actor_message_index(superseded_actor)
+            };
+            assert_eq!(consumed_index, Some(0));
+            assert_eq!(superseded_index, None);
+        }
+    }
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn typed_render_model_projects_pinned_signal_semantics() {
+        let parsed = MermaidEngine::new()
+            .parse_diagram_for_render_model_sync(
+                r#"sequenceDiagram
+participant A
+participant B
+A->>B: filled
+A->B: headless solid
+A-->B: headless dotted
+A-xB: cross
+A-)B: point
+A<<->>B: both
+A-|\B: filled half top
+A/|-B: reverse filled half top
+A--//B: dotted open half bottom"#,
+                ParseOptions::strict(),
+            )
+            .expect("parse should succeed")
+            .expect("sequence diagram should be detected");
+        let RenderSemanticModel::Sequence(model) = parsed.model() else {
+            panic!("expected typed Sequence render model");
+        };
+
+        let expected = [
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::Filled,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::Cross,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::Point,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::Filled,
+                SequenceMessageMarker::Filled,
+                SequenceMessageDirection::Bidirectional,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::OpenHalfBottom,
+                SequenceMessageDirection::Forward,
+            ),
+        ];
+
+        assert_eq!(model.messages.len(), expected.len());
+        for (message, expected) in model.messages.iter().zip(expected) {
+            let semantics = message
+                .signal_semantics()
+                .expect("message should project signal semantics");
+            assert_eq!(message.semantic_kind(), SequenceMessageKind::Signal);
+            assert_eq!(
+                (
+                    semantics.stroke,
+                    semantics.source_marker,
+                    semantics.target_marker,
+                    semantics.direction,
+                ),
+                expected,
+                "{}",
+                message.message_text()
+            );
+        }
+    }
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn typed_render_model_projects_every_pinned_half_arrow_semantic() {
+        let cases = [
+            (
+                "A-|\\B: 0",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A-|/B: 1",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::FilledHalfBottom,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A-\\\\B: 2",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::OpenHalfTop,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A-//B: 3",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::OpenHalfBottom,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A--|\\B: 4",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A--|/B: 5",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::FilledHalfBottom,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A--\\\\B: 6",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::OpenHalfTop,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A--//B: 7",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::None,
+                SequenceMessageMarker::OpenHalfBottom,
+                SequenceMessageDirection::Forward,
+            ),
+            (
+                "A/|-B: 8",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A\\|-B: 9",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::FilledHalfBottom,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A//-B: 10",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::OpenHalfTop,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A\\\\-B: 11",
+                SequenceMessageStroke::Solid,
+                SequenceMessageMarker::OpenHalfBottom,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A/|--B: 12",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::FilledHalfTop,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A\\|--B: 13",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::FilledHalfBottom,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A//--B: 14",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::OpenHalfTop,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+            (
+                "A\\\\--B: 15",
+                SequenceMessageStroke::Dotted,
+                SequenceMessageMarker::OpenHalfBottom,
+                SequenceMessageMarker::None,
+                SequenceMessageDirection::Reverse,
+            ),
+        ];
+        let input = format!(
+            "sequenceDiagram\nparticipant A\nparticipant B\n{}",
+            cases
+                .iter()
+                .map(|(source, ..)| *source)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let parsed = MermaidEngine::new()
+            .parse_diagram_for_render_model_sync(&input, ParseOptions::strict())
+            .expect("parse should succeed")
+            .expect("sequence diagram should be detected");
+        let RenderSemanticModel::Sequence(model) = parsed.model() else {
+            panic!("expected typed Sequence render model");
+        };
+
+        assert_eq!(model.messages.len(), cases.len());
+        for (message, (_, stroke, source, target, direction)) in model.messages.iter().zip(cases) {
+            let semantics = message.signal_semantics().unwrap();
+            assert_eq!(
+                (
+                    semantics.stroke,
+                    semantics.source_marker,
+                    semantics.target_marker,
+                    semantics.direction,
+                ),
+                (stroke, source, target, direction),
+                "{}",
+                message.message_text()
+            );
+        }
+    }
+
+    #[cfg(feature = "presentation")]
+    #[test]
+    fn typed_render_model_classifies_central_marker_records_without_losing_decorations() {
+        let parsed = MermaidEngine::new()
+            .parse_diagram_for_render_model_sync(
+                r#"sequenceDiagram
+participant A
+participant B
+A->>()B: target
+A()->>B: source
+A()->>()B: both"#,
+                ParseOptions::strict(),
+            )
+            .expect("parse should succeed")
+            .expect("sequence diagram should be detected");
+        let RenderSemanticModel::Sequence(model) = parsed.model() else {
+            panic!("expected typed Sequence render model");
+        };
+
+        assert_eq!(model.messages.len(), 7);
+        assert_eq!(
+            model.messages[0].central_decoration(),
+            Some(SequenceCentralDecoration::Target)
+        );
+        assert_eq!(
+            model.messages[1].semantic_kind(),
+            SequenceMessageKind::CentralDecorationRecord
+        );
+        assert_eq!(
+            model.messages[1].central_record_decoration(),
+            Some(SequenceCentralDecoration::Target)
+        );
+        assert_eq!(
+            model.messages[2].central_decoration(),
+            Some(SequenceCentralDecoration::Source)
+        );
+        assert_eq!(
+            model.messages[3].semantic_kind(),
+            SequenceMessageKind::CentralDecorationRecord
+        );
+        assert_eq!(
+            model.messages[3].central_record_decoration(),
+            Some(SequenceCentralDecoration::Source)
+        );
+        assert_eq!(
+            model.messages[4].central_decoration(),
+            Some(SequenceCentralDecoration::Both)
+        );
+        assert!(model.messages[5..].iter().all(|message| {
+            message.semantic_kind() == SequenceMessageKind::CentralDecorationRecord
+        }));
+        assert_eq!(
+            model.messages[5].central_record_decoration(),
+            Some(SequenceCentralDecoration::Target)
+        );
+        assert_eq!(
+            model.messages[6].central_record_decoration(),
+            Some(SequenceCentralDecoration::Source)
+        );
+    }
+
+    #[test]
+    fn typed_render_model_owns_control_record_and_note_placement_protocols() {
+        use SequenceControlKind as Kind;
+        use SequenceControlRole as Role;
+
+        let controls = [
+            (LINETYPE_LOOP_START, Kind::Loop, Role::Start),
+            (LINETYPE_LOOP_END, Kind::Loop, Role::End),
+            (LINETYPE_ALT_START, Kind::Alt, Role::Start),
+            (LINETYPE_ALT_ELSE, Kind::Alt, Role::Separator),
+            (LINETYPE_ALT_END, Kind::Alt, Role::End),
+            (LINETYPE_OPT_START, Kind::Opt, Role::Start),
+            (LINETYPE_OPT_END, Kind::Opt, Role::End),
+            (LINETYPE_PAR_START, Kind::Par, Role::Start),
+            (LINETYPE_PAR_AND, Kind::Par, Role::Separator),
+            (LINETYPE_PAR_END, Kind::Par, Role::End),
+            (LINETYPE_RECT_START, Kind::Rect, Role::Start),
+            (LINETYPE_RECT_END, Kind::Rect, Role::End),
+            (LINETYPE_CRITICAL_START, Kind::Critical, Role::Start),
+            (LINETYPE_CRITICAL_OPTION, Kind::Critical, Role::Separator),
+            (LINETYPE_CRITICAL_END, Kind::Critical, Role::End),
+            (LINETYPE_BREAK_START, Kind::Break, Role::Start),
+            (LINETYPE_BREAK_END, Kind::Break, Role::End),
+            (LINETYPE_PAR_OVER_START, Kind::ParOver, Role::Start),
+        ];
+
+        for (message_type, kind, role) in controls {
+            let message = sequence_message_with_type(message_type, None);
+            let expected = SequenceControlSemantics { kind, role };
+            assert_eq!(message.control_semantics(), Some(expected));
+            assert_eq!(message.semantic_kind(), SequenceMessageKind::Control);
+            assert_eq!(expected.consumes_text(), role != Role::End);
+        }
+
+        let placements = [
+            (Some(PLACEMENT_LEFT_OF), SequenceNotePlacement::LeftOf),
+            (Some(PLACEMENT_RIGHT_OF), SequenceNotePlacement::RightOf),
+            (Some(PLACEMENT_OVER), SequenceNotePlacement::Over),
+            (None, SequenceNotePlacement::Over),
+        ];
+        for (raw, expected) in placements {
+            assert_eq!(
+                sequence_message_with_type(LINETYPE_NOTE, raw).note_placement(),
+                Some(expected)
+            );
+        }
+        assert_eq!(
+            sequence_message_with_type(LINETYPE_NOTE, Some(99)).note_placement(),
+            None
+        );
+
+        let central_records = [
+            (
+                LINETYPE_CENTRAL_CONNECTION,
+                SequenceCentralDecoration::Target,
+            ),
+            (
+                LINETYPE_CENTRAL_CONNECTION_REVERSE,
+                SequenceCentralDecoration::Source,
+            ),
+            (
+                LINETYPE_CENTRAL_CONNECTION_DUAL,
+                SequenceCentralDecoration::Both,
+            ),
+        ];
+        for (message_type, expected) in central_records {
+            assert_eq!(
+                sequence_message_with_type(message_type, None).central_record_decoration(),
+                Some(expected)
+            );
+        }
+    }
+
+    fn sequence_message_with_type(message_type: i32, placement: Option<i32>) -> SequenceMessage {
+        SequenceMessage {
+            id: String::new(),
+            from: None,
+            to: None,
+            message_type,
+            message: SequenceMessagePayload::Text(String::new()),
+            wrap: false,
+            activate: false,
+            placement,
+            central_connection: 0,
+        }
+    }
+}

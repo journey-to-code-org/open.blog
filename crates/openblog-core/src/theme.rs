@@ -546,7 +546,7 @@ impl Theme {
     /// Theme metadata for the browser (`/themes/<name>/theme.json` is also
     /// copied verbatim, but this is the resolved view).
     pub fn manifest_json(&self) -> String {
-        serde_json::json!({
+        let mut manifest = serde_json::json!({
             "name": self.name,
             "label": self.label,
             "chain": self.chain,
@@ -570,8 +570,9 @@ impl Theme {
             "scripts": self.scripts,
             "favicon": self.favicon,
             "logo": self.logo,
-        })
-        .to_string()
+        });
+        manifest.sort_all_objects();
+        manifest.to_string()
     }
 }
 

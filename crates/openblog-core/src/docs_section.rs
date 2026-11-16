@@ -32,6 +32,11 @@ pub struct DocsConfig {
     /// points there instead of at an address the site does not have.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub source: String,
+    /// Make the documentation the site's home page (ADR 0424): `content/docs/index.md` (or
+    /// `README.md`) is published at `/` in place of the post list, and `/docs/` sends readers
+    /// there. Posts keep their own addresses and are listed in the archive.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub home: bool,
 }
 
 impl DocsConfig {
@@ -179,6 +184,73 @@ pub fn rewrite_links(
     }
     out.push_str(rest);
     out
+}
+
+/// Rewrite the links in a post's or page's HTML (`source` is its file, relative to the content
+/// folder) that point at a Markdown file or folder under `docs/`, such as `../docs/install.md`,
+/// to the documentation page's address. Other links are untouched; a link into `docs/` that is
+/// not a page is reported.
+pub fn rewrite_links_into_docs(
+    html: &str,
+    source: &str,
+    known: &HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> String {
+    let marker = "href=\"";
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find(marker) {
+        let (before, after) = rest.split_at(at + marker.len());
+        out.push_str(before);
+        let end = after.find('"').unwrap_or(after.len());
+        let href = &after[..end];
+        let (path, anchor) = match href.split_once('#') {
+            Some((path, anchor)) => (path, format!("#{anchor}")),
+            None => (href, String::new()),
+        };
+        let relative = !path.is_empty()
+            && !path.starts_with('/')
+            && !path
+                .split_once(':')
+                .is_some_and(|(scheme, _)| !scheme.contains('/'));
+        let into_docs = relative
+            && (path.ends_with(".md") || path.ends_with(".markdown") || path.ends_with('/'))
+            && joined(source, path)
+                .is_some_and(|j| j.starts_with(&format!("{DOCS_DIR}/")) || j == DOCS_DIR);
+        if into_docs {
+            match resolve(source, path).and_then(|doc| known.get(&doc)) {
+                Some(url) => out.push_str(&format!("{url}{anchor}")),
+                None => {
+                    warnings.push(format!(
+                        "{source}: the link to `{path}` does not match a page under docs/"
+                    ));
+                    out.push_str(href);
+                }
+            }
+        } else {
+            out.push_str(href);
+        }
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `target` resolved against the folder of `from` (both relative to the content folder), or
+/// `None` when it climbs above the content folder.
+fn joined(from: &str, target: &str) -> Option<String> {
+    let mut parts: Vec<&str> = from.split('/').collect();
+    parts.pop();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 fn rewrite_href(
@@ -392,7 +464,7 @@ pub fn sidebar(pages: &[Page], current: usize, heading: &str) -> String {
         .map(|doc| doc.path.clone())
         .unwrap_or_default();
     let mut out = format!(
-        "<ob-docs-nav>\n<details class=\"ob-docs-nav\" open>\n<summary>{}</summary>\n<nav aria-label=\"{}\">\n",
+        "<ob-docs-nav>\n<form class=\"ob-docs-search\" role=\"search\" action=\"/search/\" method=\"get\">\n<label class=\"ob-visually-hidden\" for=\"ob-docs-q\">Search the documentation</label>\n<input id=\"ob-docs-q\" type=\"search\" name=\"q\" placeholder=\"Search the docs\" autocomplete=\"off\">\n</form>\n<details class=\"ob-docs-nav\" open>\n<summary>{}</summary>\n<nav aria-label=\"{}\">\n",
         text(heading),
         attr(heading)
     );
@@ -506,6 +578,119 @@ pub fn pager(pages: &[Page], order: &[usize], current: usize) -> String {
     out
 }
 
+/// One searchable part of a documentation page: its opening (before the first `<h2>`), or one
+/// `<h2>` section with what follows it up to the next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchPart {
+    pub title: String,
+    pub url: String,
+    /// Lower-cased plain text, at most [`SEARCH_PART_CHARS`] characters.
+    pub text: String,
+    pub is_page: bool,
+}
+
+/// How much of each part's text goes into the search index. Sections are short, so this keeps
+/// almost every word of a page searchable while bounding the index (ADR 0425).
+pub const SEARCH_PART_CHARS: usize = 1500;
+
+/// The parts of a documentation page for the search index (ADR 0425). The opening keeps the
+/// page's title and address; each `<h2 id>` section is "Page › Section" at `page#id`.
+pub fn search_parts(page: &Page) -> Vec<SearchPart> {
+    let mut parts = Vec::new();
+    let mut rest = page.html.as_str();
+    let opening_end = rest.find("<h2 id=\"").unwrap_or(rest.len());
+    parts.push(SearchPart {
+        title: page.title.clone(),
+        url: page.url.clone(),
+        text: plain(&format!("{} {}", page.title, &rest[..opening_end])),
+        is_page: true,
+    });
+    rest = &rest[opening_end..];
+    while let Some(start) = rest.strip_prefix("<h2 id=\"") {
+        let Some(id_end) = start.find('"') else { break };
+        let id = &start[..id_end];
+        let Some(close) = start.find("</h2>") else {
+            break;
+        };
+        let inner = start[id_end..close]
+            .find('>')
+            .map(|at| id_end + at + 1)
+            .unwrap_or(close);
+        let heading = plain(&start[inner..close]);
+        let body_start = close + "</h2>".len();
+        let next = start[body_start..]
+            .find("<h2 id=\"")
+            .map(|at| body_start + at)
+            .unwrap_or(start.len());
+        let heading_title = plain_case(&start[inner..close]);
+        parts.push(SearchPart {
+            title: format!("{} › {}", page.title, heading_title),
+            url: format!("{}#{}", page.url, id),
+            text: plain(&format!("{heading} {}", &start[body_start..next])),
+            is_page: false,
+        });
+        rest = &start[next..];
+    }
+    parts
+}
+
+/// The label a search result shows under a documentation page's title: the folder it is in,
+/// by that folder's own title, such as "Decision records"; nothing for a page at the top.
+pub fn search_label(pages: &[Page], page: &Page) -> Option<String> {
+    let folder = page.doc.as_ref()?.parent()?;
+    if folder.is_empty() {
+        return None;
+    }
+    Some(
+        pages
+            .iter()
+            .find(|p| p.doc.as_ref().is_some_and(|doc| doc.path == folder))
+            .map(|p| p.title.clone())
+            .unwrap_or_else(|| folder_title(folder)),
+    )
+}
+
+/// Lower-cased plain text of an HTML fragment, collapsed and cut to [`SEARCH_PART_CHARS`].
+fn plain(html: &str) -> String {
+    plain_case(html)
+        .to_lowercase()
+        .chars()
+        .take(SEARCH_PART_CHARS)
+        .collect()
+}
+
+/// Plain text of an HTML fragment with its case kept: tags dropped (a heading's `#` anchor
+/// with them), the common entities decoded, whitespace collapsed.
+fn plain_case(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut skip_anchor = false;
+    for (at, c) in html.char_indices() {
+        match c {
+            '<' => {
+                in_tag = true;
+                if html[at..].starts_with("<a class=\"ob-heading-anchor\"") {
+                    skip_anchor = true;
+                } else if skip_anchor && html[at..].starts_with("</a>") {
+                    skip_anchor = false;
+                }
+                text.push(' ');
+            }
+            '>' => in_tag = false,
+            _ if in_tag || skip_anchor => {}
+            _ => text.push(c),
+        }
+    }
+    let decoded = text
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'");
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,6 +739,32 @@ mod tests {
     }
 
     #[test]
+    fn a_page_is_searchable_by_its_opening_and_each_section() {
+        let page = Page {
+            title: "Configuration".into(),
+            url: "/docs/configuration/".into(),
+            html: concat!(
+                "<p>Every setting &amp; its default.</p>\n",
+                "<h2 id=\"site\">Site<a class=\"ob-heading-anchor\" href=\"#site\" aria-label=\"Link to this section\">#</a></h2>\n",
+                "<p>The <code>title</code> key.</p>\n",
+                "<h2 id=\"feeds\">Feeds &amp; maps<a class=\"ob-heading-anchor\" href=\"#feeds\">#</a></h2>\n<p>RSS.</p>"
+            )
+            .into(),
+            ..Page::default()
+        };
+        let parts = search_parts(&page);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert_eq!(parts[0].url, "/docs/configuration/");
+        assert_eq!(parts[0].text, "configuration every setting & its default.");
+        assert!(parts[0].is_page);
+        assert_eq!(parts[1].title, "Configuration › Site");
+        assert_eq!(parts[1].url, "/docs/configuration/#site");
+        assert_eq!(parts[1].text, "site the title key.");
+        assert_eq!(parts[2].title, "Configuration › Feeds & maps");
+        assert_eq!(parts[2].text, "feeds & maps rss.");
+    }
+
+    #[test]
     fn with_a_source_folder_links_to_unpublished_files_point_at_the_repository() {
         let known: HashMap<String, String> =
             [("specs/a".to_string(), "/docs/specs/a/".to_string())]
@@ -584,6 +795,7 @@ mod tests {
             enabled: true,
             title: String::new(),
             source: "https://github.com/o/r/blob/main/docs".into(),
+            home: false,
         };
         assert_eq!(
             config.source_url("docs/specs/b.md").as_deref(),

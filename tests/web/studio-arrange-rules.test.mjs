@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   APPROVAL_REQUIREMENTS, APPROVAL_ROLE_CHOICES, ARRANGEMENT_LAYOUTS, NEW_SERIES, NO_SERIES, TURN_LABEL_MAX_BYTES, approvalPeopleRows,
-  approvalPolicyChoice, approvalPolicyPayload, approvalRuleText, arrangementDraft, arrangementPayload, keepStoredSeries, moveItem, nextRoundId,
+  approvalPolicyChoice, approvalPolicyPayload, approvalPolicyWords, approvalRuleText, arrangementDraft, arrangementPayload, keepStoredSeries, moveItem, nextRoundId,
   seriesPartText, seriesPlacementRequest, seriesPlacementText, turnWords, validateArrangement,
 } from "../../web/studio/parts/arrange-rules.js";
 import { OLD_PROMPTS_KEY, SYNTHESIS_KINDS, moveSynthesisItem, promptsKey, synthesisAddChange, synthesisItemText } from "../../web/studio/parts/conversation-rules.js";
@@ -53,9 +53,9 @@ test("moving and checking a layout never loses or repeats a turn, and says which
 });
 
 test("whose agreement counts round-trips and never sends an empty list", () => {
-  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles"]);
+  assert.deepEqual(APPROVAL_REQUIREMENTS.map((item) => item.value), ["allAuthors", "contributingAuthors", "namedAuthors", "authorsWithRoles", "allParticipants", "quorum", "participantQuorum"]);
   assert.deepEqual(APPROVAL_ROLE_CHOICES.map((item) => item.value), ["siteOwner", "coordinator", "contributor"]);
-  assert.deepEqual(approvalPolicyChoice({ requirement: { namedAuthors: ["p2"] }, scope: "wholePiece" }), { kind: "namedAuthors", named: ["p2"], roles: [], scope: "wholePiece" });
+  assert.deepEqual(approvalPolicyChoice({ requirement: { namedAuthors: ["p2"] }, scope: "wholePiece" }), { kind: "namedAuthors", named: ["p2"], roles: [], count: "", scope: "wholePiece" });
   assert.deepEqual(approvalPolicyChoice({ requirement: { authorsWithRoles: ["coordinator"] } }).roles, ["coordinator"]);
   assert.equal(approvalPolicyChoice({ requirement: "nonsense" }).kind, "allAuthors");
   assert.equal(approvalPolicyChoice(undefined).scope, "ownSections");
@@ -63,6 +63,21 @@ test("whose agreement counts round-trips and never sends an empty list", () => {
   assert.equal(approvalPolicyPayload({ kind: "namedAuthors", named: [] }).error, say("rules.needPeople"));
   assert.equal(approvalPolicyPayload({ kind: "authorsWithRoles", roles: [] }).error, say("rules.needRoles"));
   assert.deepEqual(approvalPolicyPayload({ kind: "contributingAuthors", scope: "wholePiece" }), { policy: { requirement: "contributingAuthors", scope: "wholePiece" } });
+});
+
+test("the rules #650 added round-trip: everyone taking part, and a number that never goes down", () => {
+  assert.equal(approvalPolicyChoice({ requirement: "allParticipants", scope: "wholePiece" }).kind, "allParticipants");
+  assert.deepEqual(approvalPolicyPayload({ kind: "allParticipants", scope: "ownSections" }, { wholePieceRequired: true }), { policy: { requirement: "allParticipants", scope: "wholePiece" } });
+  const quorum = approvalPolicyChoice({ requirement: { quorum: 3 }, scope: "wholePiece" });
+  assert.deepEqual([quorum.kind, quorum.count], ["quorum", "3"]);
+  assert.deepEqual(approvalPolicyPayload(quorum), { policy: { requirement: { quorum: 3 }, scope: "wholePiece" } });
+  assert.deepEqual(approvalPolicyPayload({ kind: "participantQuorum", count: " 2 ", scope: "wholePiece" }), { policy: { requirement: { participantQuorum: 2 }, scope: "wholePiece" } });
+  for (const count of ["", "0", "two", "70000", "1.5"]) {
+    assert.deepEqual(approvalPolicyPayload({ kind: "quorum", count }), { error: say("rules.needCount"), field: "count" }, count);
+  }
+  // A counted rule is never picked from a bare word.
+  assert.equal(approvalPolicyChoice({ requirement: "quorum" }).kind, "allAuthors");
+  assert.match(approvalPolicyWords({ requirement: { participantQuorum: 4 }, scope: "wholePiece" }), /enough of everyone \(how many agree, at least: 4\)\. Each person agrees to everyone's parts/);
 });
 
 test("what keeps a rule from being met says who can fix it, in her words", () => {

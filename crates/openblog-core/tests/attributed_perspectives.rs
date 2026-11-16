@@ -449,7 +449,7 @@ fn credits_that_do_not_pair_with_the_body_attribute_nothing() {
     for bad in [
         None,
         Some("not json"),
-        Some("{\"version\":2,\"credits\":[]}"),
+        Some("{\"version\":3,\"credits\":[]}"),
         Some("{\"version\":1,\"credits\":[{\"contributor\":\"Mina\",\"roles\":[]}]}"),
     ] {
         let published = AttributedSections::from_published(&body(layout, &TURNS), bad, &registry());
@@ -463,6 +463,21 @@ fn credits_that_do_not_pair_with_the_body_attribute_nothing() {
     );
     assert!(plain.sections().is_empty());
     assert_eq!(plain.unattributed(), 0);
+}
+
+#[test]
+fn snapshot_profile_sections_do_not_follow_registry_changes() {
+    let turns = [("MINA", "A frozen public contribution.")];
+    let sidecar = r#"{"version":2,"credits":[{"identity":{"kind":"profile","contributor":"mina","profile":{"name":"MINA","url":"","sameAs":[],"orcid":""}},"roles":[{"vocabulary":"crossref","role":"author"}]}]}"#;
+    let mut changed_registry = registry();
+    changed_registry.get_mut("mina").unwrap().name = "Changed".into();
+    let published = AttributedSections::from_published(
+        &body(ReflectionLayout::Sequential, &turns),
+        Some(sidecar),
+        &changed_registry,
+    );
+    assert_eq!(published.sections().len(), 1);
+    assert_eq!(published.sections()[0].contribution, "mina");
 }
 
 #[test]
