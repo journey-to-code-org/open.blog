@@ -85,7 +85,8 @@ const question = () => base(1, {
   kind: "question", kindLabel: "Question", body: "Is the crust older than the filling?",
   details: { sourceUrl: "javascript:alert(1)", suggestedText: "Say it was baked twice." },
   evidence: { claim: { id: "c1", label: "C1", statement: "Pecan pie is old", published: true, links: [{ label: "A 1940s cookbook" }] }, source: { id: "s2", published: false } },
-  recordDecision: { outcomes: [{ id: "accepted", label: "Accepted", accepted: true }, { id: "declined", label: "Declined" }], extents: [{ id: "full", label: "All of it" }, { id: "partial", label: "Part of it" }], declineReasons: [{ id: "no", label: "Not convinced" }], revisionNotes: ["Fixed the date."], post: "posts/pecan-pie.md", expectedDecisions: 0, itemRevision: 1 },
+  recordDecision: { outcomes: [{ id: "accepted", label: "Accepted", accepted: true }, { id: "accepted-as-evidence", label: "Accepted as evidence", accepted: true }, { id: "declined", label: "Declined" }],
+    claimEvidence: [{ claim: "c1", link: "l1", label: "C1: A 1940s cookbook" }], extents: [{ id: "full", label: "All of it" }, { id: "partial", label: "Part of it" }], declineReasons: [{ id: "no", label: "Not convinced" }], revisionNotes: ["Fixed the date."], post: "posts/pecan-pie.md", expectedDecisions: 0, itemRevision: 1 },
 });
 const reflection = () => base(2, {
   kind: "third-perspective", kindLabel: "Reflection", featureConsent: "agreed", reader: { name: "‮Ruth", publishName: true },
@@ -141,6 +142,7 @@ test("a shown question: their link is text with Copy (never a link it isn't), th
   await expect(q.getByText("Say it was baked twice.")).toBeVisible();
   await expect(q.getByText("What they point to")).toBeVisible();
   await expect(q.getByText("The claim: C1, “Pecan pie is old”")).toBeVisible();
+  await expect(q.getByRole("link", { name: "Open the claim in Claims and evidence" })).toHaveAttribute("href", "#/write/posts%2Fpecan-pie.md?sheet=claims&claim=c1");
   await expect(q.getByText("Something they named isn't on this post any more.")).toBeVisible();
   const field = q.getByRole("textbox", { name: "Your answer under it" });
   await expect(field).toHaveValue("Thanks, I checked.");
@@ -178,7 +180,7 @@ test("Note what changed and Record what you decided: each checks first, then sen
   await expect(sheet.getByRole("heading", { name: "Record what you decided" })).toBeVisible();
   await sheet.getByRole("button", { name: "Record it" }).click();
   await expect(sheet.getByText("Choose what you decided.").first()).toBeVisible();
-  await sheet.getByRole("radio", { name: /Accepted/ }).click();
+  await sheet.getByRole("radio", { name: /^Accepted$/ }).click();
   await sheet.getByRole("radio", { name: /All of it/ }).click();
   await sheet.getByRole("button", { name: "Record it" }).click();
   await expect(sheet.getByText(/Choose the note that says what changed/).first()).toBeVisible();
@@ -331,4 +333,17 @@ test("X selects the focused card with Select on; at 320 px the time keeps its co
   const results = await page.evaluate(async () => (await window.axe.run(document.querySelector("main"), { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.map((v) => v.id));
   expect(results).toEqual([]);
   expect(await page.evaluate(() => [...document.querySelectorAll(".shell-content")].some((b) => b.scrollWidth > b.clientWidth + 1))).toBe(false);
+});
+
+test("The evidence you recorded opens the post's Claims and evidence, on the claim she chooses", async ({ page }) => {
+  await stub(page, [question()]);
+  await signIn(page);
+  const q = card(page, "Is the crust older");
+  await q.getByRole("button", { name: "Record what you decided" }).click();
+  const sheet = page.locator("side-sheet");
+  await sheet.getByRole("radio", { name: /Accepted as evidence/ }).click();
+  const open = sheet.getByRole("link", { name: "Open Claims and evidence" });
+  await expect(open).toHaveAttribute("href", "#/write/posts%2Fpecan-pie.md?sheet=claims");
+  await sheet.getByRole("combobox", { name: "The evidence you recorded" }).selectOption("c1 l1");
+  await expect(open).toHaveAttribute("href", "#/write/posts%2Fpecan-pie.md?sheet=claims&claim=c1");
 });

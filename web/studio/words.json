@@ -16341,6 +16341,12 @@
       "max": 54,
       "vars": []
     },
+    "readers.decideOpenEvidence": {
+      "text": "Open Claims and evidence",
+      "layer": "her",
+      "max": 48,
+      "vars": []
+    },
     "readers.decideSummary": {
       "text": "You're recording: {outcome}.",
       "layer": "her",
@@ -16768,6 +16774,12 @@
       "text": "Their own statement. Nothing checked it.",
       "layer": "her",
       "max": 80,
+      "vars": []
+    },
+    "readers.evidenceOpenClaim": {
+      "text": "Open the claim in Claims and evidence",
+      "layer": "her",
+      "max": 74,
       "vars": []
     },
     "readers.evidenceSource": {

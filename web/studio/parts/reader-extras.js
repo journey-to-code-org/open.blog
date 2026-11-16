@@ -8,6 +8,7 @@ import { say, sayParts, isolating } from "./words.js";
 import { ask } from "./dialogs.js";
 import { sendOut, wentOutWords } from "./publish.js";
 import { partsNodes, strangerBody } from "./stranger.js";
+import { claimsHash } from "./research-rules.js";
 import {
   ANSWER_MAX, aboutHeading, aboutLines, answerOffer, answerRequest, continuationCardState, evidenceLines, extrasProblem, featureCardState, noteWords, openableLink,
   theirOffer, withdrawAnswerRequest, libraryCandidateLines,
@@ -59,7 +60,10 @@ export function createReaderExtras({ api, meta, state, tell, reload, sheets }) {
         h("p", { class: "studio-help", text: say("readers.evidenceNote") }),
         h("ul", { class: "studio-reader-lines" }, ...evidence.map((l) => h("li", {}, ...partsNodes(l)))),
         claim?.published && claim.links?.length ? h("details", { class: "studio-help" }, h("summary", { text: say("readers.evidenceCompare", { label: String(claim.label || claim.id || "") }) }),
-          h("ul", {}, ...claim.links.map((l) => h("li", { class: "studio-stranger", dir: "auto", text: String(l.label || "") })))) : null));
+          h("ul", {}, ...claim.links.map((l) => h("li", { class: "studio-stranger", dir: "auto", text: String(l.label || "") })))) : null,
+        // R12: the claim they named opens in this post's Claims and evidence.
+        claim?.id && claimsHash(item.post?.source, claim.id)
+          ? h("action-button", { variant: "secondary", size: "sm", href: claimsHash(item.post.source, claim.id) }, say("readers.evidenceOpenClaim")) : null));
     }
 
     if (item.suggestion?.contact) {

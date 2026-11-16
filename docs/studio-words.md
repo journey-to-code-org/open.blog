@@ -2614,6 +2614,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.decideNoNote` | her | No note | none | 40 |
 | `readers.decideNoUndo` | her | To change it later, record a new decision. | none | 84 |
 | `readers.decideNote` | her | The note about what changed | none | 54 |
+| `readers.decideOpenEvidence` | her | Open Claims and evidence | none | 48 |
 | `readers.decideSummary` | her | You're recording: {outcome}. | `{outcome}` | 56 |
 | `readers.decideTitle` | her | Record what you decided | none | 46 |
 | `readers.decideWhat` | her | What did you decide? | none | 40 |
@@ -2678,6 +2679,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `readers.evidenceHeading` | her | What they point to | none | 40 |
 | `readers.evidenceLink` | her | What they question about it: {label} | `{label}` | 72 |
 | `readers.evidenceNote` | her | Their own statement. Nothing checked it. | none | 80 |
+| `readers.evidenceOpenClaim` | her | Open the claim in Claims and evidence | none | 74 |
 | `readers.evidenceSource` | her | A source they offer: {label} | `{label}` | 56 |
 | `readers.featureAgreed` | her | The reader agreed to have this text featured. | none | 90 |
 | `readers.featureAlsoShows` | her | This also puts it with the post's reflections. | none | 92 |

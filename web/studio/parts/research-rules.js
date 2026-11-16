@@ -31,6 +31,16 @@ export const RESEARCH_NOT_YET = Object.freeze(new Set());
 /** The screens she can reach now, on this site (`meta`). */
 export const builtScreens = (meta) => RESEARCH_SCREENS.filter((screen) => !RESEARCH_NOT_YET.has(screen.id) && (!screen.when || screen.when(meta)));
 
+/**
+ * Claims and evidence in a post's Write, on one claim when `claim` is given; "" without a post
+ * path. Readers (R10) links here from "What they point to" and "The evidence you recorded".
+ */
+export function claimsHash(path, claim = "") {
+  const where = String(path || "");
+  if (!/\.md$/.test(where)) return "";
+  return `#/write/${encodeURIComponent(where)}?sheet=claims${claim ? `&claim=${encodeURIComponent(String(claim))}` : ""}`;
+}
+
 /** The address of one link between atlas entries. */
 export const atlasLinkHash = (id) => `#/research/atlas/relationships/${encodeURIComponent(String(id || ""))}`;
 
@@ -69,7 +79,7 @@ export function researchRoute(name, rest = [], search = "") {
 export function openItHash(scope, { post = "", site = false } = {}) {
   const id = String(scope?.id || "");
   const path = String(scope?.path || post || "");
-  const claims = (claim) => (/\.md$/.test(path) ? `#/write/${encodeURIComponent(path)}?sheet=claims${claim ? `&claim=${encodeURIComponent(claim)}` : ""}` : "");
+  const claims = (claim) => claimsHash(path, claim);
   switch (scope?.object) {
     case "source": return id ? researchHash("sources", id) : "";
     case "source-library": case "interpretation": return researchHash("sources");

@@ -62,6 +62,7 @@ export const WORDS = {
   "readers.evidenceCitation": her("A source you cite that they question: {label}"),
   "readers.evidenceSource": her("A source they offer: {label}"),
   "readers.evidenceGone": her("Something they named isn't on this post any more."),
+  "readers.evidenceOpenClaim": her("Open the claim in Claims and evidence"),
   "readers.evidenceCompare": her("What your post shows for {label}"),
   // An idea's contact
   "readers.ideaContact": her("They said you can reach them at: {contact}"),
@@ -160,6 +161,7 @@ export const WORDS = {
   "readers.decideNoNote": her("No note"),
   "readers.decideEvidence": her("The evidence you recorded"),
   "readers.decideNoEvidence": her("None is recorded for this post yet."),
+  "readers.decideOpenEvidence": her("Open Claims and evidence"),
   "readers.decideAddressed": her("Or the note that already dealt with it"),
   "readers.decideDay": her("Day"),
   "readers.decideConfirm": her("I've read that part of my post as it is now"),
