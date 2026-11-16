@@ -454,6 +454,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `card.code` | details | Code, {language}, {count} lines | `{language}` `{count}` | 62 |
 | `card.codepen` | details | A CodePen: {words} | `{words}` | 40 |
 | `card.compare` | her | Before and after photos: {words} | `{words}` | 64 |
+| `card.diagram` | details | Diagram: {title} | `{title}` | 40 |
 | `card.elsewhere` | her | This photo is on another website. | none | 66 |
 | `card.faq` | her | Questions and answers, {count} | `{count}` | 60 |
 | `card.footnote` | her | Note at the bottom, {n}: {words} | `{n}` `{words}` | 64 |
@@ -981,6 +982,27 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.withPage` | her | the page color | none | 40 |
 | `design.withText` | her | the writing color | none | 40 |
 | `design.withWhite` | her | white | none | 40 |
+| `diagram.cantDraw` | details | It can't be drawn: {why} | `{why}` | 240 |
+| `diagram.captionHelp` | details | Shown under the diagram. | none | 48 |
+| `diagram.describe` | details | What it shows | none | 40 |
+| `diagram.describeHelp` | details | A sentence or two for people who can't see it. Feeds and copies carry it with the picture. | none | 200 |
+| `diagram.draw` | details | Draw it | none | 40 |
+| `diagram.example` | details | Start from an example | none | 42 |
+| `diagram.exampleHelp` | details | Puts an example in the box below to change. | none | 86 |
+| `diagram.exampleNone` | details | No example | none | 40 |
+| `diagram.fixFirst` | details | Fill in what's marked first, then draw it. | none | 84 |
+| `diagram.needDescribe` | details | Say what it shows, or write accDescr: in the diagram. | none | 106 |
+| `diagram.needTitle` | details | Give it a title, or write accTitle: in the diagram. | none | 102 |
+| `diagram.needsSignal` | details | Drawing it needs a signal. Your diagram is kept in the form. | none | 120 |
+| `diagram.quotes` | details | Use one kind of quotation mark here, not both. | none | 92 |
+| `diagram.replaceAsk` | details | Put the example in place of your diagram? | none | 82 |
+| `diagram.replaceGo` | details | Use the example | none | 40 |
+| `diagram.replaceKeep` | details | Keep mine | none | 40 |
+| `diagram.replaceText` | details | What's in the box now is replaced by the example. | none | 98 |
+| `diagram.source` | details | The diagram | none | 40 |
+| `diagram.sourceHelp` | details | In Mermaid, like flowchart LR then A --> B. Link a box to a page here with click A "/about/". | none | 200 |
+| `diagram.title` | details | Title | none | 40 |
+| `diagram.titleHelp` | details | A few words that name it, read out to people who can't see it. | none | 124 |
 | `did.added` | her | {thing} added. | `{thing}` | 40 |
 | `did.cantMoveDown` | her | This is already at the end. | none | 54 |
 | `did.cantMoveUp` | her | This is already at the top. | none | 54 |
@@ -1582,6 +1604,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `item.compareAbout` | her | Two photos side by side, like the room before and after. | none | 112 |
 | `item.contact` | her | How to reach you | none | 40 |
 | `item.contactAbout` | her | Your email, phone and address. | none | 60 |
+| `item.diagram` | details | A diagram | none | 40 |
+| `item.diagramAbout` | details | A flowchart, sequence or other Mermaid diagram, drawn as a picture with its description. | none | 176 |
 | `item.faq` | her | Questions and answers | none | 42 |
 | `item.faqAbout` | her | Questions readers ask. Each opens to show your answer. | none | 108 |
 | `item.footnote` | details | A footnote | none | 40 |
@@ -4101,6 +4125,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `thing.compare` | her | Before and after photos | none | 46 |
 | `thing.contact` | her | How to reach you | none | 40 |
 | `thing.demo` | her | A lesson demo | none | 40 |
+| `thing.diagram` | details | A diagram | none | 40 |
 | `thing.faq` | her | Questions and answers | none | 42 |
 | `thing.footnote` | details | Footnote | none | 40 |
 | `thing.heading` | her | Heading | none | 40 |

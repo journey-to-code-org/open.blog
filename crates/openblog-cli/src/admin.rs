@@ -90,6 +90,7 @@ mod business;
 mod capture_assistant;
 mod comparisons;
 mod decorations;
+mod diagrams;
 mod gifts;
 mod greetings;
 mod job_sharing;
@@ -1383,6 +1384,9 @@ fn authenticated_api_routes(
         ("POST", "preview") => preview(state, req),
         ("POST", "video/release") => video_release_preview(state, req),
         ("POST", "pieces") => build_piece(req),
+        // Studio's diagram preview: the build's own renderer, on the server (#646).
+        ("GET", "diagram/templates") => diagrams::templates(),
+        ("POST", "diagram/preview") => diagrams::preview(req),
         ("POST", "job/check") => job_check(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),

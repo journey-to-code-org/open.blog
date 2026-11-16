@@ -272,6 +272,7 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 .studio-tick-label { display: flex; align-items: center; gap: var(--space-2); min-height: 2.75rem; cursor: pointer; }
 .studio-tick { width: 1.4rem; height: 1.4rem; accent-color: var(--studio-damson); }
 .studio-form-photo { width: 100%; max-height: 12rem; object-fit: contain; border-radius: var(--radius); }
+.studio-diagram-picture { display: block; width: 100%; height: auto; max-height: 24rem; object-fit: contain; background: var(--studio-flour-lift); border: 1px solid var(--border); border-radius: var(--radius); }
 .studio-form-picker { display: grid; gap: var(--space-2); }
 .studio-form-details > summary, .studio-add-details > summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; }
 .studio-add-writes { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }

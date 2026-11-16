@@ -2146,6 +2146,14 @@
         "words"
       ]
     },
+    "card.diagram": {
+      "text": "Diagram: {title}",
+      "layer": "details",
+      "max": 40,
+      "vars": [
+        "title"
+      ]
+    },
     "card.elsewhere": {
       "text": "This photo is on another website.",
       "layer": "her",
@@ -5696,6 +5704,134 @@
       "text": "white",
       "layer": "her",
       "max": 40,
+      "vars": []
+    },
+    "diagram.cantDraw": {
+      "text": "It can't be drawn: {why}",
+      "layer": "details",
+      "max": 240,
+      "vars": [
+        "why"
+      ]
+    },
+    "diagram.captionHelp": {
+      "text": "Shown under the diagram.",
+      "layer": "details",
+      "max": 48,
+      "vars": []
+    },
+    "diagram.describe": {
+      "text": "What it shows",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.describeHelp": {
+      "text": "A sentence or two for people who can't see it. Feeds and copies carry it with the picture.",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "diagram.draw": {
+      "text": "Draw it",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.example": {
+      "text": "Start from an example",
+      "layer": "details",
+      "max": 42,
+      "vars": []
+    },
+    "diagram.exampleHelp": {
+      "text": "Puts an example in the box below to change.",
+      "layer": "details",
+      "max": 86,
+      "vars": []
+    },
+    "diagram.exampleNone": {
+      "text": "No example",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.fixFirst": {
+      "text": "Fill in what's marked first, then draw it.",
+      "layer": "details",
+      "max": 84,
+      "vars": []
+    },
+    "diagram.needDescribe": {
+      "text": "Say what it shows, or write accDescr: in the diagram.",
+      "layer": "details",
+      "max": 106,
+      "vars": []
+    },
+    "diagram.needTitle": {
+      "text": "Give it a title, or write accTitle: in the diagram.",
+      "layer": "details",
+      "max": 102,
+      "vars": []
+    },
+    "diagram.needsSignal": {
+      "text": "Drawing it needs a signal. Your diagram is kept in the form.",
+      "layer": "details",
+      "max": 120,
+      "vars": []
+    },
+    "diagram.quotes": {
+      "text": "Use one kind of quotation mark here, not both.",
+      "layer": "details",
+      "max": 92,
+      "vars": []
+    },
+    "diagram.replaceAsk": {
+      "text": "Put the example in place of your diagram?",
+      "layer": "details",
+      "max": 82,
+      "vars": []
+    },
+    "diagram.replaceGo": {
+      "text": "Use the example",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.replaceKeep": {
+      "text": "Keep mine",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.replaceText": {
+      "text": "What's in the box now is replaced by the example.",
+      "layer": "details",
+      "max": 98,
+      "vars": []
+    },
+    "diagram.source": {
+      "text": "The diagram",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.sourceHelp": {
+      "text": "In Mermaid, like flowchart LR then A --> B. Link a box to a page here with click A \"/about/\".",
+      "layer": "details",
+      "max": 200,
+      "vars": []
+    },
+    "diagram.title": {
+      "text": "Title",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "diagram.titleHelp": {
+      "text": "A few words that name it, read out to people who can't see it.",
+      "layer": "details",
+      "max": 124,
       "vars": []
     },
     "did.added": {
@@ -9644,6 +9780,18 @@
       "text": "Your email, phone and address.",
       "layer": "her",
       "max": 60,
+      "vars": []
+    },
+    "item.diagram": {
+      "text": "A diagram",
+      "layer": "details",
+      "max": 40,
+      "vars": []
+    },
+    "item.diagramAbout": {
+      "text": "A flowchart, sequence or other Mermaid diagram, drawn as a picture with its description.",
+      "layer": "details",
+      "max": 176,
       "vars": []
     },
     "item.faq": {
@@ -26133,6 +26281,12 @@
     "thing.demo": {
       "text": "A lesson demo",
       "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "thing.diagram": {
+      "text": "A diagram",
+      "layer": "details",
       "max": 40,
       "vars": []
     },

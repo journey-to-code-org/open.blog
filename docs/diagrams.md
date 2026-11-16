@@ -21,9 +21,11 @@ block, as it was before diagrams existed.
 Flowcharts (`flowchart`, `graph`), sequence diagrams, class diagrams, state diagrams, entity-relationship
 diagrams, git graphs and C4 diagrams. Anything else is refused with the line it is on, as a syntax error is.
 
-Admin's **Add diagram** button in the post and page editors opens an editor with five examples to start from:
-system design, request flow, git path, data model and state machine. It draws a live preview with the same
-code the build uses, so what you see there is what is published.
+In Studio, **Add something** › **A diagram** (under the details for whoever set up the site) opens a form
+with five examples to start from: system design, request flow, git path, data model and state machine.
+**Draw it** asks the server to draw it with the same code the build uses, so what you see there is what is
+published, and **Add it** checks it the same way, so a diagram the build would refuse is never put in. The
+diagram then shows as a card in your words; **Change** opens the form again.
 
 ## Describing a diagram
 

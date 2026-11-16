@@ -43,14 +43,21 @@ with such a diagram and saves it as a draft.
 
 `coverDiagram: N` (ADR 0419) must be 1 to the number of diagrams in the post and is exclusive with `cover`.
 
-## Admin preview parity
+## Studio preview
 
-The Admin editor loads `web/admin/diagram-wasm/`, `openblog-wasm` built with `diagram-rendering`, only when
-**Add diagram** is opened, in a Web Worker the page terminates on timeout. It calls the same
-`diagram::validate_source` and `diagram_svg` code as the build. CI's `diagram-wasm` job builds the module from
-the commit, checks with `scripts/diagram-spike/core-parity.cjs` that it produces byte-identical SVG to the
-native `diagram-parity` example on every fixture in `tests/fixtures/diagrams/`, and checks that the committed
-module is that build; its artifact is the module to commit when it is not.
+Studio's **A diagram** form (`web/studio/parts/diagram-form.js`, fence rules in `diagram-rules.js`) asks the
+server to draw: `POST /admin/api/diagram/preview` with the fence's info string and source runs the same
+`diagram::validate_source` and `diagram_svg::render_diagnostic` code as the build, under the renderer's own
+deadline, and answers `{ svg, alt }` or 422 with the finding, its line and column and the box it is about.
+`GET /admin/api/diagram/templates` lists the examples. Both are owner routes. Studio shows the SVG only as an
+image it made itself (`blob:`), never as markup, so its policy stays `script-src 'self'` with no WebAssembly,
+and its offline copy carries no renderer. A server built without `diagram-rendering` says so (501) and
+Studio does not offer the form (`meta.diagramRendering`).
+
+The renderer still compiles to WebAssembly (`openblog-wasm --features diagram-rendering`). CI's
+`diagram-wasm` job builds it from the commit and checks with `scripts/diagram-spike/core-parity.cjs` that it
+produces byte-identical SVG to the native `diagram-parity` example on every fixture in
+`tests/fixtures/diagrams/`.
 
 ## Portability
 
@@ -66,4 +73,6 @@ Feeds, portable HTML and Markdown, Markdown bundles and syndication carry the PN
 - `crates/openblog-core/tests/diagram_contrast.rs`: every curated look and theme, light and dark.
 - `crates/openblog-cli/src/card.rs`, `admin.rs`, `portable_export.rs`: card images, Admin's publish refusal and
   exported bundles.
-- `tests/web/diagram-preview.test.mjs`: the Admin editor's worker and fence writing.
+- `crates/openblog-cli/src/admin/diagrams.rs`: the preview and template routes draw as the build draws.
+- `tests/web/studio-diagram-rules.test.mjs`: the fence Studio writes and reads back, and its problems.
+- `tests/browser/studio-diagram.spec.mjs`: the form, the picture, the card and Change, with no signal.
