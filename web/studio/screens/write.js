@@ -46,13 +46,13 @@ const SHEET_GROUPS = { "about-search": "search", "about-credits": "credits", "ab
 export async function createWrite(context, arg, route = {}) {
   const { api, meta } = context;
   await use("text-field", "date-field", "tag-input", "select-field", "action-button", "dropdown-menu", "side-sheet", "breadcrumb-trail", "alert-banner", "cluster-layout", "loading-spinner");
-  const starting = /^new\/(recipe|story|job)$/.exec(arg || "")?.[1] || (arg ? "" : "story");
+  const starting = /^new\/(recipe|story|job|decision)$/.exec(arg || "")?.[1] || (arg ? "" : "story");
   const path = starting ? "" : arg;
   const keptKey = starting ? `new-${starting}` : path;
   const kept = createKept(safeStorage(), api.user);
   // R11: a research post started from Research home (?kind=research) on a site that uses research.
   const startResearch = starting === "story" && route.query?.kind === "research" && researchUsed(meta);
-  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "job" ? newJobFields(meta) : startResearch ? { profile: "research" } : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, hasHistory: undefined, excerpt: "", slug: "" };
+  const doc = { path, etag: "", fields: starting === "recipe" ? { profile: "recipe" } : starting === "decision" ? { profile: "decision", decisionStatus: "proposed" } : starting === "job" ? newJobFields(meta) : startResearch ? { profile: "research" } : {}, url: "", state: path ? "draft" : "new", creditEtag: null, wasPublished: undefined, hasHistory: undefined, excerpt: "", slug: "" };
   let form = { title: "", date: "", tags: [], cover: "", coverAlt: "", draft: true, body: "", extra: {} };
   let baseline = "";
   let dirty = false;
@@ -594,6 +594,7 @@ export async function createWrite(context, arg, route = {}) {
     }
     about.load(doc.fields, reply);
     if (!path && isJob() && !form.body) form.body = meta.job?.scaffold || "";
+    if (!path && kind() === "decision" && !form.body) form.body = meta.profiles?.find((p) => p.id === "decision")?.starter || "";
     await kindPart.ensure(kind());
     if (numbers()) form.extra = numbers().values();
     // The collections as they are now (one added a minute ago is there), and this post's own.
@@ -649,7 +650,7 @@ export async function createWrite(context, arg, route = {}) {
   const plainAddress = () => { if (doc.path) context.replaceRoute(`#/write/${encodeURIComponent(doc.path)}`); };
 
   return {
-    title: path ? "Write" : starting === "recipe" ? "New recipe" : starting === "job" ? "New job" : "New post",
+    title: path ? "Write" : starting === "recipe" ? "New recipe" : starting === "job" ? "New job" : starting === "decision" ? "New decision" : "New post",
     element,
     load,
     leave,

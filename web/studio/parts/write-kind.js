@@ -11,7 +11,7 @@ export function createKindParts({ api, meta, doc, host, body, banner, title, say
   let job = null;
   let jobSummary;
   let current = "article";
-  const starter = () => meta.profiles?.find((p) => p.id === "recipe")?.starter || "";
+  const starter = (id = "recipe") => meta.profiles?.find((p) => p.id === id)?.starter || "";
 
   /** Put the kind's own part under the title (made once). */
   async function ensure(kind) {
@@ -59,7 +59,7 @@ export function createKindParts({ api, meta, doc, host, body, banner, title, say
     },
     /** What kind of post changed (or was undone): the boxes follow, and her words stay hers. */
     async switch(from, to, text, { body: restore } = {}) {
-      const said = restore !== undefined ? {} : kindChange(from, to, text, { starter: starter(), scaffold: meta.job?.scaffold || "" });
+      const said = restore !== undefined ? {} : kindChange(from, to, text, { starter: starter(to === "decision" ? "decision" : "recipe"), scaffold: meta.job?.scaffold || "" });
       await ensure(to);
       await body.set(restore ?? said.body ?? text, bodyOptions());
       return said;

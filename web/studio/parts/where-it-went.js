@@ -101,7 +101,7 @@ export async function createWhereItWent({ api, days, social, posts: store = null
     details.replaceChildren(h("summary", { text: say("common.forHelper") }),
       h("ul", { class: "studio-mono" }, ...[
         lastError ? `error ${lastError.status}: ${lastError.message}` : null,
-        report ? `days ${report.days}, visits ${report.visitsAvailable ? "counted" : "off"}` : null,
+        report ? `days ${report.days}, visits ${report.visitsAvailable ? "counted" : "off: analytics.builtin is off and no counter elsewhere was pulled (openblog analytics pull)"}` : null,
         ...(report?.families || []).map((f) => `record ${f.id}: ${f.state}`),
         `${posts.length} posts`,
       ].filter(Boolean).map((t) => h("li", { text: t }))));

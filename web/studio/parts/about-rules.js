@@ -235,6 +235,7 @@ const hasRecipeParts = (body) => /^##\s+ingredients\b/im.test(body) && /^##\s+(s
 export function kindChange(from, to, body = "", { starter = "", scaffold = "" } = {}) {
   const empty = !String(body || "").trim();
   if (to === "job") return { help: "Fill in About this job, under the title.", ...(empty && scaffold ? { body: scaffold } : {}) };
+  if (to === "decision") return empty && starter ? { help: "The decision's parts are ready to fill in.", body: starter } : { help: "Your words stay as they are. A decision needs Context, Options considered, Decision and Consequences." };
   if (to === "recipe") {
     if (empty && starter) return { help: "Your recipe boxes are ready.", body: starter };
     return { help: "Your words stay as they are.", addParts: !hasRecipeParts(body) };
