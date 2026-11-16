@@ -90,8 +90,8 @@ pub mod correction_decision;
 pub mod curated_context;
 pub mod curated_selection;
 pub mod date;
-pub mod decorations;
 pub mod decision;
+pub mod decorations;
 pub mod diagram;
 #[cfg(feature = "diagram-rendering")]
 pub mod diagram_svg;

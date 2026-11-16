@@ -229,7 +229,7 @@ fn a_decision_starts_as_a_draft_and_check_enforces_publication() {
         .unwrap()
         .unwrap()
         .path();
-    let published = source.replace("draft: \"true\"", "draft: \"false\"");
+    let published = source.replace("draft: true", "draft: false");
     assert_ne!(published, source);
     fs::write(&path, &published).unwrap();
     let incomplete_check = run(&root, &["check"]);
