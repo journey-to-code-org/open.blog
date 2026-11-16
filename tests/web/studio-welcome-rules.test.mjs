@@ -120,5 +120,5 @@ test("the order of screens, and where they start", () => {
   assert.equal(asksFirst({}), true);
   assert.equal(asksFirst({ onboarding: { state: "done" } }), false);
   assert.equal(asksFirst({ onboarding: { state: "skipped" } }), false);
-  assert.equal(asksFirst({ onboarding: { state: "done" } }, true), true, "a practice run always asks");
+  assert.equal(asksFirst({ onboarding: { state: "done" } }), false, "a practice run asks only while hers are unanswered");
 });

@@ -346,9 +346,9 @@ export async function startShell(root, api, meta, { fresh = false } = {}) {
       }
     }
     if (startDecision(meta.onboarding, first, Date.now(), { fresh, record }) !== "open") return;
-    // ONB1: a run begins with About your blog while this login hasn't answered (always when practising).
+    // ONB1: a run begins with About your blog while this login hasn't answered.
     const told = record?.status === "in-progress" && (record.stories || []).length > 0;
-    history.replaceState(null, "", asksFirst(meta.areas, meta.onboarding.practice === true) && !told ? "#/welcome" : stepRoute(record?.step || meta.onboarding.step));
+    history.replaceState(null, "", asksFirst(meta.areas) && !told ? "#/welcome" : stepRoute(record?.step || meta.onboarding.step));
   }
 }
 

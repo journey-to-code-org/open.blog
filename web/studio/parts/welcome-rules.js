@@ -132,5 +132,8 @@ export function startingAnswers(fromAddress, saved = {}, hint = null) {
   return hint && KINDS[hint] ? { kind: hint } : {};
 }
 
-/** Whether a fresh Getting started run should begin with the questions: not answered yet, or a practice run. */
-export const asksFirst = (areas = {}, practice = false) => practice === true || (areas?.onboarding?.state || "pending") === "pending";
+/**
+ * Whether a fresh Getting started run should begin with the questions: this login hasn't answered
+ * them (a practice run included: rehearsing as her shows them while hers are unanswered).
+ */
+export const asksFirst = (areas = {}) => (areas?.onboarding?.state || "pending") === "pending";
