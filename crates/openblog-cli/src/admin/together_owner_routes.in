@@ -216,6 +216,10 @@
     // Merged in from R9b (Getting started), R10 (Readers) and R13 (restore): owner accounts only.
     ("GET", "engagement/health"),
     ("GET", "engagement/moderation/item"),
+    ("GET", "areas"),
+    ("PUT", "areas"),
+    ("POST", "areas/suggestions"),
+    ("POST", "areas/suggestions/apply"),
     ("GET", "onboarding"),
     ("GET", "onboarding/accounts"),
     ("GET", "onboarding/nudge"),

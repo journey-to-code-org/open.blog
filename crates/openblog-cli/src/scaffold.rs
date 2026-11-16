@@ -72,6 +72,75 @@ impl Starter {
     }
 }
 
+/// What `openblog init --kind` takes and asks (Studio ONB1, ADR 0418): the first of Studio's
+/// first-run questions, "What will you mostly write?", with the words a terminal shows.
+pub const KINDS: &[(&str, &str)] = &[
+    ("technical", "Technical writing and code"),
+    ("recipes", "Recipes and family stories"),
+    ("trade", "A trade or local business"),
+    ("teaching", "Teaching and lessons"),
+    ("research", "Research with sources"),
+    ("podcast", "A podcast or audio show"),
+    ("docs", "Documentation for a project"),
+    ("personal", "A personal journal, or something else"),
+];
+
+/// Where the kind is recorded for Studio to preselect (never in `openblog.json`: each login
+/// answers for itself, and the answer is not a setting of the site).
+pub const KIND_HINT_FILE: &str = ".openblog/onboarding.json";
+
+/// The starter a kind means: `trade` and `docs` have their own, every other kind is the plain
+/// project. An unknown kind is an error naming the ones there are.
+pub fn kind_starter(kind: &str, trade: Option<&str>) -> Result<Option<Starter>, String> {
+    match kind {
+        "trade" => Starter::parse("trade", trade).map(Some),
+        _ if trade.is_some() => Err("--trade goes with --kind trade or --starter trade".into()),
+        "docs" => Ok(Some(Starter::Docs)),
+        other if KINDS.iter().any(|(id, _)| *id == other) => Ok(None),
+        other => Err(format!(
+            "--kind `{other}` is not one of {}",
+            KINDS
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// The kind a terminal answer names: its number (1 to 8) or its id; empty or anything else is
+/// no answer (the question is skippable).
+pub fn kind_from_answer(answer: &str) -> Option<&'static str> {
+    let answer = answer.trim().to_ascii_lowercase();
+    if let Ok(n) = answer.parse::<usize>() {
+        return KINDS.get(n.checked_sub(1)?).map(|(id, _)| *id);
+    }
+    KINDS
+        .iter()
+        .find(|(id, _)| *id == answer)
+        .map(|(id, _)| *id)
+}
+
+/// Whether `init` asks the question: only a person at a terminal, only for a new project, and only
+/// when neither `--kind` nor `--starter` already said.
+pub fn should_ask_kind(stdin_tty: bool, stdout_tty: bool, said: bool, exists: bool) -> bool {
+    stdin_tty && stdout_tty && !said && !exists
+}
+
+/// Record the kind for Studio. An existing hint is left as it is. Returns the file when written.
+pub fn write_kind_hint(dir: &Path, kind: &str) -> Result<Option<String>, String> {
+    if !KINDS.iter().any(|(id, _)| *id == kind) {
+        return Err(format!("`{kind}` is not a kind"));
+    }
+    let path = dir.join(KIND_HINT_FILE);
+    if path.exists() {
+        return Ok(None);
+    }
+    let text = format!("{}\n", serde_json::json!({ "kind": kind }));
+    fsutil::write_file(&path, text.as_bytes())?;
+    Ok(Some(KIND_HINT_FILE.to_string()))
+}
+
 /// The trade a trade starter states when `--trade` is not given.
 pub const TRADE_DEFAULT: &str = "general-contractor";
 
@@ -583,6 +652,122 @@ pub fn new_service(root: &Path, name: &str, start: &ServiceStart) -> Result<Stri
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kind_technical_is_the_plain_project_with_a_hint() {
+        let plain =
+            std::env::temp_dir().join(format!("openblog-kind-plain-{}", std::process::id()));
+        let technical =
+            std::env::temp_dir().join(format!("openblog-kind-tech-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&plain);
+        let _ = fs::remove_dir_all(&technical);
+        assert!(kind_starter("technical", None).unwrap().is_none());
+        let a = init_with(&plain, None, false, None).unwrap();
+        let b = init_with(
+            &technical,
+            None,
+            false,
+            kind_starter("technical", None).unwrap().as_ref(),
+        )
+        .unwrap();
+        assert_eq!(a, b, "the same files");
+        assert_eq!(
+            write_kind_hint(&technical, "technical").unwrap().as_deref(),
+            Some(KIND_HINT_FILE)
+        );
+        let hint: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(technical.join(KIND_HINT_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(hint, serde_json::json!({ "kind": "technical" }));
+        assert_eq!(
+            write_kind_hint(&technical, "recipes").unwrap(),
+            None,
+            "an existing hint stays"
+        );
+        for file in &a {
+            assert_eq!(
+                fs::read(plain.join(file)).unwrap(),
+                fs::read(technical.join(file)).unwrap(),
+                "{file}"
+            );
+        }
+        let _ = fs::remove_dir_all(&plain);
+        let _ = fs::remove_dir_all(&technical);
+    }
+
+    #[test]
+    fn kind_trade_and_docs_are_their_starters() {
+        assert_eq!(
+            kind_starter("trade", None).unwrap(),
+            Starter::parse("trade", None).ok()
+        );
+        assert_eq!(
+            kind_starter("trade", Some("plumbing")).unwrap(),
+            Starter::parse("trade", Some("plumbing")).ok()
+        );
+        assert_eq!(kind_starter("docs", None).unwrap(), Some(Starter::Docs));
+        assert!(kind_starter("recipes", Some("plumbing")).is_err());
+        assert!(kind_starter("astrology", None)
+            .unwrap_err()
+            .contains("technical, recipes"));
+        let by_kind =
+            std::env::temp_dir().join(format!("openblog-kind-trade-{}", std::process::id()));
+        let by_starter =
+            std::env::temp_dir().join(format!("openblog-starter-trade-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&by_kind);
+        let _ = fs::remove_dir_all(&by_starter);
+        let a = init_with(
+            &by_kind,
+            None,
+            false,
+            kind_starter("trade", None).unwrap().as_ref(),
+        )
+        .unwrap();
+        let b = init_with(
+            &by_starter,
+            None,
+            false,
+            Starter::parse("trade", None).ok().as_ref(),
+        )
+        .unwrap();
+        assert_eq!(a, b);
+        for file in &a {
+            if file.starts_with("content/posts/") {
+                continue; // dated by today, the same either way
+            }
+            assert_eq!(
+                fs::read(by_kind.join(file)).unwrap(),
+                fs::read(by_starter.join(file)).unwrap(),
+                "{file}"
+            );
+        }
+        let _ = fs::remove_dir_all(&by_kind);
+        let _ = fs::remove_dir_all(&by_starter);
+    }
+
+    #[test]
+    fn the_kind_question_is_asked_only_at_a_terminal_for_a_new_project() {
+        assert!(should_ask_kind(true, true, false, false));
+        assert!(!should_ask_kind(false, true, false, false), "a pipe");
+        assert!(
+            !should_ask_kind(true, false, false, false),
+            "a script reading the output"
+        );
+        assert!(
+            !should_ask_kind(true, true, true, false),
+            "--kind or --starter said"
+        );
+        assert!(
+            !should_ask_kind(true, true, false, true),
+            "an existing project"
+        );
+        assert_eq!(kind_from_answer("2"), Some("recipes"));
+        assert_eq!(kind_from_answer(" Technical "), Some("technical"));
+        assert_eq!(kind_from_answer(""), None);
+        assert_eq!(kind_from_answer("9"), None);
+        assert_eq!(kind_from_answer("0"), None);
+    }
+
     use super::*;
 
     fn fresh(name: &str) -> std::path::PathBuf {

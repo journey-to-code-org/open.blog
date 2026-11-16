@@ -85,6 +85,7 @@ use crate::assistant::{
 };
 use crate::assistant::{PassageKind, ReviewPassage};
 mod announcements;
+mod areas;
 mod business;
 mod capture_assistant;
 mod comparisons;
@@ -1089,6 +1090,11 @@ fn authenticated_api_routes(
         ("GET", "onboarding/accounts") => onboarding::accounts(state),
         ("POST", "onboarding/reset") => onboarding::reset(state, req, &session.user),
         ("PUT", "onboarding/restore") => onboarding::restore(state, req, &session.user),
+        // ONB1: each login's answers and hidden areas, and the site changes they suggest.
+        ("GET", "areas") => areas::get(state, &session.user),
+        ("PUT", "areas") => areas::put(state, req, &session.user),
+        ("POST", "areas/suggestions") => areas::suggestions(state, req),
+        ("POST", "areas/suggestions/apply") => areas::apply(state, req),
         ("GET", "appearance") => appearance_settings(state),
         ("PUT", "appearance") => save_appearance_settings(state, req),
         ("GET", "theme-draft") => theme_draft::options(state),
@@ -4434,6 +4440,9 @@ fn meta_for(state: &AppState, user: &str) -> Response {
     if response.status == 200 {
         if let Ok(Json::Object(mut body)) = serde_json::from_slice::<Json>(&response.body) {
             body.insert("onboarding".into(), onboarding::meta_json(state, user));
+            // ONB1: this login's answers and hidden areas, with the areas the site uses.
+            let in_use = body.get("areasInUse").cloned().unwrap_or_else(|| json!([]));
+            body.insert("areas".into(), areas::meta_json(state, user, &in_use));
             response = Response::json(200, &Json::Object(body));
         }
     }
@@ -4729,6 +4738,8 @@ fn meta(state: &AppState) -> Response {
             // Studio's words for this site (docs/studio-words.md): what's in effect and, for the
             // developer only, what was dropped and why.
             "studioWords": studio_words::for_meta(&config, state.studio_words_path.as_deref()),
+            // ONB1: the feature areas the site already uses (always shown, whatever a login hid).
+            "areasInUse": areas::in_use(state, &config, &sources),
         }),
     )
 }
@@ -20948,6 +20959,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     mod announcement_routes;
+    mod areas_routes;
     mod business_routes;
     mod capture_transcribe_routes;
     mod comparison_routes;

@@ -313,6 +313,9 @@ fn seed() -> Result<u64, String> {
     u64::from_str_radix(&token[..16], 16).map_err(|e| e.to_string())
 }
 
+/// The set whose prompts are true stories from her life (ONB1's voice offer always has one).
+const STORY_PACK: &str = "stories";
+
 /// `POST voice/draw`: three prompts. The body may name `exclude` (the ids just shown, which are
 /// avoided on a redraw) and `pack` (draw only from that pack). Prompts already written today are
 /// left out while at least three others remain, because a session for them would be refused.
@@ -343,12 +346,37 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
         Ok(root) => root,
         Err(response) => return response,
     };
-    let mut catalog = catalog_of(state);
+    // ONB1: `packs` draws from several sets (those that suit the blog); ids the catalog doesn't
+    // have are dropped, and none left is the same answer as an unknown `pack`.
+    let packs: Option<Vec<String>> = match &body["packs"] {
+        Json::Null => None,
+        Json::Array(items) if items.len() <= 12 => {
+            let mut ids = Vec::new();
+            for item in items {
+                match item.as_str() {
+                    Some(id) if voice::is_kebab(id) => ids.push(id.to_string()),
+                    _ => return Response::error(400, "`packs` must list pack ids"),
+                }
+            }
+            Some(ids)
+        }
+        _ => return Response::error(400, "`packs` must list pack ids"),
+    };
+    // ONB1: `story: true` makes one of the three a true story (from `stories`) when that set is there.
+    let story = body["story"] == Json::Bool(true);
+    let full = catalog_of(state);
+    let mut catalog = full.clone();
     if let Some(pack) = &pack {
         if catalog.pack(pack).is_none() {
             return coded_error(404, "pack-gone", "There is no such pack");
         }
         catalog.packs.retain(|p| &p.id == pack);
+    }
+    if let Some(packs) = &packs {
+        catalog.packs.retain(|p| packs.contains(&p.id));
+        if catalog.packs.is_empty() {
+            return coded_error(404, "pack-gone", "There is no such pack");
+        }
     }
     let today = clock::now().rfc3339()[..10].to_string();
     let written_today: Vec<String> = voice_store::list(&root)
@@ -373,11 +401,28 @@ pub(super) fn draw(state: &AppState, req: &Request) -> Response {
         Err(error) => return Response::error(500, &error),
     };
     let previous: Vec<&str> = exclude.iter().map(String::as_str).collect();
-    let drawn = redraw_three(&catalog, &library, seed, &previous);
+    let mut drawn: Vec<Prompt> = redraw_three(&catalog, &library, seed, &previous)
+        .into_iter()
+        .cloned()
+        .collect();
+    if story && !drawn.is_empty() && !drawn.iter().any(|p| p.pack == STORY_PACK) {
+        let mut only = full.clone();
+        only.packs.retain(|p| p.id == STORY_PACK);
+        let mut avoid = previous.clone();
+        avoid.extend(drawn.iter().map(|p| p.id.as_str()));
+        let told: Option<Prompt> = redraw_three(&only, &library, seed.rotate_left(17), &avoid)
+            .into_iter()
+            .next()
+            .cloned();
+        if let Some(one) = told {
+            let last = drawn.len() - 1;
+            drawn[last] = one;
+        }
+    }
     Response::json(
         200,
         &json!({
-            "prompts": drawn.iter().map(|p| prompt_json(&catalog, p)).collect::<Vec<_>>(),
+            "prompts": drawn.iter().map(|p| prompt_json(&full, p)).collect::<Vec<_>>(),
             "rule": catalog.rule,
             "pack": pack,
         }),
