@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The repository no longer publishes its own blog to GitHub Pages. The blog is on Netlify, and the Pages
+  address holds the documentation, which the blog's hourly deploy kept replacing.
 - Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn
   after each change. The things the look hangs can be taken down or swapped for the new look before it is
   saved (`decorations` on `POST theme-draft/preview`), and are kept under its name when it is.
