@@ -10,6 +10,7 @@ import { use } from "../zubra.js";
 import { sendOut, wentOutWords } from "./publish.js";
 import { say } from "./words.js";
 import { lookChoices } from "./look-rules.js";
+import { createLookCanvas } from "./look-canvas.js";
 
 // Version names are lowercase letters, digits and "-", so "_usual" can never be one.
 const USUAL = "_usual";
@@ -44,10 +45,12 @@ export async function createDecorPieces({ api, meta }) {
   const status = h("div", { class: "studio-deco-status", role: "status", "aria-live": "polite" });
   const picker = h("select-field", { label: "Which look", onValuechange: (e) => { look = e.detail; status.replaceChildren(); draw(); } });
   const list = h("ul", { class: "studio-deco-pieces", "aria-labelledby": "studio-pieces-h" });
+  // The front page in this look, beside the switches: it shows each change as she makes it.
+  const canvas = await createLookCanvas({ api });
   const element = h("section", { class: "studio-section studio-deco-hanging", "aria-labelledby": "studio-pieces-h", hidden: true },
     h("h3", { id: "studio-pieces-h", text: "What's hanging" }),
     h("p", { class: "studio-help", text: "Take one decoration down, or choose a different one. Each change goes on your site straight away, and stays that way every year until you change it back." }),
-    picker, list, status);
+    picker, h("div", { class: "studio-deco-work" }, canvas.element, h("div", { class: "studio-deco-side" }, list, status)));
 
   const current = () => saved.looks.find((l) => l.name === look);
   const choiceOf = (piece) => saved.decorations?.[look]?.[piece.id] ?? null;
@@ -59,6 +62,7 @@ export async function createDecorPieces({ api, meta }) {
     picker.options = lookChoices(saved.looks, { sort: false });
     picker.value = look;
     picker.hidden = saved.looks.length < 2;
+    canvas.show(look, shown.label || shown.name, `${look} ${JSON.stringify(saved.decorations?.[look] ?? {})}`);
     picker.description = look === saved.wearing ? `${shown.label || shown.name} is up on your site now.` : `${shown.label || shown.name} isn't up right now. These changes show when it is.`;
     list.replaceChildren(...shown.pieces.map((piece) => {
       const choice = choiceOf(piece);

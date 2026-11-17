@@ -94,6 +94,29 @@ test("taking the snow down and putting it back leaves openblog.json as it was", 
   expect(config()).toBe(before);
 });
 
+test("the front page in the look is beside the switches, and follows each change", async ({ page }) => {
+  await signIn(page);
+  const before = config();
+  const hanging = page.getByRole("region", { name: "What's hanging" });
+  const canvas = hanging.locator("iframe.studio-canvas-frame");
+  await expect(canvas).toHaveAttribute("title", "Your front page in Festive");
+  await expect(canvas).toHaveAttribute("sandbox", "allow-scripts");
+  const first = await canvas.getAttribute("src");
+  expect(first).toMatch(/^\/admin\/api\/preview\//);
+  const snow = () => page.frameLocator("iframe.studio-canvas-frame").locator("html").evaluate((root) => getComputedStyle(root).getPropertyValue("--ob-gh-snow").trim());
+  await expect.poll(snow).toBe("on");
+  // Looking never writes.
+  expect(config()).toBe(before);
+  await hanging.getByRole("switch", { name: /Snow/ }).click();
+  await expect(hanging.getByRole("status")).toContainText("Snow is down.");
+  await expect(canvas).not.toHaveAttribute("src", first);
+  await expect.poll(snow).toBe("none");
+  await hanging.getByRole("button", { name: "Put it back" }).click();
+  await expect(hanging.getByRole("status")).toContainText("Snow is up.");
+  await expect.poll(snow).toBe("on");
+  expect(config()).toBe(before);
+});
+
 test("choosing another garland saves it, and the one it came with puts it back", async ({ page }) => {
   await signIn(page);
   const hanging = page.getByRole("region", { name: "What's hanging" });

@@ -326,6 +326,22 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 .studio-deco-pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .studio-deco-piece { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1.2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
 .studio-deco-piece:has(> :only-child) { grid-template-columns: 1fr; }
+.studio-deco-work { display: grid; gap: var(--space-4); align-items: start; }
+.studio-deco-side { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-canvas { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-canvas-stage { position: relative; display: grid; justify-items: center; background: var(--studio-sage); border-radius: var(--radius); padding: var(--space-2); min-height: 18rem; }
+.studio-canvas-fit { --canvas-h: 22rem; width: 100%; height: var(--canvas-h); overflow: hidden; border: 1px solid var(--studio-linen); border-radius: calc(var(--radius) - 4px); background: var(--studio-flour-lift); }
+.studio-canvas-fit:has(> alert-banner) { height: auto; overflow: visible; border: 0; background: none; }
+.studio-canvas-stage[data-device="phone"] .studio-canvas-fit { max-width: 390px; }
+.studio-canvas-frame { display: block; border: 0; width: calc(100% / var(--canvas-scale, 1)); height: calc(var(--canvas-h) / var(--canvas-scale, 1)); transform: scale(var(--canvas-scale, 1)); transform-origin: 0 0; }
+.studio-canvas-wait { position: absolute; inset: var(--space-3) auto auto var(--space-3); margin: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius); background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); }
+@media (max-width: 40rem) { .studio-canvas-device { display: none; } }
+@media (min-width: 64rem) {
+  .studio-deco-work { grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr); }
+  .studio-canvas { position: sticky; top: var(--space-4); }
+  .studio-canvas-fit { --canvas-h: min(34rem, 70dvh); }
+  .studio-deco-work .studio-deco-piece { grid-template-columns: 1fr; }
+}
 .studio-deco-status { display: grid; gap: var(--space-2); justify-items: start; }
 @media (max-width: 40rem) { .studio-deco-piece { grid-template-columns: 1fr; } }
 
