@@ -265,3 +265,57 @@ fn a_four_space_config_stays_four_spaces() {
         four.replace("\"end\": \"01-06\"", "\"end\": \"01-10\"")
     );
 }
+
+/// Marks a theme of the fixture hidden, in a group.
+fn hide(f: &Fixture, name: &str) {
+    let path = f.dir.join("themes").join(name).join("theme.json");
+    let mut theme: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    theme["hidden"] = json!(true);
+    theme["group"] = json!("Collections");
+    fs::write(&path, serde_json::to_string_pretty(&theme).unwrap()).unwrap();
+}
+
+#[test]
+fn a_hidden_look_is_left_out_of_the_lists_unless_it_is_the_one_in_use() {
+    let (f, first, second) = house("seasons-hidden");
+    assert_ne!(first, second, "the fixture needs two looks");
+    let s = login_ok(&f);
+    let names = |got: &Json| -> Vec<String> {
+        got["themes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let stored = get(&f, &s)["theme"].as_str().unwrap().to_string();
+    // A look no season names and the site does not store is hidden from both lists.
+    let spare = f.dir.join("themes").join("spare");
+    fs::create_dir_all(&spare).unwrap();
+    fs::write(
+        spare.join("theme.json"),
+        r#"{"label":"Spare","extends":"base"}"#,
+    )
+    .unwrap();
+    assert!(names(&get(&f, &s)).contains(&"spare".to_string()));
+    hide(&f, "spare");
+    assert!(!names(&get(&f, &s)).contains(&"spare".to_string()));
+    let draft = body_json(&handle(
+        &f.state,
+        &authed(req("GET", "/admin/api/theme-draft"), &s, false),
+    ));
+    assert!(!names(&draft).contains(&"spare".to_string()));
+    // The look a season names stays, with its group, so the choice made is still on the screen.
+    hide(&f, &second);
+    let got = get(&f, &s);
+    let kept = got["themes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == json!(second))
+        .expect("a look in use stays listed");
+    assert_eq!(kept["group"], json!("Collections"));
+    // So does the stored look.
+    hide(&f, &stored);
+    assert!(names(&get(&f, &s)).contains(&stored));
+}

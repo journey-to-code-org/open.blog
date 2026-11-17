@@ -4514,12 +4514,7 @@ fn meta(state: &AppState) -> Response {
     let theme_list: Vec<Json> = themes
         .names()
         .into_iter()
-        .filter_map(|n| {
-            themes
-                .resolve(&n)
-                .ok()
-                .map(|t| json!({ "name": n, "label": t.label }))
-        })
+        .filter_map(|n| themes.resolve(&n).ok().map(|t| seasons::look_choice(&t)))
         .collect();
     let sources = site::read_sources(&state.root, &config).unwrap_or_default();
     let mut series: Vec<Json> = Vec::new();

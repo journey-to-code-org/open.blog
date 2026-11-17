@@ -95,14 +95,13 @@ pub(super) fn options(state: &AppState) -> Response {
         Ok(themes) => themes,
         Err(error) => return Response::error(500, &error),
     };
+    let in_use = super::seasons::looks_in_use(&config);
     let list: Vec<Json> = themes
         .names()
         .into_iter()
         .filter_map(|name| {
-            themes
-                .resolve(&name)
-                .ok()
-                .map(|theme| json!({ "name": name, "label": theme.label }))
+            let theme = themes.resolve(&name).ok()?;
+            super::seasons::offered(&theme, &in_use).then(|| super::seasons::look_choice(&theme))
         })
         .collect();
     Response::json(200, &json!({ "themes": list, "current": config.theme }))
