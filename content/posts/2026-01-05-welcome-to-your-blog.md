@@ -2,7 +2,7 @@
 title: Welcome to your blog
 subtitle: A map of this demo site, and where to find each feature.
 date: 2026-01-05
-updated: 2026-11-11
+updated: 2026-11-17
 tags:
   - meta
   - guide
@@ -14,9 +14,11 @@ comes from Markdown files like it. There is no database to set up and nothing to
 your posts are plain text in a folder you own, and `openblog build` turns them into a fast,
 static website.
 
-This blog is also the starter content every new open.blog site begins with. Each post is a
-working example of a feature, with the instructions to use it on your own site. Read what helps,
-then delete the rest when your own posts arrive.
+Each post here is a working example of a feature, with the instructions to use it on your own
+site. The pages show the rest: [What it does](/features/) lists every feature,
+[Kinds of sites](/sites/) shows how a site can be more than posts, and [Studio](/studio/) is a
+tour of the browser editor. [The documentation](https://journey-to-code-org.github.io/open.blog/)
+has the details.
 
 ## Find your way around
 
@@ -39,8 +41,8 @@ Every series page lists its parts in reading order, and every part links to the 
 ## Three ways to write
 
 1. **In the browser.** Run `openblog user add you`, then `openblog serve --admin`, and open
-   `/admin`. The editor writes these same files, with a live preview, a word-processor-style
-   Visual mode and an **Add something** menu, so you never have to touch Markdown.
+   `/admin`. [Studio](/studio/) writes these same files, shows the page as readers will see it
+   and has an **Add something** menu, so you never have to touch Markdown.
 2. **In a text editor.** Open a file in `content/posts/`, change it, and save. `openblog serve`
    rebuilds the site as you work.
 3. **From the command line.** `openblog new "A post title"` creates a file with today's date.
@@ -68,7 +70,6 @@ The post starts here.
 
 > [!TIP]
 > Change three things first: `title`, `url` and `author` in `openblog.json`. Then try
-> **Customize look** in the Admin, or see [Making it look like yours](/posts/making-it-look-like-yours/).
+> **Look** in Studio, or see [Making it look like yours](/posts/making-it-look-like-yours/).
 
-When you are ready, delete the example posts you do not need (or keep a few as a reference),
-then write your own.
+When you are ready, [get started](/get-started/) with a site of your own.

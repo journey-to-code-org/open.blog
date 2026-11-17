@@ -18,7 +18,7 @@ handing your readers to anyone.
 ## View counts
 
 The number of views beside this post's reading time comes from the built-in counter. It is on
-by default when you run `openblog serve`. The Admin's **Analytics** tab shows views and unique
+by default when you run `openblog serve`. In Studio, **Readers → Visitors** shows views and unique
 visitors for the last 7, 30, 90 or 365 days, a bar per day, your top pages, the sites that sent
 readers, and requests from known AI crawlers.
 
@@ -49,7 +49,7 @@ crawler labels. **Nothing else.**
 
 This demo site has first-party comments turned on, so you will find a comment form at the end of
 this post. Comments are text only: no HTML, no images, no tracking embeds. Every comment waits as
-**pending** until you approve it in the Admin's **Moderation inbox**, so nothing appears on your
+**pending** until you approve it in Studio, under **Readers → What readers sent**, so nothing appears on your
 site without your say.
 
 Each post can choose its own policy:
@@ -64,7 +64,7 @@ The [Zhalendor episode page](/posts/zhalendor-gate-of-embers/) is `locked`. The 
 on the server too, so nobody can get around it by posting directly.
 
 On Netlify, comments and persistent analytics are stored in a Supabase project you own: turn
-them on in **Admin → Analytics**. To use giscus or utterances instead, paste their tag into
+them on in Studio, under **Readers**. To use giscus or utterances instead, paste their tag into
 `snippets.postFooter`.
 
 ## Share links
