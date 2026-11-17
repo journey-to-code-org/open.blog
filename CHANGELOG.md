@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn
+  after each change. The things the look hangs can be taken down or swapped for the new look before it is
+  saved (`decorations` on `POST theme-draft/preview`), and are kept under its name when it is.
 - Decorations › What's hanging shows the front page in the look beside its switches, laid out as a
   computer or a phone shows it, and redraws it after each change.
 - A theme can say where it is listed: `"hidden": true` keeps it out of the lists where a look is picked for

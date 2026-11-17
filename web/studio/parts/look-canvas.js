@@ -1,6 +1,7 @@
-// The canvas of "What's hanging": her real front page in one look, always on screen beside the
-// switches, redrawn after each change. Built by the site's own theme in memory (POST
-// seasons/preview); nothing is written. The page runs in a sandboxed frame with no access to
+// The canvas: her real front page in one look, always on screen beside what she is changing
+// (What's hanging's switches, a new look's colours and pieces), redrawn after each change. Built
+// by the site's own theme in memory (POST seasons/preview unless the caller asks its own way);
+// nothing is written. The page runs in a sandboxed frame with no access to
 // Studio, as in See how it looks.
 import { h } from "./dom.js";
 import { use } from "../zubra.js";
@@ -9,7 +10,10 @@ import { say } from "./words.js";
 /** The width a page is laid out at before it is scaled to fit, in CSS pixels. */
 const WIDTHS = { computer: 1100, phone: 390 };
 
-/** `{ element, show(look, label, key) }`: `key` changes when what the page would show changes. */
+/**
+ * `{ element, show(look, label, key, { request }) }`: `key` changes when what the page would show
+ * changes; `request()` answers `{ previewUrl }` (a saved look by default).
+ */
 export async function createLookCanvas({ api }) {
   await use("segmented-control", "alert-banner", "action-button");
   // On a phone the switch is hidden and the page is shown as a phone shows it.
@@ -32,7 +36,7 @@ export async function createLookCanvas({ api }) {
   let shown = null; // the key on screen
   let asked = 0; // only the latest request draws
 
-  async function show(look, label, key = look, { again = false } = {}) {
+  async function show(look, label, key = look, { again = false, request = () => api.post("seasons/preview", { look }) } = {}) {
     if (!look || (!again && key === shown)) return;
     shown = key;
     const mine = ++asked;
@@ -42,7 +46,7 @@ export async function createLookCanvas({ api }) {
     stage.querySelector(".studio-canvas-wait, alert-banner")?.remove();
     stage.prepend(waiting);
     try {
-      const reply = await api.post("seasons/preview", { look });
+      const reply = await request();
       if (mine !== asked) return;
       const frame = h("iframe", { class: "studio-canvas-frame", title: say("decorations.canvasTitle", { look: label || look }) });
       frame.setAttribute("sandbox", "allow-scripts");
@@ -55,7 +59,7 @@ export async function createLookCanvas({ api }) {
       shown = null;
       stage.querySelector(".studio-canvas-wait")?.remove();
       fit.replaceChildren(h("alert-banner", { variant: "danger", heading: say("decorations.canvasFailed") }, say("decorations.canvasFailedHelp"),
-        h("action-button", { variant: "secondary", onClick: () => show(look, label, key, { again: true }) }, say("decorations.canvasRetry"))));
+        h("action-button", { variant: "secondary", onClick: () => show(look, label, key, { again: true, request }) }, say("decorations.canvasRetry"))));
     }
   }
 

@@ -287,9 +287,41 @@ pub(super) fn preview(state: &AppState, req: &Request) -> Response {
     // wears them exactly as a build does (G66), and says which ones it applied.
     let appearance = preview_site.config.appearance.clone();
     let theme = match themes.resolve(PREVIEW_THEME) {
-        Ok(theme) if appearance.is_neutral() => theme,
-        Ok(theme) => theme.with_look(&appearance),
+        Ok(theme) => theme,
         Err(error) => return Response::error(422, &error),
+    };
+    // The pieces she has taken down or swapped for this look, before it has a name to save them
+    // under: the new look has the pieces of the look it starts from, so they are checked as its own.
+    let picks: std::collections::BTreeMap<String, openblog_core::decorations::DecorChoice> =
+        match body.get("decorations") {
+            None | Some(Json::Null) => Default::default(),
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(picks) => picks,
+                Err(error) => {
+                    return Response::error(
+                        422,
+                        &format!("Those decorations can't be read: {error}"),
+                    )
+                }
+            },
+        };
+    if !picks.is_empty() {
+        let pieces = theme.decorations.clone();
+        let named = std::collections::BTreeMap::from([(base.clone(), picks.clone())]);
+        let problems = openblog_core::decorations::problems(&named, |_| Some(pieces.clone()));
+        if !problems.is_empty() {
+            return Response::error(422, &problems.join("; "));
+        }
+        preview_site
+            .config
+            .decorations
+            .insert(PREVIEW_THEME.to_string(), picks.clone());
+    }
+    let theme = theme.with_decorations(&picks);
+    let theme = if appearance.is_neutral() {
+        theme
+    } else {
+        theme.with_look(&appearance)
     };
     let look_applied: Vec<&str> = match appearance.to_value() {
         Json::Object(stored) => openblog_core::look::CONTROLS

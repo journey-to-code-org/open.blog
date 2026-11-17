@@ -952,6 +952,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.noteLighterMany` | her | In {scheme}, the {role} are a little lighter so they're easy to read. | `{scheme}` `{role}` | 138 |
 | `design.noteReplaced` | her | In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 176 |
 | `design.noteReplacedMany` | her | In {scheme}, the {role} couldn't be made easy to read, so they use {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 178 |
+| `design.pieceDown` | her | Down | none | 40 |
+| `design.pieceStays` | her | This one always stays up. | none | 50 |
+| `design.pieceUp` | her | Up | none | 40 |
+| `design.pieceUsual` | her | The one it came with | none | 40 |
+| `design.pieceWhich` | her | Which one: {thing} | `{thing}` | 40 |
+| `design.piecesHelp` | her | Take one down or choose a different one for this look. The page beside it shows each change. Nothing is saved until you save the look. | none | 240 |
+| `design.piecesNotKept` | her | {name} is saved, but what you took down is still up in it. Change it under Decorations, in What's hanging. | `{name}` | 212 |
+| `design.piecesTitle` | her | What it hangs | none | 40 |
 | `design.previewBack` | her | Back to your new look | none | 42 |
 | `design.previewFailed` | her | Your front page couldn't be shown just now. Your new look is still here. | none | 144 |
 | `design.previewFrame` | her | Your front page in the new look | none | 62 |

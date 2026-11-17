@@ -5502,6 +5502,58 @@
         "replacement"
       ]
     },
+    "design.pieceDown": {
+      "text": "Down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.pieceStays": {
+      "text": "This one always stays up.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "design.pieceUp": {
+      "text": "Up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.pieceUsual": {
+      "text": "The one it came with",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "design.pieceWhich": {
+      "text": "Which one: {thing}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "thing"
+      ]
+    },
+    "design.piecesHelp": {
+      "text": "Take one down or choose a different one for this look. The page beside it shows each change. Nothing is saved until you save the look.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "design.piecesNotKept": {
+      "text": "{name} is saved, but what you took down is still up in it. Change it under Decorations, in What's hanging.",
+      "layer": "her",
+      "max": 212,
+      "vars": [
+        "name"
+      ]
+    },
+    "design.piecesTitle": {
+      "text": "What it hangs",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "design.previewBack": {
       "text": "Back to your new look",
       "layer": "her",
