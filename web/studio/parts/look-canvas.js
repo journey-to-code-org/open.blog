@@ -20,7 +20,9 @@ export async function createLookCanvas({ api }) {
   // "Computer" shows what a computer shows, not a squeezed page.
   const resize = () => {
     const width = WIDTHS[stage.getAttribute("data-device")] || WIDTHS.computer;
-    fit.style.setProperty("--canvas-scale", String(Math.min(1, (fit.clientWidth || width) / width)));
+    // In steps of 5%, as an attribute the stylesheet reads: Studio's code sets no styles.
+    const scale = Math.min(1, (fit.clientWidth || width) / width);
+    fit.setAttribute("data-scale", String(Math.max(25, Math.floor(scale * 20) * 5)));
   };
   if (globalThis.ResizeObserver) new ResizeObserver(resize).observe(fit);
   const device = h("segmented-control", { label: say("decorations.canvasShowOn"), value: stage.getAttribute("data-device"), class: "studio-canvas-device",
