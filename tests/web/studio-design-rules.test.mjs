@@ -193,3 +193,22 @@ test("Start from begins on the look that is up, then the stored one, then the fi
   assert.equal(startDefault(themes, "base", ""), "christmas");
   assert.equal(startDefault([], "grammis", "thanksgiving"), "");
 });
+
+test("a new look starts with the pieces as she has them, and keeps only real choices", async () => {
+  const { picksFor, withPick, pieceOptions } = await import("../../web/studio/parts/design-rules.js");
+  const saved = { decorations: { thanksgiving: { garland: false, banner: "plain", corner: null, mantel: "" } } };
+  assert.deepEqual(picksFor(saved, "thanksgiving"), { garland: false, banner: "plain" });
+  assert.deepEqual(picksFor(saved, "christmas"), {});
+  assert.deepEqual(picksFor(null, "thanksgiving"), {});
+  // Changing one never touches what was saved for the look it starts from.
+  const picks = picksFor(saved, "thanksgiving");
+  assert.deepEqual(withPick(picks, "garland", null), { banner: "plain" });
+  assert.deepEqual(withPick(picks, "leaves", false), { garland: false, banner: "plain", leaves: false });
+  assert.deepEqual(withPick(picks, "banner", "bunting"), { garland: false, banner: "bunting" });
+  assert.deepEqual(picks, { garland: false, banner: "plain" });
+  assert.deepEqual(saved.decorations.thanksgiving.garland, false);
+  assert.deepEqual(withPick(null, "garland", true), {});
+  assert.deepEqual(pieceOptions({ variants: [{ id: "toys", label: "From the toy shelf" }, { id: "plain" }] }, "The one it came with"),
+    [{ value: "_usual", label: "The one it came with" }, { value: "toys", label: "From the toy shelf" }, { value: "plain", label: "plain" }]);
+  assert.equal(pieceOptions({}, "x").length, 1);
+});

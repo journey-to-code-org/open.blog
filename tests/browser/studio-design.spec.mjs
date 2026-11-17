@@ -153,6 +153,8 @@ test("Change Writing to #777777 on white: the server makes it a little darker, t
 test("See it on your front page: the sheet shows her own front page in the draft, Light and Dark", async ({ page }) => {
   await stubDraft(page, draftOf("Warm and cozy"));
   await describe(page);
+  // The page beside the draft asks for its own picture first; the sheet's requests come after it.
+  await expect(page.locator('iframe.studio-canvas-frame[title="Your front page in Warm and cozy"]')).toBeVisible();
   const modes = [];
   page.on("request", (request) => { if (/theme-draft\/preview$/.test(request.url())) modes.push(request.postDataJSON().mode); });
   await result(page).getByRole("button", { name: "See it on your front page" }).click();
@@ -168,6 +170,23 @@ test("See it on your front page: the sheet shows her own front page in the draft
   await axeClean(page, "the new look's preview", "side-sheet.studio-preview-sheet");
   await sheet.getByRole("button", { name: "Back to your new look" }).click();
   await expect(sheet).toBeHidden();
+});
+
+test("the front page is beside the form from the start, and wears the draft once there is one", async ({ page }) => {
+  await stubDraft(page, draftOf("Warm and cozy"));
+  await open(page, site, "#/look/design");
+  const canvas = page.locator("iframe.studio-canvas-frame");
+  // Before a draft: the look she starts from, as it is.
+  await expect(canvas).toHaveAttribute("src", /^\/admin\/api\/preview\//);
+  await expect(canvas).toHaveAttribute("sandbox", "allow-scripts");
+  const first = await canvas.getAttribute("src");
+  await describe(page);
+  await expect(canvas).toHaveAttribute("title", "Your front page in Warm and cozy");
+  await expect(canvas).not.toHaveAttribute("src", first);
+  await expect(page.frameLocator("iframe.studio-canvas-frame").locator("html")).toHaveAttribute("data-theme", "light");
+  await result(page).getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(page.frameLocator("iframe.studio-canvas-frame").locator("html")).toHaveAttribute("data-theme", "dark");
+  await axeClean(page, "a new look on the page", ".studio-design");
 });
 
 test("Change it sends the draft so far and can step back; leaving a draft asks; typing alone does not", async ({ page }) => {

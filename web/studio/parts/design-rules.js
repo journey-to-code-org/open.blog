@@ -93,6 +93,30 @@ export function startFrom(options) {
   );
 }
 
+/** The choices a new look starts with: the ones saved for the look it starts from, copied. */
+export function picksFor(decorations, base) {
+  const saved = decorations?.decorations?.[base];
+  const picks = {};
+  for (const [piece, choice] of Object.entries(saved && typeof saved === "object" ? saved : {})) {
+    if (choice === false || (typeof choice === "string" && choice)) picks[piece] = choice;
+  }
+  return picks;
+}
+
+/** `picks` with one piece changed: `false` takes it down, a version's id swaps it, `null` is as it came. */
+export function withPick(picks, piece, choice) {
+  const next = { ...(picks || {}) };
+  if (choice === false || (typeof choice === "string" && choice)) next[piece] = choice;
+  else delete next[piece];
+  return next;
+}
+
+/** A piece's versions as choices, the one it came with first. Its value can never be a version's id. */
+export function pieceOptions(piece, usualLabel) {
+  const versions = Array.isArray(piece?.variants) ? piece.variants : [];
+  return [{ value: "_usual", label: usualLabel }, ...versions.map((version) => ({ value: version.id, label: String(version.label || version.id) }))];
+}
+
 /**
  * The look Start from begins on: the one that is up (`wearing`, from the seasons), then the
  * stored one (`current`), then the first. A site decorated by the calendar stores its plain look,

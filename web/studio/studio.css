@@ -353,7 +353,7 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 @media (max-width: 40rem) { .studio-canvas-device { display: none; } }
 @media (min-width: 64rem) {
   .studio-deco-work { grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr); }
-  .studio-canvas { position: sticky; top: var(--space-4); }
+  .studio-deco-work > .studio-canvas { position: sticky; top: var(--space-4); }
   .studio-canvas-fit { --canvas-h: min(34rem, 70dvh); }
   .studio-deco-work .studio-deco-piece { grid-template-columns: 1fr; }
 }
@@ -837,9 +837,15 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-design { max-width: 40rem; }
 .studio-design-columns, .studio-design-form, .studio-design-result { display: grid; gap: var(--space-4); min-width: 0; }
 .studio-design-result[hidden] { display: none; }
+.studio-design-side, .studio-design-canvas { display: grid; gap: var(--space-4); min-width: 0; }
+.studio-design-pieces { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-design-pieces[hidden] { display: none; }
+.studio-design-pieces .studio-deco-piece { grid-template-columns: 1fr; }
+.studio-design-pieces > h3, .studio-design-pieces > p { margin: 0; }
 @media (min-width: 64rem) {
-  .studio-design:has(.studio-design-result:not([hidden])) { max-width: 76rem; }
-  .studio-design-columns:has(.studio-design-result:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: var(--space-6, 2rem); }
+  .studio-design { max-width: 76rem; }
+  .studio-design-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; gap: var(--space-6, 2rem); }
+  .studio-design-canvas { position: sticky; top: var(--space-4); }
 }
 .studio-design-goes { margin: 0; }
 .studio-design-swatch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 2.75rem; overflow-wrap: anywhere; }
