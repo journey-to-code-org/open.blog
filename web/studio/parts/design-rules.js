@@ -6,7 +6,7 @@
 // The server decides every colour that is saved. `contrastRatio` here is a port of
 // `look_contrast::contrast` so the page can warn early; it never chooses what is kept.
 import { say } from "./words.js";
-import { CHOICES, CONTROL_TEXT } from "./look-rules.js";
+import { CHOICES, CONTROL_TEXT, lookChoices } from "./look-rules.js";
 
 export const MAX_DESCRIPTION = 1000;
 export const MAX_LABEL = 40;
@@ -87,9 +87,10 @@ export function renamed(draft, label) {
 /** The Start from choices: every look of the site except the plain engine default, by name. */
 export function startFrom(options) {
   const themes = Array.isArray(options?.themes) ? options.themes : [];
-  return themes
-    .filter((theme) => typeof theme?.name === "string" && (theme.name !== "base" || options.current === "base"))
-    .map((theme) => ({ value: theme.name, label: String(theme.label || theme.name) }));
+  return lookChoices(
+    themes.filter((theme) => typeof theme?.name === "string" && (theme.name !== "base" || options.current === "base")),
+    { sort: false },
+  );
 }
 
 /**

@@ -56,7 +56,9 @@ fn describe(root: &Path, text: &str) -> Result<Json, String> {
                 .iter()
                 .map(|(id, piece)| piece_json(id, piece, saved.and_then(|s| s.get(id))))
                 .collect();
-            Some(json!({ "name": name, "label": theme.label, "pieces": pieces }))
+            let mut look = super::seasons::look_choice(&theme);
+            look["pieces"] = json!(pieces);
+            Some(look)
         })
         .collect();
     let wearing = config

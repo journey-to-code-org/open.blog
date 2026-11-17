@@ -116,3 +116,21 @@ test("the draft store keeps a look, and refuses a shape that is not one", () => 
   memory.set("look-test", JSON.stringify({ v: 1, base: null, page: [1], savedAt: "x" }));
   assert.equal(store.load(), null);
 });
+
+test("a group's looks are listed together, after the ungrouped ones", async () => {
+  const { lookChoices } = await import("../../web/studio/parts/look-rules.js");
+  const themes = [
+    { name: "series-pies", label: "Pies", group: "Collections" },
+    { name: "winter", label: "Winter" },
+    { name: "wall", label: "Family wall", group: "Around the house" },
+    { name: "autumn", label: "Autumn" },
+    { name: "series-bread", label: "Bread", group: "Collections" },
+    { name: "plain" },
+    { label: "no name" },
+  ];
+  assert.deepEqual(lookChoices(themes).map((look) => look.label), ["Autumn", "plain", "Winter", "Family wall", "Bread", "Pies"]);
+  // Unsorted keeps the server's order inside each run.
+  assert.deepEqual(lookChoices(themes, { sort: false }).map((look) => look.value), ["winter", "autumn", "plain", "wall", "series-pies", "series-bread"]);
+  assert.deepEqual(lookChoices(themes)[0], { value: "autumn", label: "Autumn" });
+  assert.deepEqual(lookChoices(null), []);
+});

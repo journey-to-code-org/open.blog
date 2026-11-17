@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A theme can say where it is listed: `"hidden": true` keeps it out of the lists where a look is picked for
+  the whole site (the calendar, the everyday look, what a new look starts from) unless it is the one in use,
+  and `"group"` lists a group's themes together after the others. Neither is inherited.
 - Studio brings in what `development` added to the retired Admin: decision records as a kind of post,
   diagrams, recordings, pictures with shares and a Facebook job's after photo, and in Writing together each
   writer's name, the new agreement rules, and rule changes that take effect once everyone agrees. Several

@@ -50,7 +50,20 @@ pub struct ThemeFile {
     /// version (Studio slice 3b). Each piece names the tokens it owns. Inherited through `extends`;
     /// a child theme replaces a piece by name.
     pub decorations: BTreeMap<String, crate::decorations::DecorPiece>,
+    /// Keeps this theme out of the lists where an owner picks a look for the whole site (the
+    /// calendar, the everyday look, what a new look starts from). It still works wherever it is
+    /// named, and a list keeps it while it is the one in use. Not inherited: a child of a hidden
+    /// theme is offered unless it says so itself.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+    /// A short name for the themes this one belongs with ("Collections"). Lists show a group's
+    /// themes together, after the ungrouped ones. Not inherited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
+
+/// The longest a theme's `group` may be, in characters.
+pub const GROUP_MAX: usize = 40;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -147,6 +160,11 @@ pub struct Theme {
     pub look: Option<CompiledLook>,
     /// The decoration pieces this theme declares, merged down its chain.
     pub decorations: BTreeMap<String, crate::decorations::DecorPiece>,
+    /// Kept out of the lists where an owner picks a look for the whole site (this theme's own
+    /// `hidden`, never a parent's).
+    pub hidden: bool,
+    /// The themes this one is listed with (this theme's own `group`), or empty.
+    pub group: String,
     /// A fingerprint of the owner's decoration choices that took effect, if any.
     pub decor_hash: Option<String>,
     /// Absolute site URL of the theme's own favicon, if it has one.
@@ -369,6 +387,20 @@ impl ThemeSet {
         if theme.label.is_empty() {
             theme.label = name.to_string();
         }
+        // Where a theme is listed is its own business: neither is inherited.
+        let own = &self.files[name];
+        theme.hidden = own.hidden;
+        theme.group = match own.group.as_deref().map(str::trim) {
+            None | Some("") => String::new(),
+            Some(group)
+                if group.chars().count() > GROUP_MAX || group.chars().any(char::is_control) =>
+            {
+                return Err(format!(
+                    "theme \"{name}\": \"group\" must be a short plain name ({GROUP_MAX} characters at most)"
+                ));
+            }
+            Some(group) => group.to_string(),
+        };
         if theme.font_heading.is_empty() {
             theme.font_heading = theme.font_body.clone();
         }
@@ -719,6 +751,41 @@ mod tests {
             "the parent's heading face is still declared, just not preloaded"
         );
         assert_eq!(set.resolve("child").unwrap().faces.len(), 3);
+    }
+
+    #[test]
+    fn hidden_and_group_are_a_themes_own_and_are_not_inherited() {
+        let mut set = ThemeSet::new();
+        set.insert(
+            "house",
+            ThemeFile::from_json(r#"{"label":"House","hidden":true,"group":" Around the house "}"#)
+                .unwrap(),
+        );
+        set.insert(
+            "winter",
+            ThemeFile::from_json(r#"{"extends":"house"}"#).unwrap(),
+        );
+        let house = set.resolve("house").unwrap();
+        assert!(house.hidden);
+        assert_eq!(house.group, "Around the house");
+        let winter = set.resolve("winter").unwrap();
+        assert!(!winter.hidden);
+        assert_eq!(winter.group, "");
+        // Neither is written into a theme that does not set it.
+        let plain = serde_json::to_string(&ThemeFile::default()).unwrap();
+        assert!(
+            !plain.contains("hidden") && !plain.contains("group"),
+            "{plain}"
+        );
+        // A group is a short plain name.
+        set.insert(
+            "long",
+            ThemeFile {
+                group: Some("x".repeat(GROUP_MAX + 1)),
+                ..Default::default()
+            },
+        );
+        assert!(set.resolve("long").unwrap_err().contains("\"group\""));
     }
 
     #[test]

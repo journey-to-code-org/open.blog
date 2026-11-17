@@ -9,6 +9,7 @@ import { h, toast } from "./dom.js";
 import { use } from "../zubra.js";
 import { sendOut, wentOutWords } from "./publish.js";
 import { say } from "./words.js";
+import { lookChoices } from "./look-rules.js";
 
 // Version names are lowercase letters, digits and "-", so "_usual" can never be one.
 const USUAL = "_usual";
@@ -55,7 +56,7 @@ export async function createDecorPieces({ api, meta }) {
     const shown = current();
     element.hidden = !shown;
     if (!shown) return;
-    picker.options = saved.looks.map((l) => ({ value: l.name, label: l.label || l.name }));
+    picker.options = lookChoices(saved.looks, { sort: false });
     picker.value = look;
     picker.hidden = saved.looks.length < 2;
     picker.description = look === saved.wearing ? `${shown.label || shown.name} is up on your site now.` : `${shown.label || shown.name} isn't up right now. These changes show when it is.`;

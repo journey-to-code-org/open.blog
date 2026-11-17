@@ -21,6 +21,8 @@ overrides a handful of values is a complete theme.
 {
   "label": "Shown in theme lists",
   "extends": "base",            // inherit everything, override what differs
+  "hidden": false,              // true keeps it out of the lists where a look is picked for the whole site
+  "group": "Collections",       // lists show a group's themes together, after the ungrouped ones
   "colorScheme": "dark",        // scheme used when the visitor has no preference
   "colors": {
     "dark":  { "page": "#111418", "text": "#eceff4", "accent": "#7aa2ff" },
@@ -242,6 +244,20 @@ becomes a web component the theme ships; see
 [Adding web components to a theme](theme-components.md).
 
 Check the licences of any fonts before publishing them in a theme.
+
+## Keeping a theme out of the lists
+
+A site collects themes that are never meant for the whole site: the parent the others extend,
+a look made for one series. Two keys of `theme.json` say where a theme is listed. Neither is
+inherited, so a parent can be hidden while its children are offered.
+
+- `"hidden": true` leaves the theme out of the lists where an owner picks a look for the whole
+  site: the calendar's seasons, the everyday look, and what a new look starts from. The theme
+  still works wherever it is named (`theme` in `openblog.json`, a season, a series), and a list
+  keeps it while the site is set to wear it, so a choice already made never disappears.
+- `"group": "Collections"` (40 characters at most) lists the theme with the others of its group,
+  after the ungrouped themes. It applies to every list, including the ones a hidden theme stays
+  in: a series' look, and the looks whose decorations can be taken down.
 
 ## Keeping a theme private
 

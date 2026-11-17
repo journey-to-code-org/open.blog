@@ -15,6 +15,7 @@ import { createDecorPieces } from "../parts/decor-pieces.js";
 import { seasonDetails } from "../parts/season-details.js";
 import { dayAfter, sayLongDate, todaySentence } from "../parts/season-words.js";
 import { MAX_WINDOWS, newSeason, nextChange, problems, sayRange, switchTimeWords, toStored, upNowUntil, wearingOn, windowHolds as windowHoldsDay } from "../parts/season-windows.js";
+import { lookChoices } from "../parts/look-rules.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 const todayUtc = () => new Date().toISOString().slice(0, 10);
@@ -295,7 +296,7 @@ export async function createDecorations({ api, meta }) {
     saved = clone(state);
     saved.seasons = saved.seasons && Object.keys(saved.seasons).length ? saved.seasons : { version: 1, enabled: false, windows: [] };
     draft = { theme: saved.theme, seasons: clone(saved.seasons) };
-    looks = (state.themes || []).map((theme) => ({ value: theme.name, label: theme.label || theme.name })).sort((a, b) => a.label.localeCompare(b.label));
+    looks = lookChoices(state.themes);
     drawCard();
     changed();
   }
