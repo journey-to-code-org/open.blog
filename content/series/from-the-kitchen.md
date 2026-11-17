@@ -10,6 +10,6 @@ checklists, tap-to-start timers, a screen-awake cook mode and a print view. Try 
 on any recipe here.
 
 The last part is written for someone who has never opened a terminal. It shows how to post a
-family recipe, with a photo, from the Admin editor in a browser.
+family recipe, with a photo, from Studio in a browser.
 
 This series uses the `paper` theme (`theme: paper` in `content/series/from-the-kitchen.md`).

@@ -1,6 +1,6 @@
 {
   "title": "open.blog",
-  "description": "The example site for open.blog: Markdown files in, a fast static site out. This is the starter content every new blog begins with.",
+  "description": "open.blog turns a folder of Markdown into a fast static site, with a browser editor for the people who would rather not touch the files. This site is built with it.",
   "url": "https://open-blog-jtc.netlify.app",
   "language": "en",
   "author": {
@@ -31,9 +31,10 @@
   "postsPerPage": 10,
   "nav": [
     { "label": "Home", "href": "/" },
-    { "label": "Docs", "href": "/docs/" },
-    { "label": "Series", "href": "/series/" },
-    { "label": "Archive", "href": "/archive/" },
+    { "label": "What it does", "href": "/features/" },
+    { "label": "Studio", "href": "/studio/" },
+    { "label": "Examples", "href": "/series/" },
+    { "label": "Docs", "href": "https://journey-to-code-org.github.io/open.blog/" },
     { "label": "Search", "href": "/search/" }
   ],
   "social": [],

@@ -1,0 +1,110 @@
+{
+  "format": "openblog-landing",
+  "version": 1,
+  "sections": [
+    {
+      "id": "hello",
+      "type": "welcome",
+      "heading": "A blog engine that is also your whole website",
+      "subheading": "Write in Markdown or in the browser. open.blog builds a fast static site with pages, recipes, lessons, services, documentation and a front page you arrange yourself. No database, and no tracking of your readers.",
+      "image": {
+        "src": "/images/studio/write-recipe.jpg",
+        "alt": "Studio, the browser editor, open on a recipe: fields for servings and times above the recipe's words, with Update and See how it looks at the bottom."
+      },
+      "button": {
+        "label": "See what it does",
+        "href": "/features/",
+        "style": "primary"
+      }
+    },
+    {
+      "id": "start",
+      "type": "buttons",
+      "items": [
+        {
+          "label": "Read the documentation",
+          "href": "https://journey-to-code-org.github.io/open.blog/",
+          "style": "primary"
+        },
+        {
+          "label": "Get started in five minutes",
+          "href": "/get-started/",
+          "style": "secondary"
+        },
+        {
+          "label": "Source on GitHub",
+          "href": "https://github.com/journey-to-code-org/open.blog",
+          "style": "secondary"
+        }
+      ]
+    },
+    {
+      "id": "what",
+      "type": "rich-text",
+      "markdown": "## Everything here is a working example\n\nThis site is built with open.blog, from the same files you would write. Each part of it shows one thing the engine does, with the source beside it.\n\n- **Write.** Call-outs, footnotes, buttons, maps, before-and-after photos, diagrams and quizzes. [The writer's toolkit](/series/writers-toolkit/)\n- **Cook.** Recipes that scale, time themselves and print. [From the kitchen](/series/from-the-kitchen/)\n- **Teach.** Code readers run, edit and check in the page. [Teaching with code](/series/teaching-with-code/)\n- **Sell your work.** Services, finished jobs, reviews and a quote form. [For trades and local businesses](/series/for-trades-and-local-business/)\n- **Document.** A handbook with a sidebar and its own search. [Example handbook](/docs/)\n- **Run it.** View counts, comments, feeds, search and your own look. [Running your blog](/series/running-your-blog/)\n\n[The full tour](/features/) lists every feature with its example and its page in the documentation."
+    },
+    {
+      "id": "cms",
+      "type": "rich-text",
+      "markdown": "## More than a list of posts\n\nA site needs pages that are not posts. open.blog has them, and each is a Markdown file or a card you arrange:\n\n- **This front page** is sections in a file: a welcome, buttons, text, pictures, questions and lists. [How it is built](/sites/#the-front-page)\n- **Pages** such as [About](/about/), [Questions](/faq/) and [Get started](/get-started/) live at their own addresses.\n- **Collections** gather posts into [series](/series/), [recipes](/recipes/) and [services](/services/), each with its own page and, if you like, its own look.\n- **A documentation section** sits [beside the blog](/docs/), or is the whole site.\n\n[Kinds of sites you can build](/sites/) walks through each."
+    },
+    {
+      "id": "studio-picture",
+      "type": "image",
+      "src": "/images/studio/front-page.jpg",
+      "alt": "Studio's Front page screen: the sections of this home page as a list of cards, each with Change and More, and Add a section, See how it looks and Save below.",
+      "caption": "Studio, the editor that comes with it. This is the page you are reading, as Studio shows it: a list of cards."
+    },
+    {
+      "id": "studio",
+      "type": "rich-text",
+      "markdown": "## Studio: the editor for people who do not want the files\n\nRun `openblog serve --admin` and open `/admin`. Studio writes the same Markdown files, so nothing is locked in, and it works on a phone.\n\n- Write, schedule and publish, with the page shown as readers will see it.\n- Arrange the front page, change the look, and put up a different look for a season.\n- See how many readers came and where from, and read their comments before they appear.\n\n[Take the tour of Studio](/studio/)"
+    },
+    {
+      "id": "map",
+      "type": "featured-post",
+      "post": "welcome-to-your-blog",
+      "heading": "Start here"
+    },
+    {
+      "id": "series",
+      "type": "series",
+      "heading": "Worked examples, in reading order"
+    },
+    {
+      "id": "latest",
+      "type": "latest-posts",
+      "heading": "Newest examples",
+      "count": 5
+    },
+    {
+      "id": "questions",
+      "type": "faq",
+      "items": [
+        {
+          "question": "Do I need a database or a server?",
+          "answer": "No. The site is plain files, and any static host can serve it. Studio is a small program you run when you want to edit in the browser. [Deploying](https://journey-to-code-org.github.io/open.blog/docs/deploy/) lists the hosts."
+        },
+        {
+          "question": "Do I have to write Markdown?",
+          "answer": "No. Studio has a visual editor and an **Add something** menu for buttons, pictures, maps and the rest. The files it writes are Markdown, so you can open them in any editor later. [Studio](/studio/)"
+        },
+        {
+          "question": "Are my readers tracked?",
+          "answer": "No. View counts, comments and share links are built in, with no cookies and no third-party scripts. [Views, comments and sharing](/posts/views-comments-and-sharing/)"
+        },
+        {
+          "question": "What does it cost?",
+          "answer": "Nothing. open.blog is free software under the GPL, version 3 or later. [Source on GitHub](https://github.com/journey-to-code-org/open.blog)"
+        }
+      ]
+    },
+    {
+      "id": "docs",
+      "type": "callout",
+      "tone": "info",
+      "title": "The documentation has the details",
+      "body": "This site shows what open.blog does. [The documentation](https://journey-to-code-org.github.io/open.blog/) says how: installing it, every setting, every kind of content, themes, Studio and deploying."
+    }
+  ]
+}
