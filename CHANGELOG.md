@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Decorations › What's hanging shows the front page in the look beside its switches, laid out as a
+  computer or a phone shows it, and redraws it after each change.
 - A theme can say where it is listed: `"hidden": true` keeps it out of the lists where a look is picked for
   the whole site (the calendar, the everyday look, what a new look starts from) unless it is the one in use,
   and `"group"` lists a group's themes together after the others. Neither is inherited.

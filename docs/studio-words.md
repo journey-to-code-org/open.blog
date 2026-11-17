@@ -853,6 +853,15 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `decorations.betweenOff` | her | The look {product} wears while the calendar is off. | `{product}` | 102 |
 | `decorations.byItself` | her | {product} changes by itself on the days below. | `{product}` | 92 |
 | `decorations.calendarOff` | her | {product} wears {theme} every day. The calendar is off. | `{product}` `{theme}` | 110 |
+| `decorations.canvasComputer` | her | Computer | none | 40 |
+| `decorations.canvasFailed` | her | The picture of your front page didn't open | none | 84 |
+| `decorations.canvasFailedHelp` | her | Your switches still work. | none | 50 |
+| `decorations.canvasNote` | her | Your front page with these up. It changes as you take things down or put them back. | none | 166 |
+| `decorations.canvasPhone` | her | Phone | none | 40 |
+| `decorations.canvasRetry` | her | Try again | none | 40 |
+| `decorations.canvasShowOn` | her | Show it on | none | 40 |
+| `decorations.canvasTitle` | her | Your front page in {look} | `{look}` | 50 |
+| `decorations.canvasWait` | her | Getting it ready… | none | 40 |
 | `decorations.decorated` | her | {product} is decorated for {theme}. | `{product}` `{theme}` | 70 |
 | `decorations.everyDay` | her | {product} wears {theme} every day. | `{product}` `{theme}` | 68 |
 | `decorations.everyday` | her | {product} is wearing its everyday look: {theme}. | `{product}` `{theme}` | 96 |

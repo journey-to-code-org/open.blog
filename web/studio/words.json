@@ -4821,6 +4821,62 @@
         "theme"
       ]
     },
+    "decorations.canvasComputer": {
+      "text": "Computer",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "decorations.canvasFailed": {
+      "text": "The picture of your front page didn't open",
+      "layer": "her",
+      "max": 84,
+      "vars": []
+    },
+    "decorations.canvasFailedHelp": {
+      "text": "Your switches still work.",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "decorations.canvasNote": {
+      "text": "Your front page with these up. It changes as you take things down or put them back.",
+      "layer": "her",
+      "max": 166,
+      "vars": []
+    },
+    "decorations.canvasPhone": {
+      "text": "Phone",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "decorations.canvasRetry": {
+      "text": "Try again",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "decorations.canvasShowOn": {
+      "text": "Show it on",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "decorations.canvasTitle": {
+      "text": "Your front page in {look}",
+      "layer": "her",
+      "max": 50,
+      "vars": [
+        "look"
+      ]
+    },
+    "decorations.canvasWait": {
+      "text": "Getting it ready…",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "decorations.decorated": {
       "text": "{product} is decorated for {theme}.",
       "layer": "her",

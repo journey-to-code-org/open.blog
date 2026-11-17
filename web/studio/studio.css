@@ -326,6 +326,37 @@ side-sheet.studio-add-sheet dialog, side-sheet.studio-add-sheet .sheet { width: 
 .studio-deco-pieces { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .studio-deco-piece { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1.2fr); gap: var(--space-3); align-items: center; padding: var(--space-3); border: 1px solid var(--studio-linen); border-radius: var(--radius); background: var(--studio-flour-lift); }
 .studio-deco-piece:has(> :only-child) { grid-template-columns: 1fr; }
+.studio-deco-work { display: grid; gap: var(--space-4); align-items: start; }
+.studio-deco-side { display: grid; gap: var(--space-3); min-width: 0; }
+.studio-canvas { display: grid; gap: var(--space-2); min-width: 0; }
+.studio-canvas-stage { position: relative; display: grid; justify-items: center; background: var(--studio-sage); border-radius: var(--radius); padding: var(--space-2); min-height: 18rem; }
+.studio-canvas-fit { --canvas-h: 22rem; width: 100%; height: var(--canvas-h); overflow: hidden; border: 1px solid var(--studio-linen); border-radius: calc(var(--radius) - 4px); background: var(--studio-flour-lift); }
+.studio-canvas-fit:has(> alert-banner) { height: auto; overflow: visible; border: 0; background: none; }
+.studio-canvas-stage[data-device="phone"] .studio-canvas-fit { max-width: 390px; }
+.studio-canvas-frame { display: block; border: 0; width: calc(100% / var(--canvas-scale, 1)); height: calc(var(--canvas-h) / var(--canvas-scale, 1)); transform: scale(var(--canvas-scale, 1)); transform-origin: 0 0; }
+.studio-canvas-fit[data-scale="25"] { --canvas-scale: 0.25; }
+.studio-canvas-fit[data-scale="30"] { --canvas-scale: 0.3; }
+.studio-canvas-fit[data-scale="35"] { --canvas-scale: 0.35; }
+.studio-canvas-fit[data-scale="40"] { --canvas-scale: 0.4; }
+.studio-canvas-fit[data-scale="45"] { --canvas-scale: 0.45; }
+.studio-canvas-fit[data-scale="50"] { --canvas-scale: 0.5; }
+.studio-canvas-fit[data-scale="55"] { --canvas-scale: 0.55; }
+.studio-canvas-fit[data-scale="60"] { --canvas-scale: 0.6; }
+.studio-canvas-fit[data-scale="65"] { --canvas-scale: 0.65; }
+.studio-canvas-fit[data-scale="70"] { --canvas-scale: 0.7; }
+.studio-canvas-fit[data-scale="75"] { --canvas-scale: 0.75; }
+.studio-canvas-fit[data-scale="80"] { --canvas-scale: 0.8; }
+.studio-canvas-fit[data-scale="85"] { --canvas-scale: 0.85; }
+.studio-canvas-fit[data-scale="90"] { --canvas-scale: 0.9; }
+.studio-canvas-fit[data-scale="95"] { --canvas-scale: 0.95; }
+.studio-canvas-wait { position: absolute; inset: var(--space-3) auto auto var(--space-3); margin: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius); background: var(--studio-flour-lift); border: 1px solid var(--studio-linen); }
+@media (max-width: 40rem) { .studio-canvas-device { display: none; } }
+@media (min-width: 64rem) {
+  .studio-deco-work { grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr); }
+  .studio-canvas { position: sticky; top: var(--space-4); }
+  .studio-canvas-fit { --canvas-h: min(34rem, 70dvh); }
+  .studio-deco-work .studio-deco-piece { grid-template-columns: 1fr; }
+}
 .studio-deco-status { display: grid; gap: var(--space-2); justify-items: start; }
 @media (max-width: 40rem) { .studio-deco-piece { grid-template-columns: 1fr; } }
 
