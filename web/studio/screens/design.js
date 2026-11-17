@@ -19,7 +19,7 @@ import { createDidLine } from "../parts/did-line.js";
 import { clip, companyName, helperProblem } from "../parts/helper-rules.js";
 import {
   IDEAS, MAX_DESCRIPTION, MAX_LABEL, WRITING_ROLES, backDraft, undoWords, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, noteWords, pickedWords, pushDraft,
-  readablePairs, renamed, roleName, startFrom, swatches, willAdjust, withColor,
+  readablePairs, renamed, roleName, startDefault, startFrom, swatches, willAdjust, withColor,
 } from "../parts/design-rules.js";
 
 const STILL_MS = 20000;
@@ -28,7 +28,7 @@ export async function createDesign(context) {
   const { api, meta } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "content-card", "empty-state", "segmented-control", "select-field", "text-field", "loading-spinner", "skeleton-block");
   let status = null;
-  let options = { themes: [], current: "" };
+  let options = { themes: [], current: "", wearing: "" };
   let look = null;
   let entry = null; // { draft, theme, changes, suggested }
   let history = [];
@@ -358,7 +358,8 @@ export async function createDesign(context) {
     }
     try {
       const raw = await api.get("theme-draft");
-      options = { themes: startFrom(raw), current: raw.current || "" };
+      const seasons = await api.get("seasons").catch(() => null);
+      options = { themes: startFrom(raw), current: raw.current || "", wearing: String(seasons?.wearing || "") };
       look = await api.get("look").catch(() => null);
     } catch (error) {
       if (error?.status === 401) throw error;
@@ -366,7 +367,7 @@ export async function createDesign(context) {
       return;
     }
     base.options = options.themes.length ? options.themes : [{ value: "", label: say("design.baseOwn") }];
-    base.value = options.themes.some((t) => t.value === options.current) ? options.current : (options.themes[0]?.value || "");
+    base.value = startDefault(options.themes, options.current, options.wearing);
     fill(ideas, ...IDEAS().map((idea) => h("action-button", { variant: "secondary", size: "sm", onClick: () => { words.value = idea.text; words.error = ""; paintGoes(); words.querySelector("textarea")?.focus(); } }, idea.name)));
     paintGoes();
     fill(form, base, words,

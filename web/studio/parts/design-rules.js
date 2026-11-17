@@ -93,6 +93,16 @@ export function startFrom(options) {
 }
 
 /**
+ * The look Start from begins on: the one that is up (`wearing`, from the seasons), then the
+ * stored one (`current`), then the first. A site decorated by the calendar stores its plain look,
+ * so starting there would drop the season's touches she is looking at.
+ */
+export function startDefault(themes = [], current = "", wearing = "") {
+  const has = (name) => Boolean(name) && themes.some((theme) => theme.value === name);
+  return has(wearing) ? wearing : has(current) ? current : (themes[0]?.value || "");
+}
+
+/**
  * The draft with one colour changed by hand, or null when `hex` isn't a colour or the role isn't
  * one of the six: nothing but a checked hex ever enters a draft.
  */

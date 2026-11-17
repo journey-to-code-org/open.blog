@@ -849,6 +849,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `curate.takenOut` | her | Taken out of what readers get. | none | 60 |
 | `curate.text` | her | Your words | none | 40 |
 | `curate.title` | her | For readers of this post | none | 48 |
+| `decorations.addedFirst` | her | Added first on your calendar, from today, so it shows over the season under it. Not saved yet. | none | 188 |
 | `decorations.betweenOff` | her | The look {product} wears while the calendar is off. | `{product}` | 102 |
 | `decorations.byItself` | her | {product} changes by itself on the days below. | `{product}` | 92 |
 | `decorations.calendarOff` | her | {product} wears {theme} every day. The calendar is off. | `{product}` `{theme}` | 110 |

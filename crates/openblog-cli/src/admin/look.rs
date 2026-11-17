@@ -60,7 +60,7 @@ fn describe(root: &Path, bytes: &[u8]) -> Result<Json, String> {
         "theme": { "name": theme.name, "label": theme.label },
         "controls": controls,
         "honored": theme.customizable,
-        "note": look::unhonored_note(&theme.label, &theme.customizable),
+        "note": look::unhonored_note(&theme.customizable),
         "adjustments": notes,
         "refused": refused,
         "looks": look_presets::catalog_json(),

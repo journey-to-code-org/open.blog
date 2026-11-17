@@ -99,7 +99,12 @@ fn reading_the_look_describes_what_the_theme_honors() {
     .unwrap();
     let limited = get(&f, &session);
     assert_eq!(limited["honored"], json!(["accent", "roundness"]));
-    assert!(limited["note"].as_str().unwrap().contains("Plain"));
+    // The note names the choices, never the look: the stored look isn't always the one that is up.
+    let note = limited["note"].as_str().unwrap();
+    assert!(
+        note.contains("Font style") && !note.contains("Plain"),
+        "{note}"
+    );
     let hidden: Vec<&str> = limited["controls"]
         .as_array()
         .unwrap()
