@@ -1,0 +1,336 @@
+{
+  "choices": [
+    {
+      "value": "airhockey",
+      "label": "Air Hockey"
+    },
+    {
+      "value": "anagrams",
+      "label": "Anagrams"
+    },
+    {
+      "value": "backgammon",
+      "label": "Backgammon"
+    },
+    {
+      "value": "billiards",
+      "label": "Billiards"
+    },
+    {
+      "value": "blackjack",
+      "label": "Blackjack"
+    },
+    {
+      "value": "bluff",
+      "label": "Bluff"
+    },
+    {
+      "value": "bowling",
+      "label": "Bowling"
+    },
+    {
+      "value": "bridge",
+      "label": "Bridge"
+    },
+    {
+      "value": "canasta",
+      "label": "Canasta"
+    },
+    {
+      "value": "carrom",
+      "label": "Carrom"
+    },
+    {
+      "value": "checkers",
+      "label": "Checkers"
+    },
+    {
+      "value": "chess",
+      "label": "Chess"
+    },
+    {
+      "value": "chipstack",
+      "label": "Chip Stack"
+    },
+    {
+      "value": "combat",
+      "label": "Combat"
+    },
+    {
+      "value": "contractrummy",
+      "label": "Contract Rummy"
+    },
+    {
+      "value": "crazy8",
+      "label": "Crazy Eights"
+    },
+    {
+      "value": "cribbage",
+      "label": "Cribbage"
+    },
+    {
+      "value": "crisscross",
+      "label": "Criss-Crosswords"
+    },
+    {
+      "value": "crokinole",
+      "label": "Crokinole"
+    },
+    {
+      "value": "cuckoo",
+      "label": "Cuckoo"
+    },
+    {
+      "value": "counter",
+      "label": "Delbie's Counter"
+    },
+    {
+      "value": "delbies",
+      "label": "Delbie's Daycare & Geriatrics"
+    },
+    {
+      "value": "dominoes",
+      "label": "Dominoes"
+    },
+    {
+      "value": "drinkingpyramid",
+      "label": "Drinking Pyramid"
+    },
+    {
+      "value": "dropfour",
+      "label": "Drop Four"
+    },
+    {
+      "value": "durak",
+      "label": "Durak"
+    },
+    {
+      "value": "euchre",
+      "label": "Euchre"
+    },
+    {
+      "value": "fivedraw",
+      "label": "Five Card Draw"
+    },
+    {
+      "value": "fivehundred",
+      "label": "Five Hundred"
+    },
+    {
+      "value": "flickfootball",
+      "label": "Flick Football"
+    },
+    {
+      "value": "freecell",
+      "label": "FreeCell"
+    },
+    {
+      "value": "fruitsalad",
+      "label": "Fruit Salad"
+    },
+    {
+      "value": "gin",
+      "label": "Gin Rummy"
+    },
+    {
+      "value": "go",
+      "label": "Go"
+    },
+    {
+      "value": "gofish",
+      "label": "Go Fish"
+    },
+    {
+      "value": "golf",
+      "label": "Golf"
+    },
+    {
+      "value": "handfoot",
+      "label": "Hand and Foot"
+    },
+    {
+      "value": "hangman",
+      "label": "Hangman"
+    },
+    {
+      "value": "hearts",
+      "label": "Hearts"
+    },
+    {
+      "value": "horserace",
+      "label": "Horse Race"
+    },
+    {
+      "value": "kingscup",
+      "label": "Kings Cup"
+    },
+    {
+      "value": "kingscorner",
+      "label": "Kings in the Corner"
+    },
+    {
+      "value": "klondike",
+      "label": "Klondike Solitaire"
+    },
+    {
+      "value": "liarsdice",
+      "label": "Liar's Dice"
+    },
+    {
+      "value": "liarspoker",
+      "label": "Liar's Poker"
+    },
+    {
+      "value": "mahjongriichi",
+      "label": "Mahjong Riichi"
+    },
+    {
+      "value": "mahjongshanghai",
+      "label": "Mahjong Shanghai"
+    },
+    {
+      "value": "mancala",
+      "label": "Mancala"
+    },
+    {
+      "value": "memory",
+      "label": "Memory"
+    },
+    {
+      "value": "minigolf",
+      "label": "Mini Golf"
+    },
+    {
+      "value": "ohhell",
+      "label": "Oh Hell"
+    },
+    {
+      "value": "oldmaid",
+      "label": "Old Maid"
+    },
+    {
+      "value": "pig",
+      "label": "Pig"
+    },
+    {
+      "value": "pinochle",
+      "label": "Pinochle"
+    },
+    {
+      "value": "pitch",
+      "label": "Pitch"
+    },
+    {
+      "value": "president",
+      "label": "President"
+    },
+    {
+      "value": "pyramid",
+      "label": "Pyramid"
+    },
+    {
+      "value": "readtheroom",
+      "label": "Read the Room"
+    },
+    {
+      "value": "reversi",
+      "label": "Reversi"
+    },
+    {
+      "value": "ridethebus",
+      "label": "Ride the Bus"
+    },
+    {
+      "value": "pinkslips",
+      "label": "Road to the Shootout"
+    },
+    {
+      "value": "rummy500",
+      "label": "Rummy 500"
+    },
+    {
+      "value": "secretword",
+      "label": "Secret Word"
+    },
+    {
+      "value": "sevens",
+      "label": "Sevens"
+    },
+    {
+      "value": "shipcaptaincrew",
+      "label": "Ship, Captain, Crew"
+    },
+    {
+      "value": "skyfire",
+      "label": "Shitstorm"
+    },
+    {
+      "value": "shuffleboard",
+      "label": "Shuffleboard"
+    },
+    {
+      "value": "shutthebox",
+      "label": "Shut the Box"
+    },
+    {
+      "value": "slapjack",
+      "label": "Slapjack"
+    },
+    {
+      "value": "speed",
+      "label": "Speed"
+    },
+    {
+      "value": "spider",
+      "label": "Spider"
+    },
+    {
+      "value": "spite",
+      "label": "Spite and Malice"
+    },
+    {
+      "value": "switch",
+      "label": "Switch"
+    },
+    {
+      "value": "tenthousand",
+      "label": "Ten Thousand"
+    },
+    {
+      "value": "holdem",
+      "label": "Texas Hold'em"
+    },
+    {
+      "value": "thirtyone",
+      "label": "Thirty-One"
+    },
+    {
+      "value": "tictactoe",
+      "label": "Tic-Tac-Toe"
+    },
+    {
+      "value": "bulwark",
+      "label": "Tower of Ryan"
+    },
+    {
+      "value": "war",
+      "label": "War"
+    },
+    {
+      "value": "whist",
+      "label": "Whist"
+    },
+    {
+      "value": "wordhunt",
+      "label": "Word Hunt"
+    },
+    {
+      "value": "yacht",
+      "label": "Yacht"
+    },
+    {
+      "value": "zubraquest",
+      "label": "Zubra Quest"
+    }
+  ]
+}

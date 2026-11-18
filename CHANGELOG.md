@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- This repository's own site wears a theme of its own, `themes/example` (the base theme plus open.parlor's
+  `<card-room>` as a landing page section, its games read from a choices file). It is not written by
+  `openblog init`; the base, demo and paper themes are unchanged.
 - A theme component's `choice` setting can keep a long list in a file: `"choicesFrom"` names a `.json` file
   in the theme folder whose choices follow the ones written in `theme.json`, up to 500 in all (ADR 0433).
   The file is the theme's own, never an address elsewhere, and is checked when the themes load.
