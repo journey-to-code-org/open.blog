@@ -12,6 +12,7 @@ import { createDidLine } from "../parts/did-line.js";
 import { innerAria } from "../parts/inner-button.js";
 import { previewSectionText, previewStateText, revealSlotText, togetherProblem } from "../parts/together-rules.js";
 import { partParagraphs } from "../parts/part-rules.js";
+import { sharedWithYouNodes } from "../parts/together-named.js";
 
 export async function createTogetherRead(context, id, route = {}) {
   const { api } = context;
@@ -37,16 +38,26 @@ export async function createTogetherRead(context, id, route = {}) {
 
   async function load() {
     try {
-      const [listed, reveal] = await Promise.all([
-        api.get("collaboration/publications"),
-        api.get(`collaboration/reveal?publicationId=${encodeURIComponent(id)}`),
-      ]);
+      const listed = await api.get("collaboration/publications");
       summary = (listed.publications || []).find((s) => s.publicationId === id) || null;
       if (!summary) throw Object.assign(new Error("gone"), { status: 404, data: { code: "not-found" } });
+      // #705: someone who only reads, where each writer chooses their readers, gets only the
+      // versions named for them. They have no part of their own and nothing to agree to.
+      const onlyReads = !summary.you?.drafter && summary.policy === "namedRecipients";
+      const reveal = onlyReads ? null : await api.get(`collaboration/reveal?publicationId=${encodeURIComponent(id)}`);
       title = summary.title || summary.guidingQuestion || say("together.untitled");
       back.textContent = say("together.backTo", { title });
       crumb.items = [...(coWriter ? [] : [{ label: say("together.home"), href: "#/" }]), { label: say("together.nav"), href: "#/together" },
         { label: title, href: `#/together/${encodeURIComponent(id)}` }, { label: say("read.title"), href: "" }];
+      if (onlyReads) {
+        const shared = await api.get(`collaboration/contributions/shared?publicationId=${encodeURIComponent(id)}`);
+        heading.textContent = say("named.title");
+        parts.removeAttribute("aria-busy");
+        fill(parts, h("p", { class: "studio-lede", text: say("named.lede") }), ...sharedWithYouNodes(shared, summary.people));
+        seeButton.hidden = true;
+        bar.hidden = true;
+        return;
+      }
       drawParts(reveal?.slots || []);
     } catch (error) {
       if (error.status === 401) throw error;

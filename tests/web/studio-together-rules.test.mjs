@@ -80,7 +80,7 @@ test("the start request keeps the order, names no one but her, and starts sharin
   assert.equal(sharedReflectionPayload({ ...draft(), revealPolicy: "voluntary" }).revealPolicy, "voluntary");
   assert.equal(sharedReflectionPayload({ ...draft(), revealPolicy: "independent" }).revealPolicy, "allReady", "never on her layer");
   assert.doesNotMatch(JSON.stringify(payload), /adminUser|participant|roles|binding/);
-  assert.deepEqual(REVEAL_POLICIES.map((p) => p.value), ["allReady", "voluntary"]);
+  assert.deepEqual(REVEAL_POLICIES.map((p) => p.value), ["allReady", "voluntary", "namedRecipients"]);
 });
 
 test("the server's field names land on the start form's own fields", () => {
@@ -334,4 +334,21 @@ test("your name on it: three choices, a typed name checked, and said back in her
   // A writer who shared but hasn't said shows so on the list of people.
   const rows = togetherPeopleRows({ people: [{ displayName: "Ruth", where: "ready", credit: "notChosen" }] });
   assert.match(rows[0].text, /hasn't said how their name goes on it/);
+});
+
+test("#705: a third way to read each other's parts, and a layout that names a part taken out", async () => {
+  const { sharedReflectionPayload, staleArrangement } = await import("../../web/studio/parts/together-rules.js");
+  // A reflection set to "people you choose" has a choice to show, and a new one may start that way.
+  assert.ok(REVEAL_POLICIES.find((p) => p.value === "namedRecipients").words());
+  assert.equal(sharedReflectionPayload({ revealPolicy: "namedRecipients" }).revealPolicy, "namedRecipients");
+  assert.equal(sharedReflectionPayload({ revealPolicy: "voluntary" }).revealPolicy, "voluntary");
+  assert.equal(sharedReflectionPayload({ revealPolicy: "independent" }).revealPolicy, "allReady", "never is chosen later, on purpose");
+  assert.equal(sharedReflectionPayload({}).revealPolicy, "allReady");
+  // The server answers 409 with only the layout's revision; any other 409 is an ordinary problem.
+  assert.deepEqual(staleArrangement({ status: 409, data: { error: "x", revision: 3 } }), { revision: 3 });
+  assert.deepEqual(staleArrangement({ status: 409, data: { revision: 0 } }), { revision: 0 });
+  assert.equal(staleArrangement({ status: 409, data: { error: "changed" } }), null);
+  assert.equal(staleArrangement({ status: 404, data: { revision: 3 } }), null);
+  assert.equal(staleArrangement({ status: 409, data: { revision: "3" } }), null);
+  assert.equal(staleArrangement(null), null);
 });

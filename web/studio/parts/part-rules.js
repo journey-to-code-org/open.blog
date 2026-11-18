@@ -183,3 +183,68 @@ export function savesLeftText(number) {
 export function partSaveMode(meta) {
   return meta?.together?.workingCopy === true ? "working" : "version";
 }
+
+// ---- several parts per writer (#705): `GET collaboration/contributions`
+
+/**
+ * A writer's own parts as the server lists them, split into the first (the part every writer
+ * has: its id is the writer's own) and the ones added after it, in her order. Each is
+ * `{ id, number, text }`. Anything that isn't a part with an id is left out.
+ */
+export function ownParts(reply) {
+  const views = (Array.isArray(reply?.contributions) ? reply.contributions : [])
+    .filter((view) => typeof view?.stamp?.contributionId === "string" && view.stamp.contributionId)
+    .map((view) => ({ id: view.stamp.contributionId, mine: view.stamp.contributionId === view.stamp.authorParticipantId,
+      number: Number.isInteger(view.stamp.number) ? view.stamp.number : 0, text: String(view.markdown ?? "") }));
+  const first = views.find((view) => view.mine) || null;
+  const part = ({ id, number, text }) => ({ id, number, text });
+  return { first: first ? part(first) : null, extras: views.filter((view) => view !== first).map(part),
+    orderRevision: Number.isInteger(reply?.orderRevision) ? reply.orderRevision : 0 };
+}
+
+/** The body that moves one added part by one place: the order she saw and the one she wants, the first part first in both. */
+export function partOrderPayload(publicationId, first, extras, index, by, orderRevision) {
+  const to = index + by;
+  if (!first || index < 0 || index >= extras.length || to < 0 || to >= extras.length) return null;
+  const ids = extras.map((part) => part.id);
+  const next = [...ids];
+  [next[index], next[to]] = [next[to], next[index]];
+  return { publicationId, expectedRevision: orderRevision, expected: [first.id, ...ids], order: [first.id, ...next] };
+}
+
+/** What "Let the others read it" offers when she has added parts: every current part at its saved version. */
+export function partOffers(first, extras) {
+  return [first, ...extras].filter(Boolean).map((part) => ({ contributionId: part.id, revision: part.number }));
+}
+
+/** The number of the first added part with no words, counted as she sees them (the first part is 1), or 0. */
+export function emptyAddedPart(extras) {
+  const at = extras.findIndex((part) => !String(part.text ?? "").trim());
+  return at < 0 ? 0 : at + 2;
+}
+
+// ---- sharing with people you choose (#705)
+
+/** The people a writer may name, from the reveal slots: `{ id, name }`, in the server's order. */
+export function readerChoices(slots) {
+  return (Array.isArray(slots) ? slots : [])
+    .filter((slot) => slot?.mayReceive === true && typeof slot.participantId === "string" && slot.participantId)
+    .map((slot) => ({ id: slot.participantId, name: String(slot.displayName || "") }));
+}
+
+/**
+ * What someone was chosen to read, as `[{ name, texts }]`: one entry per writer in the order
+ * the server gave, each with that writer's parts in order. The name is the one the server sent
+ * beside the part, else the one the list of people has, else "".
+ */
+export function sharedWithYou(reply, people) {
+  const names = new Map((Array.isArray(people) ? people : []).map((person) => [person?.id || person?.participantId, String(person?.displayName || "")]));
+  const writers = new Map();
+  for (const view of Array.isArray(reply?.contributions) ? reply.contributions : []) {
+    const author = view?.stamp?.authorParticipantId;
+    if (typeof author !== "string") continue;
+    if (!writers.has(author)) writers.set(author, { name: String(view.authorName || names.get(author) || ""), texts: [] });
+    writers.get(author).texts.push(String(view.markdown ?? ""));
+  }
+  return [...writers.values()];
+}

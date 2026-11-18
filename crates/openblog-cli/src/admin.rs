@@ -14984,10 +14984,21 @@ fn read_visible_contributions(
         Ok(views) => views,
         Err(response) => return response,
     };
-    Response::json(
-        200,
-        &json!({ "contributions": views.iter().map(draft_json).collect::<Vec<_>>() }),
-    )
+    // Each shared part carries its writer's name, so someone who only reads can tell whose it is
+    // without any other route; a name is given only beside a part they may already read.
+    let contributions = views
+        .iter()
+        .map(|view| {
+            let name = record
+                .collaboration
+                .participants
+                .iter()
+                .find(|participant| participant.id == view.stamp.author_participant_id)
+                .map(|participant| participant.display_name.as_str());
+            json!({ "stamp": view.stamp, "markdown": view.markdown, "authorName": name })
+        })
+        .collect::<Vec<_>>();
+    Response::json(200, &json!({ "contributions": contributions }))
 }
 
 fn visible_contributions(
@@ -45542,6 +45553,10 @@ series: letters
         );
         assert_eq!(shared.status, 200);
         assert!(String::from_utf8_lossy(&shared.body).contains("EXTRA-SECRET"));
+        assert!(
+            body_json(&shared)["contributions"][0]["authorName"].is_string(),
+            "a shared part names its writer"
+        );
         assert!(body_json(&moments_read(&f, &grace, &id))
             .to_string()
             .contains("MULTI-GATE-MOMENT"));

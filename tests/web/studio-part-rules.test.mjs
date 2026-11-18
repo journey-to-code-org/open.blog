@@ -162,3 +162,55 @@ test("the token lives only in memory: nothing that holds it touches storage, a l
     assert.doesNotMatch(readFileSync(file, "utf8"), /X-Openblog-Invitation|holdJoinToken\(/, file);
   }
 });
+
+test("#705: a writer's parts are her first and the ones she added, in her order", async () => {
+  const { ownParts, partOrderPayload, partOffers, emptyAddedPart } = await import("../../web/studio/parts/part-rules.js");
+  const stamp = (contributionId, number) => ({ contributionId, number, authorParticipantId: "ann", savedAt: "", digest: "" });
+  const reply = { orderRevision: 4, contributions: [
+    { stamp: stamp("ann", 3), markdown: "first" },
+    { stamp: stamp("contribution-aa", 1), markdown: "second" },
+    { stamp: stamp("contribution-bb", 2), markdown: "" },
+    { markdown: "no stamp" },
+  ] };
+  const parts = ownParts(reply);
+  assert.deepEqual(parts.first, { id: "ann", number: 3, text: "first" });
+  assert.deepEqual(parts.extras, [{ id: "contribution-aa", number: 1, text: "second" }, { id: "contribution-bb", number: 2, text: "" }]);
+  assert.equal(parts.orderRevision, 4);
+  assert.deepEqual(ownParts(null), { first: null, extras: [], orderRevision: 0 });
+  // Moving one names the order she saw and the one she wants; the first part stays first.
+  assert.deepEqual(partOrderPayload("shared-1", parts.first, parts.extras, 1, -1, 4), { publicationId: "shared-1", expectedRevision: 4,
+    expected: ["ann", "contribution-aa", "contribution-bb"], order: ["ann", "contribution-bb", "contribution-aa"] });
+  assert.equal(partOrderPayload("shared-1", parts.first, parts.extras, 0, -1, 4), null, "nothing above the first added part");
+  assert.equal(partOrderPayload("shared-1", parts.first, parts.extras, 1, 1, 4), null);
+  assert.equal(partOrderPayload("shared-1", null, parts.extras, 1, -1, 4), null);
+  // Sharing offers every current part at its saved version.
+  assert.deepEqual(partOffers(parts.first, parts.extras), [{ contributionId: "ann", revision: 3 }, { contributionId: "contribution-aa", revision: 1 }, { contributionId: "contribution-bb", revision: 2 }]);
+  assert.deepEqual(partOffers(null, []), []);
+  // A part with no words is named by the number she sees.
+  assert.equal(emptyAddedPart(parts.extras), 3);
+  assert.equal(emptyAddedPart([{ text: "x" }]), 0);
+  assert.equal(emptyAddedPart([]), 0);
+});
+
+test("#705: who may be named, and what was shared with someone who only reads", async () => {
+  const { readerChoices, sharedWithYou } = await import("../../web/studio/parts/part-rules.js");
+  const slots = [
+    { participantId: "ann", displayName: "Ann Owner", mayReceive: false, kind: "own" },
+    { participantId: "lee", displayName: "Lee Park", mayReceive: true },
+    { participantId: "sam", displayName: "Sam", mayReceive: true, nonDrafter: true },
+    { displayName: "No id", mayReceive: true },
+  ];
+  assert.deepEqual(readerChoices(slots), [{ id: "lee", name: "Lee Park" }, { id: "sam", name: "Sam" }]);
+  assert.deepEqual(readerChoices(null), []);
+  const reply = { contributions: [
+    { stamp: { contributionId: "ann", authorParticipantId: "ann", number: 2 }, markdown: "what Ann chose" },
+    { stamp: { contributionId: "contribution-aa", authorParticipantId: "gone", number: 1 }, markdown: "left" },
+    { stamp: { contributionId: "contribution-bb", authorParticipantId: "ann", number: 1 }, markdown: "Ann's other part" },
+    { markdown: "no stamp" },
+  ] };
+  assert.deepEqual(sharedWithYou(reply, [{ id: "ann", displayName: "Ann Owner" }]), [{ name: "Ann Owner", texts: ["what Ann chose", "Ann's other part"] }, { name: "", texts: ["left"] }]);
+  assert.deepEqual(sharedWithYou(reply, [{ participantId: "ann", displayName: "Ann" }])[0].name, "Ann");
+  const named = { contributions: [{ stamp: { authorParticipantId: "p1" }, markdown: "x", authorName: "Sent Name" }] };
+  assert.deepEqual(sharedWithYou(named, [{ id: "p1", displayName: "Listed" }]), [{ name: "Sent Name", texts: ["x"] }]);
+  assert.deepEqual(sharedWithYou(null, null), []);
+});

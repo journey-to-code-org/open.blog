@@ -1085,6 +1085,28 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `did.undo` | her | Undo | none | 40 |
 | `did.undoFind` | her | Undo: {what} | `{what}` | 40 |
 | `did.undone` | her | Taken back. | none | 40 |
+| `extra.add` | her | Add another part | none | 40 |
+| `extra.added` | her | Part {n} added. Only you can read it. | `{n}` | 74 |
+| `extra.changedElsewhere` | her | Your parts changed somewhere else. This is how they are now. | none | 200 |
+| `extra.emptyPart` | her | Part {n} has no words yet. Write something in it, or take it out. | `{n}` | 200 |
+| `extra.help` | her | A part of its own, with its own place in the layout. Whoever runs it decides where each one goes. | none | 200 |
+| `extra.moveDownLabel` | her | Move part {n} down | `{n}` | 40 |
+| `extra.moveUpLabel` | her | Move part {n} up | `{n}` | 40 |
+| `extra.moved` | her | Moved. It is part {n} now. | `{n}` | 52 |
+| `extra.needsWholePiece` | her | You can add another part once the rule is that everyone agrees to all of it together. Whoever runs it can change that under Rules. | none | 220 |
+| `extra.notSaved` | her | Not saved yet · kept on this computer. | none | 76 |
+| `extra.partLabel` | her | Part {n} | `{n}` | 40 |
+| `extra.save` | her | Save this part | none | 40 |
+| `extra.saved` | her | Part {n} saved. Only you can read it. | `{n}` | 74 |
+| `extra.takeOut` | her | Take it out | none | 40 |
+| `extra.takeOutAsk` | her | Take part {n} out for good? | `{n}` | 54 |
+| `extra.takeOutGo` | her | Take it out | none | 40 |
+| `extra.takeOutLabel` | her | Take part {n} out | `{n}` | 40 |
+| `extra.takeOutLayout` | her | If the layout uses it, the layout has to be started again, and everyone agrees again. | none | 200 |
+| `extra.takeOutNo` | her | Keep it | none | 40 |
+| `extra.takeOutText` | her | Its words and every saved version of it go. This can't be undone. | none | 200 |
+| `extra.title` | her | Your other parts | none | 40 |
+| `extra.tookOut` | her | Taken out. | none | 40 |
 | `form.addColumn` | her | Add a column | none | 40 |
 | `form.addIt` | her | Add it | none | 40 |
 | `form.addRow` | her | Add a row | none | 40 |
@@ -1809,6 +1831,15 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `layout.sheetTitle` | her | Layout of {title} | `{title}` | 40 |
 | `layout.sideBySide` | her | Side by side | none | 40 |
 | `layout.sideBySideHelp` | her | Parts sit in columns on a wide screen and one after another on a phone. | none | 200 |
+| `layout.staleText` | her | Someone took one of their parts out after the layout was saved, so it can't be shown or used as it is. | none | 200 |
+| `layout.staleTitle` | her | This layout has a part in it that was taken out | none | 94 |
+| `layout.startAgain` | her | Start the layout again | none | 44 |
+| `layout.startAgainAsk` | her | Start the layout again? | none | 46 |
+| `layout.startAgainHelp` | her | Starting again puts everyone's parts in, in order. Anyone who can read every part can do it. | none | 200 |
+| `layout.startAgainNeedsAll` | her | You can start it again once you can read every part. Ask the others to let you read theirs. | none | 200 |
+| `layout.startAgainNo` | her | Leave it | none | 40 |
+| `layout.startAgainText` | her | The layout that was saved goes, and everyone's parts go in, in order. This can't be undone. | none | 200 |
+| `layout.startedAgain` | her | Started again. Everyone agrees again to the new layout. | none | 200 |
 | `layout.title` | her | Layout | none | 40 |
 | `layout.turn` | her | {name}, part {part} | `{name}` `{part}` | 40 |
 | `layout.turnLabel` | her | Label | none | 40 |
@@ -1926,6 +1957,26 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `name.typed` | her | A name I write here | none | 40 |
 | `name.typedLabel` | her | The name readers see | none | 40 |
 | `name.whereNaming` | her | hasn't said how their name goes on it | none | 74 |
+| `named.accessChanged` | her | Who's in this changed while you were choosing. Nothing more was shared. Choose again. | none | 200 |
+| `named.ask` | her | Who reads your part as it is now? | none | 66 |
+| `named.askAllParts` | her | They get all {n} of your parts as they are now. Changes you make after this stay private until you choose again. | `{n}` | 240 |
+| `named.askText` | her | They get the words you have now. Changes you make after this stay private until you choose again. | none | 220 |
+| `named.cantTakeBack` | her | Once someone has read it, it can't be taken back. | none | 98 |
+| `named.choose` | her | Choose who reads it | none | 40 |
+| `named.chooseSomeone` | her | Choose at least one person. | none | 54 |
+| `named.close` | her | Close | none | 40 |
+| `named.empty` | her | This part has no words. | none | 46 |
+| `named.from` | her | From {name} | `{name}` | 40 |
+| `named.go` | her | Let them read it | none | 40 |
+| `named.lede` | her | Only what each person chose to let you read, as it was when they chose. | none | 200 |
+| `named.no` | her | Not yet | none | 40 |
+| `named.nobody` | her | There's nobody to choose yet. Invite someone first. | none | 102 |
+| `named.nothingYet` | her | Nobody has shared a part with you yet. | none | 76 |
+| `named.shared` | her | Shared with {names}. They can read the words you had just now. | `{names}` | 240 |
+| `named.sharedShort` | her | Shared with the people you chose. | none | 66 |
+| `named.someone` | her | someone no longer in this | none | 50 |
+| `named.title` | her | Shared with you | none | 40 |
+| `named.who` | her | Let these people read it | none | 48 |
 | `notebook.aboutMissing` | her | About a passage that's gone | none | 54 |
 | `notebook.aboutPassages` | her | About these passages | none | 40 |
 | `notebook.aboutSources` | her | About these sources | none | 40 |
@@ -2118,6 +2169,7 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `part.saved` | her | Saved · only you can read it. | none | 58 |
 | `part.saving` | her | Saving… | none | 40 |
 | `part.share` | her | Let the others read it | none | 44 |
+| `part.shareAllParts` | her | All {n} of your parts go together, as they are now. | `{n}` | 102 |
 | `part.shareAsk` | her | Let the others read your part as it is now? | none | 86 |
 | `part.shareAskText` | her | When everyone's ready, you'll all read each other's parts. Once someone has read it, it can't be taken back. Changes you make after this stay private until you share again. | none | 240 |
 | `part.shareAskVoluntary` | her | Anyone else who's ready reads it now. Once someone has read it, it can't be taken back. Changes you make after this stay private until you share again. | none | 240 |
@@ -4418,6 +4470,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `together.placeTaken` | her | Something else is already where this would go on {product}. Nothing changed. | `{product}` | 200 |
 | `together.policyAllReady` | her | When everyone's ready | none | 42 |
 | `together.policyAllReadyHelp` | her | Nobody reads anyone's part until everyone has said they're ready. | none | 130 |
+| `together.policyNamed` | her | Only the people each writer chooses | none | 70 |
+| `together.policyNamedHelp` | her | Each writer picks who reads the words they have now. Nobody else sees them. | none | 150 |
 | `together.policyVoluntary` | her | Each person, when they're ready | none | 62 |
 | `together.policyVoluntaryHelp` | her | Anyone who's ready reads the others who are ready too. | none | 108 |
 | `together.publishAsk` | her | Put “{title}” on {product} now? | `{title}` `{product}` | 62 |

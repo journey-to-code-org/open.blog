@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Writing together: a writer can add parts of their own under **Your other parts** (add, save, move, take
+  out), and all of them are shared together. **Only the people each writer chooses** is a third way to read
+  each other's parts: the writer picks who reads the words as they are, and someone who only reads sees
+  **Shared with you**. A layout that still names a part taken out says so and can be started again.
+  `GET collaboration/contributions/shared` gives each part's `authorName` (#705).
 - The repository no longer publishes its own blog to GitHub Pages. The blog is on Netlify, and the Pages
   address holds the documentation, which the blog's hourly deploy kept replacing.
 - Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn

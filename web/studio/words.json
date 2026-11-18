@@ -6363,6 +6363,156 @@
       "max": 40,
       "vars": []
     },
+    "extra.add": {
+      "text": "Add another part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.added": {
+      "text": "Part {n} added. Only you can read it.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.changedElsewhere": {
+      "text": "Your parts changed somewhere else. This is how they are now.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "extra.emptyPart": {
+      "text": "Part {n} has no words yet. Write something in it, or take it out.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.help": {
+      "text": "A part of its own, with its own place in the layout. Whoever runs it decides where each one goes.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "extra.moveDownLabel": {
+      "text": "Move part {n} down",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.moveUpLabel": {
+      "text": "Move part {n} up",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.moved": {
+      "text": "Moved. It is part {n} now.",
+      "layer": "her",
+      "max": 52,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.needsWholePiece": {
+      "text": "You can add another part once the rule is that everyone agrees to all of it together. Whoever runs it can change that under Rules.",
+      "layer": "her",
+      "max": 220,
+      "vars": []
+    },
+    "extra.notSaved": {
+      "text": "Not saved yet · kept on this computer.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "extra.partLabel": {
+      "text": "Part {n}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.save": {
+      "text": "Save this part",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.saved": {
+      "text": "Part {n} saved. Only you can read it.",
+      "layer": "her",
+      "max": 74,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.takeOut": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.takeOutAsk": {
+      "text": "Take part {n} out for good?",
+      "layer": "her",
+      "max": 54,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.takeOutGo": {
+      "text": "Take it out",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.takeOutLabel": {
+      "text": "Take part {n} out",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "n"
+      ]
+    },
+    "extra.takeOutLayout": {
+      "text": "If the layout uses it, the layout has to be started again, and everyone agrees again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "extra.takeOutNo": {
+      "text": "Keep it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.takeOutText": {
+      "text": "Its words and every saved version of it go. This can't be undone.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "extra.title": {
+      "text": "Your other parts",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "extra.tookOut": {
+      "text": "Taken out.",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "form.addColumn": {
       "text": "Add a column",
       "layer": "her",
@@ -11118,6 +11268,60 @@
       "max": 200,
       "vars": []
     },
+    "layout.staleText": {
+      "text": "Someone took one of their parts out after the layout was saved, so it can't be shown or used as it is.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.staleTitle": {
+      "text": "This layout has a part in it that was taken out",
+      "layer": "her",
+      "max": 94,
+      "vars": []
+    },
+    "layout.startAgain": {
+      "text": "Start the layout again",
+      "layer": "her",
+      "max": 44,
+      "vars": []
+    },
+    "layout.startAgainAsk": {
+      "text": "Start the layout again?",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "layout.startAgainHelp": {
+      "text": "Starting again puts everyone's parts in, in order. Anyone who can read every part can do it.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.startAgainNeedsAll": {
+      "text": "You can start it again once you can read every part. Ask the others to let you read theirs.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.startAgainNo": {
+      "text": "Leave it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "layout.startAgainText": {
+      "text": "The layout that was saved goes, and everyone's parts go in, in order. This can't be undone.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "layout.startedAgain": {
+      "text": "Started again. Everyone agrees again to the new layout.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
     "layout.title": {
       "text": "Layout",
       "layer": "her",
@@ -11848,6 +12052,132 @@
       "text": "hasn't said how their name goes on it",
       "layer": "her",
       "max": 74,
+      "vars": []
+    },
+    "named.accessChanged": {
+      "text": "Who's in this changed while you were choosing. Nothing more was shared. Choose again.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "named.ask": {
+      "text": "Who reads your part as it is now?",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "named.askAllParts": {
+      "text": "They get all {n} of your parts as they are now. Changes you make after this stay private until you choose again.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "n"
+      ]
+    },
+    "named.askText": {
+      "text": "They get the words you have now. Changes you make after this stay private until you choose again.",
+      "layer": "her",
+      "max": 220,
+      "vars": []
+    },
+    "named.cantTakeBack": {
+      "text": "Once someone has read it, it can't be taken back.",
+      "layer": "her",
+      "max": 98,
+      "vars": []
+    },
+    "named.choose": {
+      "text": "Choose who reads it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "named.chooseSomeone": {
+      "text": "Choose at least one person.",
+      "layer": "her",
+      "max": 54,
+      "vars": []
+    },
+    "named.close": {
+      "text": "Close",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "named.empty": {
+      "text": "This part has no words.",
+      "layer": "her",
+      "max": 46,
+      "vars": []
+    },
+    "named.from": {
+      "text": "From {name}",
+      "layer": "her",
+      "max": 40,
+      "vars": [
+        "name"
+      ]
+    },
+    "named.go": {
+      "text": "Let them read it",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "named.lede": {
+      "text": "Only what each person chose to let you read, as it was when they chose.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "named.no": {
+      "text": "Not yet",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "named.nobody": {
+      "text": "There's nobody to choose yet. Invite someone first.",
+      "layer": "her",
+      "max": 102,
+      "vars": []
+    },
+    "named.nothingYet": {
+      "text": "Nobody has shared a part with you yet.",
+      "layer": "her",
+      "max": 76,
+      "vars": []
+    },
+    "named.shared": {
+      "text": "Shared with {names}. They can read the words you had just now.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "names"
+      ]
+    },
+    "named.sharedShort": {
+      "text": "Shared with the people you chose.",
+      "layer": "her",
+      "max": 66,
+      "vars": []
+    },
+    "named.someone": {
+      "text": "someone no longer in this",
+      "layer": "her",
+      "max": 50,
+      "vars": []
+    },
+    "named.title": {
+      "text": "Shared with you",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "named.who": {
+      "text": "Let these people read it",
+      "layer": "her",
+      "max": 48,
       "vars": []
     },
     "notebook.aboutMissing": {
@@ -13127,6 +13457,14 @@
       "layer": "her",
       "max": 44,
       "vars": []
+    },
+    "part.shareAllParts": {
+      "text": "All {n} of your parts go together, as they are now.",
+      "layer": "her",
+      "max": 102,
+      "vars": [
+        "n"
+      ]
     },
     "part.shareAsk": {
       "text": "Let the others read your part as it is now?",
@@ -28178,6 +28516,18 @@
       "text": "Nobody reads anyone's part until everyone has said they're ready.",
       "layer": "her",
       "max": 130,
+      "vars": []
+    },
+    "together.policyNamed": {
+      "text": "Only the people each writer chooses",
+      "layer": "her",
+      "max": 70,
+      "vars": []
+    },
+    "together.policyNamedHelp": {
+      "text": "Each writer picks who reads the words they have now. Nobody else sees them.",
+      "layer": "her",
+      "max": 150,
       "vars": []
     },
     "together.policyVoluntary": {
