@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A theme component's `choice` setting can keep a long list in a file: `"choicesFrom"` names a `.json` file
+  in the theme folder whose choices follow the ones written in `theme.json`, up to 500 in all (ADR 0433).
+  The file is the theme's own, never an address elsewhere, and is checked when the themes load.
 - The repository no longer publishes its own blog to GitHub Pages. The blog is on Netlify, and the Pages
   address holds the documentation, which the blog's hourly deploy kept replacing.
 - Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn

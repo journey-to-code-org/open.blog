@@ -806,7 +806,16 @@ pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String>
         }
         let json = fs::read_to_string(&file)
             .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
-        let theme = ThemeFile::from_json(&json).map_err(|e| format!("{}: {e}", file.display()))?;
+        let mut theme =
+            ThemeFile::from_json(&json).map_err(|e| format!("{}: {e}", file.display()))?;
+        // A choice setting may keep its list in a file of the theme's own (ADR 0433).
+        for (tag, component) in &mut theme.components {
+            component
+                .add_listed_choices(|path| {
+                    fs::read_to_string(dir.join(path)).map_err(|e| e.to_string())
+                })
+                .map_err(|problem| format!("theme `{name}`: component `{tag}`: {problem}"))?;
+        }
         set.insert(&name, theme);
     }
     Ok(set)
@@ -2324,6 +2333,62 @@ The cave educates.
         );
         assert!(
             error.contains("`gone`, but there is no themes/gone/theme.json"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_components_choices_file_is_read_from_its_theme_folder() {
+        let root = reading_path_project("component-choices-file", r#"{"theme":"house"}"#);
+        fs::create_dir_all(root.join("themes/house/components")).unwrap();
+        fs::write(
+            root.join("themes/house/theme.json"),
+            r#"{"extends":"base","components":{"card-room":{"label":"Parlor","script":"components/card-room.js",
+                "props":[{"name":"game","type":"choice","label":"Game","default":"both",
+                "choices":[{"value":"both","label":"Palace and Spades"}],
+                "choicesFrom":"components/card-room.games.json"}]}}}"#,
+        )
+        .unwrap();
+        fs::write(root.join("themes/house/components/card-room.js"), "").unwrap();
+        let landing = |game: &str| {
+            fs::write(
+                root.join("content/landing.json"),
+                format!(
+                    r#"{{"format":"openblog-landing","version":4,"sections":[
+                    {{"id":"parlor","type":"component","tag":"card-room","props":{{"game":"{game}"}}}}]}}"#
+                ),
+            )
+            .unwrap();
+        };
+        landing("chess");
+
+        // Without the file the theme has a problem, named with the file.
+        let Err(error) = load_site(&root, false, None) else {
+            panic!("the choices file is missing")
+        };
+        assert!(
+            error.contains("theme `house`: component `card-room`")
+                && error.contains("`components/card-room.games.json` could not be read"),
+            "{error}"
+        );
+
+        // With it, a game it lists is a choice, and one it doesn't is refused.
+        fs::write(
+            root.join("themes/house/components/card-room.games.json"),
+            r#"{"choices":[{"value":"chess","label":"Chess"},{"value":"hearts","label":"Hearts"}]}"#,
+        )
+        .unwrap();
+        let site = match load_site(&root, false, None) {
+            Ok(site) => site,
+            Err(error) => panic!("chess is listed in the file: {error}"),
+        };
+        drop(site);
+        landing("checkers");
+        let Err(error) = load_site(&root, false, None) else {
+            panic!("checkers is not in the file")
+        };
+        assert!(
+            error.contains("must be one of Palace and Spades, Chess, Hearts"),
             "{error}"
         );
     }
