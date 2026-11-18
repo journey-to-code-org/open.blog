@@ -294,6 +294,18 @@ pub fn sitemap(site: &Site, extra_paths: &[String]) -> String {
     out
 }
 
+/// The `/admin/` page of a site whose editor runs somewhere else: it sends the visitor to
+/// `admin.signInUrl` at once, and says where it is going for anyone whose browser won't follow.
+/// `None` when no usable address is set. Never indexed.
+pub fn sign_in_forward(site: &Site) -> Option<String> {
+    let url = site.config.admin.sign_in_address()?;
+    let href = crate::escape::attr(url);
+    Some(format!(
+        "<!doctype html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0; url={href}\">\n<title>Sign in</title>\n</head>\n<body>\n<p><a href=\"{href}\">Sign in</a></p>\n</body>\n</html>\n",
+        lang = crate::escape::attr(&site.config.language),
+    ))
+}
+
 pub fn robots(site: &Site) -> String {
     let directive = |allowed| if allowed { "Allow: /" } else { "Disallow: /" };
     let mut out = String::new();

@@ -1040,6 +1040,9 @@ pub fn generate_with_trail_budget(
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
+    if let Some(page) = feeds::sign_in_forward(site) {
+        out.add("admin/index.html".into(), page)?;
+    }
     if c.feeds.llms {
         out.add("llms.txt".into(), feeds::llms_index(site)?)?;
         out.add("llms-full.txt".into(), feeds::llms_full(site)?)?;
@@ -5998,6 +6001,35 @@ docs: Vec::new(),
             "themes/loud/tokens.css",
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
+        }
+    }
+
+    #[test]
+    fn admin_forwards_to_the_sign_in_address_only_when_one_is_set() {
+        let plain = build(r#"{"title":"T","url":"https://t.dev"}"#, true);
+        assert!(!plain.iter().any(|f| f.path == "admin/index.html"));
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","admin":{"signInUrl":"https://edit.t.dev/admin/?a=1&b=2"}}"#,
+            true,
+        );
+        let page = file(&files, "admin/index.html");
+        assert!(page.contains(
+            r#"<meta http-equiv="refresh" content="0; url=https://edit.t.dev/admin/?a=1&amp;b=2">"#
+        ));
+        assert!(page.contains(r#"<a href="https://edit.t.dev/admin/?a=1&amp;b=2">Sign in</a>"#));
+        assert!(page.contains(r#"<meta name="robots" content="noindex">"#));
+        // Anything that isn't a plain web address writes no page at all.
+        for bad in [
+            "javascript:alert(1)",
+            "//edit.t.dev/admin/",
+            "https://",
+            "https://edit.t.dev/\"><script>",
+            "https://edit.t.dev/a b",
+        ] {
+            let config =
+                serde_json::json!({"title":"T","url":"https://t.dev","admin":{"signInUrl":bad}});
+            let files = build(&config.to_string(), true);
+            assert!(!files.iter().any(|f| f.path == "admin/index.html"), "{bad}");
         }
     }
 

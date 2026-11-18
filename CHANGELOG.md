@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `admin.signInUrl`: for a site whose editor runs somewhere other than the published site. When set,
+  the build writes an `/admin/` page that sends the visitor straight to that address, so the owner can
+  type the site's own address and `/admin` to sign in. Only a plain `https://` address is accepted.
 - Writing together, under **Only the people each writer chooses**: Your part says who can read your words
   as they are saved now, and who has only what you had before your last change. `GET collaboration/reveal`
   gives the writer `chosen` on each slot (`true` newest, `false` earlier, `null` not chosen); nobody else
