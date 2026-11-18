@@ -250,7 +250,11 @@ test("only the people each writer chooses: a writer chooses, and someone who onl
   // A change after choosing stays with the writer, and the screen says who is behind.
   await part(page, 2).fill("Only for Sam, part two, changed.");
   await page.getByRole("button", { name: "Save this part" }).click();
-  await expect(parts(page)).toContainText("Part 2 saved.");
+  // The line already says "Part 2 saved." from before, so wait for the server to hold the change.
+  await expect(async () => {
+    const now = await call(page, "GET", `collaboration/contributions?publicationId=${id}`);
+    expect(now.body.contributions.map((one) => one.markdown)).toContain("Only for Sam, part two, changed.");
+  }).toPass({ timeout: 10000 });
   await open(page, `#/together/${id}/write`);
   await expect(page.getByText("Sam Reader can read what you had before your last change.", { exact: false })).toBeVisible();
   await axeClean(page, "Your part, with someone chosen");
