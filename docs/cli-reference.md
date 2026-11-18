@@ -23,6 +23,10 @@ init [dir] --no-voice      Never offer a writing session afterwards (a terminal 
                            asked once; scripts and pipes are never asked)
 init [dir] --starter docs  Add a documentation section: pages under content/docs/ published
                            at /docs/ with a sidebar, and a Docs link in the header
+init [dir] --kind <kind>   Say what you will mostly write (technical, recipes, trade,
+                           teaching, research, podcast, docs, personal); Studio's
+                           first questions start from it. trade and docs use their
+                           starter. A terminal is asked; scripts and pipes never are
 init [dir] --starter trade [--trade <trade>]
                            Start a trade business site: business facts, three example
                            services as drafts, jobs, reviews, a quote form and a

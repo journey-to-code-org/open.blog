@@ -193,6 +193,56 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `add.whereStart` | her | It goes at the start of {box}. | `{box}` | 60 |
 | `add.wordsHelp` | her | Leave an empty line between paragraphs. For a list, start each line with a dash (-). Photos, tips and tables show as cards: change them with their buttons. | none | 240 |
 | `add.yourWords` | her | your words | none | 40 |
+| `area.always` | her | Always here: writing, posts, pictures, the look of {product}, and this page. | `{product}` | 152 |
+| `area.askAgain` | her | Ask me the questions again | none | 52 |
+| `area.changedElsewhere` | her | This changed on another screen, so here it is as it is now. | none | 118 |
+| `area.code` | her | Code and diagrams | none | 40 |
+| `area.codeAbout` | her | Code examples, diagrams, and code readers can run. | none | 100 |
+| `area.collections` | her | Collections | none | 40 |
+| `area.collectionsAbout` | her | Posts you group together, like a series. | none | 80 |
+| `area.everything` | her | Show everything | none | 40 |
+| `area.everythingAbout` | her | Every tool, whatever you choose below. | none | 76 |
+| `area.everythingOn` | her | Everything shows while this is on. Your choices below are kept. | none | 126 |
+| `area.findAskAgain` | her | Ask me the questions again | none | 52 |
+| `area.findTurnOn` | her | Turn on {area} | `{area}` | 40 |
+| `area.findUse` | her | What you use | none | 40 |
+| `area.forHelperFile` | details | Kept for this sign-in only, in .openblog/private/admin-preferences/. Never built or published. | none | 188 |
+| `area.forHelperIds` | details | Hidden: {hidden}. Show everything: {everything}. Answered: {state}. Kind: {kind}. | `{hidden}` `{everything}` `{state}` `{kind}` | 162 |
+| `area.homeEmpty` | her | Your first post starts here. | none | 56 |
+| `area.homeEmptyRecipes` | her | Your first recipe or story starts here. | none | 78 |
+| `area.inUse` | her | In use on {product}, so it stays. | `{product}` | 66 |
+| `area.listHeading` | her | Parts of {product} | `{product}` | 40 |
+| `area.menu` | her | What you use | none | 40 |
+| `area.noSignal` | her | Changing this needs a signal. | none | 58 |
+| `area.notNow` | her | Not now | none | 40 |
+| `area.notSaved` | her | That wasn't saved. Try again. | none | 58 |
+| `area.offHeading` | her | {area} is turned off for you | `{area}` | 56 |
+| `area.pages` | her | Pages | none | 40 |
+| `area.pagesAbout` | her | Pages that aren't posts, like About or Contact. | none | 94 |
+| `area.readers` | her | Readers | none | 40 |
+| `area.readersAbout` | her | Comments, reactions and how many people visit. | none | 92 |
+| `area.recipes` | her | Recipes | none | 40 |
+| `area.recipesAbout` | her | Recipe boxes for ingredients, steps and times. | none | 92 |
+| `area.research` | her | Research | none | 40 |
+| `area.researchAbout` | her | Sources, citations and notes for posts backed by research. | none | 116 |
+| `area.saved` | her | Saved. | none | 40 |
+| `area.seasonal` | her | Seasons and holidays | none | 40 |
+| `area.seasonalAbout` | her | Decorations, greeting cards and gifts for the holidays. | none | 110 |
+| `area.sharing` | her | Sharing | none | 40 |
+| `area.sharingAbout` | her | Announcing posts on other sites, and where each post went. | none | 116 |
+| `area.shownForPost` | her | Shown because this post uses it. | none | 64 |
+| `area.teaching` | her | Teaching | none | 40 |
+| `area.teachingAbout` | her | Reading paths and questions for readers. | none | 80 |
+| `area.together` | her | Writing together | none | 40 |
+| `area.togetherAbout` | her | Writing one post with other people. | none | 70 |
+| `area.trade` | her | Your business | none | 40 |
+| `area.tradeAbout` | her | Services, reviews, jobs, requests for a price and business facts. | none | 130 |
+| `area.turnOn` | her | Turn it on | none | 40 |
+| `area.turnOnFailed` | her | It wasn't turned on. Try again. | none | 62 |
+| `area.turnedOn` | her | {area} is on. | `{area}` | 40 |
+| `area.useHeading` | her | What you use | none | 40 |
+| `area.useLede` | her | Choose what {product} shows you. Nothing is deleted when you turn something off. | `{product}` | 160 |
+| `area.useTitle` | her | What you use | none | 40 |
 | `atlas.about` | her | About (c.) | none | 40 |
 | `atlas.add` | her | Add an entry | none | 40 |
 | `atlas.addAlias` | her | Add another name | none | 40 |
@@ -4151,6 +4201,38 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `start.voiceSkip` | her | Not now | none | 40 |
 | `start.welcome` | her | Welcome, {owner} (with no name: "Welcome") | `{owner}` | 40 |
 | `start.welcomeLede` | her | A few minutes to get {product} ready for you. You can skip any part. | `{product}` | 136 |
+| `stories.add` | her | Add to my stories | none | 40 |
+| `stories.addName` | her | Add to my stories: {title} | `{title}` | 52 |
+| `stories.added` | her | Added to your stories. | none | 44 |
+| `stories.another` | her | Write another story | none | 40 |
+| `stories.backToList` | her | Back to your stories | none | 40 |
+| `stories.besideNote` | her | It isn't put in your post. Copy what you need. | none | 92 |
+| `stories.empty` | her | No stories yet. Telling one takes a few minutes. | none | 96 |
+| `stories.findWrite` | her | Stories you could tell | none | 44 |
+| `stories.heading` | her | My stories | none | 40 |
+| `stories.lede` | her | True stories you've told. Reach for one when a post needs it. They're private and never put up. | none | 190 |
+| `stories.loadFailed` | her | Your stories didn't load. | none | 50 |
+| `stories.made` | her | A draft post was made from it. The story itself is unchanged. | none | 122 |
+| `stories.makeFailed` | her | A post couldn't be made from it just now. The story is unchanged. | none | 130 |
+| `stories.making` | her | Making a draft post from it… | none | 56 |
+| `stories.markFailed` | her | That wasn't saved. Try again. | none | 58 |
+| `stories.menu` | her | My stories | none | 40 |
+| `stories.openPost` | her | Open the post | none | 40 |
+| `stories.others` | her | Other things you've written | none | 54 |
+| `stories.othersHelp` | her | Add any of them to your stories. | none | 64 |
+| `stories.read` | her | Read it | none | 40 |
+| `stories.readName` | her | Read it: {title} | `{title}` | 40 |
+| `stories.readRegion` | her | {title}, as you told it | `{title}` | 46 |
+| `stories.remove` | her | Take out of my stories | none | 44 |
+| `stories.removeName` | her | Take out of my stories: {title} | `{title}` | 62 |
+| `stories.removed` | her | Taken out of your stories. It's still under Your writing voice. | none | 126 |
+| `stories.row` | her | {words} · {date} | `{words}` `{date}` | 40 |
+| `stories.sheetHeading` | her | Stories you could tell | none | 44 |
+| `stories.sheetLede` | her | Choose one to read beside your post. | none | 72 |
+| `stories.startPost` | her | Start a post from this | none | 44 |
+| `stories.startPostName` | her | Start a post from this: {title} | `{title}` | 62 |
+| `stories.title` | her | My stories | none | 40 |
+| `stories.writeFirst` | her | Write a story | none | 40 |
 | `suggest.added` | her | Added. | none | 40 |
 | `suggest.announce` | her | Suggestion: “{words}”. Press Tab to use it, Escape to skip. | `{words}` | 240 |
 | `suggest.billed` | details | Each pause is one billed request. | none | 66 |
@@ -4779,6 +4861,123 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `voice.wordRange` | her | About {min} to {max} words. | `{min}` `{max}` | 54 |
 | `voice.writeOne` | her | Write a piece | none | 40 |
 | `voice.writeTitle` | her | Write a piece | none | 40 |
+| `welcome.always` | her | Always here: writing, posts, pictures and the look of {product}. | `{product}` | 128 |
+| `welcome.applied` | her | Done. Readers will see it after the next update. | none | 96 |
+| `welcome.applying` | her | Changing {product}… | `{product}` | 40 |
+| `welcome.back` | her | Back | none | 40 |
+| `welcome.c.amount.essentials` | her | Just what I need | none | 40 |
+| `welcome.c.amount.everything` | her | Show me everything | none | 40 |
+| `welcome.c.kind.docs` | her | Documentation for a project | none | 54 |
+| `welcome.c.kind.personal` | her | A personal journal, or something else | none | 74 |
+| `welcome.c.kind.podcast` | her | A podcast or audio show | none | 46 |
+| `welcome.c.kind.recipes` | her | Recipes and family stories | none | 52 |
+| `welcome.c.kind.research` | her | Research with sources | none | 42 |
+| `welcome.c.kind.teaching` | her | Teaching and lessons | none | 40 |
+| `welcome.c.kind.technical` | her | Technical writing and code | none | 52 |
+| `welcome.c.kind.trade` | her | A trade or local business | none | 50 |
+| `welcome.c.readers.no` | her | No | none | 40 |
+| `welcome.c.readers.yes` | her | Yes | none | 40 |
+| `welcome.c.seasons.no` | her | No | none | 40 |
+| `welcome.c.seasons.yes` | her | Yes | none | 40 |
+| `welcome.c.sharing.later` | her | Maybe later | none | 40 |
+| `welcome.c.sharing.no` | her | No | none | 40 |
+| `welcome.c.sharing.yes` | her | Yes | none | 40 |
+| `welcome.c.together.few` | her | A few people | none | 40 |
+| `welcome.c.together.solo` | her | Just me | none | 40 |
+| `welcome.change` | her | Change | none | 40 |
+| `welcome.changeName` | her | Change: {area} | `{area}` | 40 |
+| `welcome.changedElsewhere` | her | Your answers were changed on another screen. Here they are; save again if these are right. | none | 180 |
+| `welcome.doThis` | her | Do this | none | 40 |
+| `welcome.doThisName` | her | Do this: {what} | `{what}` | 40 |
+| `welcome.everythingNote` | her | You asked to see everything, so nothing is tucked away. Your answers are kept for later. | none | 176 |
+| `welcome.exactChange` | details | The exact change to openblog.json ({member}): | `{member}` | 90 |
+| `welcome.forHelper` | details | This answer turns on: {areas}. | `{areas}` | 60 |
+| `welcome.forHelperNone` | details | This answer turns nothing on by itself. | none | 78 |
+| `welcome.fromInit` | her | Chosen when {product} was made. Change it if you like. | `{product}` | 108 |
+| `welcome.h.amount.essentials` | her | Anything else stays one step away. | none | 68 |
+| `welcome.h.amount.everything` | her | Every tool, whatever you answered. | none | 68 |
+| `welcome.h.seasons.yes` | her | Decorations, greeting cards and gifts. | none | 76 |
+| `welcome.h.sharing.yes` | her | Announce new posts on other sites you use. | none | 84 |
+| `welcome.h.together.few` | her | You can invite them later. | none | 52 |
+| `welcome.hello` | her | Welcome, {owner} (with no name: "Welcome") | `{owner}` | 40 |
+| `welcome.lede` | her | A few questions so {product} shows you what you need. Skip any of them. | `{product}` | 142 |
+| `welcome.markShown` | her | Shown | none | 40 |
+| `welcome.markTucked` | her | Tucked away | none | 40 |
+| `welcome.more` | her | More | none | 40 |
+| `welcome.moreName` | her | More: About {product} | `{product}` | 42 |
+| `welcome.next` | her | Next | none | 40 |
+| `welcome.noSignal` | her | Saving needs a signal. Your answers are still here. | none | 102 |
+| `welcome.notSaved` | her | Your answers weren't saved. Try again. | none | 76 |
+| `welcome.of` | her | Question {n} of {total} | `{n}` `{total}` | 46 |
+| `welcome.practice` | details | Practice run: your answers apply to this window only and aren't kept. | none | 138 |
+| `welcome.q.amount` | her | How much would you like to see? | none | 62 |
+| `welcome.q.kind` | her | What will you mostly write? | none | 54 |
+| `welcome.q.readers` | her | Do you want readers to comment or react? | none | 80 |
+| `welcome.q.seasons` | her | Should {product} dress up for holidays and seasons? | `{product}` | 102 |
+| `welcome.q.sharing` | her | Do you want to share posts beyond {product}? | `{product}` | 88 |
+| `welcome.q.together` | her | Will anyone else write with you? | none | 64 |
+| `welcome.s.business` | her | Add your business details | none | 50 |
+| `welcome.s.businessAbout` | her | Your name, phone and where you work, so readers can reach you. | none | 124 |
+| `welcome.s.businessGo` | her | Open Business facts | none | 40 |
+| `welcome.s.docsSection` | her | Add a documentation section | none | 54 |
+| `welcome.s.docsSectionAbout` | her | Pages for your project's guides, with their own menu. | none | 106 |
+| `welcome.s.readers` | her | Let readers comment | none | 40 |
+| `welcome.s.readersAbout` | her | Set up how readers reach you. | none | 58 |
+| `welcome.s.readersGo` | her | Open Readers | none | 40 |
+| `welcome.s.recipeList` | her | List your recipes on one page | none | 58 |
+| `welcome.s.recipeListAbout` | her | Readers can look through every recipe by course and cuisine. | none | 120 |
+| `welcome.s.seasons` | her | Choose decorations for the seasons | none | 68 |
+| `welcome.s.seasonsAbout` | her | Pick what {product} wears for each holiday. | `{product}` | 86 |
+| `welcome.s.seasonsGo` | her | Open Decorations | none | 40 |
+| `welcome.s.sharing` | her | Connect the sites you share on | none | 60 |
+| `welcome.s.sharingAbout` | her | So new posts can be announced there. | none | 72 |
+| `welcome.s.sharingGo` | her | Open Sharing | none | 40 |
+| `welcome.save` | her | Save these | none | 40 |
+| `welcome.saved` | her | Saved. {product} now shows what you need. | `{product}` | 82 |
+| `welcome.saving` | her | Saving your answers… | none | 40 |
+| `welcome.shownHeading` | her | Shown | none | 40 |
+| `welcome.skipAll` | her | Skip the questions | none | 40 |
+| `welcome.skipOne` | her | Skip this one | none | 40 |
+| `welcome.skippedToast` | her | Okay. You can answer them any time under What you use. | none | 108 |
+| `welcome.suggestFailed` | her | That wasn't changed. Nothing else was touched. | none | 92 |
+| `welcome.suggestHeading` | her | Want {product} set up to match? | `{product}` | 62 |
+| `welcome.suggestLede` | her | Nothing changes unless you say so. | none | 68 |
+| `welcome.suggestLoadFailed` | her | Suggestions didn't load. You can go on without them. | none | 104 |
+| `welcome.suggestStale` | her | The settings of {product} changed a moment ago. Here's the change again; press Do this if it's still right. | `{product}` | 214 |
+| `welcome.summaryHeading` | her | Here is what {product} will show you | `{product}` | 72 |
+| `welcome.title` | her | About {product} | `{product}` | 40 |
+| `welcome.tuckedHeading` | her | Tucked away | none | 40 |
+| `welcome.tuckedNote` | her | Tucked away means one step away: Find, or What you use in the menu. | none | 134 |
+| `welcome.voiceHas` | her | You've written {n} already. Add more? | `{n}` | 74 |
+| `welcome.voiceHasOne` | her | You've written one already. Add more? | none | 74 |
+| `welcome.voiceHeading` | her | Want {product} to learn how you write? | `{product}` | 76 |
+| `welcome.voiceLater` | her | Later | none | 40 |
+| `welcome.voiceLaterToast` | her | It'll be on Home when you want it. | none | 68 |
+| `welcome.voiceLede` | her | Three short questions, three minutes each. Nothing is corrected or put up, and it stays private. | none | 192 |
+| `welcome.voiceNo` | her | No thanks | none | 40 |
+| `welcome.voiceNoToast` | her | Okay. It's under Getting started in the menu if you change your mind. | none | 138 |
+| `welcome.voiceStart` | her | Start | none | 40 |
+| `welcome.voiceStory` | her | One of them is always a true story from your life. | none | 100 |
+| `welcome.w.docs` | her | documentation | none | 40 |
+| `welcome.w.personal` | her | a journal, or something of your own | none | 70 |
+| `welcome.w.podcast` | her | for a podcast or audio show | none | 54 |
+| `welcome.w.recipes` | her | recipes and family stories | none | 52 |
+| `welcome.w.research` | her | about research, with sources | none | 56 |
+| `welcome.w.teaching` | her | lessons | none | 40 |
+| `welcome.w.technical` | her | technical writing and code | none | 52 |
+| `welcome.w.trade` | her | about your trade or business | none | 56 |
+| `welcome.why.hidden.kind` | her | You write {what}. | `{what}` | 40 |
+| `welcome.why.hidden.readers` | her | No comments or reactions. | none | 50 |
+| `welcome.why.hidden.seasons` | her | No seasons and holidays. | none | 48 |
+| `welcome.why.hidden.sharing` | her | You said {answer}. | `{answer}` | 40 |
+| `welcome.why.hidden.together` | her | You write on your own. | none | 44 |
+| `welcome.why.inUse` | her | Already on {product}. | `{product}` | 42 |
+| `welcome.why.kind` | her | Because you write {what}. | `{what}` | 50 |
+| `welcome.why.readers` | her | Because readers comment and react. | none | 68 |
+| `welcome.why.seasons` | her | Because {product} dresses up for the seasons. | `{product}` | 90 |
+| `welcome.why.sharing` | her | Because you share posts beyond {product}. | `{product}` | 82 |
+| `welcome.why.together` | her | Because others write with you. | none | 60 |
+| `welcome.why.unasked` | her | You didn't say, so it stays. | none | 56 |
 | `write.collectionHelp` | her | Put it with others, like all your posts on one topic. | none | 106 |
 | `write.storyNudgeHeading` | her | Want your helper to sound like you? | none | 70 |
 | `write.storyNudgeLater` | her | Not now | none | 40 |

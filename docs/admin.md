@@ -65,6 +65,65 @@ told out loud is marked **Told out loud**, and A piece gains **More › Throw th
 The switch, its four values and a practice run are in
 [Getting started for a new owner](deploy.md#getting-started-for-a-new-owner).
 
+### Your first time: About your blog
+
+A Getting started run opens with **About your blog** (`#/welcome`) while that sign-in hasn't
+answered it: up to six questions, one per screen, each with **Skip this one**, and **More › Skip
+the questions** ([ADR 0429](adr/0429-studio-shows-feature-areas-chosen-per-sign-in.md)).
+
+1. What will you mostly write? (technical writing and code, recipes and family stories, a trade or
+   local business, teaching, research with sources, a podcast, documentation for a project, a
+   journal or something else). `openblog init --kind` (or its question in a terminal) chooses this
+   in advance; each sign-in can change it.
+2. Will anyone else write with you?
+3. Should your blog dress up for holidays and seasons?
+4. Do you want to share posts beyond your blog?
+5. Do you want readers to comment or react?
+6. How much would you like to see? (**Show me everything** turns hiding off.)
+
+Answers ride in the address until **Save these**, so a reload or **Back** loses nothing and
+nothing is sent before then. The summary lists what Studio will show and why ("Because you write
+recipes and family stories.", "Already on your blog.") and what is tucked away, each with
+**Change**. Only an answer hides something: a question skipped hides nothing, and anything the
+site already uses always shows.
+
+After saving, the answers may **suggest site changes**: a documentation section for a
+documentation blog, a recipe list for a recipe blog, or a screen to open (business details,
+decorations, comments, sharing accounts). A change is made only by its own **Do this**, and its
+exact change to `openblog.json` is under **For …**; going on changes nothing
+([ADR 0431](adr/0431-a-suggested-site-change-is-shown-exactly-and-applied-only-when-confirmed.md)).
+Last comes the offer to learn how she writes: **Start** goes on to Getting started's stories, drawn
+from the prompt sets that suit her blog and always with one true story; **Later** leaves a card on
+Home; **No thanks** stops the invitation ([ADR 0432](adr/0432-the-blog-kind-chooses-the-voice-prompt-sets-and-stories-are-kept-as-her-own.md)).
+
+### What Studio shows: feature areas
+
+Every screen, Find item, Home line and Write choice belongs to an area. Essentials (Home, Posts,
+Write, Pictures, Look, Front page, People, the writing helper, Your writing voice, My stories and
+these settings) always show. The rest can be tucked away per sign-in: **Pages**, **Collections**,
+**Recipes**, **Your business** (services, reviews, jobs, requests, reminders, business facts),
+**Seasons and holidays** (decorations, cards, gifts), **Sharing**, **Readers**, **Research**,
+**Teaching** (reading paths, questions for readers), **Code and diagrams** and **Writing
+together**. Answers and hidden areas belong to one sign-in, so two people on the same site can see
+different Studios; they are kept in `.openblog/private/admin-preferences/` and never built
+([ADR 0430](adr/0430-first-run-answers-are-per-sign-in-preferences-not-site-settings.md)).
+
+A tucked-away part is one step away: its address says "Seasons and holidays is turned off for you"
+with **Turn it on**; Find offers **Turn on …** for each; and **What you use** (her name's menu and
+Find) has a switch for each, **Show everything**, and **Ask me the questions again**. A part the
+site uses (a recipe post, a page, comments on) is never hidden and says so. Write keeps the open
+post's own kind whatever is tucked away; code and questions for readers already in a post show as
+themselves.
+
+### My stories
+
+**My stories** (`#/stories`, from Your writing voice and Find) gathers the true stories she has
+told: pieces from the Stories, People and Getting started sets, and any other piece she adds from
+**Other things you've written**. Each shows its first words, **Read it** and **Start a post from
+this**, which makes a word-for-word polished copy when there is none and then a draft post; the
+story itself is never changed. In Write, **More › Stories you could tell** opens them beside the
+post to draw on; nothing is put in the post. Stories are private and never published.
+
 ## Home
 
 **Home** (`#/`) asks "What would you like to do?": one big way to start writing, the drafts you are in

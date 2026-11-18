@@ -56,6 +56,8 @@ import { WORDS as talk } from "./conversation-words.js";
 import { WORDS as moments } from "./moment-words.js";
 import { WORDS as blog } from "./blog-words.js";
 import { WORDS as restore } from "./restore-words.js";
+import { WORDS as areaWords } from "./area-words.js";
+import { WORDS as welcome } from "./welcome-words.js";
 import { HER_BANNED, bannedExcept } from "./plain-words.js";
 
 // Research's own vocabulary (R11 decision 2): a citation "key" and a claim's "context" are the
@@ -80,7 +82,7 @@ let merged = null;
 export function catalog() {
   if (merged) return merged;
   const out = {};
-  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, recording, writingHelper, writingVoice, design, start, readers, readerNotes, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms), together, part, arrange, talk, moments, blog, restore]) {
+  for (const words of [common, helper, cards, decorations, jobs, kinds, notify, photo, quotes, recipe, share, social, add, pieces, forms, ready, review, route, video, recording, writingHelper, writingVoice, design, start, readers, readerNotes, readerSetup, visitors, paths, readings, ...[research, cite, atlas, compare, claims, publicWords].map(researchTerms), together, part, arrange, talk, moments, blog, restore, areaWords, welcome]) {
     for (const [id, entry] of Object.entries(words || {})) {
       if (id in out) throw new Error(`word id ${id} is defined twice`);
       out[id] = Object.freeze({ ...entry, max: maxFor(entry), vars: varsIn(entry.text) });

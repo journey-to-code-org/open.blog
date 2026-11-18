@@ -234,7 +234,7 @@ export async function createStart(context, route = {}) {
     resumed.textContent = existed && step !== "done" && Date.now() - movedAt > 3000 && record.status === "in-progress" && (step !== plan.steps[0] || (record.stories || []).length || record.lastAutoOpen) ? say("start.resumed") : "";
     try {
       if (step === "helper") part = await createStartKey({ api, frame });
-      else if (step === "stories") part = await createStartStories({ api, frame });
+      else if (step === "stories") part = await createStartStories({ api, frame, kind: context.meta?.areas?.kind || null });
       else if (step === "voice") part = await createStartVoice({ api, frame, status });
       else part = null;
       if (part) {

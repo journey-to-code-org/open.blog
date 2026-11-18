@@ -15,6 +15,24 @@ All notable changes to open.blog are recorded here. Releases follow
 - A theme can say where it is listed: `"hidden": true` keeps it out of the lists where a look is picked for
   the whole site (the calendar, the everyday look, what a new look starts from) unless it is the one in use,
   and `"group"` lists a group's themes together after the others. Neither is inherited.
+- Studio asks about the blog the first time and shows only what it uses (ONB1, ADRs 0429 to 0432).
+  - A Getting started run opens with **About your blog**: up to six skippable questions ("What will
+    you mostly write?", writing with others, seasons, sharing, comments, how much to see), a summary
+    of what will show and why, and the offer to learn how she writes, with prompts that suit the
+    blog and always one true story.
+  - Each sign-in sees only the parts it uses: the navigation, Find, Home, Write's kinds and the add
+    menu follow eleven feature areas. Anything the site already uses always shows. A tucked-away
+    part's address offers **Turn it on**, Find offers **Turn on …**, and **What you use** (her
+    name's menu) has a switch for each, **Show everything** and **Ask me the questions again**.
+  - Answers can suggest site changes (a documentation section, a recipe list), each shown exactly
+    and made only on **Do this**.
+  - **My stories** gathers the true stories she has told, and Write's **More › Stories you could
+    tell** shows them beside a post; **Start a post from this** leaves the story unchanged.
+  - `openblog init --kind <kind>` (or its question in a terminal) records what the blog is about;
+    `trade` and `docs` use their starters, and Studio's first question starts from it.
+  - New routes `GET|PUT areas`, `POST areas/suggestions` and `POST areas/suggestions/apply`;
+    `voice/draw` takes `packs` and `story`. `meta` gains `areasInUse` and `areas`. Per-sign-in
+    answers are version 2 of the private preferences file, which keeps every older key.
 - Studio brings in what `development` added to the retired Admin: decision records as a kind of post,
   diagrams, recordings, pictures with shares and a Facebook job's after photo, and in Writing together each
   writer's name, the new agreement rules, and rule changes that take effect once everyone agrees. Several

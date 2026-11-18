@@ -13,12 +13,16 @@ import { homeJobsCard } from "../parts/home-jobs.js";
 import { tradeSite } from "../parts/record-kinds.js";
 import { homeVoice } from "../parts/home-voice.js";
 import { homeStart } from "../parts/home-start.js";
+import { areaVisible } from "../parts/area-rules.js";
+import { say } from "../parts/words.js";
 
 export async function createHome({ api, meta, posts, jobs }) {
   await use("action-button", "content-card", "auto-grid", "empty-state", "skeleton-block", "status-badge", "alert-banner");
   const body = h("div", { class: "studio-home", "aria-busy": "true" }, h("skeleton-block", { shape: "card" }), h("skeleton-block", { lines: 3 }));
   const health = siteHealth({ api, meta });
-  const ready = meta.siteUses?.trade === true ? await createReadyList({ api }) : null;
+  // ONB1: each line follows its area; anything kept on this phone (jobs, writing) always shows.
+  const seen = (area) => areaVisible(meta, area);
+  const ready = meta.siteUses?.trade === true && seen("trade") ? await createReadyList({ api }) : null;
   const notes = h("div", { class: "studio-banner" });
   // R4: jobs kept on this phone, on any site, only when something is waiting.
   const waitingJobs = jobs ? homeJobsCard(jobs) : null;
@@ -33,7 +37,7 @@ export async function createHome({ api, meta, posts, jobs }) {
     start.load();
     voice.load();
     try {
-      const banner = await recipeNotesBanner(api);
+      const banner = seen("recipes") ? await recipeNotesBanner(api) : null;
       notes.replaceChildren(...(banner ? [banner] : []));
     } catch {
       // Home never shows a failure here.
@@ -44,7 +48,7 @@ export async function createHome({ api, meta, posts, jobs }) {
   // and "Ricky's birthday card goes out Sunday", when one does this week.
   async function loadWaiting() {
     const rows = [];
-    if (meta.engagement === true) {
+    if (meta.engagement === true && seen("readers")) {
       try {
         const line = waitingLine(await api.get("engagement/moderation?state=pending"));
         if (line) rows.push(h("content-card", { heading: line, href: "#/readers" }));
@@ -52,7 +56,7 @@ export async function createHome({ api, meta, posts, jobs }) {
         // Home never shows a failure here.
       }
     }
-    if (meta.greetings === true) {
+    if (meta.greetings === true && seen("seasonal")) {
       try {
         const contacts = await api.get("greetings/contacts");
         const cards = await api.get("greetings/cards");
@@ -62,7 +66,7 @@ export async function createHome({ api, meta, posts, jobs }) {
         // Nor here.
       }
     }
-    if (meta.quote === true) {
+    if (meta.quote === true && seen("trade")) {
       try {
         const line = homeQuoteLine((await api.get("quote/requests")).requests);
         if (line) rows.push(h("content-card", { heading: line, href: "#/quotes" }));
@@ -70,7 +74,7 @@ export async function createHome({ api, meta, posts, jobs }) {
         // Nor here.
       }
     }
-    if (meta.siteUses?.reminders === true) {
+    if (meta.siteUses?.reminders === true && seen("trade")) {
       try {
         const due = ((await api.get("seasonal")).reminders || []).find((r) => r.status === "due");
         if (due) rows.push(h("content-card", { heading: `Time to write: ${due.topic}`, href: "#/reminders" }));
@@ -80,7 +84,7 @@ export async function createHome({ api, meta, posts, jobs }) {
     }
     waiting.replaceChildren(...rows);
   }
-  const write = () => (tradeSite(meta)
+  const write = () => (tradeSite(meta) && seen("trade")
     ? h("div", { class: "studio-row studio-home-start" },
       h("action-button", { href: "#/write", size: "lg", class: "studio-primary" }, "Write something new"),
       h("action-button", { href: "#/new-job", size: "lg", variant: "secondary" }, "Add a job from the site"))
@@ -107,7 +111,7 @@ export async function createHome({ api, meta, posts, jobs }) {
     body.removeAttribute("aria-busy");
     if (!items.length) {
       body.replaceChildren(h("empty-state", { heading: "Nothing written yet" },
-        "Your first recipe or story starts here.",
+        seen("recipes") ? say("area.homeEmptyRecipes") : say("area.homeEmpty"),
         h("action-button", { slot: "actions", href: "#/write", size: "lg" }, "Write something new")), health.element, ...extras().filter(Boolean), voice.element);
       return;
     }

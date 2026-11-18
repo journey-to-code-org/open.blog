@@ -1112,3 +1112,25 @@ side-sheet.studio-ready-sheet dialog, side-sheet.studio-ready-sheet .sheet { wid
 .studio-together-ticks .studio-tick-label { align-items: center; min-height: 2.75rem; }
 .studio-together-ticks input[type="checkbox"] { width: 1.5rem; height: 1.5rem; flex: none; }
 .studio-together-item blockquote { margin: 0; padding-inline-start: var(--space-3); border-inline-start: 3px solid var(--studio-linen); white-space: pre-wrap; }
+
+/* ONB1: About your blog, What you use, the turned-off page, My stories. */
+.studio-welcome-cards { min-width: 0; }
+.studio-welcome-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.studio-welcome-line { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--space-2); min-width: 0; }
+.studio-welcome-line-text { flex: 1 1 14rem; min-width: 0; }
+.studio-welcome-line .studio-help { display: inline; margin: 0; }
+.studio-welcome-change-link { color: var(--studio-damson); text-underline-offset: 0.2em; min-height: 2.75rem; display: inline-flex; align-items: center; }
+.studio-welcome-change { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.studio-use { max-width: 40rem; display: grid; gap: var(--space-3); min-width: 0; }
+.studio-use-list, .studio-story-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.studio-use-row { min-width: 0; padding-block: var(--space-2); border-bottom: 1px solid var(--studio-line, var(--border)); }
+.studio-use-used { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio-use-text { display: grid; gap: var(--space-1); min-width: 0; flex: 1 1 14rem; }
+.studio-use-text .studio-help { margin: 0; }
+.studio-turned-off { max-width: 40rem; display: grid; gap: var(--space-4); }
+.studio-stories-page { max-width: 48rem; display: grid; gap: var(--space-3); min-width: 0; }
+.studio-story-row { display: grid; gap: var(--space-2); min-width: 0; padding-block: var(--space-3); border-bottom: 1px solid var(--studio-line, var(--border)); overflow-wrap: anywhere; }
+.studio-story-row p { margin: 0; }
+.studio-story-opening { font-style: italic; }
+.studio-story-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: var(--space-3); border: 1px solid var(--studio-line, var(--border)); border-radius: var(--radius); max-height: 60vh; overflow: auto; }
+.studio-story-others summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; }

@@ -534,6 +534,11 @@ learn how she sounds from them. One switch on the server decides whether it show
 | `on:<round>` | As `on`, and once more for every account that finished a different round. The round is 1 to 32 of `a-z`, `0-9` and `-` (for example `on:2026-11-20`): change it to show Getting started to everyone again without a shell. |
 | `rehearse` | A **practice run** for whoever sets the site up: it opens at every load for every account and says so on every step. Stories and voice guides made in it are not kept and never appear in Your writing voice; no account is marked as finished. A key saved in it **is** kept (it belongs to the site). |
 
+- **It opens with About your blog** while an account hasn't answered its questions (what the blog
+  is about, seasons, sharing, comments, how much to see). The answers decide what Studio shows that
+  account, and are kept per account in `.openblog/private/admin-preferences/`. In `rehearse` the
+  answers apply to that window only. Accounts that already answered (or used the old Admin's
+  Personalize) go straight to the steps. See [Your first time](admin.md#your-first-time-about-your-blog).
 - **The server's environment beats the site's file.** The variable, when set, wins over
   `studio.onboarding` in `openblog.json` (which takes only `"off"` or `"on"`; a new site made with
   `openblog init` says `"on"`). An empty variable counts as not set. A value that isn't one of the

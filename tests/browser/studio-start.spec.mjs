@@ -41,10 +41,22 @@ async function fresh(page, { user = "sam", keepKey = false } = {}) {
   await expect(page.getByRole("heading", { level: 2 }).first()).toBeVisible();
   await eraseVoice(page, site);
   await api(page, site, "POST", "onboarding/reset", { user });
+  await answered(page);
   if (!keepKey && existsSync(keyFile())) {
     const settings = await (await page.request.get(`${site.origin}/admin/api/assistant/settings`)).json();
     await api(page, site, "PUT", "assistant/settings", { provider: settings.provider, generationEndpoint: settings.generationEndpoint, model: settings.model, etag: settings.etag, credentialAction: "clear" });
   }
+}
+
+/**
+ * This login has answered About your blog (ONB1, studio-onboarding.spec.mjs), so a run opens at
+ * Getting started's own steps, as these tests are about.
+ */
+async function answered(page) {
+  const areas = await (await page.request.get(`${site.origin}/admin/api/areas`)).json();
+  if (areas.preferences.onboarding.state !== "pending") return;
+  const saved = await api(page, site, "PUT", "areas", { etag: areas.etag, onboarding: { state: "skipped" } });
+  expect(saved.status).toBe(200);
 }
 
 /** Save a key the way the screen does, so the key step isn't shown. */

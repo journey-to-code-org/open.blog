@@ -84,6 +84,10 @@ COMMANDS
                                asked once; scripts and pipes are never asked)
     init [dir] --starter docs  Add a documentation section: pages under content/docs/ published
                                at /docs/ with a sidebar, and a Docs link in the header
+    init [dir] --kind <kind>   Say what you will mostly write (technical, recipes, trade,
+                               teaching, research, podcast, docs, personal); Studio's
+                               first questions start from it. trade and docs use their
+                               starter. A terminal is asked; scripts and pipes never are
     init [dir] --starter trade [--trade <trade>]
                                Start a trade business site: business facts, three example
                                services as drafts, jobs, reviews, a quote form and a
@@ -360,6 +364,22 @@ import hashnode OPTIONS
     --delay <ms>               Pause between requests (default: 250)
 ";
 
+/// Ask "What will you mostly write?" at a terminal; Enter (or anything else) skips it.
+fn ask_kind() -> Option<&'static str> {
+    use std::io::Write;
+    println!(
+        "What will you mostly write? Studio shows the tools that fit, and you can change it later."
+    );
+    for (n, (_, words)) in scaffold::KINDS.iter().enumerate() {
+        println!("  {}. {words}", n + 1);
+    }
+    print!("Choose 1-{} (Enter to skip): ", scaffold::KINDS.len());
+    let _ = std::io::stdout().flush();
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer).ok()?;
+    scaffold::kind_from_answer(&answer)
+}
+
 struct Args {
     positional: Vec<String>,
     options: HashMap<String, String>,
@@ -473,15 +493,32 @@ fn run(raw: &[String]) -> Result<(), String> {
         "init" => {
             let dir = args.positional.first().map(PathBuf::from).unwrap_or(root);
             let title = args.options.get("title").map(String::as_str);
-            let starter = match args.options.get("starter") {
-                Some(name) => Some(scaffold::Starter::parse(
-                    name,
-                    args.options.get("trade").map(String::as_str),
-                )?),
-                None if args.options.contains_key("trade") => {
+            let trade = args.options.get("trade").map(String::as_str);
+            // Studio ONB1: the kind of blog, given or asked (only at a terminal, only for a new
+            // project, only when neither --kind nor --starter said).
+            let mut kind = args.options.get("kind").cloned();
+            if scaffold::should_ask_kind(
+                std::io::IsTerminal::is_terminal(&std::io::stdin()),
+                std::io::IsTerminal::is_terminal(&std::io::stdout()),
+                kind.is_some() || args.options.contains_key("starter"),
+                dir.join("openblog.json").exists(),
+            ) {
+                kind = ask_kind().map(str::to_string);
+            }
+            let starter = match (args.options.get("starter"), kind.as_deref()) {
+                (Some(name), Some(kind)) => {
+                    let starter = scaffold::Starter::parse(name, trade)?;
+                    if scaffold::kind_starter(kind, trade)?.as_ref() != Some(&starter) {
+                        return Err(format!("--kind {kind} and --starter {name} disagree"));
+                    }
+                    Some(starter)
+                }
+                (Some(name), None) => Some(scaffold::Starter::parse(name, trade)?),
+                (None, Some(kind)) => scaffold::kind_starter(kind, trade)?,
+                (None, None) if trade.is_some() => {
                     return Err("--trade goes with --starter trade".into())
                 }
-                None => None,
+                (None, None) => None,
             };
             let created = scaffold::init_with(
                 &dir,
@@ -489,6 +526,14 @@ fn run(raw: &[String]) -> Result<(), String> {
                 args.switches.contains("github-pages"),
                 starter.as_ref(),
             )?;
+            let mut created = created;
+            if let Some(kind) = kind.as_deref() {
+                if let Some(file) = scaffold::write_kind_hint(&dir, kind)? {
+                    if !created.is_empty() {
+                        created.push(file);
+                    }
+                }
+            }
             if created.is_empty() {
                 println!(
                     "Nothing to do: {} already looks like an open.blog project.",

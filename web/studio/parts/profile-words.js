@@ -1,6 +1,7 @@
 // What kind of post it is, and each kind's own facts, in her words. The engine's profiles come in
 // `meta.profiles` (ids, keys, aliases, choices: G40); the labels and help here are Studio's own.
 // A story and a job have no group in About this post (About this job is under the title). DOM-free.
+import { areaVisible } from "./area-rules.js";
 import { say } from "./words.js";
 
 /** Each kind as she hears it. */
@@ -24,7 +25,9 @@ const UNKNOWN = { label: "Something else", get help() { return `${say("kinds.unk
 export function kindChoices(meta, current, { trade = false, research = false } = {}) {
   const known = new Set((meta?.profiles || []).map((p) => p.id));
   // R11 decision 1: a site that uses research is offered Research too.
-  const ids = ["article", "recipe", ...(trade ? ["job"] : []), ...(research ? ["research"] : [])];
+  // ONB1: a kind whose area this login has tucked away isn't offered (the post's own always is).
+  const seen = (area) => areaVisible(meta, area);
+  const ids = ["article", ...(seen("recipes") ? ["recipe"] : []), ...(trade && seen("trade") ? ["job"] : []), ...(research && seen("research") ? ["research"] : [])];
   if (current && !ids.includes(current)) ids.push(current);
   return ids.map((id) => ({ value: id, ...(KIND_WORDS[id] && (known.has(id) || !meta?.profiles) ? KIND_WORDS[id] : UNKNOWN) }));
 }
