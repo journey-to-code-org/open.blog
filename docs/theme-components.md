@@ -83,6 +83,8 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   offered keeps its first label. Like the script, the file is the theme's own: an address elsewhere is
   refused, and a file that is missing or not a list of choices stops the build, naming it
   ([ADR 0433](adr/0433-a-choice-setting-may-read-more-choices-from-a-file-of-the-themes-own.md)).
+  This repository's own site shows one: `themes/example` offers open.parlor's `<card-room>`, whose list of
+  games is `themes/example/components/card-room.games.json`.
 - **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme
   never loads code from another site through a component.
 - **The section** the owner adds holds only the component's name, an optional heading and the values:
