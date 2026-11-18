@@ -7,7 +7,8 @@ import { h } from "./dom.js";
 import { use } from "../zubra.js";
 import { say, sayParts } from "./words.js";
 import { partsNodes } from "./stranger.js";
-import { partParagraphs, readerChoices, sharedWithYou } from "./part-rules.js";
+import { chosenReaders, partParagraphs, readerChoices, sharedWithYou } from "./part-rules.js";
+import { joinNames } from "./together-rules.js";
 
 /**
  * Asks who reads it. `people` are the reveal slots that may receive. Resolves to
@@ -72,4 +73,11 @@ export function sharedWithYouNodes(reply, people) {
   });
 }
 
-
+/** Whom she has chosen so far, as lines for under her words; nothing when she has chosen nobody. */
+export function whoReadsNodes(slots, isolate) {
+  const { newest, earlier } = chosenReaders(slots);
+  return [
+    newest.length ? h("p", { class: "studio-help" }, ...partsNodes(sayParts("named.readsNewest", { names: joinNames(newest, isolate) }, ["names"]))) : null,
+    earlier.length ? h("p", { class: "studio-help" }, ...partsNodes(sayParts("named.readsEarlier", { names: joinNames(earlier, isolate) }, ["names"]))) : null,
+  ].filter(Boolean);
+}

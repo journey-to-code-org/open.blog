@@ -17520,6 +17520,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
         let Ok(compared) = set.compare(own, &order, &active) else {
             return draft_not_found();
         };
+        let chosen = set.chosen_readers(own);
         for (participant, slot) in participants.iter().zip(compared) {
             let (kind, view, offered) = match &slot {
                 ComparisonSlot::Own(view) => ("own", Some(view), false),
@@ -17531,6 +17532,9 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
                 "displayName": participant.display_name,
                 "mayReceive": participant.id != *own && recipients.contains(&participant.id),
                 "nonDrafter": !active.contains(&participant.id.as_str()),
+                // Only the writer learns whom they chose, and whether that person has their
+                // newest words: `null` when not chosen.
+                "chosen": chosen.iter().find(|(id, _)| *id == participant.id).map(|(_, current)| *current),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
@@ -44087,8 +44091,25 @@ series: letters
         assert!(!body_json(&moments_read(&f, &linus, &id))
             .to_string()
             .contains("NAMED-MOMENT"));
+        // Only the writer learns whom they chose, and that the reader has their newest words.
+        let chosen_for = |who, reader: &str| {
+            body_json(&reveal_state(&f, who, &id))["slots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|slot| slot["participantId"] == reader)
+                .map(|slot| slot["chosen"].clone())
+        };
+        assert_eq!(chosen_for(&mikey, &grace_id), Some(json!(true)));
+        assert!(!body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("\"chosen\":true"));
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("\"chosen\":true"));
         assert_eq!(draft_call(&f, &mikey, &id, 1, "SECOND-SECRET").status, 200);
         assert_eq!(release(1, json!([grace_id])).status, 409);
+        assert_eq!(chosen_for(&mikey, &grace_id), Some(json!(false)));
         let view = body_json(&reveal_state(&f, &grace, &id)).to_string();
         assert!(view.contains("FIRST-SECRET"));
         assert!(!view.contains("SECOND-SECRET"));

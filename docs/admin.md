@@ -729,7 +729,8 @@ from Posts (**Write something with others**) or Find.
 5. **Let the others read it** asks once, and takes all your parts together as they are. When everyone's
    ready you all read each other's parts. Under **Only the people each writer chooses** the button is
    **Choose who reads it**: tick the people, and they read the words you had just then; later changes stay
-   with you until you choose again, and what someone has read can't be taken back. Someone who only reads
+   with you until you choose again, and what someone has read can't be taken back. Under your words it
+   says who can read them as they are saved now, and who has only what you had before your last change. Someone who only reads
    sees **Shared with you**: just what was chosen for them, under each writer's name.
    **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
    in a frame that can run nothing. **Agree to publish this** asks once and can be undone.

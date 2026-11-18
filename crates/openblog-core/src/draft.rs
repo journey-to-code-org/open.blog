@@ -1089,6 +1089,53 @@ impl DraftSet {
         offered.chain(committed).max()
     }
 
+    /// Who `owner` has chosen to read their parts, for the owner alone: each recipient once, with
+    /// whether they hold the newest saved version of every part the owner has now. Parts taken
+    /// out count for nothing.
+    pub fn chosen_readers(&self, owner: &str) -> Vec<(String, bool)> {
+        let own = self
+            .drafts
+            .iter()
+            .filter(|draft| draft.owner == owner && !draft.withdrawn)
+            .collect::<Vec<_>>();
+        let mut readers: Vec<String> = Vec::new();
+        for release in &self.named_releases {
+            if !own
+                .iter()
+                .any(|draft| draft.id.eq_ignore_ascii_case(&release.contribution_id))
+            {
+                continue;
+            }
+            for id in release
+                .recipients
+                .iter()
+                .chain(&release.non_draft_recipients)
+            {
+                if !readers.contains(id) {
+                    readers.push(id.clone());
+                }
+            }
+        }
+        readers
+            .into_iter()
+            .map(|reader| {
+                let current = own.iter().all(|draft| {
+                    let newest = draft.revisions.len() as u64;
+                    self.named_releases.iter().any(|release| {
+                        release.contribution_id.eq_ignore_ascii_case(&draft.id)
+                            && release.revision == newest
+                            && release
+                                .recipients
+                                .iter()
+                                .chain(&release.non_draft_recipients)
+                                .any(|id| *id == reader)
+                    })
+                });
+                (reader, current)
+            })
+            .collect()
+    }
+
     pub fn is_ready(&self, participant: &str) -> bool {
         self.ready_revision(participant).is_some()
     }

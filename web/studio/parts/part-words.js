@@ -82,6 +82,8 @@ export const WORDS = {
   "named.title": { text: "Shared with you", layer: "her" },
   "named.lede": { text: "Only what each person chose to let you read, as it was when they chose.", layer: "her", max: 200 },
   "named.nothingYet": { text: "Nobody has shared a part with you yet.", layer: "her" },
+  "named.readsNewest": { text: "{names} can read your words as they are saved now.", layer: "her", max: 240 },
+  "named.readsEarlier": { text: "{names} can read what you had before your last change. Choose who reads it again to share what you have now.", layer: "her", max: 320 },
   "named.from": { text: "From {name}", layer: "her" },
   "named.someone": { text: "someone no longer in this", layer: "her" },
   "named.empty": { text: "This part has no words.", layer: "her" },

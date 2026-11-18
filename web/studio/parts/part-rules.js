@@ -233,6 +233,19 @@ export function readerChoices(slots) {
 }
 
 /**
+ * Whom she has already chosen, from her own reveal slots: `{ newest, earlier }`, each a list of
+ * names. `newest` hold her latest saved words in every part; `earlier` were chosen before a change.
+ */
+export function chosenReaders(slots) {
+  const out = { newest: [], earlier: [] };
+  for (const slot of Array.isArray(slots) ? slots : []) {
+    if (typeof slot?.chosen !== "boolean") continue;
+    (slot.chosen ? out.newest : out.earlier).push(String(slot.displayName || ""));
+  }
+  return out;
+}
+
+/**
  * What someone was chosen to read, as `[{ name, texts }]`: one entry per writer in the order
  * the server gave, each with that writer's parts in order. The name is the one the server sent
  * beside the part, else the one the list of people has, else "".
