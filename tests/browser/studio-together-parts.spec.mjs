@@ -236,6 +236,7 @@ test("only the people each writer chooses: a writer chooses, and someone who onl
   await dialog.getByRole("checkbox", { name: "Sam Reader" }).check();
   await dialog.getByRole("button", { name: "Let them read it" }).click();
   await expect(status(page)).toContainText("Shared with Sam Reader. They can read the words you had just now.");
+  await expect(page.getByText("Sam Reader can read your words as they are saved now.")).toBeVisible();
 
   // The reader sees both parts under the writer's name, and nothing to agree to.
   await sam.goto("about:blank");
@@ -245,5 +246,16 @@ test("only the people each writer chooses: a writer chooses, and someone who onl
   await expect(sam.getByText("Only for Sam, part two.")).toBeVisible();
   await expect(sam.getByRole("button", { name: /agree/i })).toHaveCount(0);
   await axeClean(sam, "Shared with you");
+
+  // A change after choosing stays with the writer, and the screen says who is behind.
+  await part(page, 2).fill("Only for Sam, part two, changed.");
+  await page.getByRole("button", { name: "Save this part" }).click();
+  await expect(parts(page)).toContainText("Part 2 saved.");
+  await open(page, `#/together/${id}/write`);
+  await expect(page.getByText("Sam Reader can read what you had before your last change.", { exact: false })).toBeVisible();
+  await axeClean(page, "Your part, with someone chosen");
+  await sam.goto("about:blank");
+  await sam.goto(`${origin}/admin/studio/#/together/${id}/read`);
+  await expect(sam.getByText("Only for Sam, part two.", { exact: true })).toBeVisible();
   await context.close();
 });

@@ -1972,6 +1972,8 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `named.no` | her | Not yet | none | 40 |
 | `named.nobody` | her | There's nobody to choose yet. Invite someone first. | none | 102 |
 | `named.nothingYet` | her | Nobody has shared a part with you yet. | none | 76 |
+| `named.readsEarlier` | her | {names} can read what you had before your last change. Choose who reads it again to share what you have now. | `{names}` | 320 |
+| `named.readsNewest` | her | {names} can read your words as they are saved now. | `{names}` | 240 |
 | `named.shared` | her | Shared with {names}. They can read the words you had just now. | `{names}` | 240 |
 | `named.sharedShort` | her | Shared with the people you chose. | none | 66 |
 | `named.someone` | her | someone no longer in this | none | 50 |

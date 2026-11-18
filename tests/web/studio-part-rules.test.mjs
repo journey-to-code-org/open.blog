@@ -214,3 +214,15 @@ test("#705: who may be named, and what was shared with someone who only reads", 
   assert.deepEqual(sharedWithYou(named, [{ id: "p1", displayName: "Listed" }]), [{ name: "Sent Name", texts: ["x"] }]);
   assert.deepEqual(sharedWithYou(null, null), []);
 });
+
+test("#705: whom she has already chosen, and who is behind her newest words", async () => {
+  const { chosenReaders } = await import("../../web/studio/parts/part-rules.js");
+  const slots = [
+    { displayName: "Ann", kind: "own", chosen: null },
+    { displayName: "Lee Park", chosen: true },
+    { displayName: "Sam", chosen: false },
+    { displayName: "Not chosen" },
+  ];
+  assert.deepEqual(chosenReaders(slots), { newest: ["Lee Park"], earlier: ["Sam"] });
+  assert.deepEqual(chosenReaders(null), { newest: [], earlier: [] });
+});

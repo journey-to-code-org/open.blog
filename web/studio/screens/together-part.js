@@ -16,7 +16,7 @@ import { joinNames, togetherProblem } from "../parts/together-rules.js";
 import { offeredMomentsText } from "../parts/moment-rules.js";
 import { createMomentsSheet } from "../parts/together-moments.js";
 import { createExtraParts } from "../parts/together-extra.js";
-import { chooseReaders } from "../parts/together-named.js";
+import { chooseReaders, whoReadsNodes } from "../parts/together-named.js";
 import {
   draftStateText, insertAtSelection, joinParts, movePartBreak, partBlocks, partBreakInsertion, promptInsertion,
   reflectionPrompts, removePartBreak, savesLeftText,
@@ -50,6 +50,7 @@ export async function createTogetherPart(context, id, route = {}) {
   // #705: the parts she has added beside her first.
   const extra = await createExtraParts({ api, id, kept, onChange: () => paint() });
   const bar = h("div", { class: "studio-write-bar studio-together-bar" });
+  const whoReads = h("div", { hidden: true });
   const details = h("details", { class: "studio-help" });
   const body = h("div", { class: "studio-part-body", "aria-busy": "true" }, h("skeleton-block", { lines: 6 }));
   const element = h("section", { class: "studio-page studio-together-part", "aria-labelledby": "studio-part-h" }, crumb, back, heading, body);
@@ -144,7 +145,7 @@ export async function createTogetherPart(context, id, route = {}) {
     drawIdeas();
     drawEditor();
     fill(body, question, status, left, banner, ideas, editor, h("div", { class: "studio-row" }, saveButton, breakButton, momentsButton), raw,
-      h("p", { class: "studio-help", text: say("part.newPartHelp") }), offline ? null : extra.element, did.element, bar, details);
+      h("p", { class: "studio-help", text: say("part.newPartHelp") }), offline ? null : extra.element, did.element, whoReads, bar, details);
     paint();
     if (route.query?.sheet === "moments" && !moments.sheet.isOpen) {
       route.query.sheet = "";
@@ -273,6 +274,8 @@ export async function createTogetherPart(context, id, route = {}) {
     else if (changedSince && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.shareChanges"));
     else if (you.needsReshare && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.share"));
     const notYet = reveal.policy !== "namedRecipients" && reveal.ready && !changedSince ? h("action-button", { variant: "secondary", onClick: () => takeBack() }, say("part.notYet")) : null;
+    fill(whoReads, ...(reveal.policy === "namedRecipients" ? whoReadsNodes(reveal.slots, isolating) : []));
+    whoReads.hidden = !whoReads.childElementCount;
     fill(bar, notYet, primary);
     bar.hidden = !notYet && !primary;
     fill(details, h("summary", { text: say("common.forHelper") }), h("p", { text: say("part.privateLede") }),

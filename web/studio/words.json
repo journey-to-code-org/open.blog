@@ -12148,6 +12148,22 @@
       "max": 76,
       "vars": []
     },
+    "named.readsEarlier": {
+      "text": "{names} can read what you had before your last change. Choose who reads it again to share what you have now.",
+      "layer": "her",
+      "max": 320,
+      "vars": [
+        "names"
+      ]
+    },
+    "named.readsNewest": {
+      "text": "{names} can read your words as they are saved now.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "names"
+      ]
+    },
     "named.shared": {
       "text": "Shared with {names}. They can read the words you had just now.",
       "layer": "her",
