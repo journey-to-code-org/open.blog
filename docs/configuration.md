@@ -78,7 +78,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true, "listing": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
-  "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
+  "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [], "signInUrl": "" },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
   "knowledgeAtlas": { "publish": false },
   "claimEvidence": { "publish": false },
@@ -431,6 +431,12 @@ Settings for the browser editor; see [The admin editor](admin.md).
 - `maxUploadMb` caps a picture published as it was sent. A larger photo is reduced to fit rather than refused; see [Photo uploads](admin.md#photo-uploads).
 - `trustedProxies` lists the addresses of reverse proxies in front of the server, so login
   limits and the view counter see real client addresses.
+- `signInUrl` is for a site whose editor runs somewhere other than the published site (a static host
+  for the site, a server for the editor). Set it to the editor's address, for example
+  `https://editor.example.com/admin/`, and the build writes an `/admin/` page that sends a visitor
+  straight there, so the owner can type the site's own address and `/admin` to sign in. It must be a
+  plain `https://` address; anything else writes no page. Leave it empty when the editor answers
+  `/admin` itself, or when your host forwards `/admin` with its own redirect rule.
 
 ## Publish
 
