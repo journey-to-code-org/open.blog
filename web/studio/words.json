@@ -8075,6 +8075,42 @@
         "product"
       ]
     },
+    "gifts.anyoneFailed": {
+      "text": "That didn't change",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.anyoneHelp": {
+      "text": "Off, only people who know the family password can. On, nobody is asked for it, so someone you don't know can leave one too.",
+      "layer": "her",
+      "max": 320,
+      "vars": []
+    },
+    "gifts.anyoneLabel": {
+      "text": "Let anyone leave you a gift",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.anyoneNoPassword": {
+      "text": "Nobody is asked for it while anyone can leave you a gift. It is kept for when you turn that off.",
+      "layer": "her",
+      "max": 280,
+      "vars": []
+    },
+    "gifts.anyoneOff": {
+      "text": "Only people with the family password can leave you a gift now.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "gifts.anyoneOn": {
+      "text": "Anyone can leave you a gift now. Nobody is asked for the password.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
     "helper.alsoNone": {
       "text": "None",
       "layer": "details",

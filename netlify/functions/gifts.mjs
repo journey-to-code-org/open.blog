@@ -11,7 +11,7 @@
 //   GET  admin/list            every gift: who, wrapped or opened; contents only once opened
 //   POST admin/<id>/open       423 until the gift's opening time; then its contents
 //   POST admin/<id>/hide       take it off the tree (kept, never deleted); admin/<id>/show puts it back
-//   GET  admin/settings, POST admin/settings { showNames?, familyCode? }  (the password she set
+//   GET  admin/settings, POST admin/settings { showNames?, familyCode?, anyone? }  (the password she set
 //                              wins over OPENBLOG_GIFTS_FAMILY_CODE, which is only the first one)
 //
 // Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE,
@@ -103,8 +103,9 @@ function createGiftStore({ settings, fetchImpl }) {
     forSeason: (opens) => count(`opens_at=eq.${encodeURIComponent(opens)}`),
     /** The owner's settings: whether the tree shows names, and the family password she set. */
     settings: async () => {
-      const row = (await call(`${SETTINGS}?select=show_names,family_code&${site}`, { headers: headers() }))[0];
-      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code };
+      const row = (await call(`${SETTINGS}?select=show_names,family_code,anyone&${site}`, { headers: headers() }))[0];
+      // `anyone` is her choice to take gifts without the password; off until she turns it on.
+      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code, anyone: row?.anyone === true };
     },
     saveSettings: async (change) => {
       const now = await store.settings();
@@ -112,7 +113,7 @@ function createGiftStore({ settings, fetchImpl }) {
       await call(`${SETTINGS}?on_conflict=site_id`, {
         method: "POST",
         headers: write("resolution=merge-duplicates,return=minimal"),
-        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, anyone: next.anyone === true, updated_at: new Date().toISOString() }),
       });
       return next;
     },
@@ -181,6 +182,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
             gifts: (await store.all()).map((row) => giftOut(row, at)),
             showNames: owner.showNames,
             familyCode: owner.familyCode,
+            anyone: owner.anyone,
             opensAt: opensAt(at, settings.zone, settings.opensOn).toISOString(),
             limits: LIMITS,
           });
@@ -195,6 +197,10 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
               change.showNames = body.showNames;
             }
             if ("familyCode" in body) change.familyCode = checkFamilyCode(body.familyCode);
+            if ("anyone" in body) {
+              if (typeof body.anyone !== "boolean") throw new CardError(422, "anyone", "anyone");
+              change.anyone = body.anyone;
+            }
             if (!Object.keys(change).length) throw new CardError(400, "malformed");
             return json(200, await store.saveSettings(change));
           }
@@ -218,14 +224,15 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
 
       // ---- the public side
       if (method === "GET" && parts[0] === "tree" && parts.length === 1) {
-        const { showNames } = await store.settings();
+        const { showNames, anyone } = await store.settings();
         const at = now();
         const opens = opensAt(at, settings.zone, settings.opensOn);
         // This season's gifts: still to open, or opened within the late days (until January 6).
         const gifts = (await store.onTree())
           .filter((row) => Date.parse(row.opens_at) > at - (LATE_DAYS + 1) * 24 * 60 * 60 * 1000)
           .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", from: showNames && row.show_name ? row.from_name : null }));
-        return json(200, { gifts, opensAt: opens.toISOString(), showNames }, { "cache-control": "public, max-age=60" });
+        // `anyone` tells the guest's form whether to ask for the family password at all.
+        return json(200, { gifts, opensAt: opens.toISOString(), showNames, anyone }, { "cache-control": "public, max-age=60" });
       }
       if (method === "GET" && parts[0] === "token" && parts.length === 1) {
         return json(200, { token: makeFormToken(settings.adminKey, now()) });
@@ -245,7 +252,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (!(await store.attempt("gift-tries", hour, tryDigest, LIMITS.triesPerHour, LIMITS.perSeason * 4))) {
           return json(429, { error: "slow-down" }, { "retry-after": "3600" });
         }
-        if (!sameCode(body.code, (await store.settings()).familyCode)) throw new CardError(403, "family-code", "code");
+        // When she takes gifts from anyone, the password isn't asked for; every other guard stays.
+        const owner = await store.settings();
+        if (!owner.anyone && !sameCode(body.code, owner.familyCode)) throw new CardError(403, "family-code", "code");
         const gift = checkGift(body);
         const digest = createHash("sha256").update(`${settings.salt}\0gifts\0${client}`).digest("hex");
         if (await store.fromSender(digest, new Date(at - 60 * 60 * 1000).toISOString()) >= LIMITS.perVisitorPerHour) {

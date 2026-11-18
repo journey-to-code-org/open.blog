@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Gifts: the owner can **Let anyone leave you a gift** (Gifts › The family password), so the password
+  isn't asked for. Off by default; every other guard stays. Run `supabase/gifts.sql` again to add the
+  `anyone` column, and redeploy the `gifts` function. The public `tree` reply now says `anyone`.
 - Writing together, under **Only the people each writer chooses**: Your part says who can read your words
   as they are saved now, and who has only what you had before your last change. `GET collaboration/reveal`
   gives the writer `chosen` on each slot (`true` newest, `false` earlier, `null` not chosen); nobody else

@@ -35,11 +35,12 @@ test.beforeAll(async () => {
   const contents = { "22222222-2222-4222-8222-222222222222": { card: { design: "holly", message: "Save me some pie", signOff: "Jim", stickers: [{ kind: "star", x: 20, y: 30 }] } } };
   let showNames = true;
   let familyCode = "Pumpkin Pie";
+  let anyone = false;
   fake = createHttpServer((req, res) => {
     const reply = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
     if (req.headers.authorization !== `Bearer ${giftsKey}`) return reply(401, { error: "unauthorized" });
     const path = req.url.replace("/api/gifts/admin/", "");
-    if (path === "list") return reply(200, { gifts, showNames, familyCode, opensAt: "2026-12-25T05:00:00Z" });
+    if (path === "list") return reply(200, { gifts, showNames, familyCode, anyone, opensAt: "2026-12-25T05:00:00Z" });
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
@@ -47,7 +48,8 @@ test.beforeAll(async () => {
         const change = JSON.parse(body);
         if ("showNames" in change) showNames = change.showNames;
         if ("familyCode" in change) familyCode = change.familyCode;
-        return reply(200, { showNames, familyCode });
+        if ("anyone" in change) anyone = change.anyone;
+        return reply(200, { showNames, familyCode, anyone });
       }
       const [id, action] = path.split("/");
       const gift = gifts.find((g) => g.id === id);
@@ -151,6 +153,21 @@ test("the family password shows on Gifts and can be changed", async ({ page }) =
   await page.getByRole("button", { name: "Save the new password" }).click();
   await expect(page.getByText("Snowy Owl 2026")).toBeVisible();
   await expect(page.getByRole("button", { name: "Change it" })).toBeFocused();
+});
+
+test("she can let anyone leave a gift, and the password section says nobody is asked", async ({ page }) => {
+  await signIn(page);
+  const anyone = page.getByRole("switch", { name: "Let anyone leave you a gift" });
+  await expect(anyone).not.toBeChecked();
+  await expect(page.getByText("Nobody is asked for it while anyone can leave you a gift.", { exact: false })).toBeHidden();
+  await anyone.focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Anyone can leave you a gift now. Nobody is asked for the password.")).toBeVisible();
+  await expect(page.getByText("Nobody is asked for it while anyone can leave you a gift.", { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("switch", { name: "Let anyone leave you a gift" })).toBeChecked();
+  await page.getByRole("switch", { name: "Let anyone leave you a gift" }).click();
+  await expect(page.getByText("Only people with the family password can leave you a gift now.")).toBeVisible();
 });
 
 test("Gifts passes axe at 320 px", async ({ page }) => {

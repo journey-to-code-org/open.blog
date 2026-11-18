@@ -27,6 +27,12 @@ A family password (`OPENBLOG_GIFTS_FAMILY_CODE`, at least 6 letters; case, space
 don't matter), a form token that must be a few seconds old, a field only robots fill, five gifts
 an hour per visitor and 200 a season.
 
+The owner can turn the password off: **Let anyone leave you a gift**, under **The family password**
+in Studio's Gifts. Then nobody is asked for it, and someone she doesn't know can leave one too. The
+form token, the robots' field and the hourly and season limits stay, what a gift says is still never
+public, and she can take any gift off the tree. The public `tree` reply says `anyone`, so a theme's
+form knows not to ask. It is off until she turns it on; turning it off brings the password back.
+
 ## Setting it up
 
 1. Run [`supabase/gifts.sql`](../supabase/gifts.sql) (the hosted service does this itself).

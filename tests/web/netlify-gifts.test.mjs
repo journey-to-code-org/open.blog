@@ -64,6 +64,41 @@ test("settings name what's missing, and the family password must be at least 6 l
   assert.deepEqual(giftSettings({ ...env, OPENBLOG_GIFTS_FAMILY_CODE: "a b" }).problems, ["OPENBLOG_GIFTS_FAMILY_CODE"]);
 });
 
+test("when she takes gifts from anyone, no password is asked, and every other guard stays", async () => {
+  let at = Date.parse("2026-12-01T12:00:00Z");
+  let saved = { show_names: true, family_code: null, anyone: false };
+  let tries = 0;
+  const handler = createHandler({ env, now: () => at, fetchImpl: async (url, init = {}) => {
+    if (String(url).includes("openblog_gift_settings")) {
+      if (init.method === "POST") { saved = { ...saved, ...JSON.parse(init.body) }; return new Response("", { status: 201 }); }
+      return new Response(JSON.stringify([saved]), { status: 200 });
+    }
+    if (String(url).includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: tries++ < 10 }), { status: 200 });
+    if (String(url).includes("openblog_gifts") && !init.method) return new Response("[]", { status: 200 });
+    throw new Error("no other storage in this test");
+  } });
+  const call = (method, path, { body, headers = {} } = {}) => handler({ httpMethod: method, path: `/api/gifts/${path}`, headers, body: body ? JSON.stringify(body) : "" });
+  const owner = { authorization: `Bearer ${env.OPENBLOG_GIFTS_ADMIN_KEY}` };
+  const origin = { origin: "https://family.example" };
+  const { token } = JSON.parse((await call("GET", "token")).body);
+  at += 10000;
+  const gift = { token, from: "A neighbor", kind: "note", note: "Merry Christmas" };
+  assert.equal(JSON.parse((await call("GET", "tree")).body).anyone, false);
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 403, "off: the password is still asked");
+  assert.equal((await call("POST", "admin/settings", { body: { anyone: "yes" }, headers: owner })).statusCode, 422);
+  const on = await call("POST", "admin/settings", { body: { anyone: true }, headers: owner });
+  assert.equal(on.statusCode, 200);
+  assert.equal(JSON.parse(on.body).anyone, true);
+  assert.equal(saved.anyone, true);
+  assert.equal(JSON.parse((await call("GET", "tree")).body).anyone, true, "the form learns not to ask");
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 503, "on: a gift with no password reaches storage");
+  assert.equal((await call("POST", "submit", { body: gift })).statusCode, 403, "still only from the site");
+  assert.equal((await call("POST", "submit", { body: { ...gift, token: "x.y.z" }, headers: origin })).statusCode, 400, "still a seasoned token");
+  assert.equal((await call("POST", "submit", { body: { ...gift, website: "spam.example" }, headers: origin })).statusCode, 200, "a robot still stores nothing");
+  for (let i = 0; i < 10; i += 1) await call("POST", "submit", { body: gift, headers: origin });
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 429, "still a limit on tries an hour");
+});
+
 test("submitting needs the site's origin, a seasoned token and the family password, and owner routes need the key", async () => {
   let at = Date.parse("2026-12-01T12:00:00Z");
   let tries = 0;

@@ -39,6 +39,12 @@ export async function createGifts({ api }) {
     description: "Only for people who said that's OK. You always see every name here.",
     onCheckedchange: (e) => setNames(e.detail),
   });
+  const anyone = h("toggle-switch", {
+    label: say("gifts.anyoneLabel"),
+    description: say("gifts.anyoneHelp"),
+    onCheckedchange: (e) => setAnyone(e.detail),
+  });
+  const codeNote = h("p", { class: "studio-help", hidden: true, text: say("gifts.anyoneNoPassword") });
   const codeWords = h("p", { class: "studio-help" });
   const details = h("details", { class: "studio-help studio-gift-details" });
   const nextButton = h("action-button", { size: "lg", hidden: true, onClick: () => { const next = nextToOpen(); if (next) open(next); } }, "Open the next gift");
@@ -46,7 +52,7 @@ export async function createGifts({ api }) {
   const codeSave = h("action-button", { hidden: true, onClick: () => saveCode() }, "Save the new password");
   const codeChange = h("action-button", { variant: "secondary", onClick: () => { codeField.hidden = false; codeSave.hidden = false; codeChange.hidden = true; codeField.querySelector("input")?.focus(); } }, "Change it");
   const code = h("section", { class: "studio-section", "aria-labelledby": "studio-code-h" },
-    h("h3", { id: "studio-code-h", text: "The family password" }), codeWords, codeChange, codeField, codeSave);
+    h("h3", { id: "studio-code-h", text: "The family password" }), anyone, codeWords, codeNote, codeChange, codeField, codeSave);
   const list = h("ul", { class: "studio-gift-list", "aria-labelledby": "studio-gifts-h", "aria-busy": "true" }, h("li", {}, h("skeleton-block", { lines: 3 })));
   const element = h("section", { class: "studio-page studio-gifts", "aria-labelledby": "studio-gifts-h" },
     h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: "The family leaves these on your site. Everything in them stays private until you open it." }), nextButton, names),
@@ -93,6 +99,8 @@ export async function createGifts({ api }) {
       ? h("span", {}, "The family types this to leave you a gift: ", h("strong", { text: state.familyCode }), ". Capital letters and spaces don't matter.")
       : "Nobody has set one yet, so nobody can leave a gift. Choose one below.");
     names.checked = state.showNames;
+    anyone.checked = state.anyone === true;
+    codeNote.hidden = state.anyone !== true;
     list.removeAttribute("aria-busy");
     if (!state.gifts.length) {
       fill(list, h("li", {}, h("empty-state", { heading: "Nothing yet" }, "When someone in the family leaves you a gift on your site, it shows up here, wrapped.")));
@@ -193,6 +201,17 @@ export async function createGifts({ api }) {
     } catch (error) {
       names.checked = state.showNames;
       trouble("That didn't change", error);
+    }
+  }
+
+  async function setAnyone(on) {
+    try {
+      state.anyone = (await api.post("gifts/settings", { anyone: on })).anyone === true;
+      draw();
+      toast(state.anyone ? say("gifts.anyoneOn") : say("gifts.anyoneOff"));
+    } catch (error) {
+      anyone.checked = state.anyone === true;
+      trouble(say("gifts.anyoneFailed"), error);
     }
   }
 
