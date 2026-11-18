@@ -14,6 +14,12 @@ All notable changes to open.blog are recorded here. Releases follow
   each other's parts: the writer picks who reads the words as they are, and someone who only reads sees
   **Shared with you**. A layout that still names a part taken out says so and can be started again.
   `GET collaboration/contributions/shared` gives each part's `authorName` (#705).
+- This repository's own site wears a theme of its own, `themes/example` (the base theme plus open.parlor's
+  `<card-room>` as a landing page section, its games read from a choices file). It is not written by
+  `openblog init`; the base, demo and paper themes are unchanged.
+- A theme component's `choice` setting can keep a long list in a file: `"choicesFrom"` names a `.json` file
+  in the theme folder whose choices follow the ones written in `theme.json`, up to 500 in all (ADR 0433).
+  The file is the theme's own, never an address elsewhere, and is checked when the themes load.
 - The repository no longer publishes its own blog to GitHub Pages. The blog is on Netlify, and the Pages
   address holds the documentation, which the blog's hourly deploy kept replacing.
 - Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn

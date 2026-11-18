@@ -1,0 +1,62 @@
+{
+  "label": "open.blog's example site",
+  "extends": "base",
+  "stylesheets": [
+    "components/card-room.css"
+  ],
+  "components": {
+    "card-room": {
+      "label": "Parlor",
+      "description": "Play one of the parlor's games right on the page, and a button to challenge you to a game.",
+      "script": "components/card-room.js",
+      "source": "components/card-room.zb",
+      "fallback": "A game table sits here: play one of the parlor's games, or send a challenge.",
+      "props": [
+        {
+          "name": "server",
+          "type": "text",
+          "label": "Parlor address",
+          "required": true,
+          "maxLength": 200,
+          "help": "Where your parlor runs, like https://your-card-room.up.railway.app"
+        },
+        {
+          "name": "game",
+          "type": "choice",
+          "label": "Game",
+          "default": "both",
+          "choices": [
+            {
+              "value": "both",
+              "label": "Palace and Spades"
+            },
+            {
+              "value": "palace",
+              "label": "Palace"
+            },
+            {
+              "value": "spades",
+              "label": "Spades"
+            }
+          ],
+          "choicesFrom": "components/card-room.games.json"
+        },
+        {
+          "name": "challenge",
+          "type": "text",
+          "label": "Challenge link code",
+          "maxLength": 40,
+          "help": "The end of your challenge link, after ?challenge=. Leave it empty for no Challenge button."
+        },
+        {
+          "name": "who",
+          "type": "text",
+          "label": "Your name on the button",
+          "maxLength": 30,
+          "default": "me",
+          "help": "Shown as “Challenge Grammi to Palace”."
+        }
+      ]
+    }
+  }
+}

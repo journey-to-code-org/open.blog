@@ -1,0 +1,25 @@
+/* card-room */
+@layer theme, base, components, utilities;
+@layer components {
+@scope (card-room) to ([data-zb-slotted="card-room"]) {
+  :scope { display: block; max-width: 520px; margin: 1.5rem auto; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .box { border-radius: 16px; overflow: hidden; background: #1f4d3a; color: #fbf6ec; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+  .card { padding: 18px 18px 16px; display: grid; gap: 12px; }
+  h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.5rem; display: flex; align-items: center; gap: 8px; }
+  p { margin: 0; color: #cfe2d6; line-height: 1.4; }
+  .tabs { display: flex; gap: 6px; }
+  .tabs button { flex: 1; padding: 8px; border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.15); background: rgba(0, 0, 0, 0.2); color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+  .tabs button[aria-pressed=true] { border-color: #e8c46a; background: rgba(232, 196, 106, 0.14); }
+  .actions { display: grid; gap: 8px; }
+  .primary, .secondary { padding: 12px 16px; border-radius: 12px; font: inherit; font-weight: 700; font-size: 1.05rem; cursor: pointer; }
+  .primary { border: 0; background: #e8c46a; color: #1d1a16; }
+  .secondary { border: 2px solid #e8c46a; background: transparent; color: #fbf6ec; }
+  /* The colour is also inline on the link: a page's own link colour outranks a component's layered styles. */
+  .link { color: #e8c46a; font-size: 0.9rem; text-align: center; }
+  .bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: rgba(0, 0, 0, 0.3); font-weight: 700; }
+  .bar button { background: none; border: 0; color: #e8c46a; font: inherit; cursor: pointer; }
+  iframe { display: block; width: 100%; height: min(78vh, 760px); border: 0; background: #1f4d3a; }
+  .primary:focus-visible, .secondary:focus-visible, .tabs button:focus-visible, .bar button:focus-visible { outline: 3px solid #fbf6ec; outline-offset: 2px; }
+  .missing { padding: 16px; color: #ffb4a8; }
+}
+}

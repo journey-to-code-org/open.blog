@@ -63,6 +63,28 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   `/blog/posts/meatloaf/`, and is left out while that post is a draft).
   Each has a `name` (the attribute), a `label`, and optionally `help`, `required` and `default`. A name is lowercase letters,
   digits and hyphens and never an event handler (`on…`), `id`, `class`, `style`, `src` or `href`.
+- **A long list of choices** can live in a file of its own. Give the setting `"choicesFrom"`, a `.json` file
+  inside the theme folder, and the choices it lists follow the ones written in `theme.json`:
+
+  ```jsonc
+  { "name": "game", "type": "choice", "label": "Game", "default": "both",
+    "choices": [ { "value": "both", "label": "Palace and Spades" } ],
+    "choicesFrom": "components/card-room.games.json" }
+  ```
+
+  ```jsonc
+  // themes/<name>/components/card-room.games.json
+  { "choices": [ { "value": "chess", "label": "Chess" }, { "value": "hearts", "label": "Hearts" } ] }
+  ```
+
+  The file is an array of `{ "value", "label" }`, or an object holding that array as `choices`. A setting
+  takes up to 50 choices written in `theme.json` and up to 500 with its file, so whoever makes the
+  component can ship the list beside it and replace that one file when the list grows. A value already
+  offered keeps its first label. Like the script, the file is the theme's own: an address elsewhere is
+  refused, and a file that is missing or not a list of choices stops the build, naming it
+  ([ADR 0433](adr/0433-a-choice-setting-may-read-more-choices-from-a-file-of-the-themes-own.md)).
+  This repository's own site shows one: `themes/example` offers open.parlor's `<card-room>`, whose list of
+  games is `themes/example/components/card-room.games.json`.
 - **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme
   never loads code from another site through a component.
 - **The section** the owner adds holds only the component's name, an optional heading and the values:

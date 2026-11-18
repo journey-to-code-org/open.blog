@@ -196,6 +196,8 @@ test.describe("the switch", () => {
   });
 
   test("on:<round> shows it again once to an account that finished another round", async ({ page }) => {
+    // Two restarts of the site and two runs through Getting started: more than the usual minute on a slow runner.
+    test.setTimeout(150_000);
     await restartSite(site, { OPENBLOG_STUDIO_ONBOARDING: "on" });
     await fresh(page);
     await home(page);
