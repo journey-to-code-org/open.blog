@@ -60,9 +60,20 @@ export function validateSharedReflectionDraft(draft = {}) {
   return null;
 }
 
+/**
+ * A layout that can't be read because it names a part its writer took out (#705): the server
+ * answers `GET collaboration/reflection` with 409 and only the layout's revision. `{ revision }`,
+ * or null for any other answer.
+ */
+export function staleArrangement(error) {
+  const revision = error?.data?.revision;
+  return error?.status === 409 && Number.isInteger(revision) && revision >= 0 ? { revision } : null;
+}
+
 export const REVEAL_POLICIES = Object.freeze([
   { value: "allReady", words: () => say("together.policyAllReady"), help: () => say("together.policyAllReadyHelp") },
   { value: "voluntary", words: () => say("together.policyVoluntary"), help: () => say("together.policyVoluntaryHelp") },
+  { value: "namedRecipients", words: () => say("together.policyNamed"), help: () => say("together.policyNamedHelp") },
 ]);
 
 /** The request body. Identity beyond the chosen name comes from the session. New ones start "when everyone's ready". */
@@ -72,7 +83,7 @@ export function sharedReflectionPayload(draft = {}) {
     title: text(draft.title),
     guidingQuestion: text(draft.guidingQuestion),
     contributorId: text(draft.contributorId),
-    revealPolicy: draft.revealPolicy === "voluntary" ? "voluntary" : "allReady",
+    revealPolicy: REVEAL_POLICIES.some((policy) => policy.value === draft.revealPolicy) ? draft.revealPolicy : "allReady",
     sources: (Array.isArray(draft.sources) ? draft.sources : []).map((source) => ({
       kind: SHARED_SOURCE_KINDS.some((kind) => kind.value === source.kind) ? source.kind : "other",
       title: text(source.title),

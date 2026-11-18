@@ -87,6 +87,8 @@ export const WORDS = {
   "together.policyAllReady": { text: "When everyone's ready", layer: "her" },
   "together.policyAllReadyHelp": { text: "Nobody reads anyone's part until everyone has said they're ready.", layer: "her" },
   "together.policyVoluntary": { text: "Each person, when they're ready", layer: "her" },
+  "together.policyNamed": { text: "Only the people each writer chooses", layer: "her" },
+  "together.policyNamedHelp": { text: "Each writer picks who reads the words they have now. Nobody else sees them.", layer: "her" },
   "together.policyVoluntaryHelp": { text: "Anyone who's ready reads the others who are ready too.", layer: "her" },
   "together.footer": { text: "Nothing goes on {product} until everyone agrees.", layer: "her" },
   "together.start": { text: "Start", layer: "her" },

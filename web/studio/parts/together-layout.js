@@ -3,12 +3,13 @@
 // which part of theirs, an optional label), moving them with buttons or Alt+↑/↓. Saving names the
 // revision it was built on; one saved elsewhere first reloads around what she chose. Saving asks
 // everyone to agree again, and says so; Undo puts the previous layout back. Nobody's words are read.
-import { h } from "./dom.js";
+import { fill, h } from "./dom.js";
 import { use } from "../zubra.js";
 import { say } from "./words.js";
 import { createSheet } from "./sheet.js";
 import { createDidLine } from "./did-line.js";
-import { togetherProblem } from "./together-rules.js";
+import { ask } from "./dialogs.js";
+import { staleArrangement, togetherProblem } from "./together-rules.js";
 import { ARRANGEMENT_LAYOUTS, arrangementDraft, arrangementPayload, moveItem, nextRoundId, turnWords, validateArrangement } from "./arrange-rules.js";
 
 export async function createLayoutSheet({ api, id, onChange }) {
@@ -35,6 +36,10 @@ export async function createLayoutSheet({ api, id, onChange }) {
       data = await api.get(`collaboration/reflection?publicationId=${encodeURIComponent(id)}`);
     } catch (error) {
       if (error.status === 401) throw error;
+      // #705: the saved layout names a part its writer took out. Nothing of it can be shown;
+      // whoever can read every current part may start it again.
+      const stale = staleArrangement(error);
+      if (stale) { drawStale(stale.revision); return; }
       did.tell(togetherProblem(error).words, { variant: "problem" });
       return;
     }
@@ -43,6 +48,32 @@ export async function createLayoutSheet({ api, id, onChange }) {
     else draft = fresh;
     start = keepChoices ? start : JSON.stringify(draft);
     draw();
+  }
+
+  /** The layout can't be read because a part in it was taken out: say so, and offer to start again. */
+  function drawStale(revision) {
+    draft = null;
+    start = "";
+    const again = h("action-button", { onClick: () => restart(revision, again) }, say("layout.startAgain"));
+    fill(body, h("alert-banner", { variant: "warning", heading: say("layout.staleTitle") }, h("p", { text: say("layout.staleText") })),
+      h("p", { class: "studio-help", text: say("layout.startAgainHelp") }), h("div", { class: "studio-row" }, again));
+  }
+
+  async function restart(revision, opener) {
+    const choice = await ask({ heading: say("layout.startAgainAsk"), text: [say("layout.startAgainText"), say("layout.clearsAgreement")],
+      choices: [{ label: say("layout.startAgain"), value: "go" }, { label: say("layout.startAgainNo"), value: "no", variant: "secondary" }] });
+    if (choice !== "go") { opener?.focus?.(); return; }
+    try {
+      await api.post("collaboration/reflection/reset", { publicationId: id, expectedRevision: revision, confirmed: true });
+      did.tell(say("layout.startedAgain"));
+      await load();
+      onChange?.();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      // Someone else restarted it first, or she can't read every part yet: the sheet shows which.
+      await load();
+      if (!draft) did.tell(error.status === 409 ? say("layout.startAgainNeedsAll") : togetherProblem(error).words, { variant: "problem" });
+    }
   }
 
   function draw(focusSelector = "") {

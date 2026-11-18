@@ -15,6 +15,8 @@ import { sayWhen } from "../parts/dates.js";
 import { joinNames, togetherProblem } from "../parts/together-rules.js";
 import { offeredMomentsText } from "../parts/moment-rules.js";
 import { createMomentsSheet } from "../parts/together-moments.js";
+import { createExtraParts } from "../parts/together-extra.js";
+import { chooseReaders, whoReadsNodes } from "../parts/together-named.js";
 import {
   draftStateText, insertAtSelection, joinParts, movePartBreak, partBlocks, partBreakInsertion, promptInsertion,
   reflectionPrompts, removePartBreak, savesLeftText,
@@ -45,13 +47,16 @@ export async function createTogetherPart(context, id, route = {}) {
   // R14b: the moments her part points to.
   const moments = await createMomentsSheet({ api, id });
   const momentsButton = h("action-button", { variant: "secondary", onClick: (e) => moments.open(e.currentTarget) }, say("moments.button"));
+  // #705: the parts she has added beside her first.
+  const extra = await createExtraParts({ api, id, kept, onChange: () => paint() });
   const bar = h("div", { class: "studio-write-bar studio-together-bar" });
+  const whoReads = h("div", { hidden: true });
   const details = h("details", { class: "studio-help" });
   const body = h("div", { class: "studio-part-body", "aria-busy": "true" }, h("skeleton-block", { lines: 6 }));
   const element = h("section", { class: "studio-page studio-together-part", "aria-labelledby": "studio-part-h" }, crumb, back, heading, body);
 
   let summary = null;
-  let reveal = { policy: "independent", ready: false };
+  let reveal = { policy: "independent", ready: false, slots: [] };
   let saved = { number: 0, text: "" };
   let text = "";
   let caret = null; // { index, start, end } in the words box she was in
@@ -59,6 +64,7 @@ export async function createTogetherPart(context, id, route = {}) {
   let offline = false;
   let mine = null; // her words after "Use the other one", until she leaves
   const dirty = () => text !== saved.text;
+  const anyDirty = () => dirty() || extra.dirty();
   const focusSoon = (node) => requestAnimationFrame(() => (node?.querySelector?.("textarea, button, input") || node)?.focus?.());
 
   async function load() {
@@ -88,7 +94,8 @@ export async function createTogetherPart(context, id, route = {}) {
         api.get(`collaboration/reveal?publicationId=${encodeURIComponent(id)}`),
       ]);
       saved = { number: draft?.draft?.stamp?.number || 0, text: draft?.draft?.markdown || "" };
-      reveal = { policy: shared?.policy || "independent", ready: Boolean(shared?.ready) };
+      reveal = { policy: shared?.policy || "independent", ready: Boolean(shared?.ready), slots: shared?.slots || [], access: shared?.authorizationRevision };
+      await extra.load();
     } catch (error) {
       if (error.status === 401) throw error;
       return problem(error);
@@ -138,7 +145,7 @@ export async function createTogetherPart(context, id, route = {}) {
     drawIdeas();
     drawEditor();
     fill(body, question, status, left, banner, ideas, editor, h("div", { class: "studio-row" }, saveButton, breakButton, momentsButton), raw,
-      h("p", { class: "studio-help", text: say("part.newPartHelp") }), did.element, bar, details);
+      h("p", { class: "studio-help", text: say("part.newPartHelp") }), offline ? null : extra.element, did.element, whoReads, bar, details);
     paint();
     if (route.query?.sheet === "moments" && !moments.sheet.isOpen) {
       route.query.sheet = "";
@@ -256,15 +263,19 @@ export async function createTogetherPart(context, id, route = {}) {
 
   function paint() {
     const you = summary?.you || {};
-    const changedSince = you.shared && (you.changedSinceShared || dirty());
+    const changedSince = you.shared && (you.changedSinceShared || anyDirty());
     status.textContent = you.needsReshare && !dirty() ? say("together.stepReshare") : draftStateText({ saving, offline, dirty: dirty(), saved: saved.number, shared: you.shared, changedSince });
     left.textContent = savesLeftText(saved.number);
     left.hidden = !left.textContent;
     let primary = null;
-    if (!you.shared && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.share"));
+    // "People you choose" has no waiting state: she can choose again whenever there are words.
+    if (reveal.policy === "namedRecipients") primary = text.trim() ? h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("named.choose")) : null;
+    else if (!you.shared && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.share"));
     else if (changedSince && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.shareChanges"));
     else if (you.needsReshare && text.trim()) primary = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => share() }, say("part.share"));
-    const notYet = reveal.ready && !changedSince ? h("action-button", { variant: "secondary", onClick: () => takeBack() }, say("part.notYet")) : null;
+    const notYet = reveal.policy !== "namedRecipients" && reveal.ready && !changedSince ? h("action-button", { variant: "secondary", onClick: () => takeBack() }, say("part.notYet")) : null;
+    fill(whoReads, ...(reveal.policy === "namedRecipients" ? whoReadsNodes(reveal.slots, isolating) : []));
+    whoReads.hidden = !whoReads.childElementCount;
     fill(bar, notYet, primary);
     bar.hidden = !notYet && !primary;
     fill(details, h("summary", { text: say("common.forHelper") }), h("p", { text: say("part.privateLede") }),
@@ -275,7 +286,7 @@ export async function createTogetherPart(context, id, route = {}) {
   /** Send the words on screen as a version. True once saved. */
   async function save() {
     if (saving || !summary?.you?.drafter) return false;
-    if (!dirty()) { paint(); return true; }
+    if (!dirty()) { const others = await extra.saveAll(); paint(); return others; }
     saving = true;
     paint();
     try {
@@ -283,7 +294,7 @@ export async function createTogetherPart(context, id, route = {}) {
       saved = { number: reply?.stamp?.number || saved.number + 1, text };
       offline = false;
       kept.clear(key);
-      return true;
+      return await extra.saveAll();
     } catch (error) {
       if (error.status === 401) throw error;
       if (error.status === 0) { offline = true; return false; }
@@ -333,14 +344,22 @@ export async function createTogetherPart(context, id, route = {}) {
   async function share() {
     if (!text.trim()) { did.tell(say("part.needWords"), { variant: "problem" }); return; }
     if (reveal.policy === "independent") { did.tell(say("part.cantShareNever"), { variant: "problem" }); return; }
+    const empty = extra.empty();
+    if (empty) { did.tell(say("extra.emptyPart", { n: empty }), { variant: "problem" }); return; }
+    if (reveal.policy === "namedRecipients") { await shareWithNamed(); return; }
     const agreed = (summary.people || []).filter((p) => !p.you && p.where === "agreed").map((p) => p.displayName);
     const lines = [reveal.policy === "voluntary" ? say("part.shareAskVoluntary") : say("part.shareAskText")];
+    if (extra.count()) lines.unshift(say("part.shareAllParts", { n: extra.count() + 1 }));
     if (summary.you?.shared && agreed.length) lines.push(sayParts("part.reagreeWarn", { names: joinNames(agreed, isolating) }, ["names"]));
     const choice = await ask({ heading: say("part.shareAsk"), text: lines, choices: [{ label: say("part.shareGo"), value: "go" }, { label: say("part.shareNo"), value: "no", variant: "secondary" }] });
     if (choice !== "go") return;
     if (dirty() && !(await save())) return;
+    if (!(await extra.saveAll())) return;
     try {
-      const reply = await api.put("collaboration/reveal/ready", { publicationId: id, revision: saved.number });
+      // With added parts every current part is offered together; with one, the route that offers one.
+      const reply = extra.count()
+        ? await api.put("collaboration/contributions/ready", { publicationId: id, contributions: extra.offers(saved.number) })
+        : await api.put("collaboration/reveal/ready", { publicationId: id, revision: saved.number });
       const read = { label: say("part.readThem"), href: `#/together/${encodeURIComponent(id)}/read` };
       const words = reply?.revealed ? say("part.sharedNow") : say("part.sharedWaiting");
       const about = offeredMomentsText(reply);
@@ -353,9 +372,32 @@ export async function createTogetherPart(context, id, route = {}) {
     }
   }
 
+  /** #705: under "people you choose", she picks who reads the version she has now, part by part. */
+  async function shareWithNamed() {
+    const people = (reveal.slots || []).filter((slot) => slot.mayReceive);
+    const chosen = await chooseReaders({ people, parts: extra.count() + 1 });
+    if (!chosen) return;
+    if (dirty() && !(await save())) return;
+    if (!(await extra.saveAll())) return;
+    try {
+      for (const offer of extra.offers(saved.number)) {
+        await api.post("collaboration/reveal/named", { publicationId: id, revision: offer.revision, recipients: chosen.ids, contributionId: offer.contributionId, expectedAuthorizationRevision: reveal.access });
+      }
+      const words = sayParts("named.shared", { names: joinNames(chosen.names, isolating) }, ["names"]);
+      did.tell(words);
+      toast(say("named.sharedShort"));
+      await refresh();
+    } catch (error) {
+      if (error.status === 401) throw error;
+      did.tell(error.status === 409 ? say("named.accessChanged") : togetherProblem(error, "part").words, { variant: "problem" });
+      await refresh();
+    }
+  }
+
   async function takeBack() {
     try {
-      await api.put("collaboration/reveal/ready", { publicationId: id, revision: null });
+      if (extra.count()) await api.put("collaboration/contributions/ready", { publicationId: id, contributions: null });
+      else await api.put("collaboration/reveal/ready", { publicationId: id, revision: null });
       did.tell(say("part.notYetDone"));
       await refresh();
     } catch (error) {
@@ -368,7 +410,7 @@ export async function createTogetherPart(context, id, route = {}) {
     try {
       const [listed, shared] = await Promise.all([api.get("collaboration/publications"), api.get(`collaboration/reveal?publicationId=${encodeURIComponent(id)}`)]);
       summary = (listed.publications || []).find((s) => s.publicationId === id) || summary;
-      reveal = { policy: shared?.policy || reveal.policy, ready: Boolean(shared?.ready) };
+      reveal = { policy: shared?.policy || reveal.policy, ready: Boolean(shared?.ready), slots: shared?.slots || [], access: shared?.authorizationRevision };
     } catch (error) {
       if (error.status === 401) throw error;
     }
@@ -386,11 +428,11 @@ export async function createTogetherPart(context, id, route = {}) {
     palette: [{ id: "save", label: say("part.save"), group: "Do" }, { id: "share", label: say("part.share"), group: "Do" }],
     keys: ["save", "publish"],
     command: (which) => { if (which === "save") save(); if (which === "publish" || which === "share") share(); },
-    isDirty: () => dirty() || moments.sheet.isDirty(),
+    isDirty: () => anyDirty() || moments.sheet.isDirty(),
     focus: () => heading.focus(),
     async leave() {
       if (!(await moments.sheet.leave())) return false;
-      if (!dirty() || !summary?.you?.drafter) { removeEventListener("online", online); return true; }
+      if (!anyDirty() || !summary?.you?.drafter) { removeEventListener("online", online); return true; }
       const choice = await ask({ heading: say("part.leaveAsk"), text: say("part.leaveText"),
         choices: [{ label: say("part.leaveSave"), value: "save" }, { label: say("part.leaveGo"), value: "go", variant: "secondary" }] });
       if (choice === "save" && !(await save())) return false;

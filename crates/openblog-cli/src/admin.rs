@@ -14984,10 +14984,21 @@ fn read_visible_contributions(
         Ok(views) => views,
         Err(response) => return response,
     };
-    Response::json(
-        200,
-        &json!({ "contributions": views.iter().map(draft_json).collect::<Vec<_>>() }),
-    )
+    // Each shared part carries its writer's name, so someone who only reads can tell whose it is
+    // without any other route; a name is given only beside a part they may already read.
+    let contributions = views
+        .iter()
+        .map(|view| {
+            let name = record
+                .collaboration
+                .participants
+                .iter()
+                .find(|participant| participant.id == view.stamp.author_participant_id)
+                .map(|participant| participant.display_name.as_str());
+            json!({ "stamp": view.stamp, "markdown": view.markdown, "authorName": name })
+        })
+        .collect::<Vec<_>>();
+    Response::json(200, &json!({ "contributions": contributions }))
 }
 
 fn visible_contributions(
@@ -17509,6 +17520,7 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
         let Ok(compared) = set.compare(own, &order, &active) else {
             return draft_not_found();
         };
+        let chosen = set.chosen_readers(own);
         for (participant, slot) in participants.iter().zip(compared) {
             let (kind, view, offered) = match &slot {
                 ComparisonSlot::Own(view) => ("own", Some(view), false),
@@ -17520,6 +17532,9 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
                 "displayName": participant.display_name,
                 "mayReceive": participant.id != *own && recipients.contains(&participant.id),
                 "nonDrafter": !active.contains(&participant.id.as_str()),
+                // Only the writer learns whom they chose, and whether that person has their
+                // newest words: `null` when not chosen.
+                "chosen": chosen.iter().find(|(id, _)| *id == participant.id).map(|(_, current)| *current),
                 "kind": kind,
                 "ready": offered,
                 "stamp": view.map(|v| &v.stamp),
@@ -44076,8 +44091,25 @@ series: letters
         assert!(!body_json(&moments_read(&f, &linus, &id))
             .to_string()
             .contains("NAMED-MOMENT"));
+        // Only the writer learns whom they chose, and that the reader has their newest words.
+        let chosen_for = |who, reader: &str| {
+            body_json(&reveal_state(&f, who, &id))["slots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|slot| slot["participantId"] == reader)
+                .map(|slot| slot["chosen"].clone())
+        };
+        assert_eq!(chosen_for(&mikey, &grace_id), Some(json!(true)));
+        assert!(!body_json(&reveal_state(&f, &grace, &id))
+            .to_string()
+            .contains("\"chosen\":true"));
+        assert!(!body_json(&reveal_state(&f, &linus, &id))
+            .to_string()
+            .contains("\"chosen\":true"));
         assert_eq!(draft_call(&f, &mikey, &id, 1, "SECOND-SECRET").status, 200);
         assert_eq!(release(1, json!([grace_id])).status, 409);
+        assert_eq!(chosen_for(&mikey, &grace_id), Some(json!(false)));
         let view = body_json(&reveal_state(&f, &grace, &id)).to_string();
         assert!(view.contains("FIRST-SECRET"));
         assert!(!view.contains("SECOND-SECRET"));
@@ -45542,6 +45574,10 @@ series: letters
         );
         assert_eq!(shared.status, 200);
         assert!(String::from_utf8_lossy(&shared.body).contains("EXTRA-SECRET"));
+        assert!(
+            body_json(&shared)["contributions"][0]["authorName"].is_string(),
+            "a shared part names its writer"
+        );
         assert!(body_json(&moments_read(&f, &grace, &id))
             .to_string()
             .contains("MULTI-GATE-MOMENT"));

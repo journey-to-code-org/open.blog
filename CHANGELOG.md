@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Writing together, under **Only the people each writer chooses**: Your part says who can read your words
+  as they are saved now, and who has only what you had before your last change. `GET collaboration/reveal`
+  gives the writer `chosen` on each slot (`true` newest, `false` earlier, `null` not chosen); nobody else
+  is told.
+- Writing together: a writer can add parts of their own under **Your other parts** (add, save, move, take
+  out), and all of them are shared together. **Only the people each writer chooses** is a third way to read
+  each other's parts: the writer picks who reads the words as they are, and someone who only reads sees
+  **Shared with you**. A layout that still names a part taken out says so and can be started again.
+  `GET collaboration/contributions/shared` gives each part's `authorName` (#705).
 - This repository's own site wears a theme of its own, `themes/example` (the base theme plus open.parlor's
   `<card-room>` as a landing page section, its games read from a choices file). It is not written by
   `openblog init`; the base, demo and paper themes are unchanged.

@@ -705,8 +705,9 @@ from Posts (**Write something with others**) or Find.
 1. **Start writing together.** Say what started it (a video, an article, a podcast, a book or something
    else, up to 20, with a link if it has one), the question you each answer, a name for it, your name on
    it (from People; **Add my name** puts the blog's name there), and when you read each other's parts:
-   **When everyone's ready** (the default) or **Each person, when they're ready**. Only you can see it
-   until you invite someone.
+   **When everyone's ready** (the default) or **Each person, when they're ready**. On the reflection the
+   same choice can be changed, and has a third: **Only the people each writer chooses**. Only you can see
+   it until you invite someone.
 2. **Invite someone.** On the reflection, **People and invitations** lists who is in it and what each
    does (**Writes a part**, **Writes a part and helps run it**, **Only reads**, **In charge**). Choose
    their name from People, say whether they're new (Studio makes them a sign-in, with a name you can
@@ -721,8 +722,16 @@ from Posts (**Write something with others**) or Find.
    can have. **Ideas to start from** put a question in your words. **Start a new part** splits your part
    for the layout (readers never see the break). If you saved somewhere else too, both are shown and
    nothing is lost until you choose **Keep mine**, **Use the other one** (with **Bring mine back**) or
-   **Decide later**.
-5. **Let the others read it** asks once. When everyone's ready you all read each other's parts.
+   **Decide later**. **Your other parts**, under your words once they're saved, are parts of their own
+   with their own place in the layout: **Add another part**, write it, **Save this part**, move it up or
+   down, or **Take it out** (asks once; it can't be put back, and a layout that used it has to be started
+   again). An empty one has to be written or taken out before you share.
+5. **Let the others read it** asks once, and takes all your parts together as they are. When everyone's
+   ready you all read each other's parts. Under **Only the people each writer chooses** the button is
+   **Choose who reads it**: tick the people, and they read the words you had just then; later changes stay
+   with you until you choose again, and what someone has read can't be taken back. Under your words it
+   says who can read them as they are saved now, and who has only what you had before your last change. Someone who only reads
+   sees **Shared with you**: just what was chosen for them, under each writer's name.
    **Everyone's parts** shows them as plain text; **See it as readers will** shows the formatted version
    in a frame that can run nothing. **Agree to publish this** asks once and can be undone.
 6. **Your name on it.** Before anyone reads the whole thing to agree, each person whose part is in it says
@@ -742,8 +751,9 @@ part including people who only read, or everyone who wrote and at least a number
 goes down when someone leaves) and what an agreement covers (their own part, or the whole thing; a
 reflection started now is always agreed as a whole). A change is a suggestion: it takes effect once
 everyone taking part presses **Agree to this rule**, and the reflection shows it to each of them until
-they do. Several parts per writer and sharing one version with named people are in the API but not yet in
-Studio ([#705](https://github.com/journey-to-code-org/open.blog/issues/705)). **Collection** puts it in a collection at a place
+they do. If someone takes a part out after a layout was saved, Layout says so and offers **Start the
+layout again**, which asks once and puts everyone's current parts in, in order; anyone who can read every
+part can do it. **Collection** puts it in a collection at a place
 you choose, shows the reading order, and lets someone in charge make a new collection. **What we say
 together** holds what you say after everyone's parts (an agreement, a difference, a question, something
 to try, or what you're not sure about), each speaking for the people named on it and agreed by each of

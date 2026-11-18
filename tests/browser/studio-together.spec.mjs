@@ -97,7 +97,8 @@ async function axeClean(page, label) {
   await page.setViewportSize({ width: 400, height: 800 });
 }
 
-const status = (page) => page.locator(".studio-did");
+// The line under "Your other parts" (#705) is its own; this is what the screen itself said.
+const status = (page) => page.locator(".studio-did:not(.studio-extra .studio-did)");
 
 /** "Your name on it" (#650), from its sheet already open: choose, Use this, and see it said back. */
 async function chooseNameInSheet(page, choice) {
