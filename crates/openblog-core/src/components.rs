@@ -19,7 +19,8 @@
 //! }
 //! ```
 //!
-//! A setting is `text` (one line, at most `maxLength` characters), `choice` (one of `choices`),
+//! A setting is `text` (one line, at most `maxLength` characters), `choice` (one of `choices`, and of
+//! the choices listed in the theme's own `choicesFrom` file, ADR 0433),
 //! `number` (between `min` and `max`), `toggle` (on or off), `date` (a calendar day, written
 //! `YYYY-MM-DD`, which Admin offers as a date picker) or `post` (one of the site's posts, chosen from
 //! a list; the element is given the post's address, or nothing while the post isn't published). The section that places a component
@@ -38,6 +39,12 @@ pub const MAX_PROPS: usize = 20;
 pub const DEFAULT_TEXT_LENGTH: usize = 200;
 /// The longest text setting a component may allow.
 pub const MAX_TEXT_LENGTH: usize = 2_000;
+/// The most choices a setting may write in `theme.json` itself.
+pub const MAX_CHOICES: usize = 50;
+/// The most choices a setting may have once its `choicesFrom` file is read (ADR 0433).
+pub const MAX_LISTED_CHOICES: usize = 500;
+/// The longest value or label a choice read from a file may have.
+const MAX_CHOICE_TEXT: usize = 120;
 
 /// What `theme.json` says about one component.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -69,6 +76,11 @@ pub struct PropDecl {
     pub required: bool,
     pub default: Option<Value>,
     pub choices: Vec<Choice>,
+    /// A `.json` file in the theme folder listing more choices (ADR 0433): an array of
+    /// `{ "value", "label" }`, or an object holding one as `choices`. Whoever loads the theme reads
+    /// it with [`PropDecl::add_listed_choices`]; they follow the ones written here.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub choices_from: String,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub max_length: Option<usize>,
@@ -194,6 +206,11 @@ impl Component {
                     "the setting `{name}`: `help` is one line of at most 300 characters"
                 ));
             }
+            if !prop.choices_from.is_empty() && prop.kind != "choice" {
+                return Err(format!(
+                    "the setting `{name}`: only a `choice` setting takes `choicesFrom`"
+                ));
+            }
             match prop.kind.as_str() {
                 "text" => {
                     if prop
@@ -206,8 +223,25 @@ impl Component {
                     }
                 }
                 "choice" => {
-                    if prop.choices.is_empty() || prop.choices.len() > 50 {
-                        return Err(format!("the setting `{name}` needs from 1 to 50 `choices`"));
+                    if !prop.choices_from.is_empty() && !valid_choices_file(&prop.choices_from) {
+                        return Err(format!(
+                            "the setting `{name}`: `choicesFrom` must be a .json file inside the theme folder, like `components/my-sign.choices.json`"
+                        ));
+                    }
+                    let most = if prop.choices_from.is_empty() {
+                        MAX_CHOICES
+                    } else {
+                        MAX_LISTED_CHOICES
+                    };
+                    if prop.choices.is_empty() || prop.choices.len() > most {
+                        return Err(if prop.choices_from.is_empty() {
+                            format!("the setting `{name}` needs from 1 to {MAX_CHOICES} `choices`")
+                        } else {
+                            format!(
+                                "the setting `{name}` needs from 1 to {MAX_LISTED_CHOICES} choices, counting those in `{}`",
+                                printable(&prop.choices_from)
+                            )
+                        });
                     }
                     for choice in &prop.choices {
                         if choice.value.is_empty()
@@ -342,7 +376,96 @@ impl Component {
     }
 }
 
+/// A choices file inside the theme folder, ending in `.json`.
+fn valid_choices_file(path: &str) -> bool {
+    valid_path(path) && path.ends_with(".json")
+}
+
+impl ComponentDecl {
+    /// Read every setting's `choicesFrom` file with `read` (given the path as the theme wrote it,
+    /// relative to the theme folder) and add its choices. The first problem is returned in words.
+    pub fn add_listed_choices(
+        &mut self,
+        read: impl Fn(&str) -> Result<String, String>,
+    ) -> Result<(), String> {
+        for prop in &mut self.props {
+            prop.add_listed_choices(&read)?;
+        }
+        Ok(())
+    }
+}
+
 impl PropDecl {
+    /// Add the choices its `choicesFrom` file lists (ADR 0433), after the ones `theme.json` writes.
+    /// The file is JSON: an array of `{ "value", "label" }`, or an object holding that array as
+    /// `choices`. A value already offered keeps its first label. Nothing happens without a
+    /// `choicesFrom`; a path outside the theme folder is never read.
+    pub fn add_listed_choices(
+        &mut self,
+        read: impl Fn(&str) -> Result<String, String>,
+    ) -> Result<(), String> {
+        if self.choices_from.is_empty() {
+            return Ok(());
+        }
+        let name = printable(&self.name);
+        let path = self.choices_from.clone();
+        if self.kind != "choice" {
+            return Err(format!(
+                "the setting `{name}`: only a `choice` setting takes `choicesFrom`"
+            ));
+        }
+        if !valid_choices_file(&path) {
+            return Err(format!(
+                "the setting `{name}`: `choicesFrom` must be a .json file inside the theme folder, like `components/my-sign.choices.json`"
+            ));
+        }
+        let text = read(&path).map_err(|problem| {
+            format!("the setting `{name}`: its choices file `{path}` could not be read ({problem})")
+        })?;
+        let unreadable = || {
+            format!(
+                "the setting `{name}`: `{path}` must be a list of choices, each with a `value` and a `label`"
+            )
+        };
+        let listed: Vec<Choice> = match serde_json::from_str::<Value>(&text) {
+            Ok(Value::Array(list)) => serde_json::from_value(Value::Array(list)),
+            Ok(Value::Object(mut file)) => match file.remove("choices") {
+                Some(list @ Value::Array(_)) => serde_json::from_value(list),
+                _ => return Err(unreadable()),
+            },
+            _ => return Err(unreadable()),
+        }
+        .map_err(|_| unreadable())?;
+        for choice in listed {
+            let value = choice.value.trim();
+            let label = choice.label.trim();
+            if value.is_empty()
+                || label.is_empty()
+                || !one_line(value)
+                || !one_line(label)
+                || value.chars().count() > MAX_CHOICE_TEXT
+                || label.chars().count() > MAX_CHOICE_TEXT
+            {
+                return Err(format!(
+                    "the setting `{name}`: every choice in `{path}` needs a `value` and a `label` of one line, at most {MAX_CHOICE_TEXT} characters"
+                ));
+            }
+            if self.choices.iter().any(|known| known.value == value) {
+                continue;
+            }
+            if self.choices.len() >= MAX_LISTED_CHOICES {
+                return Err(format!(
+                    "the setting `{name}`: `{path}` brings it past {MAX_LISTED_CHOICES} choices"
+                ));
+            }
+            self.choices.push(Choice {
+                value: value.to_string(),
+                label: label.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     /// The attribute value for `value`: `Some(text)`, `None` for a toggle that is on, or the problem.
     /// A toggle that is off is an `Err` the caller leaves out.
     fn value(&self, value: &Value) -> Result<Option<String>, String> {
@@ -361,14 +484,22 @@ impl PropDecl {
                 if self.choices.iter().any(|choice| &choice.value == text) {
                     Ok(Some(text.clone()))
                 } else {
-                    Err(format!(
-                        "must be one of {}",
-                        self.choices
-                            .iter()
-                            .map(|c| c.label.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ))
+                    // A long list (one read from a file) is not said back in full.
+                    let said = 12;
+                    let mut labels = self
+                        .choices
+                        .iter()
+                        .take(said)
+                        .map(|c| c.label.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    if self.choices.len() > said {
+                        labels.push_str(&format!(
+                            " or one of the {} others listed",
+                            self.choices.len() - said
+                        ));
+                    }
+                    Err(format!("must be one of {labels}"))
                 }
             }
             ("number", Value::Number(number)) => {
@@ -487,6 +618,151 @@ mod tests {
 
     fn values(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
+    }
+
+    /// A game picker: two choices written in `theme.json`, the rest in a file of the theme's.
+    fn picker() -> ComponentDecl {
+        serde_json::from_value(json!({
+            "label": "Parlor", "script": "components/card-room.js",
+            "props": [
+                { "name": "game", "type": "choice", "label": "Game", "default": "both",
+                  "choices": [ { "value": "both", "label": "Palace and Spades" }, { "value": "palace", "label": "Palace" } ],
+                  "choicesFrom": "components/card-room.games.json" }
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_choice_setting_takes_more_choices_from_a_file_of_the_themes() {
+        let mut decl = picker();
+        decl.add_listed_choices(|path| {
+            assert_eq!(path, "components/card-room.games.json");
+            Ok(r#"{ "choices": [ { "value": "chess", "label": "Chess" }, { "value": "palace", "label": "Palace again" }, { "value": "hearts", "label": " Hearts " } ] }"#.into())
+        })
+        .unwrap();
+        let c = Component::check("card-room", &decl).unwrap();
+        let labels: Vec<_> = c.props[0]
+            .choices
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            ["Palace and Spades", "Palace", "Chess", "Hearts"],
+            "the file's choices follow the written ones, and a value already offered keeps its label"
+        );
+        assert_eq!(
+            c.attributes(&values(json!({ "game": "chess" }))).unwrap(),
+            vec![("game".into(), Some("chess".into()))]
+        );
+        assert!(c
+            .attributes(&values(json!({ "game": "checkers" })))
+            .is_err());
+        assert_eq!(c.to_json()["props"][0]["choices"][2]["value"], "chess");
+
+        // A bare list reads the same.
+        let mut bare = picker();
+        bare.add_listed_choices(|_| Ok(r#"[ { "value": "chess", "label": "Chess" } ]"#.into()))
+            .unwrap();
+        assert_eq!(bare.props[0].choices.len(), 3);
+    }
+
+    #[test]
+    fn a_file_may_hold_more_choices_than_theme_json_may_write() {
+        let many = |n: usize| {
+            json!((0..n)
+                .map(|i| json!({ "value": format!("g{i}"), "label": format!("Game {i}") }))
+                .collect::<Vec<_>>())
+            .to_string()
+        };
+        let mut decl = picker();
+        decl.add_listed_choices(|_| Ok(many(120))).unwrap();
+        let c = Component::check("card-room", &decl).unwrap();
+        assert_eq!(c.props[0].choices.len(), 122);
+        let problem = c
+            .attributes(&values(json!({ "game": "nope" })))
+            .unwrap_err()
+            .join("\n");
+        assert!(
+            problem.contains("or one of the 110 others listed"),
+            "a long list is not said back in full: {problem}"
+        );
+
+        let mut decl = picker();
+        let problem = decl.add_listed_choices(|_| Ok(many(600))).unwrap_err();
+        assert!(problem.contains("past 500 choices"), "{problem}");
+
+        // Written in theme.json itself, the limit is still 50.
+        let mut inline = picker();
+        inline.props[0].choices_from.clear();
+        inline.props[0].choices = (0..51)
+            .map(|i| Choice {
+                value: format!("g{i}"),
+                label: format!("Game {i}"),
+            })
+            .collect();
+        inline.props[0].default = None;
+        assert!(Component::check("card-room", &inline)
+            .unwrap_err()
+            .contains("from 1 to 50 `choices`"));
+    }
+
+    #[test]
+    fn a_choices_file_is_held_to_the_theme_folder_and_to_its_shape() {
+        for path in [
+            "https://elsewhere.example/games.json",
+            "../games.json",
+            "/etc/games.json",
+            "components/games.js",
+        ] {
+            let mut decl = picker();
+            decl.props[0].choices_from = path.into();
+            let problem = decl
+                .add_listed_choices(|_| panic!("{path} must never be read"))
+                .unwrap_err();
+            assert!(
+                problem.contains("inside the theme folder"),
+                "{path}: {problem}"
+            );
+            assert!(
+                Component::check("card-room", &decl)
+                    .unwrap_err()
+                    .contains("inside the theme folder"),
+                "{path}"
+            );
+        }
+        for (file, said) in [
+            ("not json", "must be a list of choices"),
+            (r#"{ "games": [] }"#, "must be a list of choices"),
+            (
+                r#"[ { "value": "chess" } ]"#,
+                "needs a `value` and a `label`",
+            ),
+            (
+                r#"[ { "value": "a\nb", "label": "Two lines" } ]"#,
+                "of one line",
+            ),
+        ] {
+            let mut decl = picker();
+            let problem = decl.add_listed_choices(|_| Ok(file.into())).unwrap_err();
+            assert!(problem.contains(said), "{file}: {problem}");
+        }
+        let mut decl = picker();
+        let problem = decl
+            .add_listed_choices(|_| Err("no such file".into()))
+            .unwrap_err();
+        assert!(
+            problem.contains("`components/card-room.games.json` could not be read (no such file)"),
+            "{problem}"
+        );
+
+        // Only a choice setting has choices to list.
+        let mut decl = countdown();
+        decl.props[1].choices_from = "components/notes.json".into();
+        assert!(Component::check("holiday-countdown", &decl)
+            .unwrap_err()
+            .contains("only a `choice` setting takes `choicesFrom`"));
     }
 
     #[test]
