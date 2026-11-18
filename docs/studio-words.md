@@ -899,9 +899,19 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `curate.takenOut` | her | Taken out of what readers get. | none | 60 |
 | `curate.text` | her | Your words | none | 40 |
 | `curate.title` | her | For readers of this post | none | 48 |
+| `decorations.addedFirst` | her | Added first on your calendar, from today, so it shows over the season under it. Not saved yet. | none | 188 |
 | `decorations.betweenOff` | her | The look {product} wears while the calendar is off. | `{product}` | 102 |
 | `decorations.byItself` | her | {product} changes by itself on the days below. | `{product}` | 92 |
 | `decorations.calendarOff` | her | {product} wears {theme} every day. The calendar is off. | `{product}` `{theme}` | 110 |
+| `decorations.canvasComputer` | her | Computer | none | 40 |
+| `decorations.canvasFailed` | her | The picture of your front page didn't open | none | 84 |
+| `decorations.canvasFailedHelp` | her | Your switches still work. | none | 50 |
+| `decorations.canvasNote` | her | Your front page with these up. It changes as you take things down or put them back. | none | 166 |
+| `decorations.canvasPhone` | her | Phone | none | 40 |
+| `decorations.canvasRetry` | her | Try again | none | 40 |
+| `decorations.canvasShowOn` | her | Show it on | none | 40 |
+| `decorations.canvasTitle` | her | Your front page in {look} | `{look}` | 50 |
+| `decorations.canvasWait` | her | Getting it ready… | none | 40 |
 | `decorations.decorated` | her | {product} is decorated for {theme}. | `{product}` `{theme}` | 70 |
 | `decorations.everyDay` | her | {product} wears {theme} every day. | `{product}` `{theme}` | 68 |
 | `decorations.everyday` | her | {product} is wearing its everyday look: {theme}. | `{product}` `{theme}` | 96 |
@@ -992,6 +1002,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `design.noteLighterMany` | her | In {scheme}, the {role} are a little lighter so they're easy to read. | `{scheme}` `{role}` | 138 |
 | `design.noteReplaced` | her | In {scheme}, the {role} couldn't be made easy to read, so it uses {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 176 |
 | `design.noteReplacedMany` | her | In {scheme}, the {role} couldn't be made easy to read, so they use {replacement} instead. | `{scheme}` `{role}` `{replacement}` | 178 |
+| `design.pieceDown` | her | Down | none | 40 |
+| `design.pieceStays` | her | This one always stays up. | none | 50 |
+| `design.pieceUp` | her | Up | none | 40 |
+| `design.pieceUsual` | her | The one it came with | none | 40 |
+| `design.pieceWhich` | her | Which one: {thing} | `{thing}` | 40 |
+| `design.piecesHelp` | her | Take one down or choose a different one for this look. The page beside it shows each change. Nothing is saved until you save the look. | none | 240 |
+| `design.piecesNotKept` | her | {name} is saved, but what you took down is still up in it. Change it under Decorations, in What's hanging. | `{name}` | 212 |
+| `design.piecesTitle` | her | What it hangs | none | 40 |
 | `design.previewBack` | her | Back to your new look | none | 42 |
 | `design.previewFailed` | her | Your front page couldn't be shown just now. Your new look is still here. | none | 144 |
 | `design.previewFrame` | her | Your front page in the new look | none | 62 |

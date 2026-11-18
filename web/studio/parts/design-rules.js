@@ -6,7 +6,7 @@
 // The server decides every colour that is saved. `contrastRatio` here is a port of
 // `look_contrast::contrast` so the page can warn early; it never chooses what is kept.
 import { say } from "./words.js";
-import { CHOICES, CONTROL_TEXT } from "./look-rules.js";
+import { CHOICES, CONTROL_TEXT, lookChoices } from "./look-rules.js";
 
 export const MAX_DESCRIPTION = 1000;
 export const MAX_LABEL = 40;
@@ -87,9 +87,44 @@ export function renamed(draft, label) {
 /** The Start from choices: every look of the site except the plain engine default, by name. */
 export function startFrom(options) {
   const themes = Array.isArray(options?.themes) ? options.themes : [];
-  return themes
-    .filter((theme) => typeof theme?.name === "string" && (theme.name !== "base" || options.current === "base"))
-    .map((theme) => ({ value: theme.name, label: String(theme.label || theme.name) }));
+  return lookChoices(
+    themes.filter((theme) => typeof theme?.name === "string" && (theme.name !== "base" || options.current === "base")),
+    { sort: false },
+  );
+}
+
+/** The choices a new look starts with: the ones saved for the look it starts from, copied. */
+export function picksFor(decorations, base) {
+  const saved = decorations?.decorations?.[base];
+  const picks = {};
+  for (const [piece, choice] of Object.entries(saved && typeof saved === "object" ? saved : {})) {
+    if (choice === false || (typeof choice === "string" && choice)) picks[piece] = choice;
+  }
+  return picks;
+}
+
+/** `picks` with one piece changed: `false` takes it down, a version's id swaps it, `null` is as it came. */
+export function withPick(picks, piece, choice) {
+  const next = { ...(picks || {}) };
+  if (choice === false || (typeof choice === "string" && choice)) next[piece] = choice;
+  else delete next[piece];
+  return next;
+}
+
+/** A piece's versions as choices, the one it came with first. Its value can never be a version's id. */
+export function pieceOptions(piece, usualLabel) {
+  const versions = Array.isArray(piece?.variants) ? piece.variants : [];
+  return [{ value: "_usual", label: usualLabel }, ...versions.map((version) => ({ value: version.id, label: String(version.label || version.id) }))];
+}
+
+/**
+ * The look Start from begins on: the one that is up (`wearing`, from the seasons), then the
+ * stored one (`current`), then the first. A site decorated by the calendar stores its plain look,
+ * so starting there would drop the season's touches she is looking at.
+ */
+export function startDefault(themes = [], current = "", wearing = "") {
+  const has = (name) => Boolean(name) && themes.some((theme) => theme.value === name);
+  return has(wearing) ? wearing : has(current) ? current : (themes[0]?.value || "");
 }
 
 /**

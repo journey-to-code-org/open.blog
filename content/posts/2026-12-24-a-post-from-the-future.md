@@ -27,8 +27,8 @@ link went to a missing page until today.
   at the moment a post comes due.
 - **On a static host**, any build after that time includes it. A scheduled job, such as a daily
   cron or GitHub Actions workflow that runs `openblog build`, is enough.
-- **In the Admin**, choose **Scheduled**, then pick a date and time in your own time zone. It is
-  stored as UTC.
+- **In Studio**, set a date and time still to come under **When it appears**, in your own time
+  zone. It is stored as UTC.
 
 Times can carry an offset, such as `2026-12-24T09:00:00-05:00` for 9am in New York.
 
@@ -38,7 +38,7 @@ Times can carry an offset, such as `2026-12-24T09:00:00-05:00` for 9am in New Yo
 openblog serve --drafts
 ```
 
-`--drafts` includes drafts and scheduled posts, for your eyes only. The Admin lists them with a
-"scheduled" badge.
+`--drafts` includes drafts and scheduled posts, for your eyes only. Studio lists them as
+**Scheduled**.
 
 Happy holidays, whenever you are reading this.

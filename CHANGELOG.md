@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The repository no longer publishes its own blog to GitHub Pages. The blog is on Netlify, and the Pages
+  address holds the documentation, which the blog's hourly deploy kept replacing.
+- Describe a new look shows the front page beside the form: the look it starts from, then the draft, redrawn
+  after each change. The things the look hangs can be taken down or swapped for the new look before it is
+  saved (`decorations` on `POST theme-draft/preview`), and are kept under its name when it is.
+- Decorations › What's hanging shows the front page in the look beside its switches, laid out as a
+  computer or a phone shows it, and redraws it after each change.
+- A theme can say where it is listed: `"hidden": true` keeps it out of the lists where a look is picked for
+  the whole site (the calendar, the everyday look, what a new look starts from) unless it is the one in use,
+  and `"group"` lists a group's themes together after the others. Neither is inherited.
 - Studio asks about the blog the first time and shows only what it uses (ONB1, ADRs 0429 to 0432).
   - A Getting started run opens with **About your blog**: up to six skippable questions ("What will
     you mostly write?", writing with others, seasons, sharing, comments, how much to see), a summary

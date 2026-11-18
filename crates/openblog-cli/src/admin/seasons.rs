@@ -38,12 +38,13 @@ fn describe(root: &Path, bytes: &[u8]) -> Result<Json, String> {
     let config = SiteConfig::from_json(source)?;
     let raw: Json = serde_json::from_str(source).map_err(|error| error.to_string())?;
     let themes = site::load_themes(root, &config)?;
+    let in_use = looks_in_use(&config);
     let choices: Vec<Json> = themes
         .names()
         .into_iter()
         .filter_map(|name| {
             let theme = themes.resolve(&name).ok()?;
-            Some(json!({ "name": name, "label": theme.label }))
+            offered(&theme, &in_use).then(|| look_choice(&theme))
         })
         .collect();
     let now = clock::now();
@@ -295,4 +296,33 @@ pub(super) fn preview_home(
         200,
         &json!({ "previewUrl": format!("/admin/api/preview/{token}"), "look": look }),
     )
+}
+
+/// The looks the site is set to wear: the stored one, every season's, and one put up for now.
+/// A hidden look in this set stays in the lists, so a choice already made is never lost from view.
+pub(super) fn looks_in_use(config: &SiteConfig) -> Vec<String> {
+    let mut names = vec![config.theme.clone()];
+    names.extend(
+        config
+            .seasons
+            .windows
+            .iter()
+            .map(|window| window.theme.clone()),
+    );
+    names.extend(config.seasons.up_now.iter().map(|up| up.theme.clone()));
+    names
+}
+
+/// Whether a look is offered where an owner picks one for the whole site.
+pub(super) fn offered(theme: &openblog_core::theme::Theme, in_use: &[String]) -> bool {
+    !theme.hidden || in_use.iter().any(|name| name == &theme.name)
+}
+
+/// A look as a list shows it: its name, its label, and its group when it has one.
+pub(super) fn look_choice(theme: &openblog_core::theme::Theme) -> Json {
+    let mut choice = json!({ "name": theme.name, "label": theme.label });
+    if !theme.group.is_empty() {
+        choice["group"] = json!(theme.group);
+    }
+    choice
 }

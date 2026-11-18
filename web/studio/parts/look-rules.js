@@ -72,6 +72,20 @@ export const CONTROL_TEXT = Object.freeze({
 const KEYS = new Set(CONTROL_ORDER);
 
 /** A look made of just the controls this screen knows, as plain strings. */
+/**
+ * The looks of a list as choices (`{ value, label }`), a group's looks together after the
+ * ungrouped ones (a theme's `group`, as the server sends it). `sort: true` puts each run in
+ * order of label; without it the server's order is kept and grouped looks only move to the end.
+ */
+export function lookChoices(themes, { sort = true } = {}) {
+  const list = (Array.isArray(themes) ? themes : [])
+    .filter((theme) => typeof theme?.name === "string" && theme.name)
+    .map((theme, at) => ({ at, value: theme.name, label: String(theme.label || theme.name), group: typeof theme.group === "string" ? theme.group : "" }));
+  const order = (a, b) =>
+    (a.group ? 1 : 0) - (b.group ? 1 : 0) || a.group.localeCompare(b.group) || (sort ? a.label.localeCompare(b.label) : 0) || a.at - b.at;
+  return list.sort(order).map(({ value, label }) => ({ value, label }));
+}
+
 export function lookFrom(value) {
   const out = {};
   if (value && typeof value === "object") {

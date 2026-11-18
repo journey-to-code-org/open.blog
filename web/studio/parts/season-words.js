@@ -4,12 +4,22 @@ import { say } from "./words.js";
 
 /** Word ids a site may change (docs/studio-words.md): {product} is "your blog" unless it says. */
 export const WORDS = {
+  "decorations.canvasShowOn": { text: "Show it on", layer: "her" },
+  "decorations.canvasComputer": { text: "Computer", layer: "her" },
+  "decorations.canvasPhone": { text: "Phone", layer: "her" },
+  "decorations.canvasNote": { text: "Your front page with these up. It changes as you take things down or put them back.", layer: "her" },
+  "decorations.canvasWait": { text: "Getting it ready…", layer: "her" },
+  "decorations.canvasTitle": { text: "Your front page in {look}", layer: "her" },
+  "decorations.canvasFailed": { text: "The picture of your front page didn't open", layer: "her" },
+  "decorations.canvasFailedHelp": { text: "Your switches still work.", layer: "her" },
+  "decorations.canvasRetry": { text: "Try again", layer: "her" },
   "decorations.calendarOff": { text: "{product} wears {theme} every day. The calendar is off.", layer: "her" },
   "decorations.putUpEarly": { text: "{product} is decorated for {theme}, put up early. It stays up through {until}.", layer: "her" },
   "decorations.decorated": { text: "{product} is decorated for {theme}.", layer: "her" },
   "decorations.everyday": { text: "{product} is wearing its everyday look: {theme}.", layer: "her" },
   "decorations.betweenOff": { text: "The look {product} wears while the calendar is off.", layer: "her" },
   "decorations.noSeasons": { text: "Add one, like Christmas from December 1 to January 6, and {product} changes by itself.", layer: "her" },
+  "decorations.addedFirst": { text: "Added first on your calendar, from today, so it shows over the season under it. Not saved yet.", layer: "her" },
   "decorations.byItself": { text: "{product} changes by itself on the days below.", layer: "her" },
   "decorations.whenYouSave": { text: "When you save, {product} wears {theme} every day. Your seasons are kept for when you turn this back on.", layer: "her" },
   "decorations.everyDay": { text: "{product} wears {theme} every day.", layer: "her" },

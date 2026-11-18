@@ -17,9 +17,10 @@ automatic publishing of scheduled posts).
 
 A blog made with `openblog init` is a folder of Markdown, settings, and themes. It has
 no Rust code of its own: the `openblog` command does the building. The instructions below
-assume that layout. (If you instead work inside a clone of the open.blog repository, its
-own `.github/workflows/pages.yml` builds the starter site from source; replace
-`openblog build` with `cargo run --release -p openblog-cli -- build` in the commands here.)
+assume that layout. (If you instead work inside a clone of the open.blog repository, replace
+`openblog build` with `cargo run --release -p openblog-cli -- build` in the commands here. The
+repository's own blog is published to Netlify by `.github/workflows/netlify-main.yml`; its
+GitHub Pages address holds the documentation, from `.github/workflows/docs-pages.yml`.)
 
 **The Knowledge Atlas is not in the repository.** With `knowledgeAtlas.publish` on, `/atlas/`
 and `/atlas.json` come from the private atlas at `.openblog/private/research/atlas.json`, which

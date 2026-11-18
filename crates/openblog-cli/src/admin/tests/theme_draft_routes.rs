@@ -610,3 +610,85 @@ fn a_saved_look_can_be_undone_only_briefly_by_who_saved_it_and_only_while_unused
     assert!(f.dir.join(format!("themes/{name}/theme.json")).exists());
     let _ = fs::remove_dir_all(&f.dir);
 }
+
+#[test]
+fn a_preview_wears_the_pieces_chosen_for_the_new_look_and_writes_nothing() {
+    let f = fixture("theme-draft-pieces");
+    let session = login_ok(&f);
+    // A look that hangs a garland, to start the new one from.
+    let festive = f.dir.join("themes").join("festive");
+    fs::create_dir_all(&festive).unwrap();
+    fs::write(
+        festive.join("theme.json"),
+        serde_json::to_string_pretty(&json!({
+            "label": "Festive", "extends": "base",
+            "tokens": { "decorGarland": "url(holly.svg)" },
+            "decorations": { "garland": {
+                "label": "Garland", "tokens": ["decorGarland"], "off": { "decorGarland": "none" },
+                "variants": { "toys": { "label": "From the toy shelf", "tokens": { "decorGarland": "url(toys.svg)" } } }
+            } }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let before = theme_folders(&f);
+    let config_before = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
+    let page = |decorations: Json| -> String {
+        let preview = post(
+            &f,
+            &session,
+            "theme-draft/preview",
+            json!({ "draft": draft(), "mode": "light", "base": "festive", "decorations": decorations }),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let url = body_json(&preview)["previewUrl"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let page = handle(&f.state, &authed(req("GET", &url), &session, false));
+        String::from_utf8_lossy(&page.body).into_owned()
+    };
+    assert!(
+        page(json!({})).contains("url(holly.svg)"),
+        "as the look comes"
+    );
+    let down = page(json!({ "garland": false }));
+    assert!(
+        !down.contains("holly.svg") && !down.contains("toys.svg"),
+        "taken down"
+    );
+    assert!(
+        page(json!({ "garland": "toys" })).contains("url(toys.svg)"),
+        "another version"
+    );
+    // A piece or a version the look it starts from doesn't have is refused, in words.
+    for bad in [
+        json!({ "wreath": false }),
+        json!({ "garland": "tinsel" }),
+        json!([1]),
+    ] {
+        let refused = post(
+            &f,
+            &session,
+            "theme-draft/preview",
+            json!({ "draft": draft(), "base": "festive", "decorations": bad }),
+        );
+        assert_eq!(
+            refused.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+    }
+    assert_eq!(theme_folders(&f), before, "a preview writes no theme");
+    assert_eq!(
+        fs::read_to_string(f.dir.join("openblog.json")).unwrap(),
+        config_before,
+        "nor the choices"
+    );
+}

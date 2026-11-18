@@ -156,6 +156,19 @@ const wornOnDay = (seasons, fallbackTheme, number) => {
  * @param {string} date "YYYY-MM-DD"
  * @returns {{ day: string, theme: string } | null}
  */
+/**
+ * A season to add: `{ theme, start, end }`, to go first in the list (the first season that holds
+ * a day wins it, so a new one added last would be covered by the seasons above it). It starts
+ * on `date` and runs to the end of the season that holds that day, or for that one day when
+ * none does, so it shows the day it is saved and covers one season, not the year.
+ */
+export function newSeason(seasons, theme, date) {
+  const today = String(date ?? "").slice(5, 10);
+  const day = parseMonthDay(today) ? today : "01-01";
+  const holding = windowsOf(seasons).find((window) => windowHolds(window, day));
+  return { theme: String(theme ?? ""), start: day, end: holding && parseMonthDay(holding.end) ? holding.end : day };
+}
+
 export function nextChange(seasons, fallbackTheme, date) {
   const today = dayNumber(date);
   if (today === null) return null;

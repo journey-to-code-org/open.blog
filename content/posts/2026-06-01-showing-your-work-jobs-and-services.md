@@ -52,7 +52,7 @@ The price band is one of `under-500`, `500-2k`, `2k-10k`, `10k-50k`, `over-50k` 
 shown in words, such as "$2,000 to $10,000", with a note that it is a guide. Questions become a
 FAQ on the page, and the search-engine data that goes with it.
 
-In the Admin, open **Services** and choose **Add a service**. From a terminal, run
+In Studio, open **Services** and choose **Add a service**. From a terminal, run
 `openblog new "Floor refinishing" --profile service`.
 
 ## Jobs: show what you did
@@ -94,11 +94,11 @@ found**, **What we did** and **Result**. Change them freely.
 
 ## Three ways to write a job
 
-- **On site, from your phone.** Open **Capture** in the Admin. Take photos, pick the trade and
+- **On site, from your phone.** Open **New job** in Studio. Take photos, pick the trade and
   town, type or dictate notes, and choose **Save draft**. If the signal drops, the capture waits
   on your phone and sends itself when you are back online.
-- **In the Admin.** New post, then **Settings → Content profile → Job**. An **About this job**
-  form fills in the fields above.
+- **In Studio.** **Write something new**, then **About this post → What kind of post → A job**.
+  A form fills in the fields above.
 - **From a terminal.** `openblog new "Oak floor refinish" --profile job --trade flooring
   --service floor-refinishing --town "Maple Falls" --region WA`. The job starts as a draft.
 
@@ -111,6 +111,6 @@ date, stops the build with a sentence naming the field. A draft job is allowed t
 - `/jobs/`, `/jobs/<trade>/` and `/jobs/<trade>/<service>/` archives, newest first.
 - A **Services** link in the header, unless your navigation already has one.
 - `Service` and `FAQPage` data for search engines, and `LocalBusiness` data once you fill in
-  **Business facts** (name, phone, hours, licence) in the Admin.
+  **Business** (name, phone, hours, licence) in Studio.
 
 Next: [Bringing back a 1920s oak floor](/posts/bringing-back-a-1920s-oak-floor/).

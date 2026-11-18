@@ -15,11 +15,12 @@ import { say } from "../parts/words.js";
 import { ask } from "../parts/dialogs.js";
 import { innerAria } from "../parts/inner-button.js";
 import { showPreview } from "../parts/preview.js";
+import { createDesignPieces } from "../parts/design-pieces.js";
 import { createDidLine } from "../parts/did-line.js";
 import { clip, companyName, helperProblem } from "../parts/helper-rules.js";
 import {
   IDEAS, MAX_DESCRIPTION, MAX_LABEL, WRITING_ROLES, backDraft, undoWords, descriptionProblem, designProblem, labelProblem, letteringLine, lookOverrides, noteWords, pickedWords, pushDraft,
-  readablePairs, renamed, roleName, startFrom, swatches, willAdjust, withColor,
+  readablePairs, renamed, roleName, startDefault, startFrom, swatches, willAdjust, withColor,
 } from "../parts/design-rules.js";
 
 const STILL_MS = 20000;
@@ -28,7 +29,7 @@ export async function createDesign(context) {
   const { api, meta } = context;
   await use("action-button", "alert-banner", "breadcrumb-trail", "content-card", "empty-state", "segmented-control", "select-field", "text-field", "loading-spinner", "skeleton-block");
   let status = null;
-  let options = { themes: [], current: "" };
+  let options = { themes: [], current: "", wearing: "" };
   let look = null;
   let entry = null; // { draft, theme, changes, suggested }
   let history = [];
@@ -48,7 +49,10 @@ export async function createDesign(context) {
   const draftButton = h("action-button", { "aria-keyshortcuts": "Control+Enter Meta+Enter", onClick: () => askHelper(false) }, say("design.draft"));
   const form = h("div", { class: "studio-design-form" });
   const result = h("section", { class: "studio-design-result", hidden: true, "aria-labelledby": "studio-design-result-h" });
-  const body = h("div", { class: "studio-design-columns" }, form, result);
+  // The front page in the look being made, and the things it hangs: beside the form and the draft.
+  const page = await createDesignPieces({ api });
+  const onPage = () => page.setDraft(entry ? renamed(entry.draft, name.value || entry.draft.label) : null, scheme);
+  const body = h("div", { class: "studio-design-columns" }, h("div", { class: "studio-design-side" }, form, result), page.element);
   const element = h("section", { class: "studio-page studio-design", "aria-labelledby": "studio-design-h" },
     h("breadcrumb-trail", { items: [{ label: say("design.home"), href: "#/" }, { label: say("design.look"), href: "#/look" }, { label: say("design.title"), href: "" }] }),
     heading, h("p", { class: "studio-lede", text: say("design.lede") }), body);
@@ -70,14 +74,14 @@ export async function createDesign(context) {
   }
   goesDetails.addEventListener("toggle", () => paintGoes(document.activeElement === change.querySelector("textarea")));
   words.addEventListener("valuechange", () => { words.error = ""; paintGoes(); });
-  base.addEventListener("valuechange", () => paintGoes());
+  base.addEventListener("valuechange", () => { paintGoes(); page.setBase(base.value, baseLabel()); });
 
   // ---- the result's own parts
   const resultHeading = h("h2", { id: "studio-design-result-h", class: "studio-question", tabindex: "-1" });
   const summary = h("p", { class: "studio-lede" });
   const notes = h("div", { class: "studio-banner" });
   const schemePick = h("segmented-control", { label: say("design.schemeLabel"), value: "light", options: [{ value: "light", label: say("design.schemeLight") }, { value: "dark", label: say("design.schemeDark") }],
-    onValuechange: (event) => { scheme = event.detail === "dark" ? "dark" : "light"; paintColors(); } });
+    onValuechange: (event) => { scheme = event.detail === "dark" ? "dark" : "light"; paintColors(); onPage(); } });
   const colors = h("ul", { class: "studio-design-swatches" });
   const said = createDidLine();
   const lookNote = h("div", {});
@@ -163,6 +167,7 @@ export async function createDesign(context) {
     paintNotes();
     paintColors();
     paintLookNote();
+    onPage();
     if (focus) requestAnimationFrame(() => resultHeading.focus());
   }
 
@@ -273,9 +278,12 @@ export async function createDesign(context) {
     try {
       const reply = await api.post("theme-draft/save", { draft: renamed(entry.draft, name.value), base: base.value || null });
       savedAs = { name: reply.name, label: reply.label, undoToken: reply.undoToken || "", path: reply.path };
+      // What she took down or swapped is kept under the new look's name.
+      const kept = await page.keep(reply.name);
       options.themes.push({ value: reply.name, label: reply.label });
       saveButton.hidden = true;
       paintSaved(reply);
+      if (!kept) { said.tell(say("design.piecesNotKept", { name: String(reply.label || "") }), { variant: "problem" }); said.element.hidden = false; }
       paintDetails();
       return true;
     } catch (error) {
@@ -308,6 +316,7 @@ export async function createDesign(context) {
     const was = savedAs;
     try {
       await api.call("DELETE", `theme-draft/${encodeURIComponent(was.name)}?undo=${encodeURIComponent(was.undoToken)}`);
+      await page.forget(was.name);
       options.themes = options.themes.filter((t) => t.value !== was.name);
       savedAs = null;
       fill(savedCard);
@@ -328,13 +337,14 @@ export async function createDesign(context) {
     history = [];
     savedAs = null;
     result.hidden = true;
+    onPage();
     words.value = "";
     working.textContent = "";
     requestAnimationFrame(() => words.querySelector("textarea")?.focus());
   }
 
   fill(result, resultHeading, summary, notes,
-    schemePick, colors, said.element, lookNote, lettering,
+    schemePick, colors, said.element, lookNote, lettering, page.hanging,
     h("div", { class: "studio-row" }, see),
     change, h("div", { class: "studio-row" }, changeButton, back),
     name, savedCard, details,
@@ -358,7 +368,8 @@ export async function createDesign(context) {
     }
     try {
       const raw = await api.get("theme-draft");
-      options = { themes: startFrom(raw), current: raw.current || "" };
+      const seasons = await api.get("seasons").catch(() => null);
+      options = { themes: startFrom(raw), current: raw.current || "", wearing: String(seasons?.wearing || "") };
       look = await api.get("look").catch(() => null);
     } catch (error) {
       if (error?.status === 401) throw error;
@@ -366,7 +377,9 @@ export async function createDesign(context) {
       return;
     }
     base.options = options.themes.length ? options.themes : [{ value: "", label: say("design.baseOwn") }];
-    base.value = options.themes.some((t) => t.value === options.current) ? options.current : (options.themes[0]?.value || "");
+    base.value = startDefault(options.themes, options.current, options.wearing);
+    await page.load();
+    page.setBase(base.value, baseLabel());
     fill(ideas, ...IDEAS().map((idea) => h("action-button", { variant: "secondary", size: "sm", onClick: () => { words.value = idea.text; words.error = ""; paintGoes(); words.querySelector("textarea")?.focus(); } }, idea.name)));
     paintGoes();
     fill(form, base, words,

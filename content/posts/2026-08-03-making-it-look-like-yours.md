@@ -8,19 +8,19 @@ theme: paper
 tags:
   - guide
   - themes
-  - admin
-description: Change colours, fonts and spacing by tapping in the Admin, arrange the home page from ready-made sections, and give a series or a single post its own theme.
+  - studio
+description: Change colours, fonts and spacing by tapping in Studio, arrange the home page from ready-made sections, and give a series or a single post its own theme.
 ---
 
 This post looks different from its neighbours. Its front matter says `theme: paper`, so it
 renders with the `paper` theme while the rest of the series uses the site's default. That is one
 of four ways to change how your blog looks, from the easiest to the most flexible.
 
-## 1. Customize look: tap, preview, save
+## 1. Look: tap, preview, save
 
-Open **Customize look** in the Admin and choose by tapping:
+Open **Look** in [Studio](/studio/) and choose by tapping:
 
-- one of eight ready-made looks: Calm, Warm, Bold, Night, Garden, Paper, Ocean or Sunset;
+- a ready-made look, such as Calm, Warm, Bold, Night, Garden, Paper, Ocean or Sunset;
 - a main colour, from swatches or a colour picker;
 - a font style (Modern, Classic, Friendly or Techie), text size, corner roundness, spacing, page
   width and heading weight.
@@ -32,8 +32,8 @@ site until you save and publish.
 
 ## 2. The landing page: arrange the home page
 
-By default, the home page lists your latest posts and your series. Open **Landing page** in the
-Admin to build your own from sections: a welcome banner with buttons, text, latest posts,
+By default, the home page lists your latest posts and your series. Open **Front page** in
+Studio to build your own from sections: a welcome banner with buttons, text, latest posts,
 series, a featured post, pictures, a video, a map, opening hours, contact details, social links,
 a FAQ and call-outs. These are the same [pieces](/posts/buttons-maps-hours-and-faqs/) you can put
 in posts.
@@ -93,7 +93,7 @@ what differs:
 }
 ```
 
-`customizable` lists which **Customize look** controls the theme honours. The
+`customizable` lists which **Look** controls the theme honours. The
 [themes guide](https://github.com/journey-to-code-org/open.blog/blob/main/docs/themes.md) covers
 every token, and the
 [components guide](https://github.com/journey-to-code-org/open.blog/blob/main/docs/theme-components.md)

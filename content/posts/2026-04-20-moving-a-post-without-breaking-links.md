@@ -92,4 +92,4 @@ sourceUrl: https://dev.to/you/the-original-post
 other way, publishing here first and copying elsewhere, is covered in
 [Safely cross-posting your blog](/posts/automated-cross-posting/).
 
-Next: [Writing in the Admin editor](/posts/writing-in-the-admin-editor/).
+Next: [Writing in Studio](/posts/writing-in-studio/).
