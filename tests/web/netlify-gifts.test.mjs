@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkFamilyCode, checkFormToken, checkGift, makeFormToken, normalizeCode, opensAt, sameCode } from "../../netlify/lib/gift-card.mjs";
+import { checkFamilyCode, checkFormToken, checkGift, checkSpot, spotOf, makeFormToken, normalizeCode, opensAt, sameCode } from "../../netlify/lib/gift-card.mjs";
 import { createHandler, giftSettings } from "../../netlify/functions/gifts.mjs";
 
 const NY = "America/New_York";
@@ -25,7 +25,12 @@ test("the family password ignores case, spaces and punctuation", () => {
 
 test("a note and a card are checked, and a card is data from fixed lists only", () => {
   assert.deepEqual(checkGift({ from: " Ava ", kind: "note", note: "Love you!", showName: true, wrap: "plaid" }),
-    { from: "Ava", wrap: "plaid", showName: true, kind: "note", note: "Love you!", card: null });
+    { from: "Ava", wrap: "plaid", showName: true, spot: null, kind: "note", note: "Love you!", card: null });
+  // Where it was set down: two whole numbers on the grid, or nothing at all.
+  assert.deepEqual(checkGift({ from: "Ava", kind: "note", note: "x", spot: { x: 40, y: 100, z: 9 } }).spot, { x: 40, y: 100 });
+  for (const bad of [null, {}, { x: 1 }, { x: "4", y: 5 }, { x: 4.5, y: 5 }, { x: -1, y: 5 }, { x: 5, y: 101 }, [1, 2]]) assert.equal(checkSpot(bad), null, JSON.stringify(bad));
+  assert.deepEqual(spotOf({ spot_x: 0, spot_y: 7 }), { x: 0, y: 7 });
+  assert.equal(spotOf({ spot_x: null, spot_y: null }), null);
   const card = checkGift({ from: "Ava", kind: "card", wrap: "nope", card: { design: "holly", message: "Merry\r\nChristmas", signOff: "Ava", stickers: [{ kind: "star", x: 10, y: 90 }] } });
   assert.equal(card.wrap, "red");
   assert.equal(card.showName, false, "names are private unless the giver says otherwise");
@@ -62,6 +67,34 @@ test("settings name what's missing, and the family password must be at least 6 l
   assert.equal(giftSettings({}).enabled, false);
   assert.ok(giftSettings(env).enabled);
   assert.deepEqual(giftSettings({ ...env, OPENBLOG_GIFTS_FAMILY_CODE: "a b" }).problems, ["OPENBLOG_GIFTS_FAMILY_CODE"]);
+});
+
+test("a gift is stored where its giver set it down, and the tree hands that out", async () => {
+  let at = Date.parse("2026-12-01T12:00:00Z");
+  const rows = [];
+  const handler = createHandler({ env, now: () => at, fetchImpl: async (url, init = {}) => {
+    const address = String(url);
+    if (address.includes("openblog_gift_settings")) return new Response(JSON.stringify([{ show_names: true, family_code: null, anyone: true }]), { status: 200 });
+    if (address.includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: true }), { status: 200 });
+    if (address.includes("openblog_gifts") && init.method === "POST") {
+      const row = { id: `g${rows.length + 1}`, created_at: new Date(at).toISOString(), ...JSON.parse(init.body) };
+      rows.push(row);
+      return new Response(JSON.stringify([row]), { status: 201 });
+    }
+    if (address.includes("openblog_gifts") && address.includes("spot_x,spot_y")) return new Response(JSON.stringify(rows), { status: 200 });
+    if (address.includes("openblog_gifts")) return new Response("[]", { status: 200, headers: { "content-range": "*/0" } });
+    throw new Error(`no other storage in this test: ${address}`);
+  } });
+  const call = (method, path, body) => handler({ httpMethod: method, path: `/api/gifts/${path}`, headers: { origin: "https://family.example" }, body: body ? JSON.stringify(body) : "" });
+  const { token } = JSON.parse((await call("GET", "token")).body);
+  at += 10000;
+  const placed = await call("POST", "submit", { token, from: "Ava", kind: "note", note: "hi", wrap: "gold", spot: { x: 30, y: 80 } });
+  assert.equal(placed.statusCode, 200, placed.body);
+  assert.deepEqual(JSON.parse(placed.body).gift.spot, { x: 30, y: 80 });
+  assert.equal((await call("POST", "submit", { token, from: "Ben", kind: "note", note: "hi", spot: { x: 300, y: 80 } })).statusCode, 200, "a place off the grid is dropped, not refused");
+  assert.deepEqual(rows.map((row) => [row.spot_x, row.spot_y]), [[30, 80], [null, null]]);
+  const tree = JSON.parse((await call("GET", "tree")).body);
+  assert.deepEqual(tree.gifts.map((gift) => gift.spot), [{ x: 30, y: 80 }, null]);
 });
 
 test("when she takes gifts from anyone, no password is asked, and every other guard stays", async () => {

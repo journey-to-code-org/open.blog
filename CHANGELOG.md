@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Gifts: a gift can carry where its giver set it down under the tree (`spot`, two whole numbers from 0
+  to 100). The public `tree` reply hands it out so a theme can draw the pile. Run `supabase/gifts.sql`
+  again (it adds `spot_x` and `spot_y`) before deploying the `gifts` function.
 - Gifts: the owner can **Let anyone leave you a gift** (Gifts › The family password), so the password
   isn't asked for. Off by default; every other guard stays. Run `supabase/gifts.sql` again to add the
   `anyone` column, and redeploy the `gifts` function. The public `tree` reply now says `anyone`.

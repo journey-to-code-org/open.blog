@@ -2,10 +2,11 @@
 // tree; it stays wrapped until Christmas morning, when she opens it in Studio.
 //
 // Public routes under /api/gifts/ (the site's own origin only, for CORS):
-//   GET  tree     the wrapped boxes: id, wrap, and who it's from only where the giver said yes
+//   GET  tree     the wrapped boxes: id, wrap, where it was set down (spot, if chosen), and who it's
+//                 from only where the giver said yes
 //                 AND the owner shows names. Never what's inside.
 //   GET  token    a form token (the form must be open a few seconds before it's sent)
-//   POST submit   { code, token, website, from, showName, kind, note | card, wrap }
+//   POST submit   { code, token, website, from, showName, kind, note | card, wrap, spot? }
 //                 code is the family password; website is a field people never see (robots fill it)
 // Owner routes (Bearer OPENBLOG_GIFTS_ADMIN_KEY), for Admin's proxy:
 //   GET  admin/list            every gift: who, wrapped or opened; contents only once opened
@@ -20,7 +21,7 @@
 // 12-25; set another day only to rehearse). Replies are rebuilt from known fields; errors are codes.
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { CardError, LATE_DAYS, LIMITS, WRAPS, checkFamilyCode, checkFormToken, checkGift, makeFormToken, opensAt, sameCode } from "../lib/gift-card.mjs";
+import { CardError, LATE_DAYS, LIMITS, WRAPS, checkFamilyCode, checkFormToken, checkGift, makeFormToken, opensAt, sameCode, spotOf } from "../lib/gift-card.mjs";
 import { isTimeZone, isUuid } from "../lib/greeting-card.mjs";
 import { LOOPBACK } from "../lib/greeting-store.mjs";
 
@@ -85,7 +86,7 @@ function createGiftStore({ settings, fetchImpl }) {
     return rows.length;
   };
   const store = {
-    onTree: () => call(`${TABLE}?select=id,wrap,from_name,show_name,opens_at,created_at&${site}&hidden_at=is.null&order=created_at.asc&limit=${LIMITS.perSeason}`, { headers: headers() }),
+    onTree: () => call(`${TABLE}?select=id,wrap,spot_x,spot_y,from_name,show_name,opens_at,created_at&${site}&hidden_at=is.null&order=created_at.asc&limit=${LIMITS.perSeason}`, { headers: headers() }),
     all: () => call(`${TABLE}?select=*&${site}&order=created_at.asc&limit=1000`, { headers: headers() }),
     one: async (id) => (await call(`${TABLE}?select=*&${site}&id=eq.${id}`, { headers: headers() }))[0] || null,
     add: async (row) => (await call(TABLE, { method: "POST", headers: write(), body: JSON.stringify({ ...row, site_id: settings.siteId }) }))[0],
@@ -230,7 +231,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         // This season's gifts: still to open, or opened within the late days (until January 6).
         const gifts = (await store.onTree())
           .filter((row) => Date.parse(row.opens_at) > at - (LATE_DAYS + 1) * 24 * 60 * 60 * 1000)
-          .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", from: showNames && row.show_name ? row.from_name : null }));
+          .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", spot: spotOf(row), from: showNames && row.show_name ? row.from_name : null }));
         // `anyone` tells the guest's form whether to ask for the family password at all.
         return json(200, { gifts, opensAt: opens.toISOString(), showNames, anyone }, { "cache-control": "public, max-age=60" });
       }
@@ -264,9 +265,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (await store.forSeason(opens.toISOString()) >= LIMITS.perSeason) throw new CardError(409, "tree-full");
         const row = await store.add({
           from_name: gift.from, show_name: gift.showName, kind: gift.kind, note: gift.note, card: gift.card,
-          wrap: gift.wrap, opens_at: opens.toISOString(), sender_digest: digest,
+          wrap: gift.wrap, spot_x: gift.spot?.x ?? null, spot_y: gift.spot?.y ?? null, opens_at: opens.toISOString(), sender_digest: digest,
         });
-        return json(200, { ok: true, gift: { id: row.id, wrap: row.wrap, from: gift.showName ? gift.from : null }, opensAt: opens.toISOString() });
+        return json(200, { ok: true, gift: { id: row.id, wrap: row.wrap, spot: gift.spot, from: gift.showName ? gift.from : null }, opensAt: opens.toISOString() });
       }
       return json(404, { error: "not-found" });
     } catch (error) {

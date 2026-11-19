@@ -52,6 +52,10 @@ create table if not exists public.openblog_gift_settings (
 alter table public.openblog_gift_settings add column if not exists family_code text
   check (family_code is null or char_length(family_code) between 6 and 80);
 
+-- Where the giver set the gift down under the tree, on a 0 to 100 grid; empty when none was chosen.
+alter table public.openblog_gifts add column if not exists spot_x smallint check (spot_x between 0 and 100);
+alter table public.openblog_gifts add column if not exists spot_y smallint check (spot_y between 0 and 100);
+
 -- The owner's choice to take gifts from anyone, with no family password asked. Off until she
 -- turns it on in Studio; the form token, the robots' field and the hourly and season limits stay.
 alter table public.openblog_gift_settings add column if not exists anyone boolean not null default false;
