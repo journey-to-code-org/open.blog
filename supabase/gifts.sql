@@ -56,6 +56,13 @@ alter table public.openblog_gift_settings add column if not exists family_code t
 alter table public.openblog_gifts add column if not exists spot_x smallint check (spot_x between 0 and 100);
 alter table public.openblog_gifts add column if not exists spot_y smallint check (spot_y between 0 and 100);
 
+-- The bow on the box, from the fixed list; a gift with none stored is drawn with the gold one.
+alter table public.openblog_gifts add column if not exists bow text check (bow in ('gold', 'red', 'green', 'white', 'blue', 'none'));
+
+-- Whether the owner has said her tree is ready for gifts. Until she does, the public side shows no
+-- boxes and takes no gifts.
+alter table public.openblog_gift_settings add column if not exists ready boolean not null default false;
+
 -- Whether gifts are taken from anyone, with no family password asked. That is how a tree starts;
 -- the owner can ask for a password in Studio. The form token, the robots' field and the hourly and
 -- season limits apply either way.

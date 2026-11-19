@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkFamilyCode, checkFormToken, checkGift, checkSpot, spotOf, makeFormToken, normalizeCode, opensAt, sameCode } from "../../netlify/lib/gift-card.mjs";
+import { BOWS, bowOf, checkFamilyCode, checkFormToken, checkGift, checkSpot, spotOf, makeFormToken, normalizeCode, opensAt, sameCode } from "../../netlify/lib/gift-card.mjs";
 import { createHandler, giftSettings } from "../../netlify/functions/gifts.mjs";
 
 const NY = "America/New_York";
@@ -25,7 +25,13 @@ test("the family password ignores case, spaces and punctuation", () => {
 
 test("a note and a card are checked, and a card is data from fixed lists only", () => {
   assert.deepEqual(checkGift({ from: " Ava ", kind: "note", note: "Love you!", showName: true, wrap: "plaid" }),
-    { from: "Ava", wrap: "plaid", showName: true, spot: null, kind: "note", note: "Love you!", card: null });
+    { from: "Ava", wrap: "plaid", bow: "gold", showName: true, spot: null, kind: "note", note: "Love you!", card: null });
+  // A bow from the fixed list, the gold one when none (or nonsense) is sent, and "none" for a plain box.
+  assert.equal(checkGift({ from: "Ava", kind: "note", note: "x", bow: "white" }).bow, "white");
+  assert.equal(checkGift({ from: "Ava", kind: "note", note: "x", bow: "none" }).bow, "none");
+  assert.equal(checkGift({ from: "Ava", kind: "note", note: "x", bow: "url(evil)" }).bow, "gold");
+  assert.equal(bowOf(null), "gold");
+  assert.ok(BOWS.includes("none") && BOWS.length === 6);
   // Where it was set down: two whole numbers on the grid, or nothing at all.
   assert.deepEqual(checkGift({ from: "Ava", kind: "note", note: "x", spot: { x: 40, y: 100, z: 9 } }).spot, { x: 40, y: 100 });
   for (const bad of [null, {}, { x: 1 }, { x: "4", y: 5 }, { x: 4.5, y: 5 }, { x: -1, y: 5 }, { x: 5, y: 101 }, [1, 2]]) assert.equal(checkSpot(bad), null, JSON.stringify(bad));
@@ -75,7 +81,7 @@ test("a gift is stored where its giver set it down, and the tree hands that out"
   const rows = [];
   const handler = createHandler({ env, now: () => at, fetchImpl: async (url, init = {}) => {
     const address = String(url);
-    if (address.includes("openblog_gift_settings")) return new Response(JSON.stringify([{ show_names: true, family_code: null, anyone: true }]), { status: 200 });
+    if (address.includes("openblog_gift_settings")) return new Response(JSON.stringify([{ show_names: true, family_code: null, anyone: true, ready: true }]), { status: 200 });
     if (address.includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: true }), { status: 200 });
     if (address.includes("openblog_gifts") && init.method === "POST") {
       const row = { id: `g${rows.length + 1}`, created_at: new Date(at).toISOString(), ...JSON.parse(init.body) };
@@ -89,13 +95,16 @@ test("a gift is stored where its giver set it down, and the tree hands that out"
   const call = (method, path, body) => handler({ httpMethod: method, path: `/api/gifts/${path}`, headers: { origin: "https://family.example" }, body: body ? JSON.stringify(body) : "" });
   const { token } = JSON.parse((await call("GET", "token")).body);
   at += 10000;
-  const placed = await call("POST", "submit", { token, from: "Ava", kind: "note", note: "hi", wrap: "gold", spot: { x: 30, y: 80 } });
+  const placed = await call("POST", "submit", { token, from: "Ava", kind: "note", note: "hi", wrap: "gold", bow: "red", spot: { x: 30, y: 80 } });
   assert.equal(placed.statusCode, 200, placed.body);
   assert.deepEqual(JSON.parse(placed.body).gift.spot, { x: 30, y: 80 });
+  assert.equal(JSON.parse(placed.body).gift.bow, "red");
   assert.equal((await call("POST", "submit", { token, from: "Ben", kind: "note", note: "hi", spot: { x: 300, y: 80 } })).statusCode, 200, "a place off the grid is dropped, not refused");
   assert.deepEqual(rows.map((row) => [row.spot_x, row.spot_y]), [[30, 80], [null, null]]);
   const tree = JSON.parse((await call("GET", "tree")).body);
   assert.deepEqual(tree.gifts.map((gift) => gift.spot), [{ x: 30, y: 80 }, null]);
+  assert.deepEqual(tree.gifts.map((gift) => gift.bow), ["red", "gold"]);
+  assert.deepEqual(rows.map((row) => row.bow), ["red", "gold"]);
 });
 
 test("gifts start open to anyone; she can ask for the family password, and every other guard stays", async () => {
@@ -108,7 +117,7 @@ test("gifts start open to anyone; she can ask for the family password, and every
       if (init.method === "POST") { saved = { ...saved, ...JSON.parse(init.body) }; return new Response("", { status: 201 }); }
       return new Response(JSON.stringify(saved ? [saved] : []), { status: 200 });
     }
-    if (String(url).includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: tries++ < 12 }), { status: 200 });
+    if (String(url).includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: tries++ < 13 }), { status: 200 });
     if (String(url).includes("openblog_gifts") && !init.method) return new Response("[]", { status: 200 });
     throw new Error("no other storage in this test");
   } });
@@ -118,6 +127,14 @@ test("gifts start open to anyone; she can ask for the family password, and every
   const { token } = JSON.parse((await call("GET", "token")).body);
   at += 10000;
   const gift = { token, from: "A neighbor", kind: "note", note: "Merry Christmas" };
+  // Until she says her tree is ready, the public side shows nothing and takes nothing.
+  const before = JSON.parse((await call("GET", "tree")).body);
+  assert.deepEqual([before.ready, before.gifts], [false, []]);
+  const early = await call("POST", "submit", { body: gift, headers: origin });
+  assert.deepEqual([early.statusCode, JSON.parse(early.body).error], [403, "not-ready"]);
+  assert.equal((await call("POST", "admin/settings", { body: { ready: "yes" }, headers: owner })).statusCode, 422);
+  assert.equal(JSON.parse((await call("POST", "admin/settings", { body: { ready: true }, headers: owner })).body).ready, true);
+  assert.equal(JSON.parse((await call("GET", "tree")).body).ready, true);
   assert.equal(JSON.parse((await call("GET", "tree")).body).anyone, true, "a new tree asks nobody");
   assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 503, "a gift with no password reaches storage");
   assert.equal((await call("POST", "submit", { body: gift })).statusCode, 403, "still only from the site");
@@ -145,8 +162,8 @@ test("submitting needs the site's origin, a seasoned token and the family passwo
   let at = Date.parse("2026-12-01T12:00:00Z");
   let tries = 0;
   const handler = createHandler({ env, now: () => at, fetchImpl: async (url) => {
-    // Only the owner's settings answer (none saved yet: the service's password applies).
-    if (String(url).includes("openblog_gift_settings")) return new Response("[]", { status: 200 });
+    // Only the owner's settings answer: her tree is ready, and the service's first password applies.
+    if (String(url).includes("openblog_gift_settings")) return new Response(JSON.stringify([{ show_names: true, family_code: null, anyone: false, ready: true }]), { status: 200 });
     if (String(url).includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: tries++ < 10 }), { status: 200 });
     throw new Error("no other storage in this test");
   } });

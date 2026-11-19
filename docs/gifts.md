@@ -7,7 +7,7 @@ Optional and off unless set up.
 ## What a guest can send
 
 A name (up to 40 characters); whether everyone who sees the tree, or only the owner, may see it's
-from them; a note (up to 1,000 characters) or a card; wrapping paper; and, if the theme offers it,
+from them; a note (up to 1,000 characters) or a card; wrapping paper and a bow; and, if the theme offers it,
 where under the tree it sits (`spot`: two whole numbers from 0 to 100, across and back to front). A card is data from
 fixed lists only: one of five designs, a message (up to 300), a sign-off (up to 40) and up to eight
 stickers, each a kind from the list on a 0 to 100 grid. Nothing a guest writes is ever markup:
@@ -23,6 +23,13 @@ Studio and the site draw cards with `createElementNS` and `textContent`.
   once it's open. The table itself refuses an opening before its time.
 - Gifts are taken off the tree, never deleted. Whoever runs the database can read gifts; tell the
   family so.
+
+## When gifts start
+
+Nothing shows on the site, and no gift is taken, until the owner turns on **My tree is ready for
+gifts** at the top of Studio's Gifts. That gives her time to decorate first. Turning it off hides the
+gifts again and keeps the ones she has. The public `tree` reply says `ready`; while it is `false` the
+reply holds no gifts and `submit` answers `not-ready`.
 
 ## Who can leave one
 

@@ -1355,6 +1355,11 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `gifts.askNone` | her | No password is asked for right now. | none | 200 |
 | `gifts.askOff` | her | Anyone can leave you a gift now. Nobody is asked for a password. | none | 240 |
 | `gifts.askOn` | her | Only people with the family password can leave you a gift now. | none | 240 |
+| `gifts.readyFailed` | her | That didn't change | none | 120 |
+| `gifts.readyHelp` | her | Off, the gifts under your tree stay hidden on your site and nobody can leave one. Turn it on once your tree looks the way you want. | none | 320 |
+| `gifts.readyLabel` | her | My tree is ready for gifts | none | 120 |
+| `gifts.readyOff` | her | Gifts are hidden on your site now, and nobody can leave one. The ones you have are kept here. | none | 280 |
+| `gifts.readyOn` | her | Your tree is ready. People can leave you a gift now. | none | 240 |
 | `helper.alsoNone` | details | None | none | 40 |
 | `helper.alsoPost` | details | Also send another post | none | 44 |
 | `helper.alsoSend` | details | Also send | none | 40 |
