@@ -8,6 +8,15 @@ export const WORDS = {
   // A new card's sign-off: her name alone; a site adds "Love," or "Thanks," if it likes.
   "cards.signOff": { text: "{owner}", bare: "", layer: "her", max: 80 },
   "cards.notSetUp": { text: "{helper} needs to finish setting them up. Your site works the same without them.", layer: "her" },
+  // Gifts: who may leave one (the rest of the Gifts screen's words move here as it is touched).
+  "gifts.askLabel": { text: "Ask for a family password", layer: "her", max: 120 },
+  "gifts.askHelp": { text: "Off, anyone who visits can leave you a gift. On, only people who know the password can.", layer: "her", max: 320 },
+  "gifts.askOn": { text: "Only people with the family password can leave you a gift now.", layer: "her", max: 240 },
+  "gifts.askOff": { text: "Anyone can leave you a gift now. Nobody is asked for a password.", layer: "her", max: 240 },
+  "gifts.askNeedsOne": { text: "Choose a password first, then turn this on.", layer: "her", max: 200 },
+  "gifts.askNone": { text: "No password is asked for right now.", layer: "her", max: 200 },
+  "gifts.askKept": { text: "Nobody is asked for it right now. It is kept for when you turn this on.", layer: "her", max: 280 },
+  "gifts.askFailed": { text: "That didn't change", layer: "her", max: 120 },
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -123,7 +132,7 @@ export function newCard({ contacts, designs, forId, today, signOff }) {
     sendOn: birthday ? person.birthday : today,
     hour: 8,
     yearly: birthday,
-  };
+};
 }
 
 /** The editable fields of a card the server sent. */

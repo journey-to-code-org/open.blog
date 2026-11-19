@@ -62,6 +62,50 @@ test("settings name what's missing, and the family password must be at least 6 l
   assert.equal(giftSettings({}).enabled, false);
   assert.ok(giftSettings(env).enabled);
   assert.deepEqual(giftSettings({ ...env, OPENBLOG_GIFTS_FAMILY_CODE: "a b" }).problems, ["OPENBLOG_GIFTS_FAMILY_CODE"]);
+  assert.deepEqual(giftSettings({ ...env, OPENBLOG_GIFTS_FAMILY_CODE: "" }).problems, [], "a first password is optional");
+});
+
+test("gifts start open to anyone; she can ask for the family password, and every other guard stays", async () => {
+  let at = Date.parse("2026-12-01T12:00:00Z");
+  let saved = null; // no settings row yet: a new tree
+  let tries = 0;
+  const bare = { ...env, OPENBLOG_GIFTS_FAMILY_CODE: "" };
+  const handler = createHandler({ env: bare, now: () => at, fetchImpl: async (url, init = {}) => {
+    if (String(url).includes("openblog_gift_settings")) {
+      if (init.method === "POST") { saved = { ...saved, ...JSON.parse(init.body) }; return new Response("", { status: 201 }); }
+      return new Response(JSON.stringify(saved ? [saved] : []), { status: 200 });
+    }
+    if (String(url).includes("rpc/openblog_consume_rate_limit")) return new Response(JSON.stringify({ allowed: tries++ < 12 }), { status: 200 });
+    if (String(url).includes("openblog_gifts") && !init.method) return new Response("[]", { status: 200 });
+    throw new Error("no other storage in this test");
+  } });
+  const call = (method, path, { body, headers = {} } = {}) => handler({ httpMethod: method, path: `/api/gifts/${path}`, headers, body: body ? JSON.stringify(body) : "" });
+  const owner = { authorization: `Bearer ${bare.OPENBLOG_GIFTS_ADMIN_KEY}` };
+  const origin = { origin: "https://family.example" };
+  const { token } = JSON.parse((await call("GET", "token")).body);
+  at += 10000;
+  const gift = { token, from: "A neighbor", kind: "note", note: "Merry Christmas" };
+  assert.equal(JSON.parse((await call("GET", "tree")).body).anyone, true, "a new tree asks nobody");
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 503, "a gift with no password reaches storage");
+  assert.equal((await call("POST", "submit", { body: gift })).statusCode, 403, "still only from the site");
+  assert.equal((await call("POST", "submit", { body: { ...gift, token: "x.y.z" }, headers: origin })).statusCode, 400, "still a seasoned token");
+  assert.equal((await call("POST", "submit", { body: { ...gift, website: "spam.example" }, headers: origin })).statusCode, 200, "a robot still stores nothing");
+
+  // Asking for a password needs one to ask for.
+  assert.equal((await call("POST", "admin/settings", { body: { anyone: "no" }, headers: owner })).statusCode, 422);
+  const none = await call("POST", "admin/settings", { body: { anyone: false }, headers: owner });
+  assert.equal(none.statusCode, 422);
+  assert.equal(JSON.parse(none.body).error, "family-code-needed");
+  const asked = await call("POST", "admin/settings", { body: { anyone: false, familyCode: "Pumpkin Pie" }, headers: owner });
+  assert.equal(asked.statusCode, 200, asked.body);
+  assert.equal(JSON.parse(asked.body).anyone, false);
+  assert.equal(saved.anyone, false);
+  assert.equal(JSON.parse((await call("GET", "tree")).body).anyone, false, "the form learns to ask");
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 403, "no password, no gift");
+  assert.equal((await call("POST", "submit", { body: { ...gift, code: "pumpkin pie" }, headers: origin })).statusCode, 503, "the password lets it through");
+  assert.equal(JSON.parse((await call("POST", "admin/settings", { body: { anyone: true }, headers: owner })).body).anyone, true, "and she can open it again");
+  for (let i = 0; i < 12; i += 1) await call("POST", "submit", { body: gift, headers: origin });
+  assert.equal((await call("POST", "submit", { body: gift, headers: origin })).statusCode, 429, "still a limit on tries an hour");
 });
 
 test("submitting needs the site's origin, a seasoned token and the family password, and owner routes need the key", async () => {
