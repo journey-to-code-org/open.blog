@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Theme components: a new setting type, `places` (ADR 0434), sets things down on a picture. Studio shows
+  the picture; the owner taps where each thing goes, drags it, or uses the keyboard, and it is saved as
+  `kind@x,y;kind@x,y`, checked by the server like every other value.
 - `admin.signInUrl`: for a site whose editor runs somewhere other than the published site. When set,
   the build writes an `/admin/` page that sends the visitor straight to that address, so the owner can
   type the site's own address and `/admin` to sign in. Only a plain `https://` address is accepted.

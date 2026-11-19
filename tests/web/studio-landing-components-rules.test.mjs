@@ -99,3 +99,25 @@ test("a post setting is a list of the site's posts, and may be left empty", () =
   assert.deepEqual(sectionProblems(sign("")), []);
   assert.deepEqual(sectionProblems(sign("meatloaf")), []);
 });
+
+test("a places setting is a picture to set things down on, and its value is never read as text", () => {
+  const TREE = {
+    tag: "my-tree", label: "Tree", description: "A tree.",
+    props: [
+      { name: "hung", type: "places", label: "What hangs on it", help: "As many as three.", picture: "/themes/x/tree.svg", max: 3, default: "star@50,5",
+        choices: [{ value: "star", label: "Star", image: "/themes/x/star.svg" }, { value: "red-ball", label: "Red ball" }] },
+      { name: "lights", type: "toggle", label: "Lights" },
+    ],
+  };
+  setComponents([COUNTDOWN, TREE]);
+  const [hung] = componentFields(TREE);
+  assert.deepEqual(hung, { kind: "places", name: "hung", label: "What hangs on it", picture: "/themes/x/tree.svg", choices: [{ value: "star", label: "Star", image: "/themes/x/star.svg" }, { value: "red-ball", label: "Red ball", image: "" }], max: 3, default: "star@50,5", hint: "As many as three." });
+  // A long list is fine: `max` counts things, not letters.
+  const many = "star@1,1;star@2,2;red-ball@30,40";
+  assert.deepEqual(sectionProblems({ id: "t", type: "component", tag: "my-tree", props: { hung: many } }), []);
+  assert.deepEqual(sectionProblems({ id: "t", type: "component", tag: "my-tree", props: { hung: "" } }), []);
+  // The list of spots is not what the section is called in the list.
+  assert.equal(sectionSummary({ id: "t", type: "component", tag: "my-tree", props: { hung: many, lights: true } }), "Lights");
+  assert.equal(sectionSummary({ id: "t", type: "component", tag: "my-tree", props: { hung: many } }), "Tree");
+  setComponents([COUNTDOWN]);
+});

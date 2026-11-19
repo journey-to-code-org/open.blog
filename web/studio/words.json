@@ -15735,6 +15735,193 @@
         "n"
       ]
     },
+    "places.added": {
+      "text": "{thing} added {where}.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "thing",
+        "where"
+      ]
+    },
+    "places.armed": {
+      "text": "{thing}: now tap the picture where it goes, as many times as you like. From the keyboard, press Shift and Enter to add one.",
+      "layer": "her",
+      "max": 280,
+      "vars": [
+        "thing"
+      ]
+    },
+    "places.chooseFirst": {
+      "text": "Choose one below first, or tap one that's on the picture.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "places.down": {
+      "text": "Down",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.full": {
+      "text": "That's all {max} it holds. Take one off to add another.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "max"
+      ]
+    },
+    "places.how": {
+      "text": "Choose one below, then tap the picture where it goes. Tap one that's there to pick it up, then drag it or use the buttons.",
+      "layer": "her",
+      "max": 320,
+      "vars": []
+    },
+    "places.item": {
+      "text": "{thing}, {where}",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "thing",
+        "where"
+      ]
+    },
+    "places.left": {
+      "text": "Left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.listLabel": {
+      "text": "What's on it",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "places.moved": {
+      "text": "{thing} is {where} now.",
+      "layer": "her",
+      "max": 200,
+      "vars": [
+        "thing",
+        "where"
+      ]
+    },
+    "places.none": {
+      "text": "Nothing on it yet.",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "places.paletteLabel": {
+      "text": "What you can add",
+      "layer": "her",
+      "max": 80,
+      "vars": []
+    },
+    "places.picked": {
+      "text": "{thing} picked up. Drag it, tap where it goes, or use the buttons.",
+      "layer": "her",
+      "max": 240,
+      "vars": [
+        "thing"
+      ]
+    },
+    "places.remove": {
+      "text": "Take it off",
+      "layer": "her",
+      "max": 60,
+      "vars": []
+    },
+    "places.removed": {
+      "text": "{thing} taken off.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "thing"
+      ]
+    },
+    "places.right": {
+      "text": "Right",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.said": {
+      "text": "{n} on it. Each is listed below.",
+      "layer": "her",
+      "max": 160,
+      "vars": [
+        "n"
+      ]
+    },
+    "places.toolsLabel": {
+      "text": "Move the one you picked up",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "places.up": {
+      "text": "Up",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.b": {
+      "text": "at the bottom",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.bl": {
+      "text": "at the bottom left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.br": {
+      "text": "at the bottom right",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.l": {
+      "text": "on the left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.m": {
+      "text": "in the middle",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.r": {
+      "text": "on the right",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.t": {
+      "text": "at the top",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.tl": {
+      "text": "at the top left",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
+    "places.where.tr": {
+      "text": "at the top right",
+      "layer": "her",
+      "max": 40,
+      "vars": []
+    },
     "public.at": {
       "text": "At",
       "layer": "her",
