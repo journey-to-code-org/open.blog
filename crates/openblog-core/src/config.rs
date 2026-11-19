@@ -831,6 +831,28 @@ pub struct AdminConfig {
     /// `X-Forwarded-For` entry (the one that proxy appended), so login limits
     /// apply per real client instead of to everyone behind the proxy.
     pub trusted_proxies: Vec<String>,
+    /// Where the editor's sign-in lives when it runs somewhere other than the published site
+    /// (`https://editor.example.com/admin/`). When set, the build writes an `/admin/` page that
+    /// sends a visitor there, so the owner can always type the site's own address and `/admin`.
+    /// Empty by default: no page is written.
+    pub sign_in_url: String,
+}
+
+impl AdminConfig {
+    /// The sign-in address to forward `/admin/` to, or `None` when unset or not a plain
+    /// `https://` (or `http://`) address: nothing that could close an attribute or carry script.
+    pub fn sign_in_address(&self) -> Option<&str> {
+        let url = self.sign_in_url.trim();
+        let rest = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))?;
+        let plain = !rest.is_empty()
+            && !rest.starts_with('/')
+            && url
+                .chars()
+                .all(|c| !c.is_whitespace() && !c.is_control() && !"\"'<>`\\".contains(c));
+        plain.then_some(url)
+    }
 }
 
 impl Default for AdminConfig {
@@ -841,6 +863,7 @@ impl Default for AdminConfig {
             secure_cookies: false,
             max_upload_mb: 10,
             trusted_proxies: Vec::new(),
+            sign_in_url: String::new(),
         }
     }
 }
