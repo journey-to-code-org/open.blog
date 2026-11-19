@@ -56,9 +56,10 @@ alter table public.openblog_gift_settings add column if not exists family_code t
 alter table public.openblog_gifts add column if not exists spot_x smallint check (spot_x between 0 and 100);
 alter table public.openblog_gifts add column if not exists spot_y smallint check (spot_y between 0 and 100);
 
--- The owner's choice to take gifts from anyone, with no family password asked. Off until she
--- turns it on in Studio; the form token, the robots' field and the hourly and season limits stay.
-alter table public.openblog_gift_settings add column if not exists anyone boolean not null default false;
+-- Whether gifts are taken from anyone, with no family password asked. That is how a tree starts;
+-- the owner can ask for a password in Studio. The form token, the robots' field and the hourly and
+-- season limits apply either way.
+alter table public.openblog_gift_settings add column if not exists anyone boolean not null default true;
 
 alter table public.openblog_gifts enable row level security;
 alter table public.openblog_gift_settings enable row level security;

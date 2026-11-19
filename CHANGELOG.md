@@ -8,9 +8,10 @@ All notable changes to open.blog are recorded here. Releases follow
 - Gifts: a gift can carry where its giver set it down under the tree (`spot`, two whole numbers from 0
   to 100). The public `tree` reply hands it out so a theme can draw the pile. Run `supabase/gifts.sql`
   again (it adds `spot_x` and `spot_y`) before deploying the `gifts` function.
-- Gifts: the owner can **Let anyone leave you a gift** (Gifts › The family password), so the password
-  isn't asked for. Off by default; every other guard stays. Run `supabase/gifts.sql` again to add the
-  `anyone` column, and redeploy the `gifts` function. The public `tree` reply now says `anyone`.
+- Gifts are open to anyone by default: no family password is asked unless the owner turns on **Ask for a
+  family password** (Gifts › The family password), which needs a password chosen first.
+  `OPENBLOG_GIFTS_FAMILY_CODE` is now optional; a service that sets it starts with that password asked. Every other guard stays. Run `supabase/gifts.sql` again
+  to add the `anyone` column, and redeploy the `gifts` function. The public `tree` reply says `anyone`.
 - `admin.signInUrl`: for a site whose editor runs somewhere other than the published site. When set,
   the build writes an `/admin/` page that sends the visitor straight to that address, so the owner can
   type the site's own address and `/admin` to sign in. Only a plain `https://` address is accepted.

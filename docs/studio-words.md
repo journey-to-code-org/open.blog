@@ -1347,12 +1347,14 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `front.latestCountHint` | her | Leave empty to show the usual number for {product}. | `{product}` | 102 |
 | `front.textAbout` | her | A few paragraphs about you or {product}. | `{product}` | 80 |
 | `front.textBlank` | her | Write something about you or {product}. | `{product}` | 78 |
-| `gifts.anyoneFailed` | her | That didn't change | none | 120 |
-| `gifts.anyoneHelp` | her | Off, only people who know the family password can. On, nobody is asked for it, so someone you don't know can leave one too. | none | 320 |
-| `gifts.anyoneLabel` | her | Let anyone leave you a gift | none | 120 |
-| `gifts.anyoneNoPassword` | her | Nobody is asked for it while anyone can leave you a gift. It is kept for when you turn that off. | none | 280 |
-| `gifts.anyoneOff` | her | Only people with the family password can leave you a gift now. | none | 240 |
-| `gifts.anyoneOn` | her | Anyone can leave you a gift now. Nobody is asked for the password. | none | 240 |
+| `gifts.askFailed` | her | That didn't change | none | 120 |
+| `gifts.askHelp` | her | Off, anyone who visits can leave you a gift. On, only people who know the password can. | none | 320 |
+| `gifts.askKept` | her | Nobody is asked for it right now. It is kept for when you turn this on. | none | 280 |
+| `gifts.askLabel` | her | Ask for a family password | none | 120 |
+| `gifts.askNeedsOne` | her | Choose a password first, then turn this on. | none | 200 |
+| `gifts.askNone` | her | No password is asked for right now. | none | 200 |
+| `gifts.askOff` | her | Anyone can leave you a gift now. Nobody is asked for a password. | none | 240 |
+| `gifts.askOn` | her | Only people with the family password can leave you a gift now. | none | 240 |
 | `helper.alsoNone` | details | None | none | 40 |
 | `helper.alsoPost` | details | Also send another post | none | 44 |
 | `helper.alsoSend` | details | Also send | none | 40 |

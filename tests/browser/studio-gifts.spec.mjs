@@ -155,19 +155,19 @@ test("the family password shows on Gifts and can be changed", async ({ page }) =
   await expect(page.getByRole("button", { name: "Change it" })).toBeFocused();
 });
 
-test("she can let anyone leave a gift, and the password section says nobody is asked", async ({ page }) => {
+test("gifts are open until she asks for the family password, and she can stop asking", async ({ page }) => {
   await signIn(page);
-  const anyone = page.getByRole("switch", { name: "Let anyone leave you a gift" });
-  await expect(anyone).not.toBeChecked();
-  await expect(page.getByText("Nobody is asked for it while anyone can leave you a gift.", { exact: false })).toBeHidden();
-  await anyone.focus();
+  const ask = page.getByRole("switch", { name: "Ask for a family password" });
+  await expect(ask).toBeChecked(); // this spec's service starts with a password asked
+  await ask.focus();
   await page.keyboard.press("Space");
-  await expect(page.getByText("Anyone can leave you a gift now. Nobody is asked for the password.")).toBeVisible();
-  await expect(page.getByText("Nobody is asked for it while anyone can leave you a gift.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Anyone can leave you a gift now. Nobody is asked for a password.")).toBeVisible();
+  await expect(page.getByText("Nobody is asked for it right now. It is kept for when you turn this on.")).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("switch", { name: "Let anyone leave you a gift" })).toBeChecked();
-  await page.getByRole("switch", { name: "Let anyone leave you a gift" }).click();
+  await expect(page.getByRole("switch", { name: "Ask for a family password" })).not.toBeChecked();
+  await page.getByRole("switch", { name: "Ask for a family password" }).click();
   await expect(page.getByText("Only people with the family password can leave you a gift now.")).toBeVisible();
+  await expect(page.getByText("Nobody is asked for it right now.", { exact: false })).toBeHidden();
 });
 
 test("Gifts passes axe at 320 px", async ({ page }) => {

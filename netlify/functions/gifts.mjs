@@ -15,7 +15,7 @@
 //   GET  admin/settings, POST admin/settings { showNames?, familyCode?, anyone? }  (the password she set
 //                              wins over OPENBLOG_GIFTS_FAMILY_CODE, which is only the first one)
 //
-// Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE,
+// Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE (optional),
 // SUPABASE_URL / SUPABASE_SECRET_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ANALYTICS_SALT,
 // OPENBLOG_GREETINGS_TIME_ZONE (default America/New_York), and OPENBLOG_GIFTS_OPENS_ON (MM-DD, default
 // 12-25; set another day only to rehearse). Replies are rebuilt from known fields; errors are codes.
@@ -53,7 +53,8 @@ export function giftSettings(env = {}) {
   if (!key || /\s/.test(key)) problems.push("SUPABASE_SECRET_KEY");
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (adminKey.length < 32 || /\s/.test(adminKey)) problems.push("OPENBLOG_GIFTS_ADMIN_KEY");
-  if (code.replace(/[^\p{L}\p{N}]+/gu, "").length < 6) problems.push("OPENBLOG_GIFTS_FAMILY_CODE");
+  // A first family password is optional: gifts are open to anyone until the owner asks for one.
+  if (code && code.replace(/[^\p{L}\p{N}]+/gu, "").length < 6) problems.push("OPENBLOG_GIFTS_FAMILY_CODE");
   if (!/^https:\/\/[^\s"<>/]+$/.test(origin)) problems.push("OPENBLOG_SITE_ORIGIN");
   if (salt.length < 16) problems.push("OPENBLOG_ANALYTICS_SALT");
   if (!isTimeZone(zone)) problems.push("OPENBLOG_GREETINGS_TIME_ZONE");
@@ -105,8 +106,9 @@ function createGiftStore({ settings, fetchImpl }) {
     /** The owner's settings: whether the tree shows names, and the family password she set. */
     settings: async () => {
       const row = (await call(`${SETTINGS}?select=show_names,family_code,anyone&${site}`, { headers: headers() }))[0];
-      // `anyone` is her choice to take gifts without the password; off until she turns it on.
-      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code, anyone: row?.anyone === true };
+      // `anyone`: gifts are taken without a password. A tree starts that way unless whoever set the
+      // service up gave it a first password; after that it is the owner's choice in Studio.
+      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code || null, anyone: row ? row.anyone !== false : !settings.code };
     },
     saveSettings: async (change) => {
       const now = await store.settings();
@@ -114,7 +116,7 @@ function createGiftStore({ settings, fetchImpl }) {
       await call(`${SETTINGS}?on_conflict=site_id`, {
         method: "POST",
         headers: write("resolution=merge-duplicates,return=minimal"),
-        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, anyone: next.anyone === true, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, anyone: next.anyone !== false, updated_at: new Date().toISOString() }),
       });
       return next;
     },
@@ -202,6 +204,8 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
               if (typeof body.anyone !== "boolean") throw new CardError(422, "anyone", "anyone");
               change.anyone = body.anyone;
             }
+            // Asking for a password needs one to ask for.
+            if (change.anyone === false && !(change.familyCode ?? (await store.settings()).familyCode)) throw new CardError(422, "family-code-needed", "familyCode");
             if (!Object.keys(change).length) throw new CardError(400, "malformed");
             return json(200, await store.saveSettings(change));
           }
@@ -253,7 +257,7 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (!(await store.attempt("gift-tries", hour, tryDigest, LIMITS.triesPerHour, LIMITS.perSeason * 4))) {
           return json(429, { error: "slow-down" }, { "retry-after": "3600" });
         }
-        // When she takes gifts from anyone, the password isn't asked for; every other guard stays.
+        // Unless she asks for the family password, none is checked; every other guard stays.
         const owner = await store.settings();
         if (!owner.anyone && !sameCode(body.code, owner.familyCode)) throw new CardError(403, "family-code", "code");
         const gift = checkGift(body);
