@@ -7,19 +7,29 @@ Optional and off unless set up.
 ## What a guest can send
 
 A name (up to 40 characters); whether everyone who sees the tree, or only the owner, may see it's
-from them; a note (up to 1,000 characters) or a card; and wrapping paper. A card is data from
+from them; a note (up to 1,000 characters) or a card; wrapping paper and a bow; and, if the theme offers it,
+where under the tree it sits (`spot`: two whole numbers from 0 to 100, across and back to front). A card is data from
 fixed lists only: one of five designs, a message (up to 300), a sign-off (up to 40) and up to eight
 stickers, each a kind from the list on a 0 to 100 grid. Nothing a guest writes is ever markup:
 Studio and the site draw cards with `createElementNS` and `textContent`.
 
 ## Who sees what
 
-- The tree shows wrapped boxes. A box shows who it's from only when the giver chose that **and**
+- The tree shows wrapped boxes, each with the `spot` its giver chose, if any. A spot is only a wish:
+  the theme that draws the tree decides how far boxes may overlap, so no gift can bury another. A box
+  shows who it's from only when the giver chose that **and**
   the owner's **Show who each gift is from on your tree** is on (the default).
 - What a gift says is never public. The hosted function hands it over only to the server's key, and only
   once it's open. The table itself refuses an opening before its time.
 - Gifts are taken off the tree, never deleted. Whoever runs the database can read gifts; tell the
   family so.
+
+## When gifts start
+
+Nothing shows on the site, and no gift is taken, until the owner turns on **My tree is ready for
+gifts** at the top of Studio's Gifts. That gives her time to decorate first. Turning it off hides the
+gifts again and keeps the ones she has. The public `tree` reply says `ready`; while it is `false` the
+reply holds no gifts and `submit` answers `not-ready`.
 
 ## Who can leave one
 

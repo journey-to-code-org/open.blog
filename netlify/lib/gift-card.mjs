@@ -13,6 +13,9 @@ export { CardError };
 
 export const LIMITS = Object.freeze({ from: 40, note: 1000, message: 300, signOff: 40, stickers: 8, perVisitorPerHour: 5, triesPerHour: 10, perSeason: 200 });
 export const WRAPS = Object.freeze(["red", "green", "gold", "blue", "plaid", "stripes"]);
+/** The bow on top of a box. "gold" is what a gift with none chosen gets; "none" is a box left plain. */
+export const BOWS = Object.freeze(["gold", "red", "green", "white", "blue", "none"]);
+export const bowOf = (value) => (BOWS.includes(value) ? value : "gold");
 export const DESIGNS = Object.freeze(["snowy-night", "candy-stripe", "holly", "gingerbread", "starry"]);
 export const STICKERS = Object.freeze(["star", "heart", "snowflake", "candy-cane", "bell", "mitten", "cookie", "ornament", "holly", "gift"]);
 
@@ -52,20 +55,37 @@ export function checkCardData(input) {
   return { design, message, signOff, stickers };
 }
 
+/**
+ * Where a giver set a gift down under the tree: whole numbers on a 0 to 100 grid (across, and from
+ * the back to the front), or `null` when none was chosen or it isn't two such numbers. Only a place:
+ * the page that draws the tree decides how far boxes may overlap.
+ */
+export function checkSpot(input) {
+  const x = input?.x;
+  const y = input?.y;
+  const on = (n) => Number.isInteger(n) && n >= 0 && n <= 100;
+  return on(x) && on(y) ? { x, y } : null;
+}
+
+/** A spot as the tree hands it out, from a stored row. */
+export const spotOf = (row) => checkSpot({ x: row?.spot_x, y: row?.spot_y });
+
 /** A gift as a guest sent it, checked. */
 export function checkGift(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new CardError(400, "malformed");
   const from = oneLine(input.from, LIMITS.from + 1);
   if (from.length < 1 || from.length > LIMITS.from) throw new CardError(422, "from-length", "from");
   const wrap = WRAPS.includes(text(input.wrap)) ? text(input.wrap) : "red";
+  const bow = bowOf(text(input.bow));
   const showName = input.showName === true;
+  const spot = checkSpot(input.spot);
   const kind = text(input.kind);
   if (kind === "note") {
     const note = words(input.note);
     if (note.length < 1 || note.length > LIMITS.note) throw new CardError(422, "note-length", "note");
-    return { from, wrap, showName, kind, note, card: null };
+    return { from, wrap, bow, showName, spot, kind, note, card: null };
   }
-  if (kind === "card") return { from, wrap, showName, kind, note: null, card: checkCardData(input.card) };
+  if (kind === "card") return { from, wrap, bow, showName, spot, kind, note: null, card: checkCardData(input.card) };
   throw new CardError(422, "kind", "kind");
 }
 

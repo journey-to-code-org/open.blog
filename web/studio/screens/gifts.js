@@ -39,6 +39,12 @@ export async function createGifts({ api }) {
     description: "Only for people who said that's OK. You always see every name here.",
     onCheckedchange: (e) => setNames(e.detail),
   });
+  // Until this is on, her site shows no gifts and takes none: she decorates first, then opens up.
+  const ready = h("toggle-switch", {
+    label: say("gifts.readyLabel"),
+    description: say("gifts.readyHelp"),
+    onCheckedchange: (e) => setReady(e.detail),
+  });
   // On means the family password is asked for; the service keeps the other side of it, `anyone`.
   const asking = h("toggle-switch", {
     label: say("gifts.askLabel"),
@@ -56,7 +62,7 @@ export async function createGifts({ api }) {
     h("h3", { id: "studio-code-h", text: "The family password" }), asking, codeWords, codeNote, codeChange, codeField, codeSave);
   const list = h("ul", { class: "studio-gift-list", "aria-labelledby": "studio-gifts-h", "aria-busy": "true" }, h("li", {}, h("skeleton-block", { lines: 3 })));
   const element = h("section", { class: "studio-page studio-gifts", "aria-labelledby": "studio-gifts-h" },
-    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: "The family leaves these on your site. Everything in them stays private until you open it." }), nextButton, names),
+    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: "The family leaves these on your site. Everything in them stays private until you open it." }), nextButton, ready, names),
     banner, list, code, details);
 
   const label = (gift) => `${gift.kind === "card" ? "A card" : "A note"} from ${gift.from}`;
@@ -100,6 +106,7 @@ export async function createGifts({ api }) {
       ? h("span", {}, "The family types this to leave you a gift: ", h("strong", { text: state.familyCode }), ". Capital letters and spaces don't matter.")
       : state.anyone ? say("gifts.askNone") : "Nobody has set one yet, so nobody can leave a gift. Choose one below.");
     names.checked = state.showNames;
+    ready.checked = state.ready === true;
     asking.checked = state.anyone !== true;
     codeNote.hidden = !(state.anyone === true && state.familyCode);
     codeNote.textContent = say("gifts.askKept");
@@ -203,6 +210,17 @@ export async function createGifts({ api }) {
     } catch (error) {
       names.checked = state.showNames;
       trouble("That didn't change", error);
+    }
+  }
+
+  async function setReady(on) {
+    try {
+      state.ready = (await api.post("gifts/settings", { ready: on })).ready === true;
+      draw();
+      toast(state.ready ? say("gifts.readyOn") : say("gifts.readyOff"));
+    } catch (error) {
+      ready.checked = state.ready === true;
+      trouble(say("gifts.readyFailed"), error);
     }
   }
 

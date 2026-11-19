@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Gifts: nothing shows on the site and no gift is taken until the owner turns on **My tree is ready
+  for gifts** in Studio's Gifts. A gift can carry a bow (`bow`, from a fixed list) and where its giver
+  set it down under the tree (`spot`, two whole numbers from 0 to 100); the public `tree` reply hands
+  both out, with `ready`. Run `supabase/gifts.sql` again (it adds `spot_x`, `spot_y`, `bow` and
+  `ready`) before deploying the `gifts` function.
 - Gifts are open to anyone by default: no family password is asked unless the owner turns on **Ask for a
   family password** (Gifts › The family password), which needs a password chosen first.
   `OPENBLOG_GIFTS_FAMILY_CODE` is now optional; a service that sets it starts with that password asked. Every other guard stays. Run `supabase/gifts.sql` again
