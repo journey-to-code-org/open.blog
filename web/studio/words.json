@@ -8075,38 +8075,50 @@
         "product"
       ]
     },
-    "gifts.anyoneFailed": {
+    "gifts.askFailed": {
       "text": "That didn't change",
       "layer": "her",
       "max": 120,
       "vars": []
     },
-    "gifts.anyoneHelp": {
-      "text": "Off, only people who know the family password can. On, nobody is asked for it, so someone you don't know can leave one too.",
+    "gifts.askHelp": {
+      "text": "Off, anyone who visits can leave you a gift. On, only people who know the password can.",
       "layer": "her",
       "max": 320,
       "vars": []
     },
-    "gifts.anyoneLabel": {
-      "text": "Let anyone leave you a gift",
-      "layer": "her",
-      "max": 120,
-      "vars": []
-    },
-    "gifts.anyoneNoPassword": {
-      "text": "Nobody is asked for it while anyone can leave you a gift. It is kept for when you turn that off.",
+    "gifts.askKept": {
+      "text": "Nobody is asked for it right now. It is kept for when you turn this on.",
       "layer": "her",
       "max": 280,
       "vars": []
     },
-    "gifts.anyoneOff": {
-      "text": "Only people with the family password can leave you a gift now.",
+    "gifts.askLabel": {
+      "text": "Ask for a family password",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.askNeedsOne": {
+      "text": "Choose a password first, then turn this on.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "gifts.askNone": {
+      "text": "No password is asked for right now.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "gifts.askOff": {
+      "text": "Anyone can leave you a gift now. Nobody is asked for a password.",
       "layer": "her",
       "max": 240,
       "vars": []
     },
-    "gifts.anyoneOn": {
-      "text": "Anyone can leave you a gift now. Nobody is asked for the password.",
+    "gifts.askOn": {
+      "text": "Only people with the family password can leave you a gift now.",
       "layer": "her",
       "max": 240,
       "vars": []

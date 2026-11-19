@@ -21,23 +21,23 @@ Studio and the site draw cards with `createElementNS` and `textContent`.
 - Gifts are taken off the tree, never deleted. Whoever runs the database can read gifts; tell the
   family so.
 
-## Keeping strangers out
+## Who can leave one
 
-A family password (`OPENBLOG_GIFTS_FAMILY_CODE`, at least 6 letters; case, spaces and punctuation
-don't matter), a form token that must be a few seconds old, a field only robots fill, five gifts
-an hour per visitor and 200 a season.
+Gifts start open: nobody is asked for a password, so someone the owner doesn't know can leave one
+too. She can change that under **The family password** in Studio's Gifts: **Ask for a family
+password**, once she has chosen one (at least 6 letters; case, spaces and punctuation don't matter).
+A service set up with `OPENBLOG_GIFTS_FAMILY_CODE` starts with that password asked instead.
 
-The owner can turn the password off: **Let anyone leave you a gift**, under **The family password**
-in Studio's Gifts. Then nobody is asked for it, and someone she doesn't know can leave one too. The
-form token, the robots' field and the hourly and season limits stay, what a gift says is still never
-public, and she can take any gift off the tree. The public `tree` reply says `anyone`, so a theme's
-form knows not to ask. It is off until she turns it on; turning it off brings the password back.
+Either way: a form token that must be a few seconds old, a field only robots fill, five gifts an hour
+per visitor and 200 a season. What a gift says is never public, and she can take any gift off the
+tree. The public `tree` reply says `anyone` (`true` when no password is asked), so a theme's form
+knows whether to ask.
 
 ## Setting it up
 
 1. Run [`supabase/gifts.sql`](../supabase/gifts.sql) (the hosted service does this itself).
 2. Where the `gifts` function runs: `OPENBLOG_GIFTS_ENABLED=true`, `OPENBLOG_GIFTS_ADMIN_KEY` (32+
-   random characters), `OPENBLOG_GIFTS_FAMILY_CODE`, plus the shared `SUPABASE_*`,
+   random characters), optionally `OPENBLOG_GIFTS_FAMILY_CODE` (a first password), plus the shared `SUPABASE_*`,
    `OPENBLOG_SITE_ID`, `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ANALYTICS_SALT` and
    `OPENBLOG_GREETINGS_TIME_ZONE`. `OPENBLOG_GIFTS_OPENS_ON` (`MM-DD`) moves the opening day, for a
    rehearsal only.
