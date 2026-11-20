@@ -120,7 +120,7 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   component no wearable theme offers, or a value its declaration refuses, stops the build and names the section.
 - Components are inherited through `extends`, and a child theme may add more or redeclare one by name.
 
-A component written in [Zubra](https://github.com/journey-to-code-org/zubra) compiles to a plain custom
+A component written in [Zubra](https://github.com/zubra-js/zubra) compiles to a plain custom
 element with `zubra compile <file>.zb --emit element`, which needs nothing installed on the page; a
 hand-written element works the same way.
 

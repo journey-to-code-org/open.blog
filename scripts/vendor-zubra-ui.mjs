@@ -48,6 +48,6 @@ for (const name of manifest.components) copy(`cdn/${name}.js`);
 copyFileSync(join(dist, "themes/default.css"), join(target, "theme.css"));
 copyFileSync(join(source, "LICENSE"), join(target, "LICENSE"));
 
-manifest.source = { repository: "https://github.com/journey-to-code-org/zubra-ui", commit };
+manifest.source = { repository: "https://github.com/zubra-js/zubra-ui", commit };
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 console.log(`vendored ${copied.size} files from zubra-ui ${commit.slice(0, 7)} into web/studio/zubra/`);

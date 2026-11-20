@@ -28,7 +28,7 @@
     "toggle-switch"
   ],
   "source": {
-    "repository": "https://github.com/journey-to-code-org/zubra-ui",
+    "repository": "https://github.com/zubra-js/zubra-ui",
     "commit": "ceb5d0df1648bb5c08f33f0e6213007946239e8d"
   }
 }
