@@ -39,6 +39,19 @@ export async function createGifts({ api }) {
     description: "Only for people who said that's OK. You always see every name here.",
     onCheckedchange: (e) => setNames(e.detail),
   });
+  // Until this is on, her site shows no gifts and takes none: she decorates first, then opens up.
+  const ready = h("toggle-switch", {
+    label: say("gifts.readyLabel"),
+    description: say("gifts.readyHelp"),
+    onCheckedchange: (e) => setReady(e.detail),
+  });
+  // On means the family password is asked for; the service keeps the other side of it, `anyone`.
+  const asking = h("toggle-switch", {
+    label: say("gifts.askLabel"),
+    description: say("gifts.askHelp"),
+    onCheckedchange: (e) => setAsk(e.detail),
+  });
+  const codeNote = h("p", { class: "studio-help", hidden: true });
   const codeWords = h("p", { class: "studio-help" });
   const details = h("details", { class: "studio-help studio-gift-details" });
   const nextButton = h("action-button", { size: "lg", hidden: true, onClick: () => { const next = nextToOpen(); if (next) open(next); } }, "Open the next gift");
@@ -46,10 +59,10 @@ export async function createGifts({ api }) {
   const codeSave = h("action-button", { hidden: true, onClick: () => saveCode() }, "Save the new password");
   const codeChange = h("action-button", { variant: "secondary", onClick: () => { codeField.hidden = false; codeSave.hidden = false; codeChange.hidden = true; codeField.querySelector("input")?.focus(); } }, "Change it");
   const code = h("section", { class: "studio-section", "aria-labelledby": "studio-code-h" },
-    h("h3", { id: "studio-code-h", text: "The family password" }), codeWords, codeChange, codeField, codeSave);
+    h("h3", { id: "studio-code-h", text: "The family password" }), asking, codeWords, codeNote, codeChange, codeField, codeSave);
   const list = h("ul", { class: "studio-gift-list", "aria-labelledby": "studio-gifts-h", "aria-busy": "true" }, h("li", {}, h("skeleton-block", { lines: 3 })));
   const element = h("section", { class: "studio-page studio-gifts", "aria-labelledby": "studio-gifts-h" },
-    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: "The family leaves these on your site. Everything in them stays private until you open it." }), nextButton, names),
+    h("div", { class: "studio-today" }, heading, h("p", { class: "studio-lede", text: "The family leaves these on your site. Everything in them stays private until you open it." }), nextButton, ready, names),
     banner, list, code, details);
 
   const label = (gift) => `${gift.kind === "card" ? "A card" : "A note"} from ${gift.from}`;
@@ -91,8 +104,12 @@ export async function createGifts({ api }) {
       h("ul", { class: "studio-mono" }, ...state.gifts.map((g) => h("li", { text: `${g.createdAt.slice(0, 16).replace("T", " ")}  ${g.from}  ${g.kind}  ${g.opened ? "opened" : "wrapped"}${g.onTree ? "" : "  (off the tree)"}` }))));
     codeWords.replaceChildren(state.familyCode
       ? h("span", {}, "The family types this to leave you a gift: ", h("strong", { text: state.familyCode }), ". Capital letters and spaces don't matter.")
-      : "Nobody has set one yet, so nobody can leave a gift. Choose one below.");
+      : state.anyone ? say("gifts.askNone") : "Nobody has set one yet, so nobody can leave a gift. Choose one below.");
     names.checked = state.showNames;
+    ready.checked = state.ready === true;
+    asking.checked = state.anyone !== true;
+    codeNote.hidden = !(state.anyone === true && state.familyCode);
+    codeNote.textContent = say("gifts.askKept");
     list.removeAttribute("aria-busy");
     if (!state.gifts.length) {
       fill(list, h("li", {}, h("empty-state", { heading: "Nothing yet" }, "When someone in the family leaves you a gift on your site, it shows up here, wrapped.")));
@@ -193,6 +210,38 @@ export async function createGifts({ api }) {
     } catch (error) {
       names.checked = state.showNames;
       trouble("That didn't change", error);
+    }
+  }
+
+  async function setReady(on) {
+    try {
+      state.ready = (await api.post("gifts/settings", { ready: on })).ready === true;
+      draw();
+      toast(state.ready ? say("gifts.readyOn") : say("gifts.readyOff"));
+    } catch (error) {
+      ready.checked = state.ready === true;
+      trouble(say("gifts.readyFailed"), error);
+    }
+  }
+
+  async function setAsk(on) {
+    if (on && !state.familyCode) {
+      // Nothing to ask for yet: open the field for her and leave the switch off.
+      asking.checked = false;
+      toast(say("gifts.askNeedsOne"));
+      codeField.hidden = false;
+      codeSave.hidden = false;
+      codeChange.hidden = true;
+      codeField.querySelector("input")?.focus();
+      return;
+    }
+    try {
+      state.anyone = (await api.post("gifts/settings", { anyone: !on })).anyone === true;
+      draw();
+      toast(state.anyone ? say("gifts.askOff") : say("gifts.askOn"));
+    } catch (error) {
+      asking.checked = state.anyone !== true;
+      trouble(say("gifts.askFailed"), error);
     }
   }
 

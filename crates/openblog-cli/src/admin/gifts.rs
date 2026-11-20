@@ -270,17 +270,21 @@ fn empty_body(req: &Request) -> Result<(), Response> {
     }
 }
 
-/// `{ showNames?, familyCode? }` and nothing else: a boolean and a short line of words.
+/// `{ showNames?, familyCode?, anyone?, ready? }` and nothing else: booleans and a short line of words.
 fn settings_body(req: &Request) -> Result<Json, Response> {
     let refused = || {
         Response::error(
             400,
-            "Send showNames (true or false) and/or familyCode (words)",
+            "Send showNames, anyone or ready (true or false) and/or familyCode (words)",
         )
     };
     let body: Json = serde_json::from_slice(&req.body).map_err(|_| refused())?;
     let object = body.as_object().ok_or_else(refused)?;
-    if object.is_empty() || object.keys().any(|k| k != "showNames" && k != "familyCode") {
+    if object.is_empty()
+        || object
+            .keys()
+            .any(|k| !["showNames", "familyCode", "anyone", "ready"].contains(&k.as_str()))
+    {
         return Err(refused());
     }
     let mut out = serde_json::Map::new();
@@ -288,6 +292,18 @@ fn settings_body(req: &Request) -> Result<Json, Response> {
         out.insert(
             "showNames".into(),
             Json::Bool(show.as_bool().ok_or_else(refused)?),
+        );
+    }
+    if let Some(ready) = object.get("ready") {
+        out.insert(
+            "ready".into(),
+            Json::Bool(ready.as_bool().ok_or_else(refused)?),
+        );
+    }
+    if let Some(anyone) = object.get("anyone") {
+        out.insert(
+            "anyone".into(),
+            Json::Bool(anyone.as_bool().ok_or_else(refused)?),
         );
     }
     if let Some(code) = object.get("familyCode") {
@@ -346,6 +362,9 @@ pub(super) fn route_with(
                 "gifts": list.iter().filter_map(project_gift).collect::<Vec<_>>(),
                 "showNames": reply.get("showNames").and_then(Json::as_bool).unwrap_or(true),
                 "familyCode": reply.get("familyCode").and_then(|c| text(c, 80)),
+                "anyone": reply.get("anyone").and_then(Json::as_bool).unwrap_or(false),
+                // A service from before this choice existed takes gifts already: ready.
+                "ready": reply.get("ready").and_then(Json::as_bool).unwrap_or(true),
                 "opensAt": reply.get("opensAt").and_then(instant).ok_or_else(bad_reply)?,
             }))
         }),
@@ -354,6 +373,9 @@ pub(super) fn route_with(
             Ok(json!({
                 "showNames": reply.get("showNames").and_then(Json::as_bool).ok_or_else(bad_reply)?,
                 "familyCode": reply.get("familyCode").and_then(|c| text(c, 80)),
+                "anyone": reply.get("anyone").and_then(Json::as_bool).unwrap_or(false),
+                // A service from before this choice existed takes gifts already: ready.
+                "ready": reply.get("ready").and_then(Json::as_bool).unwrap_or(true),
             }))
         }),
         ("POST", [id, action @ ("open" | "hide" | "show")]) if is_uuid(id) => empty_body(req)

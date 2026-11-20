@@ -2,25 +2,27 @@
 // tree; it stays wrapped until Christmas morning, when she opens it in Studio.
 //
 // Public routes under /api/gifts/ (the site's own origin only, for CORS):
-//   GET  tree     the wrapped boxes: id, wrap, and who it's from only where the giver said yes
+//   GET  tree     the wrapped boxes: id, wrap, bow, where it was set down (spot, if chosen), and who it's
+//                 from only where the giver said yes. Empty, with ready: false, until the owner
+//                 says her tree is ready for gifts.
 //                 AND the owner shows names. Never what's inside.
 //   GET  token    a form token (the form must be open a few seconds before it's sent)
-//   POST submit   { code, token, website, from, showName, kind, note | card, wrap }
+//   POST submit   { code, token, website, from, showName, kind, note | card, wrap, bow?, spot? }
 //                 code is the family password; website is a field people never see (robots fill it)
 // Owner routes (Bearer OPENBLOG_GIFTS_ADMIN_KEY), for Admin's proxy:
 //   GET  admin/list            every gift: who, wrapped or opened; contents only once opened
 //   POST admin/<id>/open       423 until the gift's opening time; then its contents
 //   POST admin/<id>/hide       take it off the tree (kept, never deleted); admin/<id>/show puts it back
-//   GET  admin/settings, POST admin/settings { showNames?, familyCode? }  (the password she set
+//   GET  admin/settings, POST admin/settings { showNames?, familyCode?, anyone?, ready? }  (the password she set
 //                              wins over OPENBLOG_GIFTS_FAMILY_CODE, which is only the first one)
 //
-// Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE,
+// Settings: OPENBLOG_GIFTS_ENABLED=true, OPENBLOG_GIFTS_ADMIN_KEY (32+), OPENBLOG_GIFTS_FAMILY_CODE (optional),
 // SUPABASE_URL / SUPABASE_SECRET_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ANALYTICS_SALT,
 // OPENBLOG_GREETINGS_TIME_ZONE (default America/New_York), and OPENBLOG_GIFTS_OPENS_ON (MM-DD, default
 // 12-25; set another day only to rehearse). Replies are rebuilt from known fields; errors are codes.
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { CardError, LATE_DAYS, LIMITS, WRAPS, checkFamilyCode, checkFormToken, checkGift, makeFormToken, opensAt, sameCode } from "../lib/gift-card.mjs";
+import { CardError, LATE_DAYS, LIMITS, WRAPS, checkFamilyCode, checkFormToken, bowOf, checkGift, makeFormToken, opensAt, sameCode, spotOf } from "../lib/gift-card.mjs";
 import { isTimeZone, isUuid } from "../lib/greeting-card.mjs";
 import { LOOPBACK } from "../lib/greeting-store.mjs";
 
@@ -52,7 +54,8 @@ export function giftSettings(env = {}) {
   if (!key || /\s/.test(key)) problems.push("SUPABASE_SECRET_KEY");
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (adminKey.length < 32 || /\s/.test(adminKey)) problems.push("OPENBLOG_GIFTS_ADMIN_KEY");
-  if (code.replace(/[^\p{L}\p{N}]+/gu, "").length < 6) problems.push("OPENBLOG_GIFTS_FAMILY_CODE");
+  // A first family password is optional: gifts are open to anyone until the owner asks for one.
+  if (code && code.replace(/[^\p{L}\p{N}]+/gu, "").length < 6) problems.push("OPENBLOG_GIFTS_FAMILY_CODE");
   if (!/^https:\/\/[^\s"<>/]+$/.test(origin)) problems.push("OPENBLOG_SITE_ORIGIN");
   if (salt.length < 16) problems.push("OPENBLOG_ANALYTICS_SALT");
   if (!isTimeZone(zone)) problems.push("OPENBLOG_GREETINGS_TIME_ZONE");
@@ -85,7 +88,7 @@ function createGiftStore({ settings, fetchImpl }) {
     return rows.length;
   };
   const store = {
-    onTree: () => call(`${TABLE}?select=id,wrap,from_name,show_name,opens_at,created_at&${site}&hidden_at=is.null&order=created_at.asc&limit=${LIMITS.perSeason}`, { headers: headers() }),
+    onTree: () => call(`${TABLE}?select=id,wrap,bow,spot_x,spot_y,from_name,show_name,opens_at,created_at&${site}&hidden_at=is.null&order=created_at.asc&limit=${LIMITS.perSeason}`, { headers: headers() }),
     all: () => call(`${TABLE}?select=*&${site}&order=created_at.asc&limit=1000`, { headers: headers() }),
     one: async (id) => (await call(`${TABLE}?select=*&${site}&id=eq.${id}`, { headers: headers() }))[0] || null,
     add: async (row) => (await call(TABLE, { method: "POST", headers: write(), body: JSON.stringify({ ...row, site_id: settings.siteId }) }))[0],
@@ -103,8 +106,12 @@ function createGiftStore({ settings, fetchImpl }) {
     forSeason: (opens) => count(`opens_at=eq.${encodeURIComponent(opens)}`),
     /** The owner's settings: whether the tree shows names, and the family password she set. */
     settings: async () => {
-      const row = (await call(`${SETTINGS}?select=show_names,family_code&${site}`, { headers: headers() }))[0];
-      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code };
+      const row = (await call(`${SETTINGS}?select=show_names,family_code,anyone,ready&${site}`, { headers: headers() }))[0];
+      // `anyone`: gifts are taken without a password. A tree starts that way unless whoever set the
+      // service up gave it a first password; after that it is the owner's choice in Studio.
+      return { showNames: row ? row.show_names === true : true, familyCode: row?.family_code || settings.code || null, anyone: row ? row.anyone !== false : !settings.code,
+        // `ready`: she has said her tree is ready for gifts. Until then the public side shows and takes none.
+        ready: row?.ready === true };
     },
     saveSettings: async (change) => {
       const now = await store.settings();
@@ -112,7 +119,7 @@ function createGiftStore({ settings, fetchImpl }) {
       await call(`${SETTINGS}?on_conflict=site_id`, {
         method: "POST",
         headers: write("resolution=merge-duplicates,return=minimal"),
-        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({ site_id: settings.siteId, show_names: next.showNames, family_code: next.familyCode, anyone: next.anyone !== false, ready: next.ready === true, updated_at: new Date().toISOString() }),
       });
       return next;
     },
@@ -181,6 +188,8 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
             gifts: (await store.all()).map((row) => giftOut(row, at)),
             showNames: owner.showNames,
             familyCode: owner.familyCode,
+            anyone: owner.anyone,
+            ready: owner.ready,
             opensAt: opensAt(at, settings.zone, settings.opensOn).toISOString(),
             limits: LIMITS,
           });
@@ -195,6 +204,16 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
               change.showNames = body.showNames;
             }
             if ("familyCode" in body) change.familyCode = checkFamilyCode(body.familyCode);
+            if ("anyone" in body) {
+              if (typeof body.anyone !== "boolean") throw new CardError(422, "anyone", "anyone");
+              change.anyone = body.anyone;
+            }
+            if ("ready" in body) {
+              if (typeof body.ready !== "boolean") throw new CardError(422, "ready", "ready");
+              change.ready = body.ready;
+            }
+            // Asking for a password needs one to ask for.
+            if (change.anyone === false && !(change.familyCode ?? (await store.settings()).familyCode)) throw new CardError(422, "family-code-needed", "familyCode");
             if (!Object.keys(change).length) throw new CardError(400, "malformed");
             return json(200, await store.saveSettings(change));
           }
@@ -218,14 +237,15 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
 
       // ---- the public side
       if (method === "GET" && parts[0] === "tree" && parts.length === 1) {
-        const { showNames } = await store.settings();
+        const { showNames, anyone, ready } = await store.settings();
         const at = now();
         const opens = opensAt(at, settings.zone, settings.opensOn);
         // This season's gifts: still to open, or opened within the late days (until January 6).
         const gifts = (await store.onTree())
           .filter((row) => Date.parse(row.opens_at) > at - (LATE_DAYS + 1) * 24 * 60 * 60 * 1000)
-          .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", from: showNames && row.show_name ? row.from_name : null }));
-        return json(200, { gifts, opensAt: opens.toISOString(), showNames }, { "cache-control": "public, max-age=60" });
+          .map((row) => ({ id: row.id, wrap: WRAPS.includes(row.wrap) ? row.wrap : "red", bow: bowOf(row.bow), spot: spotOf(row), from: showNames && row.show_name ? row.from_name : null }));
+        // `anyone` tells the guest's form whether to ask for the family password at all.
+        return json(200, { gifts: ready ? gifts : [], opensAt: opens.toISOString(), showNames, anyone, ready }, { "cache-control": "public, max-age=60" });
       }
       if (method === "GET" && parts[0] === "token" && parts.length === 1) {
         return json(200, { token: makeFormToken(settings.adminKey, now()) });
@@ -245,7 +265,10 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (!(await store.attempt("gift-tries", hour, tryDigest, LIMITS.triesPerHour, LIMITS.perSeason * 4))) {
           return json(429, { error: "slow-down" }, { "retry-after": "3600" });
         }
-        if (!sameCode(body.code, (await store.settings()).familyCode)) throw new CardError(403, "family-code", "code");
+        // Unless she asks for the family password, none is checked; every other guard stays.
+        const owner = await store.settings();
+        if (!owner.ready) throw new CardError(403, "not-ready", "ready");
+        if (!owner.anyone && !sameCode(body.code, owner.familyCode)) throw new CardError(403, "family-code", "code");
         const gift = checkGift(body);
         const digest = createHash("sha256").update(`${settings.salt}\0gifts\0${client}`).digest("hex");
         if (await store.fromSender(digest, new Date(at - 60 * 60 * 1000).toISOString()) >= LIMITS.perVisitorPerHour) {
@@ -255,9 +278,9 @@ export function createHandler({ env = process.env, fetchImpl = globalThis.fetch,
         if (await store.forSeason(opens.toISOString()) >= LIMITS.perSeason) throw new CardError(409, "tree-full");
         const row = await store.add({
           from_name: gift.from, show_name: gift.showName, kind: gift.kind, note: gift.note, card: gift.card,
-          wrap: gift.wrap, opens_at: opens.toISOString(), sender_digest: digest,
+          wrap: gift.wrap, bow: gift.bow, spot_x: gift.spot?.x ?? null, spot_y: gift.spot?.y ?? null, opens_at: opens.toISOString(), sender_digest: digest,
         });
-        return json(200, { ok: true, gift: { id: row.id, wrap: row.wrap, from: gift.showName ? gift.from : null }, opensAt: opens.toISOString() });
+        return json(200, { ok: true, gift: { id: row.id, wrap: row.wrap, bow: gift.bow, spot: gift.spot, from: gift.showName ? gift.from : null }, opensAt: opens.toISOString() });
       }
       return json(404, { error: "not-found" });
     } catch (error) {

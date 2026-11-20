@@ -7,31 +7,47 @@ Optional and off unless set up.
 ## What a guest can send
 
 A name (up to 40 characters); whether everyone who sees the tree, or only the owner, may see it's
-from them; a note (up to 1,000 characters) or a card; and wrapping paper. A card is data from
+from them; a note (up to 1,000 characters) or a card; wrapping paper and a bow; and, if the theme offers it,
+where under the tree it sits (`spot`: two whole numbers from 0 to 100, across and back to front). A card is data from
 fixed lists only: one of five designs, a message (up to 300), a sign-off (up to 40) and up to eight
 stickers, each a kind from the list on a 0 to 100 grid. Nothing a guest writes is ever markup:
 Studio and the site draw cards with `createElementNS` and `textContent`.
 
 ## Who sees what
 
-- The tree shows wrapped boxes. A box shows who it's from only when the giver chose that **and**
+- The tree shows wrapped boxes, each with the `spot` its giver chose, if any. A spot is only a wish:
+  the theme that draws the tree decides how far boxes may overlap, so no gift can bury another. A box
+  shows who it's from only when the giver chose that **and**
   the owner's **Show who each gift is from on your tree** is on (the default).
 - What a gift says is never public. The hosted function hands it over only to the server's key, and only
   once it's open. The table itself refuses an opening before its time.
 - Gifts are taken off the tree, never deleted. Whoever runs the database can read gifts; tell the
   family so.
 
-## Keeping strangers out
+## When gifts start
 
-A family password (`OPENBLOG_GIFTS_FAMILY_CODE`, at least 6 letters; case, spaces and punctuation
-don't matter), a form token that must be a few seconds old, a field only robots fill, five gifts
-an hour per visitor and 200 a season.
+Nothing shows on the site, and no gift is taken, until the owner turns on **My tree is ready for
+gifts** at the top of Studio's Gifts. That gives her time to decorate first. Turning it off hides the
+gifts again and keeps the ones she has. The public `tree` reply says `ready`; while it is `false` the
+reply holds no gifts and `submit` answers `not-ready`.
+
+## Who can leave one
+
+Gifts start open: nobody is asked for a password, so someone the owner doesn't know can leave one
+too. She can change that under **The family password** in Studio's Gifts: **Ask for a family
+password**, once she has chosen one (at least 6 letters; case, spaces and punctuation don't matter).
+A service set up with `OPENBLOG_GIFTS_FAMILY_CODE` starts with that password asked instead.
+
+Either way: a form token that must be a few seconds old, a field only robots fill, five gifts an hour
+per visitor and 200 a season. What a gift says is never public, and she can take any gift off the
+tree. The public `tree` reply says `anyone` (`true` when no password is asked), so a theme's form
+knows whether to ask.
 
 ## Setting it up
 
 1. Run [`supabase/gifts.sql`](../supabase/gifts.sql) (the hosted service does this itself).
 2. Where the `gifts` function runs: `OPENBLOG_GIFTS_ENABLED=true`, `OPENBLOG_GIFTS_ADMIN_KEY` (32+
-   random characters), `OPENBLOG_GIFTS_FAMILY_CODE`, plus the shared `SUPABASE_*`,
+   random characters), optionally `OPENBLOG_GIFTS_FAMILY_CODE` (a first password), plus the shared `SUPABASE_*`,
    `OPENBLOG_SITE_ID`, `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ANALYTICS_SALT` and
    `OPENBLOG_GREETINGS_TIME_ZONE`. `OPENBLOG_GIFTS_OPENS_ON` (`MM-DD`) moves the opening day, for a
    rehearsal only.

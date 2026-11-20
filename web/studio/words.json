@@ -8075,6 +8075,84 @@
         "product"
       ]
     },
+    "gifts.askFailed": {
+      "text": "That didn't change",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.askHelp": {
+      "text": "Off, anyone who visits can leave you a gift. On, only people who know the password can.",
+      "layer": "her",
+      "max": 320,
+      "vars": []
+    },
+    "gifts.askKept": {
+      "text": "Nobody is asked for it right now. It is kept for when you turn this on.",
+      "layer": "her",
+      "max": 280,
+      "vars": []
+    },
+    "gifts.askLabel": {
+      "text": "Ask for a family password",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.askNeedsOne": {
+      "text": "Choose a password first, then turn this on.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "gifts.askNone": {
+      "text": "No password is asked for right now.",
+      "layer": "her",
+      "max": 200,
+      "vars": []
+    },
+    "gifts.askOff": {
+      "text": "Anyone can leave you a gift now. Nobody is asked for a password.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "gifts.askOn": {
+      "text": "Only people with the family password can leave you a gift now.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
+    "gifts.readyFailed": {
+      "text": "That didn't change",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.readyHelp": {
+      "text": "Off, the gifts under your tree stay hidden on your site and nobody can leave one. Turn it on once your tree looks the way you want.",
+      "layer": "her",
+      "max": 320,
+      "vars": []
+    },
+    "gifts.readyLabel": {
+      "text": "My tree is ready for gifts",
+      "layer": "her",
+      "max": 120,
+      "vars": []
+    },
+    "gifts.readyOff": {
+      "text": "Gifts are hidden on your site now, and nobody can leave one. The ones you have are kept here.",
+      "layer": "her",
+      "max": 280,
+      "vars": []
+    },
+    "gifts.readyOn": {
+      "text": "Your tree is ready. People can leave you a gift now.",
+      "layer": "her",
+      "max": 240,
+      "vars": []
+    },
     "helper.alsoNone": {
       "text": "None",
       "layer": "details",
