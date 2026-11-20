@@ -13,6 +13,7 @@
 // Deno (a Supabase Edge Function). Errors and settings never carry a key, token or refused value.
 
 import { parseKeyring } from "./social-tokens.mjs";
+import { LOOPBACK } from "./greeting-store.mjs";
 
 export const ACTOR_HEADER = "x-openblog-actor";
 export const WORKER_ACTOR = "@worker";
@@ -57,7 +58,7 @@ export function socialSettings(env = {}) {
   const adminKey = text(env.OPENBLOG_SOCIAL_ADMIN_KEY);
   const workerKey = text(env.OPENBLOG_SOCIAL_WORKER_KEY);
   const problems = [];
-  if (!httpsOrigin(`${url}/`)) problems.push("SUPABASE_URL");
+  if (!httpsOrigin(`${url}/`) && !LOOPBACK.test(url)) problems.push("SUPABASE_URL");
   if (!key) problems.push("SUPABASE_SECRET_KEY");
   if (!validSiteScope(siteId)) problems.push("OPENBLOG_SITE_ID");
   // A server key must be long, and must not be any other credential the deployment holds: in

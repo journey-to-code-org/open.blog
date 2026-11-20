@@ -7,6 +7,7 @@
 // The checks mirror openblog_core::webmention_inbox::check_request, which the pull applies again.
 
 import { MIN_SERVER_KEY_CHARS } from "./social-scope.mjs";
+import { LOOPBACK } from "./greeting-store.mjs";
 
 export const MAX_URL_BYTES = 2048;
 export const MAX_FORM_BYTES = 8192;
@@ -49,7 +50,7 @@ export function webmentionSettings(env = {}) {
   const origin = text(env.OPENBLOG_SITE_ORIGIN).replace(/\/$/, "");
   const adminKey = text(env.OPENBLOG_WEBMENTION_ADMIN_KEY);
   const problems = [];
-  if (!httpsOrigin(`${url}/`)) problems.push("SUPABASE_URL");
+  if (!httpsOrigin(`${url}/`) && !LOOPBACK.test(url)) problems.push("SUPABASE_URL");
   if (!key) problems.push("SUPABASE_SECRET_KEY");
   if (!/^[A-Za-z0-9._-]{1,200}$/.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (!httpsOrigin(`${origin}/`)) problems.push("OPENBLOG_SITE_ORIGIN");

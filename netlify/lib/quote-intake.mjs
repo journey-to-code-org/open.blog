@@ -3,6 +3,7 @@
 // values never reach a log, an error or a thrown message; errors name fields and fixed reasons only.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { LOOPBACK } from "./greeting-store.mjs";
 
 export const MAX_PHOTOS = 5;
 export const MAX_PHOTO_BYTES = 900 * 1024;
@@ -53,7 +54,7 @@ export function quoteSettings(env = {}) {
   const secret = text(env.OPENBLOG_QUOTE_SECRET);
   const adminKey = text(env.OPENBLOG_QUOTE_ADMIN_KEY);
   const problems = [];
-  if (!httpsOrigin(`${url}/`)) problems.push("SUPABASE_URL");
+  if (!httpsOrigin(`${url}/`) && !LOOPBACK.test(url)) problems.push("SUPABASE_URL");
   if (!key) problems.push("SUPABASE_SECRET_KEY");
   if (!SITE_SCOPE.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (!httpsOrigin(`${origin}/`)) problems.push("OPENBLOG_SITE_ORIGIN");
@@ -61,8 +62,12 @@ export function quoteSettings(env = {}) {
   // The admin key is optional (it only unlocks the notification routes), but when set it must be long
   // and distinct from every other credential.
   if (adminKey && (adminKey.length < MIN_SECRET_CHARS || /\s/.test(adminKey) || adminKey === key || adminKey === secret)) problems.push("OPENBLOG_QUOTE_ADMIN_KEY");
+  // Where a signed photo link points, when the database's own address isn't public (the Railway
+  // service reaches storage on loopback and answers signed links on its public https address).
+  const publicUrl = text(env.OPENBLOG_STORAGE_PUBLIC_URL).trim().replace(/\/+$/, "");
+  if (publicUrl && !/^https:\/\/[^\s"<>/]+$/.test(publicUrl)) problems.push("OPENBLOG_STORAGE_PUBLIC_URL");
   if (problems.length) return off(problems);
-  return { enabled: true, problems: [], url, key, siteId, origin, secret, adminKey };
+  return { enabled: true, problems: [], url, key, siteId, origin, secret, adminKey, publicUrl: publicUrl || url };
 }
 
 const mac = (secret, label, value) => createHmac("sha256", secret).update(`${label}\n${value}`).digest("base64url");

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { once } from "node:events";
-import { clientAddress, createRestBridge, createService, mintServiceKey, routeFor } from "../../service/server.mjs";
+import { clientAddress, createRestBridge, createService, eventBody, mintServiceKey, publicAddress, routeFor } from "../../service/server.mjs";
 
 const listen = async (server) => {
   server.listen(0, "127.0.0.1");
@@ -10,9 +10,19 @@ const listen = async (server) => {
   return `http://127.0.0.1:${server.address().port}`;
 };
 
-test("routes: greetings and gifts by name, everything else under /api/ is engagement", () => {
+test("routes: each function by name, everything else under /api/ is engagement", () => {
   assert.equal(routeFor("/api/greetings/status"), "greetings");
   assert.equal(routeFor("/api/gifts/tree"), "gifts");
+  assert.equal(routeFor("/api/push/status"), "push");
+  assert.equal(routeFor("/api/quote/requests"), "quote");
+  assert.equal(routeFor("/api/quote"), "quote");
+  assert.equal(routeFor("/api/social/accounts"), "social");
+  assert.equal(routeFor("/api/social-worker"), "social-worker");
+  assert.equal(routeFor("/api/webmention"), "webmention");
+  assert.equal(routeFor("/api/webmention/inbox"), "webmention");
+  assert.equal(routeFor("/api/pushy"), "engagement", "a name is a whole segment");
+  assert.equal(routeFor("/storage/v1/object/sign/b/a.jpg"), "storage");
+  assert.equal(routeFor("/storage/v1/object/b/a.jpg"), null, "only signed links are public");
   assert.equal(routeFor("/api/comments"), "engagement");
   assert.equal(routeFor("/api/admin/feedback"), "engagement");
   assert.equal(routeFor("/health"), "health");
@@ -75,4 +85,42 @@ test("the bridge passes /rest/v1/<x> to PostgREST's /<x> and nothing else", asyn
   assert.equal((await fetch(`${base}/openblog_comments`)).status, 404);
   bridge.close();
   fake.close();
+});
+
+test("text bodies arrive as text, anything else as base64 with no byte changed", () => {
+  assert.deepEqual(eventBody(Buffer.from('{"a":1}'), "application/json"), { body: '{"a":1}', isBase64Encoded: false });
+  assert.deepEqual(eventBody(Buffer.from("source=a"), "application/x-www-form-urlencoded"), { body: "source=a", isBase64Encoded: false });
+  const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x80]);
+  const multipart = eventBody(bytes, "multipart/form-data; boundary=x");
+  assert.equal(multipart.isBase64Encoded, true);
+  assert.deepEqual(Buffer.from(multipart.body, "base64"), bytes);
+  assert.deepEqual(eventBody(Buffer.alloc(0), "multipart/form-data"), { body: "", isBase64Encoded: false });
+});
+
+test("a quote request may be larger than the other functions' bodies", async () => {
+  let size = 0;
+  const server = createService({ maxBytes: 10, limits: { quote: 1000 }, handlers: { quote: async (event) => { size = Buffer.from(event.body, "base64").length; return { statusCode: 200, body: "" }; }, greetings: async () => ({ statusCode: 200, body: "" }) } });
+  const base = await listen(server);
+  const ok = await fetch(`${base}/api/quote`, { method: "POST", body: new Uint8Array(500), headers: { "content-type": "multipart/form-data; boundary=x" } });
+  assert.equal(ok.status, 200);
+  assert.equal(size, 500);
+  assert.equal((await fetch(`${base}/api/quote`, { method: "POST", body: "x".repeat(2000) })).status, 413);
+  assert.equal((await fetch(`${base}/api/greetings/x`, { method: "POST", body: "x".repeat(50) })).status, 413);
+  server.close();
+});
+
+test("the service's public address: given, or Railway's domain, and only https", () => {
+  assert.equal(publicAddress({ OPENBLOG_SERVICE_PUBLIC_URL: "https://family.example/" }), "https://family.example");
+  assert.equal(publicAddress({ RAILWAY_PUBLIC_DOMAIN: "svc.up.railway.app" }), "https://svc.up.railway.app");
+  assert.equal(publicAddress({ OPENBLOG_SERVICE_PUBLIC_URL: "http://family.example" }), "");
+  assert.equal(publicAddress({ RAILWAY_PUBLIC_DOMAIN: "bad domain" }), "");
+});
+
+test("a path no function answers goes to the site when there is one, and is 404 otherwise", async () => {
+  const site = (request, response) => { response.writeHead(200); response.end("page"); };
+  const withSite = createService({ handlers: {}, site });
+  const base = await listen(withSite);
+  assert.equal(await (await fetch(`${base}/posts/x/`)).text(), "page");
+  assert.equal((await fetch(`${base}/api/gifts/tree`)).status, 404, "an /api/ path never falls through to the site");
+  withSite.close();
 });

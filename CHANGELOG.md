@@ -5,6 +5,16 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The family service (`service/`, for Railway or any Docker host) now runs every hosted function, so a
+  site needs neither Netlify nor Supabase: push notices, quote requests, received Webmentions and social
+  publishing join notes, greeting cards and gifts. Their schedules run in the container (the quote
+  retention sweep daily; the social worker each minute, as pg_cron did). Quote photos are kept in a
+  folder (`OPENBLOG_STORAGE_DIR`, a volume) with short-lived signed links on the service's own address.
+  Bodies that aren't text reach the functions as base64, as on Netlify. The database setup applies the
+  SQL of each feature switched on. `service/Dockerfile.site` also builds and serves the site itself,
+  with what `netlify.toml` did for pages (`/admin` forward, `_redirects`, CORS on the feeds, 404 page).
+  ADR 0435. The push, quote, Webmention and social functions accept the service's loopback database
+  address, as greetings and gifts already did.
 - Theme components: a new setting type, `places` (ADR 0434), sets things down on a picture. Studio shows
   the picture; the owner taps where each thing goes, drags it, or uses the keyboard, and it is saved as
   `kind@x,y;kind@x,y`, checked by the server like every other value.

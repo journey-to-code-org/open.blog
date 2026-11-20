@@ -115,7 +115,7 @@ export function createStore({ settings, fetchImpl, now = () => Date.now() }) {
       const body = await response.json().catch(() => null);
       const signed = String(body?.signedURL || body?.signedUrl || "");
       if (!signed.startsWith("/")) return null;
-      return `${settings.url}/storage/v1${signed.replace(/^\/storage\/v1/, "")}`;
+      return `${settings.publicUrl || settings.url}/storage/v1${signed.replace(/^\/storage\/v1/, "")}`;
     },
 
     // The object paths still present under `prefix` (one request's folder).

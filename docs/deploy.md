@@ -494,32 +494,67 @@ fork has). For a blog made with `openblog init`, replace the build stage with
 ## Railway: the editor and the hosted functions
 
 On Railway (or any host that runs containers and keeps a disk), the editor and the hosted
-functions can live together in one project, while GitHub Pages (or Netlify) still builds the public
-site from the repository:
+functions can live together in one project, with no Netlify and no Supabase. The public site can
+still be built by GitHub Pages from the repository, or be served by the functions' container too.
 
 - **Postgres**, Railway's own.
 - **The hosted functions** ([`service/`](../service/)): one container that runs the very same code
-  as the Netlify functions (notes, views and moderation; greeting cards and their hourly sender;
-  [gifts under the tree](gifts.md)) over that Postgres through PostgREST, the pair Supabase is made of. It
-  needs `DATABASE_URL` and `PGRST_JWT_SECRET` (32 or more random characters, never shared: the
-  service key is minted from it inside the container), plus each function's own settings
-  (`OPENBLOG_SITE_ID`, `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, `OPENBLOG_GREETINGS_*`,
-  `OPENBLOG_GIFTS_*` and so on, as on Netlify). On start, `service/migrate.sh` adds the roles
-  Supabase would have and applies each SQL file the service uses once per change
-  (`OPENBLOG_SERVICE_SQL`, default `openblog moderation greetings gifts`). The visitor's address
-  comes from Railway's `X-Real-IP`; set `OPENBLOG_TRUST_X_REAL_IP=false` behind any other proxy.
+  as the Netlify functions over that Postgres through PostgREST, the pair Supabase is made of:
+  notes, views and moderation; greeting cards; [gifts under the tree](gifts.md); push notices;
+  quote requests; received Webmentions; social publishing. It needs `DATABASE_URL` and
+  `PGRST_JWT_SECRET` (32 or more random characters, never shared: the service key is minted from it
+  inside the container), plus each function's own settings (`OPENBLOG_SITE_ID`,
+  `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, `OPENBLOG_GREETINGS_*`, `OPENBLOG_GIFTS_*`,
+  `OPENBLOG_PUSH_*`, `OPENBLOG_QUOTE_*`, `OPENBLOG_WEBMENTION_*`, `OPENBLOG_SOCIAL_*`, as on
+  Netlify). Leave out `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: the container sets both itself.
+  - **The database is set up on start.** `service/migrate.sh` adds the roles Supabase would have and
+    applies each SQL file the service uses, once per change: `openblog moderation greetings gifts`,
+    and the files of each optional feature switched on (`push`; `quote quote-v2`; `webmention`;
+    `social social-return social-queue social-history social-media social-ops`).
+    `OPENBLOG_SERVICE_SQL` replaces the list. `social-cron.sql` is never applied: it needs pg_cron.
+  - **The schedules run in the container**: due greeting cards every hour, the quote retention
+    sweep every day, and, with `OPENBLOG_SOCIAL_ENABLED=true` and `OPENBLOG_SOCIAL_WORKER_KEY` set,
+    the social delivery worker every minute (what pg_cron did on Supabase).
+  - **Quote request photos** are kept in a folder instead of Supabase Storage: add a Railway volume
+    and set `OPENBLOG_STORAGE_DIR` to its mount path. Without it, a request with photos is refused
+    as unavailable. Admin's thumbnails are short-lived signed links on the service's own https
+    address (`RAILWAY_PUBLIC_DOMAIN`, or `OPENBLOG_SERVICE_PUBLIC_URL` for a custom domain); only an
+    image is ever sent back through one.
+  - The visitor's address comes from Railway's `X-Real-IP`; set `OPENBLOG_TRUST_X_REAL_IP=false`
+    behind any other proxy.
 - **The editor**: `openblog serve --admin` with the site cloned onto a Railway volume, publishing back
   to GitHub with a token scoped to that one repository, and `OPENBLOG_BEHIND_PROXY=1`. Point
-  `OPENBLOG_GREETINGS_ENDPOINT`, `OPENBLOG_GIFTS_ENDPOINT` and the engagement endpoint at the
-  functions' public `https://` address.
+  `OPENBLOG_GREETINGS_ENDPOINT`, `OPENBLOG_GIFTS_ENDPOINT`, the push, quote, social and Webmention
+  endpoints and the engagement endpoint at the functions' public `https://` address.
   A health or smoke check of the editor should expect `/admin/` to answer `302` to `/admin/studio/`
   and `/admin/studio/` to answer `200`.
 
 Build the functions' image from the repository root with `docker build -f service/Dockerfile .`.
 A site repository can pin both to one engine commit and build them itself, as
-[Grammi's House](https://github.com/mnichols08/grammis-house/tree/main/railway) does with its
-`railway/` folder and `scripts/setup-railway.sh`. Limit each service's rebuilds to its own files
-(Railway's watch paths), or every save in the editor redeploys the editor.
+[Grammi's House](https://github.com/mnichols08/grammis-house) does with `Dockerfile.admin` and
+`Dockerfile.service` (and `scripts/setup-family-service.sh`, which prints every variable). Limit each
+service's rebuilds to its own files (Railway's watch paths), or every save in the editor redeploys
+the editor.
+
+### Leaving Netlify altogether: the site from the same container
+
+`service/Dockerfile.site` builds the site with the engine and serves it from the functions'
+container (`OPENBLOG_SITE_DIR`), doing what `netlify.toml` did for the pages: `/a/` is
+`/a/index.html`, `/a` moves to `/a/`, exact `_redirects` lines are real redirects, `/admin` and
+`/admin/*` go (302) to `OPENBLOG_ADMIN_URL` (the editor's `https://…/admin/`), the latest-posts JSON
+and the feeds can be read by scripts on other sites, anything missing is `404.html`, and files
+revalidate by ETag. Every `/api/` address is the functions', except the files the build itself
+writes there (`/api/blog.json`, `/api/views.json`).
+
+The pages are as of the last build, so a post with a future `date` appears at the next one. Rebuild
+the service on a schedule: a GitHub Actions workflow that runs `railway redeploy --service <name>
+--yes` every hour with a `RAILWAY_TOKEN` secret, or a Railway cron service that does the same.
+
+To move a site that is on Netlify: create the Postgres and the service, copy the function settings
+from Netlify (without the Supabase ones), point the site's `engagement.endpoint` and the editor's
+endpoints at the service, move the domain, then stop the Netlify site. What was in Supabase stays
+there: export the tables you want to keep (`pg_dump --data-only -t 'public.openblog_*'`) and load
+them into the new Postgres after its first start.
 
 ## Getting started for a new owner
 

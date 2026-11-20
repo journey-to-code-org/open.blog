@@ -1,11 +1,13 @@
 # open.blog's hosted functions as one container: notes, views and moderation (engagement), greeting
-# cards, and gifts under the tree, over Postgres through PostgREST. For Railway or any Docker host;
-# see docs/deploy.md "Railway". Build from the repository root:
+# cards, gifts under the tree, push notices, quote requests, Webmentions and social publishing, over
+# Postgres through PostgREST. For Railway or any Docker host; see docs/deploy.md "Railway". Build
+# from the repository root:
 #
 #   docker build -f service/Dockerfile -t openblog-service .
 #
 # Needs DATABASE_URL (Postgres) and PGRST_JWT_SECRET (32+ random characters), plus each function's
-# own settings (docs/deploy.md lists them). Listens on $PORT.
+# own settings (docs/deploy.md lists them). Listens on $PORT. Quote request photos need a volume:
+# mount one and set OPENBLOG_STORAGE_DIR to it. service/Dockerfile.site adds the built site.
 
 FROM node:22-bookworm-slim
 ARG POSTGREST_VERSION=12.2.3
@@ -20,6 +22,8 @@ RUN apt-get update \
     && apt-get purge -y xz-utils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY netlify ./netlify
+# sharp, for social publishing's covers (the only dependency the functions have).
+RUN npm ci --prefix netlify --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY supabase ./supabase
 COPY service ./service
 COPY web/components ./web/components

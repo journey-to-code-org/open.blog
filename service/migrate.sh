@@ -6,12 +6,21 @@
 #
 #   DATABASE_URL=postgres://... sh service/migrate.sh
 #
-# OPENBLOG_SERVICE_SQL lists the files (default: openblog moderation greetings gifts).
+# OPENBLOG_SERVICE_SQL lists the files. By default: openblog moderation greetings gifts, and the
+# files of each optional feature switched on (push, quote requests, Webmentions, social publishing).
+# social-cron.sql is never applied here: it schedules the worker with pg_cron, which the service does
+# itself.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 sql_dir="${OPENBLOG_SQL_DIR:-$here/../supabase}"
 : "${DATABASE_URL:?Set DATABASE_URL to the Postgres connection string}"
-files="${OPENBLOG_SERVICE_SQL:-openblog moderation greetings gifts}"
+on() { [ "$(printenv "$1" | tr '[:upper:]' '[:lower:]' | tr -d ' ')" = "true" ]; }
+default="openblog moderation greetings gifts"
+if on OPENBLOG_PUSH_ENABLED; then default="$default push"; fi
+if on OPENBLOG_QUOTE_ENABLED; then default="$default quote quote-v2"; fi
+if on OPENBLOG_WEBMENTION_ENABLED; then default="$default webmention"; fi
+if on OPENBLOG_SOCIAL_ENABLED; then default="$default social social-return social-queue social-history social-media social-ops"; fi
+files="${OPENBLOG_SERVICE_SQL:-$default}"
 
 run() { PGOPTIONS="-c client_min_messages=warning" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -q "$@"; }
 
