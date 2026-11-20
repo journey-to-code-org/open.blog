@@ -531,9 +531,10 @@ still be built by GitHub Pages from the repository, or be served by the function
 
 Build the functions' image from the repository root with `docker build -f service/Dockerfile .`.
 A site repository can pin both to one engine commit and build them itself, as
-[Grammi's House](https://github.com/mnichols08/grammis-house/tree/main/railway) does with its
-`railway/` folder. Limit each service's rebuilds to its own files (Railway's watch paths), or every
-save in the editor redeploys the editor.
+[Grammi's House](https://github.com/mnichols08/grammis-house) does with `Dockerfile.admin` and
+`Dockerfile.service` (and `scripts/setup-family-service.sh`, which prints every variable). Limit each
+service's rebuilds to its own files (Railway's watch paths), or every save in the editor redeploys
+the editor.
 
 ### Leaving Netlify altogether: the site from the same container
 
