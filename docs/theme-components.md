@@ -85,6 +85,24 @@ the theme declares ([ADR 0408](adr/0408-a-theme-offers-components-an-owner-place
   ([ADR 0433](adr/0433-a-choice-setting-may-read-more-choices-from-a-file-of-the-themes-own.md)).
   This repository's own site shows one: `themes/example` offers open.parlor's `<card-room>`, whose list of
   games is `themes/example/components/card-room.games.json`.
+- **`places` sets things down on a picture**, for a component an owner arranges by eye (a tree to hang
+  ornaments on, a mantel). It names a `picture` and `choices`, each of which may have its own `image`, all
+  image files inside the theme folder, and `max`, how many it holds (24 unless it says, at most 60):
+
+  ```jsonc
+  { "name": "hung", "type": "places", "label": "What hangs on your tree", "max": 40,
+    "picture": "components/tree/tree.svg", "default": "star@50,5;red-ball@40,33",
+    "choices": [ { "value": "star", "label": "Star", "image": "components/tree/star.svg" },
+                 { "value": "red-ball", "label": "Red ball", "image": "components/tree/red-ball.svg" } ] }
+  ```
+
+  Studio shows the picture: she chooses one, taps where it goes, picks one up and drags it, or uses the
+  keyboard (Shift and Enter adds one, the arrows move it, Delete takes it off), and every step is said in
+  words. The element is given one attribute, `kind@x,y;kind@x,y`, each spot two whole numbers from 0 to
+  100, across and down the picture; how that maps onto its own drawing is up to the component. A choice's
+  `value` is lowercase letters, digits and hyphens, so the attribute can't carry anything else
+  ([ADR 0434](adr/0434-a-component-setting-may-set-things-down-on-a-picture.md)). Grammi's House's
+  Christmas tree uses one.
 - **The script** is a `.js` file inside the theme folder. An address elsewhere is refused, so a theme
   never loads code from another site through a component.
 - **The section** the owner adds holds only the component's name, an optional heading and the values:

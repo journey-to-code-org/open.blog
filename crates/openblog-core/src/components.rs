@@ -23,7 +23,10 @@
 //! the choices listed in the theme's own `choicesFrom` file, ADR 0433),
 //! `number` (between `min` and `max`), `toggle` (on or off), `date` (a calendar day, written
 //! `YYYY-MM-DD`, which Admin offers as a date picker) or `post` (one of the site's posts, chosen from
-//! a list; the element is given the post's address, or nothing while the post isn't published). The section that places a component
+//! a list; the element is given the post's address, or nothing while the post isn't published) or
+//! `places` (things set down on a picture, ADR 0434: each one of `choices`, at a spot on a 0 to 100
+//! grid, at most `max` of them, written `kind@x,y;kind@x,y`; `picture` is the theme's own image that
+//! Studio shows them on, and a choice may name its own `image`). The section that places a component
 //! holds only its name and the values of these settings, so nothing an owner types is ever markup:
 //! every value is checked against its declaration and written as an escaped attribute. The script
 //! is a file of the theme itself, never an address elsewhere.
@@ -43,6 +46,9 @@ pub const MAX_TEXT_LENGTH: usize = 2_000;
 pub const MAX_CHOICES: usize = 50;
 /// The most choices a setting may have once its `choicesFrom` file is read (ADR 0433).
 pub const MAX_LISTED_CHOICES: usize = 500;
+/// The most things a `places` setting holds when the component does not say, and the most it may allow.
+pub const DEFAULT_PLACES: usize = 24;
+pub const MAX_PLACES: usize = 60;
 /// The longest value or label a choice read from a file may have.
 const MAX_CHOICE_TEXT: usize = 120;
 
@@ -84,6 +90,10 @@ pub struct PropDecl {
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub max_length: Option<usize>,
+    /// For `places` (ADR 0434): the picture things are set down on, an image file in the theme
+    /// folder until the theme makes it an absolute site URL.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub picture: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -91,6 +101,9 @@ pub struct PropDecl {
 pub struct Choice {
     pub value: String,
     pub label: String,
+    /// For a `places` setting: this choice's own picture, an image file in the theme folder.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub image: String,
 }
 
 /// A checked component, as a resolved theme carries it.
@@ -135,6 +148,24 @@ fn valid_path(path: &str) -> bool {
         && !path
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
+}
+
+/// An image inside the theme folder that a `places` setting may show.
+fn valid_image(path: &str) -> bool {
+    valid_path(path)
+        && [".svg", ".png", ".webp", ".jpg", ".jpeg"]
+            .iter()
+            .any(|ending| path.ends_with(ending))
+}
+
+/// What a `places` setting may call one of its choices: it is written into the value between
+/// `;` and `@`, so only lowercase letters, digits and hyphens.
+fn valid_place_kind(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 40
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// A script path inside the theme folder, ending in `.js` or `.mjs`.
@@ -211,7 +242,47 @@ impl Component {
                     "the setting `{name}`: only a `choice` setting takes `choicesFrom`"
                 ));
             }
+            if prop.kind != "places"
+                && (!prop.picture.is_empty() || prop.choices.iter().any(|c| !c.image.is_empty()))
+            {
+                return Err(format!(
+                    "the setting `{name}`: only a `places` setting takes a `picture` or choices with an `image`"
+                ));
+            }
             match prop.kind.as_str() {
+                "places" => {
+                    if !valid_image(&prop.picture) {
+                        return Err(format!(
+                            "the setting `{name}` needs a `picture`: an image file inside the theme folder, like `components/my-tree.svg`"
+                        ));
+                    }
+                    if prop.choices.is_empty() || prop.choices.len() > MAX_CHOICES {
+                        return Err(format!(
+                            "the setting `{name}` needs from 1 to {MAX_CHOICES} `choices`"
+                        ));
+                    }
+                    for choice in &prop.choices {
+                        if !valid_place_kind(&choice.value) || choice.label.trim().is_empty() {
+                            return Err(format!(
+                                "every choice of `{name}` needs a `label` and a `value` of lowercase letters, digits and hyphens"
+                            ));
+                        }
+                        if !choice.image.is_empty() && !valid_image(&choice.image) {
+                            return Err(format!(
+                                "the choice `{}` of `{name}`: `image` must be an image file inside the theme folder",
+                                printable(&choice.value)
+                            ));
+                        }
+                    }
+                    if prop
+                        .max
+                        .is_some_and(|n| n.fract() != 0.0 || n < 1.0 || n > MAX_PLACES as f64)
+                    {
+                        return Err(format!(
+                            "the setting `{name}`: max is a whole number from 1 to {MAX_PLACES}"
+                        ));
+                    }
+                }
                 "text" => {
                     if prop
                         .max_length
@@ -264,7 +335,7 @@ impl Component {
                 "toggle" | "date" | "post" => {}
                 other => {
                     return Err(format!(
-                    "the setting `{name}` has the type `{}`; use text, choice, number, toggle, date or post",
+                    "the setting `{name}` has the type `{}`; use text, choice, number, toggle, date, post or places",
                     printable(other)
                 ))
                 }
@@ -370,6 +441,10 @@ impl Component {
                 if let Some(min) = prop.min { out["min"] = json!(min); }
                 if let Some(max) = prop.max { out["max"] = json!(max); }
                 if prop.kind == "text" { out["maxLength"] = json!(prop.max_length.unwrap_or(DEFAULT_TEXT_LENGTH)); }
+                if prop.kind == "places" {
+                    out["picture"] = json!(prop.picture);
+                    out["max"] = json!(prop.max.map_or(DEFAULT_PLACES, |n| n as usize));
+                }
                 out
             }).collect::<Vec<_>>(),
         })
@@ -461,12 +536,44 @@ impl PropDecl {
             self.choices.push(Choice {
                 value: value.to_string(),
                 label: label.to_string(),
+                image: String::new(),
             });
         }
         Ok(())
     }
 
     /// The attribute value for `value`: `Some(text)`, `None` for a toggle that is on, or the problem.
+    /// A `places` value, checked and written back the one way it is ever written:
+    /// `kind@x,y;kind@x,y`, each kind one of the choices and each spot on the 0 to 100 grid. Empty
+    /// means nothing is set down.
+    fn places(&self, text: &str) -> Result<String, String> {
+        let most = self.max.map_or(DEFAULT_PLACES, |n| n as usize);
+        let mut out = Vec::new();
+        for item in text.split(';').filter(|item| !item.is_empty()) {
+            let spot = item.split_once('@').and_then(|(kind, at)| {
+                let (x, y) = at.split_once(',')?;
+                let on_grid = |n: &str| {
+                    (!n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()))
+                        .then(|| n.parse::<u8>().ok())
+                        .flatten()
+                        .filter(|n| *n <= 100)
+                };
+                Some((kind, on_grid(x)?, on_grid(y)?))
+            });
+            let Some((kind, x, y)) = spot else {
+                return Err("must list each thing as its name, then @, then two whole numbers from 0 to 100".into());
+            };
+            if !self.choices.iter().any(|choice| choice.value == kind) {
+                return Err("names something that isn't one of the choices".into());
+            }
+            out.push(format!("{kind}@{x},{y}"));
+        }
+        if out.len() > most {
+            return Err(format!("holds more than {most} things"));
+        }
+        Ok(out.join(";"))
+    }
+
     /// A toggle that is off is an `Err` the caller leaves out.
     fn value(&self, value: &Value) -> Result<Option<String>, String> {
         match (self.kind.as_str(), value) {
@@ -531,6 +638,8 @@ impl PropDecl {
                     Err("must be one of your posts".into())
                 }
             }
+            ("places", Value::String(text)) => self.places(text).map(Some),
+            ("places", _) => Err("must be a list of things and where they are".into()),
             ("toggle", Value::Bool(true)) => Ok(None),
             ("toggle", Value::Bool(false)) => Err("is off".into()),
             ("text" | "choice", _) => Err("must be text".into()),
@@ -620,6 +729,93 @@ mod tests {
         v.as_object().unwrap().clone()
     }
 
+    /// A tree to hang things on (ADR 0434).
+    fn tree() -> ComponentDecl {
+        serde_json::from_value(json!({
+            "label": "Tree", "script": "components/tree.js",
+            "props": [
+                { "name": "hung", "type": "places", "label": "What hangs on it", "max": 3,
+                  "picture": "components/tree.svg", "default": "star@50,5",
+                  "choices": [ { "value": "star", "label": "Star", "image": "components/star.svg" },
+                               { "value": "red-ball", "label": "Red ball" } ] }
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_places_setting_holds_choices_at_spots_on_a_grid_and_nothing_else() {
+        let c = Component::check("my-tree", &tree()).unwrap();
+        let at = |text: &str| c.attributes(&values(json!({ "hung": text })));
+        // Written back the one way it is ever written; empty means nothing is hung.
+        assert_eq!(
+            at("star@0,100;red-ball@7,42;;").unwrap(),
+            vec![(
+                "hung".to_string(),
+                Some("star@0,100;red-ball@7,42".to_string())
+            )]
+        );
+        assert_eq!(
+            at("").unwrap(),
+            vec![("hung".to_string(), Some(String::new()))]
+        );
+        // Left alone, it is the component's default.
+        assert_eq!(
+            c.attributes(&Map::new()).unwrap(),
+            vec![("hung".to_string(), Some("star@50,5".to_string()))]
+        );
+        for bad in [
+            "bow@1,1",    // not one of the choices
+            "star@101,1", // off the grid
+            "star@1",     // half a spot
+            "star@1,1,1",
+            "star@-1,1",
+            "star@1.5,1",
+            "star@+1,1",
+            "star@0001,1",
+            "star",
+            "star@1,1\" onload=\"x",
+            "star@1,1;star@2,2;star@3,3;star@4,4", // more than max
+        ] {
+            assert!(at(bad).is_err(), "{bad}");
+        }
+        assert!(c.attributes(&values(json!({ "hung": 4 }))).is_err());
+    }
+
+    #[test]
+    fn a_places_setting_is_declared_with_a_picture_and_plain_choice_names() {
+        let broken = |change: fn(&mut ComponentDecl)| {
+            let mut decl = tree();
+            change(&mut decl);
+            Component::check("my-tree", &decl).unwrap_err()
+        };
+        assert!(broken(|d| d.props[0].picture = String::new()).contains("picture"));
+        assert!(
+            broken(|d| d.props[0].picture = "https://x.example/t.svg".into()).contains("picture")
+        );
+        assert!(broken(|d| d.props[0].picture = "../t.svg".into()).contains("picture"));
+        assert!(broken(|d| d.props[0].picture = "components/t.js".into()).contains("picture"));
+        assert!(broken(|d| d.props[0].choices[0].value = "Star;x".into()).contains("lowercase"));
+        assert!(
+            broken(|d| d.props[0].choices[0].image = "//x.example/s.svg".into()).contains("image")
+        );
+        assert!(broken(|d| d.props[0].max = Some(61.0)).contains("max"));
+        assert!(broken(|d| d.props[0].max = Some(2.5)).contains("max"));
+        assert!(broken(|d| d.props[0].choices.clear()).contains("choices"));
+        assert!(broken(|d| d.props[0].default = Some(json!("bow@1,1"))).contains("default"));
+        // Pictures belong to `places` alone.
+        let mut decl = countdown();
+        decl.props[0].picture = "components/t.svg".into();
+        assert!(Component::check("holiday-countdown", &decl)
+            .unwrap_err()
+            .contains("places"));
+        let mut decl = countdown();
+        decl.props[0].choices[0].image = "components/t.svg".into();
+        assert!(Component::check("holiday-countdown", &decl)
+            .unwrap_err()
+            .contains("places"));
+    }
+
     /// A game picker: two choices written in `theme.json`, the rest in a file of the theme's.
     fn picker() -> ComponentDecl {
         serde_json::from_value(json!({
@@ -700,6 +896,7 @@ mod tests {
             .map(|i| Choice {
                 value: format!("g{i}"),
                 label: format!("Game {i}"),
+                image: String::new(),
             })
             .collect();
         inline.props[0].default = None;

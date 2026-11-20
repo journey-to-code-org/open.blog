@@ -373,6 +373,23 @@ impl ThemeSet {
                 theme.components.insert(
                     tag.clone(),
                     crate::components::Component {
+                        // A `places` setting's pictures are theme files too (ADR 0434).
+                        props: component
+                            .props
+                            .iter()
+                            .cloned()
+                            .map(|mut prop| {
+                                if !prop.picture.is_empty() {
+                                    prop.picture = absolutize(&base_url, &prop.picture);
+                                }
+                                for choice in &mut prop.choices {
+                                    if !choice.image.is_empty() {
+                                        choice.image = absolutize(&base_url, &choice.image);
+                                    }
+                                }
+                                prop
+                            })
+                            .collect(),
                         script: absolutize(&base_url, &component.script),
                         source: if component.source.is_empty() {
                             String::new()

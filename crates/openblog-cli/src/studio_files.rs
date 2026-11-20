@@ -152,6 +152,8 @@ pub const STUDIO_FILES: &[(&str, &[u8])] = &[
     ("parts/piece-forms.js", include_bytes!("../../../web/studio/parts/piece-forms.js")),
     ("parts/piece-rules.js", include_bytes!("../../../web/studio/parts/piece-rules.js")),
     ("parts/piece-words.js", include_bytes!("../../../web/studio/parts/piece-words.js")),
+    ("parts/places-field.js", include_bytes!("../../../web/studio/parts/places-field.js")),
+    ("parts/places-rules.js", include_bytes!("../../../web/studio/parts/places-rules.js")),
     ("parts/plain-words.js", include_bytes!("../../../web/studio/parts/plain-words.js")),
     ("parts/portable-rules.js", include_bytes!("../../../web/studio/parts/portable-rules.js")),
     ("parts/post-boundary.js", include_bytes!("../../../web/studio/parts/post-boundary.js")),

@@ -273,7 +273,7 @@ export function setComponents(list) {
   themeComponents = new Map((Array.isArray(list) ? list : []).filter((c) => isObject(c) && typeof c.tag === "string").map((c) => [c.tag, c]));
 }
 
-/** A component's settings as field specs: text, a choice list, a number, on and off, a day, or a post. */
+/** A component's settings as field specs: text, a choice list, a number, on and off, a day, a post, or things set down on a picture. */
 export function componentFields(component) {
   return (Array.isArray(component?.props) ? component.props : []).map((prop) => {
     const hint = typeof prop.help === "string" && prop.help ? prop.help : undefined;
@@ -288,6 +288,8 @@ export function componentFields(component) {
         return { kind: "date", name: prop.name, label: prop.label, required: prop.required === true, hint };
       case "post":
         return { kind: "post", name: prop.name, label: prop.label, required: prop.required === true, optional: prop.required !== true, hint };
+      case "places":
+        return { kind: "places", name: prop.name, label: prop.label, picture: prop.picture, choices: (prop.choices || []).map((choice) => ({ value: choice.value, label: choice.label, image: choice.image || "" })), max: prop.max, default: prop.default, hint };
       default:
         return text(prop.name, prop.label, { required: prop.required === true, max: prop.maxLength || LIMITS.line, hint });
     }
@@ -388,6 +390,8 @@ export function sectionSummary(section) {
         if (prop.type === "choice") return (prop.choices || []).find((choice) => choice.value === value)?.label || String(value);
         // A post is named by its web address, which says nothing to a reader of this line.
         if (prop.type === "post") return "";
+        // Things set down on a picture are a list of spots, which says nothing here either.
+        if (prop.type === "places") return "";
         if (prop.type === "date") return sayDay(value);
         return prop.type === "toggle" ? prop.label : String(value);
       }).filter(Boolean);
@@ -696,6 +700,8 @@ export function fieldProblem(spec, value) {
     return "";
   }
   if (spec.kind === "select" || spec.kind === "toggle") return "";
+  // Things set down on a picture: the editor only ever writes a list the setting allows.
+  if (spec.kind === "places") return "";
   if (spec.kind === "post") return empty && !spec.optional ? "Choose a post." : "";
   if (empty) return spec.required ? `${spec.label} is needed. Fill it in before you save.` : "";
   const str = String(value);

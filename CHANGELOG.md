@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Theme components: a new setting type, `places` (ADR 0434), sets things down on a picture. Studio shows
+  the picture; the owner taps where each thing goes, drags it, or uses the keyboard, and it is saved as
+  `kind@x,y;kind@x,y`, checked by the server like every other value.
 - Gifts: nothing shows on the site and no gift is taken until the owner turns on **My tree is ready
   for gifts** in Studio's Gifts. A gift can carry a bow (`bow`, from a fixed list) and where its giver
   set it down under the tree (`spot`, two whole numbers from 0 to 100); the public `tree` reply hands

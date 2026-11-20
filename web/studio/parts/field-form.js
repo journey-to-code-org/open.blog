@@ -4,6 +4,7 @@
 // ever markup. `value()` returns the data in the spec's shape; `onChange()` after every edit.
 // Studio slice 6.
 import { h } from "./dom.js";
+import { createPlacesField } from "./places-field.js";
 
 let count = 0;
 const plain = (spec) => spec.hint ? { description: spec.hint } : {};
@@ -44,6 +45,8 @@ function field(spec, start, ctx) {
       const el = h("text-field", { label: spec.label, type: "number", value: start === null || start === undefined ? "" : String(start), ...(spec.min !== undefined ? { min: spec.min } : {}), ...(spec.max !== undefined ? { max: spec.max } : {}), ...plain(spec), onValuechange: on });
       return { element: el, value: () => { const v = String(el.value ?? "").trim(); if (!v) return null; const n = Number(v); return Number.isFinite(n) ? n : v; } };
     }
+    case "places":
+      return createPlacesField(spec, start, on);
     case "group":
       return group(spec, start, ctx);
     case "list":

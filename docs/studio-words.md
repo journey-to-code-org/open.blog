@@ -2534,6 +2534,34 @@ out of date. See `.claude/skills/studio-architecture/SKILL.md`.
 | `place.through` | her | to | none | 40 |
 | `place.timestamp` | her | time | none | 40 |
 | `place.toRow` | her | Place {n} ends at | `{n}` | 40 |
+| `places.added` | her | {thing} added {where}. | `{thing}` `{where}` | 200 |
+| `places.armed` | her | {thing}: now tap the picture where it goes, as many times as you like. From the keyboard, press Shift and Enter to add one. | `{thing}` | 280 |
+| `places.chooseFirst` | her | Choose one below first, or tap one that's on the picture. | none | 200 |
+| `places.down` | her | Down | none | 40 |
+| `places.full` | her | That's all {max} it holds. Take one off to add another. | `{max}` | 200 |
+| `places.how` | her | Choose one below, then tap the picture where it goes. Tap one that's there to pick it up, then drag it or use the buttons. | none | 320 |
+| `places.item` | her | {thing}, {where} | `{thing}` `{where}` | 200 |
+| `places.left` | her | Left | none | 40 |
+| `places.listLabel` | her | What's on it | none | 80 |
+| `places.moved` | her | {thing} is {where} now. | `{thing}` `{where}` | 200 |
+| `places.none` | her | Nothing on it yet. | none | 120 |
+| `places.paletteLabel` | her | What you can add | none | 80 |
+| `places.picked` | her | {thing} picked up. Drag it, tap where it goes, or use the buttons. | `{thing}` | 240 |
+| `places.remove` | her | Take it off | none | 60 |
+| `places.removed` | her | {thing} taken off. | `{thing}` | 160 |
+| `places.right` | her | Right | none | 40 |
+| `places.said` | her | {n} on it. Each is listed below. | `{n}` | 160 |
+| `places.toolsLabel` | her | Move the one you picked up | none | 120 |
+| `places.up` | her | Up | none | 40 |
+| `places.where.b` | her | at the bottom | none | 40 |
+| `places.where.bl` | her | at the bottom left | none | 40 |
+| `places.where.br` | her | at the bottom right | none | 40 |
+| `places.where.l` | her | on the left | none | 40 |
+| `places.where.m` | her | in the middle | none | 40 |
+| `places.where.r` | her | on the right | none | 40 |
+| `places.where.t` | her | at the top | none | 40 |
+| `places.where.tl` | her | at the top left | none | 40 |
+| `places.where.tr` | her | at the top right | none | 40 |
 | `public.at` | her | At | none | 40 |
 | `public.cantBuild` | her | What readers see can't be worked out right now: {product} doesn't build as it stands. Tell {helper}. | `{product}` `{helper}` | 200 |
 | `public.checkAgain` | her | Check again | none | 40 |
