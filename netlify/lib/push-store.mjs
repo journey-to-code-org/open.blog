@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { checkSubscription, vapidKeys, webPushTransport } from "./web-push.mjs";
+import { LOOPBACK } from "./greeting-store.mjs";
 
 const DEVICES = "openblog_push_devices";
 const text = (value) => String(value ?? "");
@@ -41,7 +42,7 @@ export function pushSettings(env = {}) {
   const notifyKey = text(env.OPENBLOG_PUSH_NOTIFY_KEY);
   const vapid = vapidKeys(text(env.OPENBLOG_PUSH_PUBLIC_KEY).trim(), text(env.OPENBLOG_PUSH_PRIVATE_KEY).trim());
   const subject = text(env.OPENBLOG_PUSH_SUBJECT).trim();
-  if (!/^https:\/\/[^\s/]+$/.test(url)) problems.push("SUPABASE_URL");
+  if (!/^https:\/\/[^\s/]+$/.test(url) && !LOOPBACK.test(url)) problems.push("SUPABASE_URL");
   if (!key || /\s/.test(key)) problems.push("SUPABASE_SECRET_KEY");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(siteId)) problems.push("OPENBLOG_SITE_ID");
   if (adminKey.length < 32 || /\s/.test(adminKey)) problems.push("OPENBLOG_PUSH_ADMIN_KEY");
