@@ -83,8 +83,15 @@ impl Git {
         }
     }
 
-    /// Changed paths (staged, unstaged, untracked) under the given prefixes.
+    /// Changed paths (staged, unstaged, untracked) under the given prefixes,
+    /// relative to the blog. Git lists them from the repository's top, so a blog
+    /// kept in a folder of a larger repository (`notes/` beside a website) has
+    /// that folder taken off, and changes outside it are left out.
     pub fn changed_paths(&self, prefixes: &[String]) -> Result<Vec<String>, String> {
+        let inside = self
+            .run(&["rev-parse", "--show-prefix"])
+            .map(|prefix| prefix.trim().to_string())
+            .unwrap_or_default();
         let out = self.run(&["status", "--porcelain", "--untracked-files=all", "--"])?;
         let mut paths = Vec::new();
         for line in out.lines() {
@@ -96,6 +103,10 @@ impl Git {
                 path = renamed.to_string();
             }
             let path = path.trim_matches('"').replace('\\', "/");
+            let path = match path.strip_prefix(inside.as_str()) {
+                Some(within) => within.to_string(),
+                None => continue,
+            };
             if prefixes.is_empty()
                 || prefixes.iter().any(|p| {
                     path == *p || path.starts_with(&format!("{}/", p.trim_end_matches('/')))
@@ -407,6 +418,29 @@ mod tests {
         );
         let log = git.run(&["log", "--oneline", "analytics"]).unwrap();
         assert_eq!(log.lines().count(), 2, "backups form a history");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_blog_in_a_folder_of_a_larger_repository_publishes_its_own_changes() {
+        let (dir, _) = temp_repo("subfolder");
+        fs::create_dir_all(dir.join("notes/content/posts")).unwrap();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("notes/content/posts/a.md"), "a").unwrap();
+        fs::write(dir.join("src/index.html"), "site").unwrap();
+        let blog = Git::new(&dir.join("notes"));
+        let changed = blog.changed_paths(&["content".into()]).unwrap();
+        assert_eq!(
+            changed,
+            vec!["content/posts/a.md"],
+            "relative to the blog, site files left out"
+        );
+        blog.add(&changed).unwrap();
+        blog.commit("Publish: a").unwrap();
+        let committed = blog
+            .run(&["show", "--name-only", "--format=", "HEAD"])
+            .unwrap();
+        assert_eq!(committed.trim(), "notes/content/posts/a.md");
         let _ = fs::remove_dir_all(&dir);
     }
 }
