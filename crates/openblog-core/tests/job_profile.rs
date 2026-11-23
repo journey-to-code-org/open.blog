@@ -327,6 +327,9 @@ fn fnv(files: &[openblog_core::OutputFile]) -> u64 {
 
 /// A site that never writes `profile: job` builds exactly as it did before the
 /// job profile existed. The value below was produced by the build before it.
+/// Since then it changed once, on purpose: the search box suggests the site's own
+/// words (from its tags and titles) instead of "Rust, web components, …", and
+/// nothing else.
 #[test]
 fn a_site_without_a_job_profile_builds_byte_for_byte_unchanged() {
     let config = SiteConfig::from_json(
@@ -359,6 +362,6 @@ fn a_site_without_a_job_profile_builds_byte_for_byte_unchanged() {
     assert!(files.iter().all(|file| !file.path.starts_with("jobs")));
     assert_eq!(
         (files.len(), format!("{:016x}", fnv(&files))),
-        (23, String::from("8d5c19fce45e5412"))
+        (23, String::from("d8dc6ef37dec5de8"))
     );
 }

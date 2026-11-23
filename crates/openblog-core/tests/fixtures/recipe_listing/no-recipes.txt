@@ -654,7 +654,7 @@ Words.
 <section class="ob-section">
 <div class="ob-heading ob-section-heading"><h1 class="ob-title">Search</h1></div>
 <ob-search index="/search.json" wasm="/assets/wasm/openblog_wasm.js">
-<form class="ob-search-form" role="search" action="/search/" method="get"><label for="q">Search posts</label><input id="q" name="q" type="search" autocomplete="off" placeholder="Rust, web components, …"></form>
+<form class="ob-search-form" role="search" action="/search/" method="get"><label for="q">Search posts</label><input id="q" name="q" type="search" autocomplete="off" placeholder="Study, notes, …"></form>
 <p class="ob-search-status" role="status" aria-live="polite"></p>
 <ol class="ob-search-results"></ol>
 </ob-search>
