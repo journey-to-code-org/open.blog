@@ -1330,6 +1330,112 @@ fn resolve_themes(site: &Site, themes: &ThemeSet) -> Result<HashMap<String, Them
     Ok(resolved)
 }
 
+/// Words that say nothing about what a blog is about, left out of the search box's examples.
+const SEARCH_FILLER: &[&str] = &[
+    "about", "after", "again", "also", "before", "best", "could", "every", "from", "have", "here",
+    "how", "into", "just", "know", "like", "make", "more", "most", "much", "never", "only",
+    "other", "over", "part", "post", "posts", "should", "some", "than", "that", "their", "them",
+    "then", "there", "these", "they", "thing", "things", "this", "time", "under", "using", "very",
+    "well", "what", "when", "where", "which", "while", "with", "would", "your", "yours", "you",
+];
+
+/// The search box's placeholder: a few examples of what this blog is actually about, from its own
+/// tags and post titles ("Thanksgiving, potatoes, stuffing, …"), or plain "Search posts…" when it has
+/// nothing to go on yet.
+fn search_placeholder(site: &Site) -> String {
+    let tags: Vec<(&str, usize)> = site
+        .tags
+        .iter()
+        .map(|t| (t.name.as_str(), t.posts.len()))
+        .collect();
+    let titles: Vec<&str> = site.posts.iter().map(|p| p.title.as_str()).collect();
+    let skip = format!("{} {}", site.config.title, site.config.author.name);
+    let examples = search_examples(&tags, &titles, &skip);
+    if examples.is_empty() {
+        return "Search posts…".into();
+    }
+    let mut out = examples.join(", ");
+    if let Some(first) = out.chars().next() {
+        out = first.to_uppercase().chain(out.chars().skip(1)).collect();
+    }
+    out.push_str(", …");
+    out
+}
+
+/// Up to three examples for the search box. First the tags on at least two posts, most posts first;
+/// then words that come up in post titles (four letters or more, not filler and not the site's own
+/// name), in the most titles first and, between equals, the newest. `titles` are newest first. Pure,
+/// so the same site always gets the same examples.
+fn search_examples(tags: &[(&str, usize)], titles: &[&str], skip: &str) -> Vec<String> {
+    const MOST: usize = 3;
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '\u{2019}'))
+            .map(|w| {
+                let w = w
+                    .trim_matches(|c| c == '\'' || c == '\u{2019}')
+                    .to_lowercase();
+                w.strip_suffix("'s")
+                    .or_else(|| w.strip_suffix("\u{2019}s"))
+                    .map(str::to_string)
+                    .unwrap_or(w)
+            })
+            .filter(|w| !w.is_empty())
+            .collect()
+    };
+    let own: Vec<String> = words(skip);
+    let mut out: Vec<String> = Vec::new();
+    let taken =
+        |out: &Vec<String>, word: &str| out.iter().any(|o| o.to_lowercase() == word.to_lowercase());
+
+    let mut popular: Vec<&(&str, usize)> = tags
+        .iter()
+        .filter(|(name, n)| *n >= 2 && !name.trim().is_empty())
+        .collect();
+    popular.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+    });
+    for (name, _) in popular {
+        if out.len() >= MOST {
+            break;
+        }
+        if !taken(&out, name) {
+            out.push(name.trim().to_string());
+        }
+    }
+
+    // word -> (titles it's in, the newest title it's in)
+    let mut seen: Vec<(String, usize, usize)> = Vec::new();
+    for (i, title) in titles.iter().enumerate() {
+        let mut once: Vec<String> = Vec::new();
+        for word in words(title) {
+            if word.chars().count() < 4
+                || word.chars().all(|c| c.is_numeric())
+                || SEARCH_FILLER.contains(&word.as_str())
+                || own.contains(&word)
+                || once.contains(&word)
+            {
+                continue;
+            }
+            once.push(word.clone());
+            match seen.iter_mut().find(|(w, _, _)| *w == word) {
+                Some(entry) => entry.1 += 1,
+                None => seen.push((word, 1, i)),
+            }
+        }
+    }
+    seen.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)));
+    for (word, _, _) in seen {
+        if out.len() >= MOST {
+            break;
+        }
+        if !taken(&out, &word) {
+            out.push(word);
+        }
+    }
+    out
+}
+
 impl<'a> Renderer<'a> {
     fn theme(&self, name: &str) -> &'a Theme {
         &self.themes[name]
@@ -3823,9 +3929,10 @@ impl<'a> Renderer<'a> {
         let mut body =
             String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Search", "ob-section-heading"));
-        body.push_str(
-            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
-        );
+        body.push_str(&format!(
+            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"{}\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
+            attr(&search_placeholder(self.site)),
+        ));
         if self.site.config.docs.enabled {
             // A site with documentation searches it too (ADR 0424).
             body = body.replace(
@@ -5857,6 +5964,52 @@ docs: Vec::new(),
             .find(|f| f.path == path)
             .unwrap_or_else(|| panic!("missing {path}"))
             .contents
+    }
+
+    #[test]
+    fn the_search_box_suggests_what_the_blog_is_about() {
+        // Grammi's: one tag on most posts, titles that all start with her name.
+        let titles = [
+            "Grammi's Stuffing",
+            "How Well Do You Know Grammi's Kitchen?",
+            "Grammi's Scalloped Potatoes",
+            "Grammi's Mashed Potatoes",
+            "Grammi's Mac n Cheese",
+        ];
+        assert_eq!(
+            search_examples(
+                &[("thanksgiving", 4), ("games", 1)],
+                &titles,
+                "Grammi's House Grammi"
+            ),
+            ["thanksgiving", "potatoes", "stuffing"]
+        );
+        // Tags first, most posts first; a tag on one post says little.
+        assert_eq!(
+            search_examples(
+                &[("Rust", 9), ("WebAssembly", 4), ("misc", 1)],
+                &["Hello"],
+                "Blog"
+            ),
+            ["Rust", "WebAssembly", "hello"]
+        );
+        // Nothing to go on: no examples, and the box just says what it does.
+        assert!(search_examples(&[], &[], "Blog").is_empty());
+        assert!(search_examples(&[("one", 1)], &["A Day", "The Way"], "").is_empty());
+        // Curly apostrophes, numbers and repeats in one title.
+        assert_eq!(
+            search_examples(&[], &["Mom\u{2019}s 2026 cookies, cookies"], "Mom"),
+            ["cookies"]
+        );
+    }
+
+    #[test]
+    fn the_search_page_uses_the_sites_own_words() {
+        // The fixture's titles are One, Two and Solo, and its one tag is on one post: only "solo" is long enough.
+        let files = build(r#"{"title":"Notes"}"#, true);
+        let page = file(&files, "search/index.html");
+        assert!(!page.contains("Rust, web components"));
+        assert!(page.contains("placeholder=\"Solo, …\""), "{page}");
     }
 
     #[test]
