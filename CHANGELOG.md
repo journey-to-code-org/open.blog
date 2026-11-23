@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Publish: a blog kept in a folder of a larger repository (`notes/` beside a website) now publishes.
+  Git lists changes from the top of the repository (`notes/content/...`) while Publish compared them
+  with the blog's own folders (`content`), so it always found nothing to commit. Publish now takes the
+  blog's folder off each path and leaves changes elsewhere in the repository alone.
 - Search: the search box's placeholder comes from the site's own words instead of always saying
   "Rust, web components, …". It suggests the site's tags that are on two or more posts, most-used first,
   then words that recur in post titles, skipping filler words and the site's and author's names
