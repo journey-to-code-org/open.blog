@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Search: the search box's placeholder comes from the site's own words instead of always saying
+  "Rust, web components, …". It suggests the site's tags that are on two or more posts, most-used first,
+  then words that recur in post titles, skipping filler words and the site's and author's names
+  ("Thanksgiving, potatoes, kitchen, …"). A site with nothing to go on gets "Search posts…".
 - The family service (`service/`, for Railway or any Docker host) now runs every hosted function, so a
   site needs neither Netlify nor Supabase: push notices, quote requests, received Webmentions and social
   publishing join notes, greeting cards and gifts. Their schedules run in the container (the quote
